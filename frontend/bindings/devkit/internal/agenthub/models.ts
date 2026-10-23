@@ -503,6 +503,18 @@ export interface InvokeResult {
 }
 
 /**
+ * LimitWindow is one ceiling a plan puts on the account — a window that
+ * resets, not the context window. Label is the vendor's own window ("5-hour",
+ * "Weekly"); ResetsAt is a Unix second; Status is "ok", "warning" or "reached".
+ */
+export interface LimitWindow {
+    "label": string;
+    "usedPercent": number;
+    "resetsAt"?: number;
+    "status"?: string;
+}
+
+/**
  * ModelProfileInfo is a profile as an agent reads it: what the person wrote,
  * and whether it still points at something the vendor offers.
  */

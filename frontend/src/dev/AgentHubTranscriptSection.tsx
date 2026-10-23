@@ -93,6 +93,13 @@ const items: TranscriptItem[] = [
     createdAt: at(2),
     updatedAt: at(3),
   },
+  // The session moved to another account before the next prompt (see Accounts & limits below).
+  {
+    id: "an1",
+    kind: "devkit_account_notice",
+    accountNotice: { kind: "switch", from: "claude-default", to: "claude-work", reason: "5-hour 95% ≥ 90%" },
+    createdAt: at(8),
+  },
   { id: "u2", kind: "user_message_chunk", text: "Khám phá cấu trúc repo này", createdAt: at(10) },
   { id: "th1", kind: "agent_thought_chunk", text: "Start with the directory tree, then the build files.", createdAt: at(11) },
   {

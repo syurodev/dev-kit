@@ -28,6 +28,7 @@ type accountRig struct {
 	reg     *agenthub.Registry
 	store   agenthub.Store
 	refusal string
+	signIn  *signInFake // what the vendor does to sign in and report its status (nil: nothing)
 }
 
 // rigOptions changes what newAccountRigWith builds; the zero value is newAccountRig.
@@ -36,14 +37,119 @@ type rigOptions struct {
 	store func(agenthub.Store) agenthub.Store
 	// noWork leaves the "work" account out: the vendor has only its built-in one.
 	noWork bool
+	// probe makes the vendor answer usage checks with probe.answer; nil leaves
+	// it unable to ("not checkable"), as before.
+	probe *usageProbe
+	// signIn makes the vendor sign in and report its status through the fake; nil
+	// leaves it unable to ("auth method unknown"), as a vendor with no such support.
+	signIn *signInFake
 }
 
 // countedMock is resumableMock counting every process it opens, and doing
 // what its vendorHook says before each.
 type countedMock struct {
 	resumableMock
-	opens *atomic.Int32
-	hook  *vendorHook
+	opens  *atomic.Int32
+	hook   *vendorHook
+	probe  *usageProbe
+	signIn *signInFake
+}
+
+// usageProbe is what a rig's vendor answers to CheckUsage, and what it was asked.
+type usageProbe struct {
+	calls  atomic.Int32
+	mu     sync.Mutex
+	specs  []agenthub.OpenSpec
+	answer func(ctx context.Context, spec agenthub.OpenSpec) ([]agenthub.LimitWindow, error)
+}
+
+func (p *usageProbe) check(ctx context.Context, spec agenthub.OpenSpec) ([]agenthub.LimitWindow, error) {
+	p.calls.Add(1)
+	p.mu.Lock()
+	p.specs = append(p.specs, spec)
+	p.mu.Unlock()
+	return p.answer(ctx, spec)
+}
+
+// signInFake is what a rig's vendor does to sign in and to report a home's status, and
+// what it was asked.
+type signInFake struct {
+	mu             sync.Mutex
+	state          agenthub.SignInState
+	checkErr       error
+	home           string // home the terminal command was asked for
+	startedHome    string
+	startedAccount string
+	startedSpec    agenthub.OpenSpec
+	checkedHome    string
+	checkedSpec    agenthub.OpenSpec
+	checks         int
+	// onCheck runs inside CheckSignIn, before it answers, with no lock held: a test
+	// changes the account's row there, as a turn or another refresh would mid-call.
+	onCheck func()
+}
+
+func (f *signInFake) commandFor(methodID, home string) (agenthub.SignInCommand, error) {
+	if methodID != "login-method" {
+		return agenthub.SignInCommand{}, agenthub.ErrAuthMethodUnknown
+	}
+	f.mu.Lock()
+	f.home = home
+	f.mu.Unlock()
+	return agenthub.SignInCommand{Path: "/bin/true", Label: "fake login", Release: func() {}}, nil
+}
+
+func (f *signInFake) start(spec agenthub.OpenSpec, accountID string) (agenthub.SignInFlow, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.startedHome, f.startedAccount, f.startedSpec = spec.AccountHome, accountID, spec
+	return agenthub.SignInFlow{LoginID: "login-1"}, nil
+}
+
+func (f *signInFake) check(spec agenthub.OpenSpec) (agenthub.SignInState, error) {
+	if f.onCheck != nil {
+		f.onCheck()
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.checks++
+	f.checkedHome, f.checkedSpec = spec.AccountHome, spec
+	return f.state, f.checkErr
+}
+
+func (c countedMock) SignInCommandFor(_ context.Context, methodID, home string) (agenthub.SignInCommand, error) {
+	if c.signIn == nil {
+		return agenthub.SignInCommand{}, agenthub.ErrAuthMethodUnknown
+	}
+	return c.signIn.commandFor(methodID, home)
+}
+
+func (c countedMock) StartBrowserSignInAt(_ context.Context, spec agenthub.OpenSpec, accountID string) (agenthub.SignInFlow, error) {
+	if c.signIn == nil {
+		return agenthub.SignInFlow{}, agenthub.ErrAuthMethodUnknown
+	}
+	return c.signIn.start(spec, accountID)
+}
+
+func (c countedMock) StartDeviceSignInAt(_ context.Context, spec agenthub.OpenSpec, accountID string) (agenthub.SignInFlow, error) {
+	if c.signIn == nil {
+		return agenthub.SignInFlow{}, agenthub.ErrAuthMethodUnknown
+	}
+	return c.signIn.start(spec, accountID)
+}
+
+func (c countedMock) CheckSignIn(_ context.Context, spec agenthub.OpenSpec) (agenthub.SignInState, error) {
+	if c.signIn == nil {
+		return agenthub.SignInState{}, agenthub.ErrAuthMethodUnknown
+	}
+	return c.signIn.check(spec)
+}
+
+func (c countedMock) CheckUsage(ctx context.Context, spec agenthub.OpenSpec) ([]agenthub.LimitWindow, error) {
+	if c.probe == nil {
+		return nil, agenthub.ErrUsageNotCheckable
+	}
+	return c.probe.check(ctx, spec)
 }
 
 func (c countedMock) Open(ctx context.Context, spec agenthub.OpenSpec) (agenthub.SessionRuntime, error) {
@@ -68,9 +174,10 @@ var errAccountHomeBroken = errors.New("the account's sign-in has expired")
 // vendorHook lets a test hold an open, refuse the ones in an account home, and
 // read back which home each runtime was opened in.
 type vendorHook struct {
-	homeOpens atomic.Int32 // opens (attempted) in an added account's home
-	failHome  atomic.Bool  // refuse every open in an added account's home
-	ctxEnds   atomic.Bool  // an open in an added account's home answers its context's error once that has ended
+	homeOpens atomic.Int32          // opens (attempted) in an added account's home
+	failHome  atomic.Bool           // refuse every open in an added account's home
+	failErr   atomic.Pointer[error] // what failHome answers; errAccountHomeBroken when nil
+	ctxEnds   atomic.Bool           // an open in an added account's home answers its context's error once that has ended
 
 	mu      sync.Mutex
 	block   chan struct{} // the next open waits for it to close
@@ -98,6 +205,9 @@ func (h *vendorHook) enter(ctx context.Context, spec agenthub.OpenSpec) error {
 	if spec.AccountHome != "" {
 		h.homeOpens.Add(1)
 		if h.failHome.Load() {
+			if e := h.failErr.Load(); e != nil {
+				return *e
+			}
 			return errAccountHomeBroken
 		}
 	}
@@ -169,7 +279,8 @@ func newAccountRigWith(t *testing.T, refusal string, opts rigOptions) *accountRi
 		opens: new(atomic.Int32), vendor: new(vendorHook), reg: agenthub.NewRegistry(), refusal: refusal,
 	}
 	// reload needs a vendor that can reopen a conversation
-	rig.reg.Register(countedMock{resumableMock{rig.mock}, rig.opens, rig.vendor})
+	rig.signIn = opts.signIn
+	rig.reg.Register(countedMock{resumableMock{rig.mock}, rig.opens, rig.vendor, opts.probe, opts.signIn})
 	rig.store = agenthub.NewSQLStore(db)
 	if opts.store != nil {
 		rig.store = opts.store(rig.store)

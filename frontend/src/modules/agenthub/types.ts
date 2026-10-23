@@ -184,6 +184,20 @@ export type ProviderRetry = {
 };
 
 /**
+ * A move between vendor accounts, on a session_info_update's _meta.devkit.
+ * `kind` is "switch" (a move that stands) or "failed" (one that was tried and
+ * undone). `from` and `to` are account ids; the built-in account's is
+ * "<vendor>-default". Mirrors internal/agenthub/update.go: AccountNotice, which
+ * the generated bindings do not carry.
+ */
+export type AccountNotice = {
+  kind: "switch" | "failed";
+  from: string;
+  to: string;
+  reason?: string;
+};
+
+/**
  * What a session is working towards, from the goal extension.
  * Mirrors internal/agenthub/update.go: SessionGoal
  */
@@ -231,6 +245,8 @@ export type SessionUpdate = {
   /** The goal was removed — which `goal: null` alone cannot say, since most
    * session_info_updates carry no goal at all. */
   goalCleared?: boolean;
+  /** The session moved to another account, or tried to: a line in the transcript, not session state. */
+  accountNotice?: AccountNotice | null;
   /** On a provider_retry_update: the outage being waited out; null/absent clears it. */
   retry?: ProviderRetry | null;
   /** The whole MCP server list, on a devkit_connectors_update. */
@@ -387,6 +403,8 @@ export type TranscriptItem = {
   subagent?: Subagent;
   /** One row per background task, merged from the three async_task_* kinds. */
   asyncTask?: AsyncTask;
+  /** Set on a devkit_account_notice row: the session moved to another account. */
+  accountNotice?: AccountNotice;
   raw?: unknown;
   createdAt?: string;
   updatedAt?: string;

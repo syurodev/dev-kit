@@ -8,6 +8,9 @@ export {
 
 export type {
     ActiveProfileDTO,
+    AgentAccountInfo,
+    AgentAccountPolicyState,
+    AgentAccountVendorPolicyState,
     AgentModelProfilesState,
     AgentSubagentLimitsState,
     ApiExportSaved,

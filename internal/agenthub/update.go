@@ -306,6 +306,16 @@ func (r *ProviderRetry) stopHint() StopHint {
 	return hint
 }
 
+// AccountNotice is a move between vendor accounts, carried on a session_info_update's
+// _meta.devkit. Kind is "switch" (a move that stands) or "failed" (one that was tried
+// and undone). From and To are account ids; the built-in account's is "<vendor>-default".
+type AccountNotice struct {
+	Kind   string `json:"kind"`
+	From   string `json:"from"`
+	To     string `json:"to"`
+	Reason string `json:"reason,omitempty"`
+}
+
 // SessionGoal is the objective a session is working towards, from the goal
 // extension: set with /goal or through _session/goal, cleared the same way,
 // and published on a session_info_update's _meta whenever it changes.
@@ -325,6 +335,9 @@ type RateLimit struct {
 	ResetsAt    int64   `json:"resetsAt,omitempty"`
 	LimitType   string  `json:"limitType,omitempty"`
 	Utilization float64 `json:"utilization,omitempty"`
+	// IsUsingOverage says the plan is going on through overage: a window past
+	// 100 % is then not a refusal (only Status "rejected" is).
+	IsUsingOverage bool `json:"isUsingOverage,omitempty"`
 }
 
 // TokenCounts is one tally of tokens, as a vendor splits them.
@@ -394,6 +407,9 @@ type SessionUpdate struct {
 	Failure     *SessionFailure `json:"failure,omitempty"`
 	Goal        *SessionGoal    `json:"goal,omitempty"`
 	GoalCleared bool            `json:"goalCleared,omitempty"`
+	// AccountNotice is a move between vendor accounts, from DevKit's own
+	// _meta.devkit key on a session_info_update (nil on every other update).
+	AccountNotice *AccountNotice `json:"accountNotice,omitempty"`
 	// Retry is the provider outage the agent is waiting out, on a
 	// provider_retry_update (or beside a title on a session_info_update that
 	// carries both). Nil on a provider_retry_update means it ended.
@@ -631,6 +647,7 @@ func ParseSessionUpdate(raw json.RawMessage) SessionUpdate {
 		out.Title = wire.Title
 		out.Failure = parseSessionFailure(wire.Meta)
 		out.Goal, out.GoalCleared = parseSessionGoal(wire.Meta)
+		out.AccountNotice = parseAccountNotice(wire.Meta)
 		if retry, present := parseProviderRetry(wire.Meta); present {
 			out.Retry = retry
 			if out.Title == "" && out.Failure == nil && out.Goal == nil && !out.GoalCleared {
@@ -655,7 +672,11 @@ func ParseSessionUpdate(raw json.RawMessage) SessionUpdate {
 		usage := Usage{Used: wire.Used, Size: wire.Size, RateLimit: parseRateLimit(wire.Meta)}
 		usage.Limits = limitsOfRateLimit(usage.RateLimit)
 		if unified := unifiedLimitWindows(wire.Meta); len(unified) > 0 {
-			usage.Limits = applyRateLimitStatus(unified, usage.RateLimit)
+			verdict := usage.RateLimit
+			if verdict == nil && usingOverage(wire.Meta) {
+				verdict = &RateLimit{IsUsingOverage: true} // no status: only the overage fact
+			}
+			usage.Limits = applyRateLimitStatus(unified, verdict)
 		}
 		if wire.DevKit != nil {
 			usage.Tokens = wire.DevKit.Tokens
@@ -815,6 +836,45 @@ func parseProviderRetry(meta json.RawMessage) (*ProviderRetry, bool) {
 	}, true
 }
 
+type accountNoticeWire struct {
+	From   string `json:"from"`
+	To     string `json:"to"`
+	Reason string `json:"reason"`
+}
+
+// parseAccountNotice reads _meta.devkit.accountSwitch / accountSwitchFailed, as
+// accountSwitchUpdate and accountSwitchFailedUpdate write them. Anything malformed
+// is no notice (the row is still stored as an ordinary info update).
+func parseAccountNotice(meta json.RawMessage) *AccountNotice {
+	if len(meta) == 0 {
+		return nil
+	}
+	var wire struct {
+		DevKit struct {
+			Switch json.RawMessage `json:"accountSwitch"`
+			Failed json.RawMessage `json:"accountSwitchFailed"`
+		} `json:"devkit"`
+	}
+	if json.Unmarshal(meta, &wire) != nil {
+		return nil
+	}
+	read := func(kind string, raw json.RawMessage) *AccountNotice {
+		var n accountNoticeWire
+		if len(raw) == 0 || json.Unmarshal(raw, &n) != nil {
+			return nil
+		}
+		reason := n.Reason
+		if r := []rune(reason); len(r) > 300 {
+			reason = string(r[:300])
+		}
+		return &AccountNotice{Kind: kind, From: n.From, To: n.To, Reason: reason}
+	}
+	if notice := read("failed", wire.DevKit.Failed); notice != nil {
+		return notice
+	}
+	return read("switch", wire.DevKit.Switch)
+}
+
 // parseSessionFailure reads the air extension's failure out of a
 // session_info_update's _meta. nil when there is none, which is the usual case.
 func parseSessionFailure(meta json.RawMessage) *SessionFailure {
@@ -856,28 +916,45 @@ func parseSessionGoal(meta json.RawMessage) (*SessionGoal, bool) {
 }
 
 // parseRateLimit reads Claude's own rate-limit block off a usage_update's
-// _meta. Its key is namespaced by the vendor, not by ACP.
+// _meta. Its key is namespaced by the vendor, not by ACP. A block with no status
+// is no verdict and gives nil (a status is what every consumer of RateLimit
+// reads); its isUsingOverage is still read, by usingOverage.
 func parseRateLimit(meta json.RawMessage) *RateLimit {
 	if len(meta) == 0 {
 		return nil
 	}
 	var parsed struct {
 		RateLimit *struct {
-			Status        string  `json:"status"`
-			ResetsAt      int64   `json:"resetsAt"`
-			RateLimitType string  `json:"rateLimitType"`
-			Utilization   float64 `json:"utilization"`
+			Status         string  `json:"status"`
+			ResetsAt       int64   `json:"resetsAt"`
+			RateLimitType  string  `json:"rateLimitType"`
+			Utilization    float64 `json:"utilization"`
+			IsUsingOverage bool    `json:"isUsingOverage"`
 		} `json:"_claude/rateLimit"`
 	}
 	if err := json.Unmarshal(meta, &parsed); err != nil || parsed.RateLimit == nil || parsed.RateLimit.Status == "" {
 		return nil
 	}
 	return &RateLimit{
-		Status:      parsed.RateLimit.Status,
-		ResetsAt:    parsed.RateLimit.ResetsAt,
-		LimitType:   parsed.RateLimit.RateLimitType,
-		Utilization: parsed.RateLimit.Utilization,
+		Status:         parsed.RateLimit.Status,
+		ResetsAt:       parsed.RateLimit.ResetsAt,
+		LimitType:      parsed.RateLimit.RateLimitType,
+		Utilization:    parsed.RateLimit.Utilization,
+		IsUsingOverage: parsed.RateLimit.IsUsingOverage,
 	}
+}
+
+// usingOverage reads only isUsingOverage off the rate-limit block, for an event
+// parseRateLimit refuses because it carries no status. Such an event is no
+// rate-limit verdict (no RateLimit), but it still says the plan goes on through
+// overage, which keeps a window past 100% from reading as reached.
+func usingOverage(meta json.RawMessage) bool {
+	var parsed struct {
+		RateLimit *struct {
+			IsUsingOverage bool `json:"isUsingOverage"`
+		} `json:"_claude/rateLimit"`
+	}
+	return len(meta) > 0 && json.Unmarshal(meta, &parsed) == nil && parsed.RateLimit != nil && parsed.RateLimit.IsUsingOverage
 }
 
 // The percentages at which a window reads "warning" and "reached", for every

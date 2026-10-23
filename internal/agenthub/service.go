@@ -410,15 +410,52 @@ type Service struct {
 	AccountPolicy     func() (preferences.AgentAccountPolicy, error)
 	AccountSharedHome func(vendor AgentType) string
 
+	// AccountsDir is where added accounts' homes live (<data>/agent-accounts); the
+	// layout under it is <vendor>/<id>. AccountVendors are the vendors that may have
+	// added accounts (Claude and Codex in main.go). OnAccountsChanged fires after
+	// anything the Accounts page shows changed; it carries nothing.
+	AccountsDir       string
+	AccountVendors    []AgentType
+	OnAccountsChanged func()
+	// OnAccountSwitched fires after a session moved to another account and the new
+	// process opened; never for a move that was undone. The one edge: a reopen that
+	// failed whose move back could not be written leaves the row on the target, and
+	// that is announced as a move although the target's process never opened. It carries ids and the
+	// reason sentence, no credential. Set in main.go; the window's notice is the
+	// transcript row, this tells the Accounts page which session moved.
+	OnAccountSwitched func(sessionID, from, to, reason string)
+
+	// accountMgmt serialises AddAccount, editAccount and RemoveAccount, each a
+	// read-then-write on the account book. Lock order: accountMgmt, then mu.
+	accountMgmt sync.Mutex
+
 	// All guarded by mu.
 	// accountSwitches: when and from where a session last moved.
 	// sessionAccount: the account a session's runtime runs as.
 	// turnProgress: whether the running turn has produced output or a tool call.
 	// usageSeen: the last usage windows written per account, to skip repeats.
 	accountSwitches map[string]accountSwitch
+	// accountsEventAt: when accountsChangedThrottled last fired.
+	accountsEventAt time.Time
 	sessionAccount  map[string]string
 	turnProgress    map[string]bool
-	usageSeen       map[string][]LimitWindow
+	usageSeen       map[string]seenUsage
+	// policyCached/policyAt/policyGen: the last account-policy read and when
+	// (account_policy_cache.go). usageClock and policyClock replace time.Now in tests.
+	policyCached preferences.AgentAccountPolicy
+	policyAt     time.Time
+	policyGen    uint64
+	policyClock  func() time.Time
+	usageClock   func() time.Time
+	// checks and checkClock are the on-demand usage checks' guards and clock
+	// (account_check.go); checkWaitHook (tests only) is called when a caller
+	// joins a check already in flight, just before it waits. checkClock and
+	// checkWaitHook are read under mu.
+	checks        usageChecks
+	checkClock    func() time.Time
+	checkWaitHook func(accountID string)
+	// checkFlightHook (tests only) is called once a check has registered its flight.
+	checkFlightHook func(accountID string)
 	// waitHook, when set (tests only, see export_test.go), is called each time
 	// a caller is about to wait on a resume or a move in flight: waiter is
 	// "move" (moveSession) or "resume" (resumeRuntime). Read under mu.
@@ -469,7 +506,7 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 		accountSwitches: make(map[string]accountSwitch),
 		sessionAccount:  make(map[string]string),
 		turnProgress:    make(map[string]bool),
-		usageSeen:       make(map[string][]LimitWindow),
+		usageSeen:       make(map[string]seenUsage),
 		// Off until main.go says otherwise: a machine with no git, or a user
 		// who turned the feature off, runs the same Invoke as everyone else.
 		checkpoints: noCheckpoints{},
@@ -1875,6 +1912,7 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 	}
 
 	s.stopRecovered(in.SessionID)
+	s.noteSignedIn(recordCtx, sess)
 	if workspaceContext != "" {
 		s.workspaceContextDelivered(in.SessionID, contextFingerprint, carriesContext)
 	}

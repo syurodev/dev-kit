@@ -217,6 +217,18 @@ describe("environmentRows", () => {
     ]);
     expect(rows.find((r) => r.key === "folder")?.title).toBe("/work/api/");
   });
+  test("names the account only once the session is known to run as one, right after the agent", () => {
+    const base = { vendorName: "Claude", folderPath: "", configOptions: options, mode: null, availableModes: [], repos: [] };
+    expect(environmentRows({ ...base, accountLabel: "Work" }).map((r) => [r.key, r.value])).toEqual([
+      ["agent", "Claude"],
+      ["account", "Work"],
+      ["model", "GPT-6"],
+      ["effort", "Medium"],
+    ]);
+    expect(environmentRows(base).find((r) => r.key === "account")).toBeUndefined();
+    expect(environmentRows({ ...base, accountLabel: null }).find((r) => r.key === "account")).toBeUndefined();
+    expect(environmentRows({ ...base, accountLabel: "" }).find((r) => r.key === "account")).toBeUndefined();
+  });
   test("one repository is its branch, several are counted", () => {
     const base = { vendorName: "Claude", folderPath: "", configOptions: [], mode: null, availableModes: [] };
     const one = environmentRows({ ...base, repos: [{ name: "api", branch: "main", own: true }] });

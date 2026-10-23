@@ -70,6 +70,7 @@ import { SettingsLayout } from "./SettingsLayout";
 import { resolveSettingsTab, type SettingsPage, type SettingsTab } from "./settingsNavigation";
 import { GroupLabel, SectionHeader, TabColumn } from "./SettingsPrimitives";
 import {
+  AgentAccountsPage,
   AgentMcpPage,
   AgentModelsPage,
   AgentNotificationsPage,
@@ -148,6 +149,7 @@ export function SettingsModal({ open, onClose, initialTab }: SettingsModalProps)
               {activeTab === "database" && <DatabaseTab />}
               {activeTab === "agents-runtimes" && <AgentRuntimesPage />}
               {activeTab === "agents-models" && <AgentModelsPage />}
+              {activeTab === "agents-accounts" && <AgentAccountsPage />}
               {activeTab === "agents-skills" && <AgentSkillsPage />}
               {activeTab === "agents-safety" && <AgentSafetyPage />}
               {activeTab === "agents-notifications" && <AgentNotificationsPage />}

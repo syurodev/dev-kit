@@ -101,3 +101,18 @@ func TestApprovalResponsesEncode(t *testing.T) {
 	sameJSON(t, "approval", ApprovalResponse{Decision: DecisionDecline}, json.RawMessage(`{"decision":"decline"}`))
 	sameJSON(t, "permissions", PermissionsApprovalResponse{Scope: "turn"}, json.RawMessage(`{"permissions":{},"scope":"turn"}`))
 }
+
+func TestRateLimitsReadResponseDecodesTheMeasuredAnswerAndAFractionalPercent(t *testing.T) {
+	const measured = `{"rateLimits":{"limitId":"codex","limitName":null,"primary":{"usedPercent":0,"windowDurationMins":300,"resetsAt":1792669235},"secondary":{"usedPercent":10,"windowDurationMins":10080,"resetsAt":1793108266},"credits":{"hasCredits":false,"unlimited":false,"balance":"0"},"individualLimit":null,"spendControlReached":false,"planType":"plus","rateLimitReachedType":null},"rateLimitsByLimitId":{"codex":{"limitId":"codex","limitName":null,"primary":{"usedPercent":0,"windowDurationMins":300,"resetsAt":1792669235},"secondary":{"usedPercent":10,"windowDurationMins":10080,"resetsAt":1793108266},"credits":null,"planType":"plus","rateLimitReachedType":null}},"rateLimitResetCredits":{"availableCount":0,"credits":[]}}`
+	var res RateLimitsReadResponse
+	if err := json.Unmarshal([]byte(measured), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.RateLimits.Secondary == nil || res.RateLimits.Secondary.UsedPercent != 10 || len(res.RateLimitsByLimitID) != 1 {
+		t.Fatalf("decoded = %+v", res)
+	}
+	var fractional RateLimitWindow
+	if err := json.Unmarshal([]byte(`{"usedPercent":12.5,"windowDurationMins":300,"resetsAt":1}`), &fractional); err != nil || fractional.UsedPercent != 12.5 {
+		t.Fatalf("a fractional usedPercent must not fail the whole answer: %+v, %v", fractional, err)
+	}
+}

@@ -12,6 +12,7 @@ import { AgentPeerMessagesSection } from "./AgentPeerMessagesSection";
 import { AgentModelProfilesSection } from "./AgentModelProfilesSection";
 import { SubagentLimitsSection } from "./SubagentLimitsSection";
 import { AccountLinksSection } from "./AccountLinksSection";
+import { AgentAccountsSection } from "./AgentAccountsSection";
 import { LicensesSection } from "./LicensesSection";
 import { NotesEditorLayoutSection } from "./NotesEditorLayoutSection";
 import { MCPInteractionSection } from "./MCPInteractionSection";
@@ -1083,6 +1084,7 @@ export default function ComponentGallery() {
       <AgentPeerMessagesSection />
       <AgentModelProfilesSection />
       <SubagentLimitsSection />
+      <AgentAccountsSection />
       <AccountLinksSection />
       <LicensesSection />
       <NotesEditorLayoutSection />

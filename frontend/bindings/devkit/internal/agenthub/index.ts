@@ -32,6 +32,7 @@ export type {
     ImageAttachment,
     InvokeInput,
     InvokeResult,
+    LimitWindow,
     ModelProfileInfo,
     PendingElicitation,
     PendingPermission,

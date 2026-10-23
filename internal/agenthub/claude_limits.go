@@ -103,6 +103,15 @@ func unifiedLimitWindows(meta json.RawMessage) []LimitWindow {
 // unified utilization reads below 100, and "allowed_warning" means it is at
 // least a warning. A rejected window the map does not list is added.
 func applyRateLimitStatus(windows []LimitWindow, r *RateLimit) []LimitWindow {
+	// A plan that goes on through overage still answers: a window past 100 % is a
+	// warning, not a refusal, unless the event itself says "rejected".
+	if r != nil && r.IsUsingOverage && r.Status != "rejected" {
+		for i := range windows {
+			if windows[i].Status == "reached" {
+				windows[i].Status = "warning"
+			}
+		}
+	}
 	if r == nil || (r.Status != "rejected" && r.Status != "allowed_warning") {
 		return windows
 	}

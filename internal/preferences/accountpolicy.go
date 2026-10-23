@@ -26,8 +26,9 @@ const (
 	// DefaultAccountThresholdPercent is the usage at which an account is left
 	// when the person set none.
 	DefaultAccountThresholdPercent = 90
-	// DefaultAccountUsageMaxAgeSeconds is how old a shared account's reading
-	// may be, when the person set none, before a turn start asks the vendor again.
+	// DefaultAccountUsageMaxAgeSeconds is how long after its last successful check a
+	// shared account may go, when the person set none, before a turn start asks the
+	// vendor again.
 	DefaultAccountUsageMaxAgeSeconds = 300
 
 	minAccountThresholdPercent = 50
@@ -52,8 +53,8 @@ type AccountVendorPolicy struct {
 	ThresholdPercent int `json:"thresholdPercent"`
 	// WeeklyThresholdPercent replaces ThresholdPercent for weekly windows; 0 = same.
 	WeeklyThresholdPercent int `json:"weeklyThresholdPercent,omitempty"`
-	// UsageMaxAgeSeconds is how old a shared account's reading may be before a
-	// turn start asks the vendor again (60–3600).
+	// UsageMaxAgeSeconds is how long after its last successful check a shared account
+	// may go before a turn start asks the vendor again (60–3600).
 	UsageMaxAgeSeconds int `json:"usageMaxAgeSeconds"`
 	// Order is the person's preference, first used first. Built-in ids may be listed.
 	Order          []string `json:"order,omitempty"`

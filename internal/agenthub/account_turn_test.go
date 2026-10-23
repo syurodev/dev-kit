@@ -3,6 +3,7 @@ package agenthub_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -363,15 +364,18 @@ func TestAccountTurnStaysOnItsAccountWhenTheNewOneCannotOpen(t *testing.T) {
 	}
 	failed := failedSwitchNotices(rig)
 	if len(failed) != 1 || !strings.Contains(failed[0], `"from":"`+builtin+`"`) || !strings.Contains(failed[0], `"to":"work"`) ||
-		!strings.Contains(failed[0], errAccountHomeBroken.Error()) {
-		t.Errorf("want one could-not-switch notice naming from, to and why; got %v", failed)
+		!strings.Contains(failed[0], `"reason":"it could not be opened"`) || strings.Contains(failed[0], errAccountHomeBroken.Error()) {
+		t.Errorf("want one could-not-switch notice naming from, to and a fixed reason, never the error text; got %v", failed)
 	}
 	work, err := rig.book.Get(context.Background(), "work")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !work.ExhaustedUntil.After(before.Add(10 * time.Minute)) {
-		t.Errorf("work kept out until %v, want about 15 minutes from now", work.ExhaustedUntil)
+	if !work.CooldownUntil.After(before.Add(10 * time.Minute)) {
+		t.Errorf("work kept out until %v, want about 15 minutes from now", work.CooldownUntil)
+	}
+	if !work.ExhaustedUntil.IsZero() {
+		t.Error("a failed reopen must not claim a limit")
 	}
 	if got := rig.vendor.homeOpens.Load(); got != 1 {
 		t.Fatalf("opens tried in the work home = %d, want 1", got)
@@ -386,6 +390,57 @@ func TestAccountTurnStaysOnItsAccountWhenTheNewOneCannotOpen(t *testing.T) {
 	}
 	if got := rowAccount(t, rig, sess.ID); got != "" {
 		t.Errorf("session account after the second turn = %q, want the built-in", got)
+	}
+}
+
+// The notice is stored and shown, so it never quotes the error: a home path or the
+// vendor's stderr in it would reach the transcript and the window.
+func TestAFailedSwitchNoticeNeverQuotesTheOpenError(t *testing.T) {
+	for name, tc := range map[string]struct {
+		err  error
+		want string
+	}{
+		"home":    {fmt.Errorf("%w: /home/me/.data/agent-accounts/mock/work is not a directory", agenthub.ErrAccountHome), "the account's folder could not be prepared"},
+		"auth":    {fmt.Errorf("%w: token in /home/me/.codex/auth.json expired", agenthub.ErrAgentAuthRequired), "its sign-in is no longer valid"},
+		"process": {fmt.Errorf("%w: stderr: cannot open /home/me/secret", agenthub.ErrProcessFailed), "its process could not be started"},
+		"other":   {errors.New("boom at /home/me/secret"), "it could not be opened"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rig := newAccountRig(t, preferences.RefusalNone)
+			rig.fillBuiltin(t, 95)
+			rig.vendor.failErr.Store(&tc.err)
+			rig.vendor.failHome.Store(true)
+			sess := startSession(t, rig)
+			if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"}); err != nil {
+				t.Fatal(err)
+			}
+			failed := failedSwitchNotices(rig)
+			if len(failed) != 1 {
+				t.Fatalf("notices = %v, want one", failed)
+			}
+			if !strings.Contains(failed[0], `"reason":"`+tc.want+`"`) {
+				t.Errorf("notice = %s, want the reason %q", failed[0], tc.want)
+			}
+			if strings.Contains(failed[0], "/home/me") {
+				t.Errorf("the notice quotes a path: %s", failed[0])
+			}
+		})
+	}
+}
+
+// A reopen that fails puts the account on a cooldown, which the Accounts page shows.
+func TestAFailedReopenTellsTheAccountsPageAboutTheCooldown(t *testing.T) {
+	rig := newAccountRig(t, preferences.RefusalNone)
+	rig.fillBuiltin(t, 95)
+	rig.vendor.failHome.Store(true)
+	sess := startSession(t, rig)
+	changed := 0
+	rig.svc.OnAccountsChanged = func() { changed++ }
+	if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if changed == 0 {
+		t.Error("the cooldown was written without telling the Accounts page")
 	}
 }
 
@@ -439,8 +494,8 @@ func TestAccountTurnEndedWhileTheNewOneOpensDoesNotBlameIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !work.ExhaustedUntil.IsZero() {
-		t.Errorf("work kept out until %v, want no cooldown: the account was not at fault", work.ExhaustedUntil)
+	if !work.ExhaustedUntil.IsZero() || !work.CooldownUntil.IsZero() {
+		t.Errorf("work kept out (exhausted %v, cooldown %v), want neither: the account was not at fault", work.ExhaustedUntil, work.CooldownUntil)
 	}
 	if status := mustStatus(t, rig, sess.ID); status != agenthub.SessionStatusIdle {
 		t.Errorf("status after the ended turn = %s, want idle", status)
@@ -530,8 +585,11 @@ func TestAccountTurnWhoseMoveBackCannotBeWrittenStaysOnTheNewAccount(t *testing.
 	if gerr != nil {
 		t.Fatal(gerr)
 	}
-	if !work.ExhaustedUntil.After(time.Now()) {
-		t.Errorf("work must be kept out after its failed open; until %v", work.ExhaustedUntil)
+	if !work.CooldownUntil.After(time.Now()) {
+		t.Errorf("work must be kept out after its failed open; until %v", work.CooldownUntil)
+	}
+	if !work.ExhaustedUntil.IsZero() {
+		t.Error("a failed reopen must not claim a limit")
 	}
 	if status := mustStatus(t, rig, sess.ID); status != agenthub.SessionStatusIdle {
 		t.Errorf("status = %s, want idle", status)
