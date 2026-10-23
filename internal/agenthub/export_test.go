@@ -88,3 +88,16 @@ func (s *Service) UpgradeStopForTest(ctx context.Context, id string, stop Sessio
 	}
 	return s.upgradeStopForReachedWindow(ctx, sess, stop), nil
 }
+
+// SessionAccountCacheForTest reads and sets what the service remembers of the account a session runs as.
+func (s *Service) SessionAccountCacheForTest(id string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sessionAccount[id]
+}
+
+func (s *Service) SetSessionAccountCacheForTest(id, accountID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessionAccount[id] = accountID
+}

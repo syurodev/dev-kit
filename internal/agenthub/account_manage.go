@@ -1,0 +1,306 @@
+package agenthub
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"log"
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+
+	"devkit/internal/identity"
+)
+
+var (
+	// ErrAccountsUnavailable: no account book, folder or shared home is wired.
+	ErrAccountsUnavailable = errors.New("agenthub.accountsUnavailable")
+	// ErrAccountLabelTaken: another account of the vendor has that name.
+	ErrAccountLabelTaken = errors.New("agenthub.accountLabelTaken")
+	// ErrAccountInUse: a running session's process runs as the account.
+	ErrAccountInUse = errors.New("agenthub.accountInUse")
+)
+
+const maxAccountLabel = 40
+
+// requireWindow refuses anything but the person's own window: accounts steer which
+// of their subscriptions a session spends, so an agent never manages them.
+func requireWindow(ctx context.Context) error {
+	if caller, ok := identity.FromContext(ctx); ok && caller.Kind != identity.KindUI {
+		return ErrPermissionDenied
+	}
+	return nil
+}
+
+func (s *Service) accountBook(ctx context.Context) (AccountBook, error) {
+	if err := requireWindow(ctx); err != nil {
+		return nil, err
+	}
+	if s.Accounts == nil {
+		return nil, ErrAccountsUnavailable
+	}
+	return s.Accounts, nil
+}
+
+func (s *Service) accountsChanged() {
+	if s.OnAccountsChanged != nil {
+		s.OnAccountsChanged()
+	}
+}
+
+var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)
+
+func accountSlug(label string) string {
+	slug := strings.Trim(nonSlug.ReplaceAllString(strings.ToLower(label), "-"), "-")
+	if slug == "" {
+		slug = "account"
+	}
+	if len(slug) > 24 {
+		slug = strings.TrimRight(slug[:24], "-")
+	}
+	return slug
+}
+
+// newAccountID is "<vendor>-<slug of the label>", numbered when taken, and never the
+// built-in account's id.
+func newAccountID(vendor AgentType, label string, taken map[string]bool) string {
+	base := string(vendor) + "-" + accountSlug(label)
+	id := base
+	for n := 2; taken[id] || id == BuiltinAccountID(vendor); n++ {
+		id = fmt.Sprintf("%s-%d", base, n)
+	}
+	return id
+}
+
+func cleanAccountLabel(label string) (string, error) {
+	label = strings.TrimSpace(label)
+	switch {
+	case label == "":
+		return "", fmt.Errorf("%w: an account needs a name", ErrInvalidAccount)
+	case utf8.RuneCountInString(label) > maxAccountLabel:
+		return "", fmt.Errorf("%w: a name is at most %d characters", ErrInvalidAccount, maxAccountLabel)
+	case strings.ContainsFunc(label, unicode.IsControl):
+		return "", fmt.Errorf("%w: a name cannot hold control characters", ErrInvalidAccount)
+	}
+	return label, nil
+}
+
+// accountHomeFor is where an added account's home lives, and the only place Put may
+// be asked to point at: absolute, clean, inside AccountsDir. carveOutAll matches
+// paths lexically, so it must be built from the same AccountsDir string the data
+// directory protection (ProtectDataDir) was built from.
+func (s *Service) accountHomeFor(vendor AgentType, id string) (string, error) {
+	if s.AccountsDir == "" || !filepath.IsAbs(s.AccountsDir) || s.AccountSharedHome == nil {
+		return "", fmt.Errorf("%w: the folder for added accounts is not set", ErrAccountsUnavailable)
+	}
+	home := filepath.Join(s.AccountsDir, string(vendor), id)
+	if !pathIsInside(home, s.AccountsDir) {
+		return "", fmt.Errorf("%w: %s is not inside the accounts folder", ErrAccountHome, home)
+	}
+	if err := noLinkBetween(s.AccountsDir, home); err != nil {
+		return "", err
+	}
+	return home, nil
+}
+
+// noLinkBetween refuses a path whose folders below dir (the vendor folder, and
+// home itself) are symbolic links: a link there would carry a create or a
+// recursive delete out of the accounts folder, past the lexical check. dir
+// itself may be a link (a data directory under /var on macOS), and a component
+// that does not exist yet is fine.
+func noLinkBetween(dir, path string) error {
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return fmt.Errorf("%w: %s is not inside the accounts folder", ErrAccountHome, path)
+	}
+	cur := dir
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		cur = filepath.Join(cur, part)
+		info, err := os.Lstat(cur)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return nil
+		case err != nil:
+			return fmt.Errorf("%w: %s: %w", ErrAccountHome, cur, err)
+		case info.Mode()&os.ModeSymlink != 0:
+			return fmt.Errorf("%w: %s is a symbolic link", ErrAccountHome, cur)
+		}
+	}
+	return nil
+}
+
+func (s *Service) ListAccounts(ctx context.Context, vendor AgentType) ([]AccountRecord, error) {
+	book, err := s.accountBook(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return book.List(ctx, vendor)
+}
+
+func (s *Service) AddAccount(ctx context.Context, vendor AgentType, label string) (AccountRecord, error) {
+	book, err := s.accountBook(ctx)
+	if err != nil {
+		return AccountRecord{}, err
+	}
+	if !slices.Contains(s.AccountVendors, vendor) {
+		return AccountRecord{}, fmt.Errorf("%w: %s has no added accounts", ErrInvalidAccount, vendor)
+	}
+	if label, err = cleanAccountLabel(label); err != nil {
+		return AccountRecord{}, err
+	}
+	existing, err := book.List(ctx, vendor)
+	if err != nil {
+		return AccountRecord{}, err
+	}
+	taken := make(map[string]bool, len(existing))
+	for _, a := range existing {
+		taken[a.ID] = true
+		if strings.EqualFold(a.Label, label) {
+			return AccountRecord{}, ErrAccountLabelTaken
+		}
+	}
+	id := newAccountID(vendor, label, taken)
+	home, err := s.accountHomeFor(vendor, id)
+	if err != nil {
+		return AccountRecord{}, err
+	}
+	if err := PrepareAccountHome(vendor, home, s.AccountSharedHome(vendor)); err != nil {
+		return AccountRecord{}, err
+	}
+	if err := book.Put(ctx, AccountRecord{ID: id, Vendor: vendor, Label: label, HomeDir: home}); err != nil {
+		return AccountRecord{}, err
+	}
+	s.accountsChanged()
+	return book.Get(ctx, id)
+}
+
+// editAccount reads an added account, lets change adjust the editable fields and
+// writes them back. Usage and markers are never touched (Put does not write them).
+func (s *Service) editAccount(ctx context.Context, id string, change func(*AccountRecord) error) (AccountRecord, error) {
+	book, err := s.accountBook(ctx)
+	if err != nil {
+		return AccountRecord{}, err
+	}
+	acct, err := book.Get(ctx, id)
+	if err != nil {
+		return AccountRecord{}, err
+	}
+	if acct.Builtin() {
+		return AccountRecord{}, fmt.Errorf("%w: the built-in account cannot be changed here", ErrInvalidAccount)
+	}
+	if err := change(&acct); err != nil {
+		return AccountRecord{}, err
+	}
+	if err := book.Put(ctx, acct); err != nil {
+		return AccountRecord{}, err
+	}
+	s.accountsChanged()
+	return book.Get(ctx, id)
+}
+
+func (s *Service) RenameAccount(ctx context.Context, id, label string) (AccountRecord, error) {
+	if err := requireWindow(ctx); err != nil {
+		return AccountRecord{}, err
+	}
+	label, err := cleanAccountLabel(label)
+	if err != nil {
+		return AccountRecord{}, err
+	}
+	return s.editAccount(ctx, id, func(a *AccountRecord) error {
+		others, err := s.Accounts.List(ctx, a.Vendor)
+		if err != nil {
+			return err
+		}
+		for _, o := range others {
+			if o.ID != a.ID && strings.EqualFold(o.Label, label) {
+				return ErrAccountLabelTaken
+			}
+		}
+		a.Label = label
+		return nil
+	})
+}
+
+func (s *Service) SetAccountShared(ctx context.Context, id string, shared bool) (AccountRecord, error) {
+	return s.editAccount(ctx, id, func(a *AccountRecord) error {
+		a.Shared = shared
+		return nil
+	})
+}
+
+// accountInUse reports whether a running session's process runs as the account.
+func (s *Service) accountInUse(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for sessionID := range s.runtimes {
+		if s.sessionAccount[sessionID] == id {
+			return true
+		}
+	}
+	return false
+}
+
+// RemoveAccount deletes an added account, returns its sessions to the built-in
+// account and removes its home. os.RemoveAll never follows a symlink, so the shared
+// conversation store its sessions link to is untouched.
+func (s *Service) RemoveAccount(ctx context.Context, id string) error {
+	book, err := s.accountBook(ctx)
+	if err != nil {
+		return err
+	}
+	acct, err := book.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if acct.Builtin() {
+		return fmt.Errorf("%w: the built-in account cannot be removed", ErrInvalidAccount)
+	}
+	if s.accountInUse(id) {
+		return ErrAccountInUse
+	}
+	if err := book.Delete(ctx, id); err != nil {
+		return err
+	}
+	s.forgetAccount(id)
+	switch {
+	case s.AccountsDir == "" || !pathIsInside(acct.HomeDir, s.AccountsDir):
+		// A home somewhere else was never DevKit's to delete.
+		log.Printf("agenthub: account %s removed; its home %s is outside the accounts folder and was left alone", id, acct.HomeDir)
+	case noLinkBetween(s.AccountsDir, acct.HomeDir) != nil:
+		log.Printf("agenthub: account %s removed; its home %s goes through a symbolic link and was left alone", id, acct.HomeDir)
+	default:
+		if err := os.RemoveAll(acct.HomeDir); err != nil {
+			s.accountsChanged()
+			return fmt.Errorf("%w: the account was removed but its folder could not be: %v", ErrAccountHome, err)
+		}
+	}
+	s.accountsChanged()
+	return nil
+}
+
+// forgetAccount drops every in-memory trace of a removed account. The book's
+// Delete returns the sessions' rows to the built-in account, but the service
+// remembers which account a session's runtime runs as (a session whose process
+// was evicted keeps its entry), what the last usage written for it was, and
+// which account a session last moved away from: left behind, observed usage
+// would be written to an account that is gone and the pick rules would name it.
+func (s *Service) forgetAccount(id string) {
+	s.mu.Lock()
+	for sessionID, acct := range s.sessionAccount {
+		if acct == id {
+			delete(s.sessionAccount, sessionID)
+		}
+	}
+	for sessionID, sw := range s.accountSwitches {
+		if sw.from == id {
+			delete(s.accountSwitches, sessionID)
+		}
+	}
+	delete(s.usageSeen, id)
+	s.mu.Unlock()
+}

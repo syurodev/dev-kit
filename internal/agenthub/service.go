@@ -410,6 +410,14 @@ type Service struct {
 	AccountPolicy     func() (preferences.AgentAccountPolicy, error)
 	AccountSharedHome func(vendor AgentType) string
 
+	// AccountsDir is where added accounts' homes live (<data>/agent-accounts); the
+	// layout under it is <vendor>/<id>. AccountVendors are the vendors that may have
+	// added accounts (Claude and Codex in main.go). OnAccountsChanged fires after
+	// anything the Accounts page shows changed; it carries nothing.
+	AccountsDir       string
+	AccountVendors    []AgentType
+	OnAccountsChanged func()
+
 	// All guarded by mu.
 	// accountSwitches: when and from where a session last moved.
 	// sessionAccount: the account a session's runtime runs as.
