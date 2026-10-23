@@ -967,8 +967,10 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   `docs/superpowers/specs/2026-10-22-agent-multi-account-failover-design.md`, its "Measured" section is what was run;
   `internal/agenthub/accounts*.go`, `accountpick.go`, `account_home.go`, `account_switch.go`, `account_usage.go`,
   `account_limit.go`, `claude_limits.go`, `turn_progress.go`, `account_manage.go`, `account_check.go`,
-  `account_signin.go`, `account_policy_cache.go`, `account_probe.go`; migrations 45, 46). **Backend and bridge, no
-  frontend yet**: the Settings page, the add/sign-in flows, the transcript's notices and the summary row are Plan 3 (the
+  `account_signin.go`, `account_policy_cache.go`, `account_probe.go`; migrations 45, 46; backend plans
+  `docs/superpowers/plans/2026-10-22-agent-multi-account-failover.md` and
+  `docs/superpowers/plans/2026-10-22-agent-accounts-window-backend.md`). **Backend and bridge, no frontend yet**: the
+  Settings page, the add/sign-in flows, the transcript's notices and the summary row are the accounts UI work (the
   bindings it starts from are generated). `Service.Accounts` / `AccountPolicy` / `AccountSharedHome` / `AccountsDir` /
   `AccountVendors` and the two events are set in `main.go`; nothing enables a vendor except writing the preference
   `agent_account_policy` (the UI-only `AgentAccountPolicySet`, below). With no policy entry for a vendor nothing is
@@ -1016,9 +1018,13 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     updates the cache; `resumeRuntime` re-reads the row's `AccountID` after registering its call, so a caller holding a
     stale copy reopens where the session is bound now. The process is then opened in the new home at once. A failed move
     leaves the session where it was and the turn runs as before. A failed reopen is undone (`abandonMove`): the row goes
-    back, the target is kept out for `accountProbeCooldown` (15 min), and an `accountSwitchFailed` notice is recorded;
-    when the turn's own context ended, the account is not blamed (no cooldown, no notice). Only a move whose process
-    opened is remembered (`accountSwitches`, for the hold and return rules) and announced. Known gaps: a panic in vendor
+    back, the target is kept out for `accountProbeCooldown` (15 min), and an `accountSwitchFailed` notice is recorded (its `reason` is a fixed sentence per failure kind —
+    folder, sign-in, process, other — never the error text, which could hold the home path or the vendor's stderr; the
+    notice used to quote it); when the turn's own context ended, the account is not blamed (no cooldown, no notice). Only a move whose process
+    opened is remembered (`accountSwitches`, for the hold and return rules) and announced. **One edge announces a move
+    whose process never opened**: when the reopen failed and the move back cannot be written either, the row stays on the
+    target, so `noteAccountSwitch` runs (the notice, `OnAccountSwitched` and `agentaccounts:changed` fire) — the row is what
+    the window and the next pick read. Known gaps: a panic in vendor
     code inside the switch window can leak the `invoking` claim (same as the existing `runtimeFor` window); the
     pending-elicitation card of the closed idle process is not cancelled (as in Reload).
   - **Usage is observed, not polled** (`observeAccountUsage`, from `UpdateUsage` inside `handleUpdate`, only for a vendor
@@ -1032,8 +1038,10 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     next identical update retries, a deleted account is dropped quietly, and the built-in account's row is created on
     first use). Claude's windows come from `rate_limit_event.unifiedWindows` (`claude_limits.go`) as 0–1 **fractions**
     ×100 (a value over 1.5 is read as already a percentage; measured against Claude Code 2.1.308), and `status:
-    "rejected"` forces `reached` on the named window (`applyRateLimitStatus`); **an overage window (above 100%) is not
-    `reached` unless the event says `rejected`**. Codex gives percent 0–100 (rounded and clamped on the live path too) and
+    "rejected"` forces `reached` on the named window (`applyRateLimitStatus`); **when the event carries `isUsingOverage`, a
+    window above 100% is a `warning`, not `reached`, unless the event says `rejected`** — without that flag `percentStatus`
+    still returns `reached` at 100% or more. This is a visible change for ALL Claude users, not only account failover: a
+    window past 100% with `isUsingOverage` and no rejected status shows as a warning in the summary card instead of reached. Codex gives percent 0–100 (rounded and clamped on the live path too) and
     marks both windows `reached` when its snapshot carries a reached type. On a shared team login the numbers are a lower
     bound (others spend the same window). `reachedWindowFresh` (10 min) is measured from `ObservedAt`, which is neither
     refreshed by an identical reading nor by a stale one (`SaveUsage` leaves it when `mergeWindows` rejects every fresh
@@ -1065,9 +1073,11 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   - **Account management is the window's, and UI-only** (`account_manage.go`, bridge `agenthub_accounts.go`). Methods
     `AgentAccountsList|Add|Rename|Remove|SetShared|RefreshStatus|RefreshUsage|StartSignIn|StartBrowserSignIn|StartDeviceSignIn`
     (scopes `account:*` under `builtin.agenthub`) and `AgentAccountPolicyGet|Set` (`agent_account_policy` under
-    `builtin.settings`; `acknowledgeRisk` sets `RiskAcknowledgedAt` on the server, a client cannot send it). Every one needs
-    `identity.KindUI` (`requireWindow`); everything but a read (and the policy write) is refused in server mode
-    (`errAgentAccountsDesktopOnly`) and an unknown vendor is refused. **No MCP tool touches accounts** (`TestNoToolTouchesAgentAccounts`), and `AfterAccountSignIn` has no caller
+    `builtin.settings`; `acknowledgeRisk` sets `RiskAcknowledgedAt` on the server, a client cannot send it). The bridge guard is
+    `uiOnly` and the service-level one is `requireWindow`; **both reject only a caller that is present and not
+    `identity.KindUI`** (an unstamped caller passes; server mode is covered by the separate `inServerMode` check, not by the
+    caller kind). **In server mode only `AgentAccountsList` and `AgentAccountPolicyGet` work**: every other account method
+    and `AgentAccountPolicySet` answer `errAgentAccountsDesktopOnly`. An unknown vendor is refused. **No MCP tool touches accounts** (`TestNoToolTouchesAgentAccounts`), and `AfterAccountSignIn` has no caller
     identity on purpose, so it is called from exactly two places: the bridge's terminal-exit goroutine and `main.go`'s
     Codex `OnSignInCompleted` (in a goroutine, only when `r.AccountID != ""`) — never expose it elsewhere. Errors are
     published (`bridge/errors.go`; `ErrAccountFolderLeft` says a removal left the folder behind, `ErrAccountHome` carries no
@@ -1083,22 +1093,32 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     **`AccountsDir` must be built from the same string as `ProtectDataDir`**: `main.go` calls `agenthub.AccountsDirOf(dataDir)`
     and `ProtectedPaths` uses the same `dataDir`, and `TestAccountsDirIsAnEntryOfTheProtectedList` pins that the folder is one
     of the deny entries (`carveOutAll` is lexical).
-  - **Cooldown is not exhaustion** (`MarkCooldown`, `CooldownUntil`, migration 46). A real limit sets `exhausted_until`; a
-    failed reopen in the account's home, or a refusal that names no reset, sets `cooldown_until` (`accountProbeCooldown`,
-    15 min). A cooldown only keeps an account out as a TARGET: if the current account is exhausted and the only alternative
+  - **Cooldown is not exhaustion** (`MarkCooldown`, `CooldownUntil`, migration 46). A real limit sets `exhausted_until`;
+    `cooldown_until` is set ONLY by a failed reopen in the account's home (`abandonMove`, `accountProbeCooldown`, 15 min, and
+    it fires `agentaccounts:changed`). A refusal that names no reset is not a cooldown: `markAccountLimited` gives it
+    `exhausted_until` = now + 15 min. A cooldown only keeps an account out as a TARGET: if the current account is exhausted and the only alternative
     is cooling, the session stays and the vendor's own refusal shows. A signed-out CURRENT account is left for the best
     signed-in fine target; a sign-out alone is never `AllLimited`. `PickAccount` names the signed-out accounts it skipped in
     the reason sentence only.
-  - **Signed out is learned, not guessed** (`noteSignedIn`): only `ErrAgentAuthRequired` (not "not installed", not an unusable
-    API key) sets `signed_in = false` on the account the turn ran as; a status refresh, a finished sign-in or a completed
-    turn sets it back to true.
+  - **Signed out is learned, not guessed** (`noteSignedOut`, `noteSignedIn`): only a turn that failed with
+    `ErrAgentAuthRequired` (not "not installed") sets `signed_in = false` on the account the turn ran as. A bad chosen
+    Codex API key wraps both `ErrAgentAuthRequired` and `ErrAgentAPIKeyUnusable` and is marked too: for the built-in account
+    a bad key reads as signed out, which is intended. A status refresh, a finished sign-in or a completed turn sets it back
+    to true. The built-in Codex account's status check (`CheckSignIn` with no home) answers through `SignInStatus`, so the
+    global API key counts as signed in; an added account's check asks `account/read` at its own home and never reads that
+    key. `Put` writes `signed_in` only when the row is created; edits go through `SetLabel` / `SetShared` and
+    `SetSignedIn`, so an edit cannot write back a stale sign-in state.
   - **Usage checks on demand** (`account_check.go`, `account_probe.go`). `checkUsage` is single flight per account, with a
     floor between vendor calls of 10 s for a manual refresh and 60 s before a turn, at most 2 vendor calls at once, a 30 s
     bound on one call, and a joiner never inherits another caller's context error. A running Codex session answers through
     `RateLimitReader` (no new process); Claude has no live reader, so a probe can still run a second Claude process on a home
     a session is using — **the two-process token-refresh race is unverified**. `refreshStaleForTurn` (start of `invoke`)
     asks only for a shared account that is signed in and stale, only with two or more signed-in accounts, in one 5 s box
-    shared by both checks. Probes run under `accountProbeSpec` (the data-dir deny list, the account home and shared store,
+    shared by both checks. `usageMaxAgeSeconds` (policy, 60–3600, default 300 s) is read here. **Stale means the last
+    successful CHECK is older than that, or none has happened since the app started — not the last observation**: observed
+    readings keep refreshing `observed_at`, which would hide other people's use of a shared login. The check time is
+    in memory (`usageChecks.checkedAt`, set only when a check stored its answer, so a failed or empty check does not make
+    the account look fresh), so after a restart a shared account is checked on its first turn. Probes run under `accountProbeSpec` (the data-dir deny list, the account home and shared store,
     the private/shared-home choice). **Claude** (`claudeCLI`, `claude_cli.go`): the adapter's `index.js` is started with
     `--cli`, so `claude --cli -p --verbose --input-format stream-json --output-format stream-json
     --no-session-persistence` takes a `get_usage` control request (`rate_limits.<window>.utilization` is **0–100**, not the
@@ -1115,8 +1135,19 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     `agentaccounts:switched` carries `sessionId`, `from`, `to`, `reason` and nothing else. `Service.OnAccountSwitched` fires
     from `noteAccountSwitch`, i.e. after the new process opened and never for an undone move (`account_events_test.go`).
   - **Not done / known gaps**:
-    - The frontend (Plan 3): Settings page, add and sign-in flows, drawing the two transcript notices, the summary row, a
-      `devkit`-sourced prompt for `continue`.
+    - The frontend (the accounts UI work): Settings page, add and sign-in flows, drawing the two transcript notices, the
+      summary row, a `devkit`-sourced prompt for `continue`. Hand-off notes for it:
+      `agenthub:signInCompleted` also fires for added-account flows, carrying `accountId` — every existing handler (the
+      Runtimes page toast, status, "Signed in") must filter on it; `agentaccounts:changed` is payload-free, and the ones caused by observed usage are throttled
+      leading-edge only (at most one per 2 s, no trailing event, so the last reading can go unannounced; the page should also
+      refetch on window focus);
+      `agentaccounts:switched` is `{sessionId, from, to, reason}`; `SessionUpdate.accountNotice` and
+      `SignInResult.accountId` are **not in the generated bindings** (hand-type them in the frontend); account ids are
+      `<vendor>-default` for the built-in one, and a removed account has no label, so the UI needs fallback text;
+      `AgentSession.AccountID` is PascalCase in the bound JSON while the account DTOs are camelCase; `usage` and `order`
+      are non-null arrays in Go although the bindings type them `T[] | null`; `exhaustedUntil` / `cooldownUntil` may be past
+      values (treat as not limited); the policy's `Order` may hold ids of removed accounts (tolerate them);
+      `acknowledgeRisk` must only be set from an explicit user action.
     - **Not verified with real vendors**: a different account on the resumed side (server state, cache miss); macOS keychain
       naming under `CLAUDE_CONFIG_DIR`, and `AllowKeychain` (still on for Claude account sessions, so one can reach the
       built-in keychain item — measure before relying on isolation); a symlinked store inside bwrap; the two-process
@@ -1125,13 +1156,15 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
       resume checks were a CLI proxy, not DevKit's jail. The `main.go` wiring is not unit-tested (it needs the desktop
       host); it compiles under both build tags.
     - A removal racing an in-flight sign-in, a resume that has not reached `recordSessionAccount`, or a `moveSession` aimed
-      at the account can leave an orphan home or a process that fails to open.
+      at the account can leave an orphan home or a process that fails to open. A probe, status refresh or sign-in on an
+      already removed account can likewise recreate its folder (an orphan): `accountInUse` does not know in-flight sign-ins.
+      `AddAccount` does not remove the prepared folder if `Put` fails.
     - `prepareForSignIn` creates the home before the vendor and method are validated (server mode, unknown method).
     - `noteSignedIn` and `observeAccountUsage` cost an extra SQLite read per update/turn (the session row, the account row);
       a short-TTL cache of those is still to do before the feature is on for people who use Codex/Claude heavily.
     - `PickAccount` names skipped signed-out accounts only inside the reason string; a structured `Skipped []string` on the
       decision would serve the UI better.
-    - Plan 1's: the progress race at `kickPeers`; `continue` / a resend recorded as an ordinary user prompt; no
+    - From the failover plan (`docs/superpowers/plans/2026-10-22-agent-multi-account-failover.md`): the progress race at `kickPeers`; `continue` / a resend recorded as an ordinary user prompt; no
       `no-shared-history` marker after a failed resume; `SaveUsage` runs synchronously on the vendor's update goroutine
       (after the emit, before the recorder).
     - `PrepareAccountHome` has a TOCTOU between `noLinkBetween` and `MkdirAll`/`RemoveAll`: it assumes nothing else writes to
