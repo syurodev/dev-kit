@@ -81,7 +81,11 @@ func PickAccount(in PickInput) PickDecision {
 			continue
 		}
 		if !a.SignedIn {
-			skipped = append(skipped, a.Label)
+			name := a.Label
+			if name == "" {
+				name = a.ID
+			}
+			skipped = append(skipped, name)
 			continue
 		}
 		// A cooldown keeps a candidate out, not the account a session already
@@ -104,12 +108,17 @@ func PickAccount(in PickInput) PickDecision {
 	if retry, all := earliestReturn(ordered, in.Now); all {
 		return PickDecision{Target: cur.ID, AllLimited: true, RetryAt: retry, Reason: why}
 	}
+	// Exhausted, with the only alternative cooling down: stay, and do not say
+	// AllLimited. The turn runs on the refused account and the person sees the
+	// vendor's own refusal, because a just-failed reopen is the strongest
+	// evidence about the target.
 	stay.Reason = why
 	return stay
 }
 
 // accountFine reports whether an account may run a turn: not marked exhausted
-// (a cooldown is not read here: PickAccount applies it to candidates only) and every window not yet reset under its threshold (lowered by margin). A
+// and every window not yet reset under its threshold (lowered by margin). A
+// cooldown is not read here: PickAccount applies it to candidates only. A
 // weekly window (isWeeklyLabel) uses the policy's weekly threshold in place of
 // the main one when that is set. A non-positive main threshold falls back to the
 // default. A window with ResetsAt == 0 has no known reset and stays live. margin

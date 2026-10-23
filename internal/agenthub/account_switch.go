@@ -158,8 +158,8 @@ func (s *Service) switchAccountForTurn(ctx context.Context, sess *AgentSession) 
 // abandonMove handles a move whose process would not open in the target's
 // home: back to the account the row named before (bound, exactly as it was
 // spelled), the target kept out for accountProbeCooldown (a cooldown, not an
-// exhaustion: it has not reached a limit), and a notice that the
-// switch failed. If the move back cannot be written the session stays on the
+// exhaustion: it has not reached a limit), and a notice that the switch
+// failed. If the move back cannot be written the session stays on the
 // target — the row says so, so the transcript says the move happened — and the
 // turn's own resolve tries the target once more, failing as any resume does.
 //
