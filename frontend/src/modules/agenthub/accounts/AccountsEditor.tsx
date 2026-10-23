@@ -30,6 +30,8 @@ export type AccountsEditorProps = {
   onRefreshUsage: (id: string) => void;
   onRefreshStatus: (id: string) => void;
   onMove: (id: string, delta: -1 | 1) => void;
+  /** Called when a removal is asked for, so the last change's failure does not sit beside the new question. */
+  onDismissError?: () => void;
   /** Opens with the Add account form already showing (the gallery draws it so). */
   initialAddOpen?: boolean;
 };
@@ -57,6 +59,7 @@ export function AccountsEditor({
   onRefreshUsage,
   onRefreshStatus,
   onMove,
+  onDismissError,
   initialAddOpen,
 }: AccountsEditorProps) {
   const [removingAsked, setRemovingId] = useState("");
@@ -103,7 +106,10 @@ export function AccountsEditor({
               onRefreshStatus={() => onRefreshStatus(account.id)}
               onSetShared={(shared) => onSetShared(account.id, shared)}
               onRename={(label) => onRename(account.id, label)}
-              onAskRemove={() => setRemovingId(account.id)}
+              onAskRemove={() => {
+                onDismissError?.();
+                setRemovingId(account.id);
+              }}
               onCancelRemove={() => setRemovingId("")}
               onConfirmRemove={async () => {
                 const removed = await onRemove(account.id);

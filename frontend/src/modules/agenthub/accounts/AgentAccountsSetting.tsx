@@ -9,17 +9,23 @@ import {
   agentAccountsRemove,
   agentAccountsRename,
   agentAccountsSetShared,
-  type VendorPolicy,
+  type AccountPolicy,
 } from "@/bridge/agentAccounts";
 import { errorMessage } from "@/bridge/errors";
 import { AccountPolicyEditor } from "./AccountPolicyEditor";
 import { AccountSignIn } from "./AccountSignIn";
 import { AccountsEditor } from "./AccountsEditor";
-import { attempt, dropAccount, replaceAccount } from "./accountActions";
-import { movedOrder, refreshNote } from "./accountModel";
-import { vendorPolicyOf, withVendorPolicy } from "./accountPolicy";
 import {
-  AGENT_ACCOUNT_POLICY_KEY,
+  applyUsageRefresh,
+  attempt,
+  dropAccount,
+  moveVendorAccount,
+  replaceAccount,
+  saveVendorPolicy,
+  type Outcome,
+} from "./accountActions";
+import { vendorPolicyOf } from "./accountPolicy";
+import {
   agentAccountsKey,
   useAgentAccountPolicy,
   useAgentAccounts,
@@ -27,12 +33,20 @@ import {
 } from "./useAgentAccounts";
 import { vendorInfo } from "../vendors";
 
+const NOT_LOADED = "The switching rules have not loaded yet.";
+
 /**
  * Settings → Agents → Accounts & limits, for one vendor: its accounts and the
  * rules that move a session between them. Reads and saves through the UI-only
- * bridge methods; the two editors below only draw.
+ * bridge methods; the two editors below only draw. The body is keyed by vendor,
+ * so a Claude | Codex switch never carries one vendor's busy row, errors,
+ * notes or half-edited form over to the other, wherever this is mounted.
  */
 export function AgentAccountsSetting({ vendor }: { vendor: string }) {
+  return <VendorAccounts key={vendor} vendor={vendor} />;
+}
+
+function VendorAccounts({ vendor }: { vendor: string }) {
   const client = useQueryClient();
   const vendorName = vendorInfo(vendor).name;
   const key = agentAccountsKey(vendor);
@@ -51,27 +65,24 @@ export function AgentAccountsSetting({ vendor }: { vendor: string }) {
     setBusyId(id);
     setError("");
     const outcome = await attempt(client, key, run);
-    setBusyId("");
+    setBusyId((cur) => (cur === id ? "" : cur));
     if (outcome.ok) return outcome;
     setError(outcome.message);
     return { ok: false };
   }
 
-  /** Stores one vendor's rules; a stale revision is fixed by reading again. */
-  async function savePolicy(next: VendorPolicy, acknowledgeRisk: boolean, report: (message: string) => void): Promise<boolean> {
-    if (!policy.data) return false;
-    setSavingPolicy(true);
-    report("");
-    const outcome = await attempt(client, AGENT_ACCOUNT_POLICY_KEY, () =>
-      agentAccountPolicySet(withVendorPolicy(policy.data!, vendor, next), acknowledgeRisk),
-    );
-    setSavingPolicy(false);
-    if (!outcome.ok) {
-      report(outcome.message);
+  /** Runs a policy write with the editor and the rows held still; a refusal is shown through `report`. */
+  async function storing(run: (rules: AccountPolicy) => Promise<Outcome<AccountPolicy>>, report: (message: string) => void): Promise<boolean> {
+    if (!policy.data) {
+      report(NOT_LOADED);
       return false;
     }
-    client.setQueryData(AGENT_ACCOUNT_POLICY_KEY, outcome.value);
-    return true;
+    setSavingPolicy(true);
+    report("");
+    const outcome = await run(policy.data);
+    setSavingPolicy(false);
+    if (!outcome.ok) report(outcome.message);
+    return outcome.ok;
   }
 
   const current = vendorPolicyOf(policy.data, vendor);
@@ -112,18 +123,25 @@ export function AgentAccountsSetting({ vendor }: { vendor: string }) {
           setRefreshNotes((notes) => ({ ...notes, [id]: "" }));
           void change(id, () => agentAccountsRefreshUsage(id)).then((done) => {
             if (!done.ok) return;
-            replaceAccount(client, key, done.value);
-            setRefreshNotes((notes) => ({ ...notes, [id]: before ? refreshNote(before, done.value) : "" }));
+            const note = applyUsageRefresh(client, key, before, done.value);
+            setRefreshNotes((notes) => ({ ...notes, [id]: note }));
           });
         }}
         onRefreshStatus={(id) =>
           void change(id, () => agentAccountsRefreshStatus(id)).then((done) => done.ok && replaceAccount(client, key, done.value))
         }
+        onDismissError={() => setError("")}
         onMove={(id, delta) => {
-          if (!list || !policy.data) return;
+          // A save of the rules is in flight: its revision would make this one stale.
+          if (savingPolicy) return;
+          if (!list || !policy.data) {
+            setError(NOT_LOADED);
+            return;
+          }
           setBusyId(id);
-          setError("");
-          void savePolicy({ ...current, order: movedOrder(list, current.order, id, delta) }, false, setError).then(() => setBusyId(""));
+          void storing((rules) => moveVendorAccount(client, rules, vendor, list, id, delta, agentAccountPolicySet), setError).then(() =>
+            setBusyId((cur) => (cur === id ? "" : cur)),
+          );
         }}
       />
 
@@ -141,7 +159,9 @@ export function AgentAccountsSetting({ vendor }: { vendor: string }) {
           riskAcknowledged={Boolean(policy.data.riskAcknowledgedAt.trim())}
           saving={savingPolicy}
           error={policyError}
-          onSave={(next, acknowledgeRisk) => savePolicy(next, acknowledgeRisk, setPolicyError)}
+          onSave={(next, acknowledgeRisk) =>
+            storing((rules) => saveVendorPolicy(client, rules, vendor, next, acknowledgeRisk, agentAccountPolicySet), setPolicyError)
+          }
         />
       ) : null}
     </div>

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AccountPolicy } from "@/bridge/agentAccounts";
 import {
+  acknowledgeFor,
   fieldsDiffer,
   fieldsOf,
   needsRiskAcknowledgement,
@@ -136,5 +137,21 @@ describe("saving", () => {
     expect(fieldsDiffer(base, { ...base, threshold: "81" })).toBe(true);
     expect(fieldsDiffer(base, { ...base, enabled: false })).toBe(true);
     expect(fieldsDiffer(base, { ...base, refusal: "none" })).toBe(true);
+  });
+});
+
+describe("acknowledgeFor", () => {
+  test("is true only when the warning was just accepted and switching is being turned on", () => {
+    expect(acknowledgeFor(true, true, false)).toBe(true);
+  });
+
+  test("is false when the terms were acknowledged before, so a threshold edit never re-sends it", () => {
+    expect(acknowledgeFor(true, true, true)).toBe(false);
+  });
+
+  test("is false when switching is not being turned on, or nothing was accepted", () => {
+    expect(acknowledgeFor(true, false, false)).toBe(false);
+    expect(acknowledgeFor(false, true, false)).toBe(false);
+    expect(acknowledgeFor(false, false, false)).toBe(false);
   });
 });

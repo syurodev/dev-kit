@@ -46,8 +46,8 @@ function CodexAccountSignIn({ account }: { account: AgentAccount }) {
 /** The sign-in for a signed-out account, by how its vendor signs in. */
 export function AccountSignIn({ account }: { account: AgentAccount }) {
   return vendorInfo(account.vendor).signIn === "inApp" ? (
-    <CodexAccountSignIn key={account.id} account={account} />
+    <CodexAccountSignIn account={account} />
   ) : (
-    <ClaudeAccountSignIn key={account.id} account={account} />
+    <ClaudeAccountSignIn account={account} />
   );
 }

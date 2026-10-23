@@ -132,6 +132,15 @@ export function needsRiskAcknowledgement(policy: Pick<AccountPolicy, "riskAcknow
   return !policy?.riskAcknowledgedAt?.trim();
 }
 
+/**
+ * Whether a save carries `acknowledgeRisk`: only when the person accepted the
+ * warning, switching is being turned on in this very save, and the terms were
+ * not already acknowledged (a stored acknowledgement is kept without being sent again).
+ */
+export function acknowledgeFor(accepted: boolean, enabled: boolean, riskAcknowledged: boolean): boolean {
+  return accepted && enabled && !riskAcknowledged;
+}
+
 /** Whether the form differs from what is stored, field by field as the person wrote them. */
 export function fieldsDiffer(a: PolicyFields, b: PolicyFields): boolean {
   return (

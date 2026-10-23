@@ -12,6 +12,7 @@ import {
   SWITCHING_TRUTH,
   THRESHOLD_MAX,
   THRESHOLD_MIN,
+  acknowledgeFor,
   fieldsDiffer,
   fieldsOf,
   parseFields,
@@ -60,6 +61,7 @@ export function AccountPolicyEditor({
   useEffect(() => {
     setFields(JSON.parse(storedKey) as PolicyFields);
     setProblem(null);
+    setAccepted(false);
   }, [storedKey]);
 
   const parsed = parseFields(fields);
@@ -79,7 +81,7 @@ export function AccountPolicyEditor({
     }
     setProblem(null);
     setSaved(false);
-    if (await onSave({ ...next.value, order: policy.order }, accepted && next.value.enabled)) {
+    if (await onSave({ ...next.value, order: policy.order }, acknowledgeFor(accepted, next.value.enabled, riskAcknowledged))) {
       setSaved(true);
       setAccepted(false);
     }
