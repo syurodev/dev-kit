@@ -14,12 +14,18 @@ export type { SignInFlow, SignInStatus };
  * it, and the backend refuses an agent caller.
  */
 
-/** How a sign-in ended, from the agenthub:signInCompleted event. */
+/**
+ * How a sign-in ended, from the agenthub:signInCompleted event. `accountId` is
+ * the added account the flow signed in to ("" for the built-in sign-in), and it
+ * is not in the generated bindings: anything that acts on this event has to
+ * check it, or an added account's sign-in is taken for the built-in one's.
+ */
 export type SignInResult = {
   agent: string;
   loginId: string;
   success: boolean;
   error: string;
+  accountId?: string;
 };
 
 const SIGN_IN_COMPLETED_EVENT = "agenthub:signInCompleted";
@@ -66,6 +72,7 @@ export function parseSignInResult(data: unknown): SignInResult | null {
     loginId: record.loginId,
     success: record.success === true,
     error: typeof record.error === "string" ? record.error : "",
+    accountId: typeof record.accountId === "string" ? record.accountId : "",
   };
 }
 

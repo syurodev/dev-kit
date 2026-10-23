@@ -36,6 +36,13 @@ describe("Codex sign-in panel", () => {
     expect(DEVICE_CODE_HINT).toContain("device code");
   });
 
+  it("says its own line under the buttons when it is not the built-in sign-in", () => {
+    expect(panel()).toContain("Codex&#x27;s own ChatGPT login");
+    const html = panel({ note: "Signs in to this account's own folder." });
+    expect(html).toContain("Signs in to this account&#x27;s own folder.");
+    expect(html).not.toContain("your ~/.codex is");
+  });
+
   it("says how it ended", () => {
     expect(panel({ outcome: { signedIn: true, message: "Signed in to Codex." } })).toContain("Signed in to Codex.");
     expect(panel({ outcome: { signedIn: false, message: "Sign-in timed out." } })).toContain("Sign-in timed out.");
@@ -97,6 +104,34 @@ describe("which sign-in events a panel acts on", () => {
     expect(t.event(result("a", true))?.success).toBe(true);
     expect(t.started(flow("a"))).toBe("reported");
     expect(t.current).toBeNull();
+  });
+
+  it("an added account's sign-in is not the built-in one's news", () => {
+    const hub = createSignInTracker();
+    hub.started(flow("a"));
+    const work = { ...result("w1", true), accountId: "codex-work" };
+    expect(hub.event(work)).toBeNull();
+    expect(hub.event({ ...result("w2", false, "Sign-in cancelled."), accountId: "codex-work" })).toBeNull();
+    expect(hub.current?.loginId).toBe("a");
+    expect(hub.event(result("a", true))?.success).toBe(true);
+  });
+
+  it("an account's tracker acts on its own account's events only", () => {
+    const work = createSignInTracker("codex-work");
+    expect(work.started(flow("w1"))).toBeNull();
+    // The built-in flow and another account's flow are not this panel's.
+    expect(work.event(result("a", true))).toBeNull();
+    expect(work.event({ ...result("s1", true), accountId: "codex-spare" })).toBeNull();
+    expect(work.current?.loginId).toBe("w1");
+    expect(work.event({ ...result("w1", true), accountId: "codex-work" })?.success).toBe(true);
+    expect(work.current).toBeNull();
+  });
+
+  it("an account's sign-in finished elsewhere lets the waiting panel go ahead", () => {
+    const work = createSignInTracker("codex-work");
+    work.started(flow("w1"));
+    expect(work.event({ ...result("w1", false, "Replaced by a new sign-in."), accountId: "codex-work" })?.success).toBe(false);
+    expect(work.event({ ...result("w2", true), accountId: "codex-work" })?.success).toBe(true);
   });
 
   it("other vendors are ignored, and cancel hands back the flow to withdraw", () => {

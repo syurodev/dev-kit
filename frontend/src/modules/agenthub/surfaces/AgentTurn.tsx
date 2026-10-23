@@ -24,6 +24,7 @@ import { AgentRunningCommand, isRunningCommand } from "../transcript/AgentRunnin
 import { AgentProse } from "../transcript/AgentMessageRich";
 import { MessageActions } from "./MessageActions";
 import { PeerMessage } from "../transcript/PeerMessage";
+import { AccountNoticeLine } from "../transcript/AccountNotice";
 import { AgentTurnChanges } from "./AgentTurnChanges";
 
 export type AgentTurnProps = {
@@ -291,6 +292,12 @@ export const AgentTurn = React.memo(function AgentTurn({
       {checkpoint ? (
         <AgentTurnChanges checkpoint={checkpoint} loadDiff={loadFileDiff} />
       ) : null}
+
+      {/* A session that moved to another account does it before the next prompt,
+          so the line closes the turn it follows and reads as sitting between the two. */}
+      {turn.notes.map((note) =>
+        note.accountNotice ? <AccountNoticeLine key={note.id} notice={note.accountNotice} vendor={vendor ?? ""} /> : null,
+      )}
 
       {activity ? (
         <div

@@ -209,6 +209,12 @@ export type SummaryRow = {
 /** What the Environment section is drawn from. */
 export type EnvironmentInput = {
   vendorName: string;
+  /**
+   * The name of the account the session runs as, once it is known. Absent for a
+   * session on the built-in account that never moved, and while the list that
+   * names the account is still on its way: the row is left out, never guessed.
+   */
+  accountLabel?: string | null;
   folderPath: string;
   workspaceName?: string | null;
   /** The repositories this work spans, with the branch each is on. */
@@ -255,6 +261,7 @@ function branchesRow(repos: readonly { name: string; branch: string }[]): Summar
  */
 export function environmentRows(input: EnvironmentInput): SummaryRow[] {
   const rows: SummaryRow[] = [{ key: "agent", label: "Agent", value: input.vendorName }];
+  if (input.accountLabel) rows.push({ key: "account", label: "Account", value: input.accountLabel });
   const model = currentChoice(input.configOptions.find((o) => o.id === "model"));
   if (model) rows.push({ key: "model", label: "Model", value: model });
   const effort = currentChoice(input.configOptions.find((o) => o.id === "reasoning_effort" || o.id === "effort"));

@@ -8,7 +8,13 @@ describe("parseSignInResult", () => {
       loginId: "l1",
       success: true,
       error: "",
+      accountId: "",
     });
+  });
+
+  test("says which added account finished, and nothing for the built-in sign-in", () => {
+    expect(parseSignInResult({ agent: "codex", loginId: "l9", success: true, accountId: "codex-work" })?.accountId).toBe("codex-work");
+    expect(parseSignInResult({ agent: "codex", loginId: "l9", success: true, accountId: 7 })?.accountId).toBe("");
   });
 
   test("Wails may wrap the payload in an array", () => {
@@ -17,6 +23,7 @@ describe("parseSignInResult", () => {
       loginId: "l2",
       success: false,
       error: "Sign-in timed out.",
+      accountId: "",
     });
   });
 

@@ -310,7 +310,9 @@ export function AgentHubView({ params }: { params?: Record<string, unknown> } = 
     retry: false,
   });
   const draftOptions = draftConfigOptions(draftCatalog.data ?? [], draftSelections[draftAgent] ?? {});
-  useEffect(() => onAgentSignInCompleted(() => {
+  useEffect(() => onAgentSignInCompleted((result) => {
+    // An added account's sign-in says nothing about the login a draft is about to use.
+    if (result.accountId) return;
     void queryClient.invalidateQueries({ queryKey: ["agenthub", "configCatalog"] });
     void queryClient.invalidateQueries({ queryKey: ["agenthub", "sessionConfig"] });
   }), [queryClient]);
