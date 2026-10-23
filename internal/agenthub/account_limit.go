@@ -76,6 +76,9 @@ func (s *Service) markAccountLimited(ctx context.Context, sess AgentSession, sto
 // as auth_required, but those are not one account's login dying, and marking
 // the account would leave it out for every session. Setting it back is the job
 // of the status refresh / sign-in flow of a later task; nothing here does it.
+// Sessions running on one account at the same time can disagree (one refused, one
+// completed): the marks are last-write-wins and correct themselves on the next turn
+// or a Refresh status.
 // Only for a vendor the person configured, like markAccountLimited. Best effort:
 // errors are logged.
 func (s *Service) noteSignedOut(ctx context.Context, sess AgentSession, stop SessionStop, turnErr error) {

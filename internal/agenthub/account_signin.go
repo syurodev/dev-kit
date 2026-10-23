@@ -5,12 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"time"
 )
-
-// statusCheckTimeout bounds AfterAccountSignIn's status read, which has no caller
-// context of its own; a var for tests.
-var statusCheckTimeout = time.Minute
 
 // accountForSignIn finds the account a sign-in is for and the vendor that signs it in.
 // Window only, like every account call.
@@ -99,7 +94,9 @@ func (s *Service) StartAccountSignIn(ctx context.Context, accountID, method stri
 // signed in and records the answer, for any account including the built-in one. An
 // answer it cannot get (the vendor could not start, did not answer, or does not
 // report a status) is "unknown", not "signed out": the error is returned and the mark
-// stays as it was. Neither s.mu nor accountMgmt is held across the vendor call.
+// stays as it was. Neither s.mu nor accountMgmt is held across the vendor call, so the
+// row can change while it runs: the answer is compared with and written against the
+// row as it is once the vendor has answered, and that row is what is returned.
 func (s *Service) refreshStatus(ctx context.Context, acct AccountRecord) (AccountRecord, error) {
 	adapter, ok := s.reg.Get(acct.Vendor)
 	if !ok {
@@ -118,13 +115,18 @@ func (s *Service) refreshStatus(ctx context.Context, acct AccountRecord) (Accoun
 	// The answer is in: write it even if the caller's box ended in the meantime.
 	saveCtx, cancelSave := context.WithTimeout(context.WithoutCancel(ctx), usageSaveTimeout)
 	defer cancelSave()
-	if state.SignedIn != acct.SignedIn {
+	current, err := s.Accounts.Get(saveCtx, acct.ID) // ErrAccountNotFound: removed meanwhile
+	if err != nil {
+		return acct, err
+	}
+	if state.SignedIn != current.SignedIn {
 		if err := s.Accounts.SetSignedIn(saveCtx, acct.ID, state.SignedIn); err != nil {
-			return acct, err
+			return current, err
 		}
 		s.accountsChanged()
+		current.SignedIn = state.SignedIn
 	}
-	return s.Accounts.Get(saveCtx, acct.ID)
+	return current, nil
 }
 
 // accountRow reads an account, creating the vendor's built-in row first when the id
@@ -162,14 +164,21 @@ func (s *Service) RefreshAccountStatus(ctx context.Context, id string) (AccountR
 }
 
 // AfterAccountSignIn runs when a sign-in the window started has ended (the terminal
-// exited, or the in-app flow completed): it re-reads the account's status. It has no
-// caller identity of its own: the bridge and main.go call it after their own checks.
+// exited, or the in-app flow completed): it re-reads the account's status.
+//
+// It has no caller identity of its own. It must only be called from Go-side hooks
+// that a window-initiated flow started (the bridge's terminal-exit goroutine and
+// main.go's Codex completion hook) and must never be exposed as a bridge method or
+// MCP tool. A terminal-exit path that has a window ctx should prefer
+// RefreshAccountStatus.
+//
+// It cannot hang: the vendor call is bounded by usageCheckTimeout and the write by
+// usageSaveTimeout (refreshStatus), and the book reads are local.
 func (s *Service) AfterAccountSignIn(accountID string) {
 	if s.Accounts == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), statusCheckTimeout)
-	defer cancel()
+	ctx := context.Background()
 	acct, err := s.accountRow(ctx, s.Accounts, accountID)
 	if err != nil {
 		return

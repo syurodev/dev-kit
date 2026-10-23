@@ -84,6 +84,9 @@ type signInFake struct {
 	checkedHome    string
 	checkedSpec    agenthub.OpenSpec
 	checks         int
+	// onCheck runs inside CheckSignIn, before it answers, with no lock held: a test
+	// changes the account's row there, as a turn or another refresh would mid-call.
+	onCheck func()
 }
 
 func (f *signInFake) commandFor(methodID, home string) (agenthub.SignInCommand, error) {
@@ -104,6 +107,9 @@ func (f *signInFake) start(spec agenthub.OpenSpec, accountID string) (agenthub.S
 }
 
 func (f *signInFake) check(spec agenthub.OpenSpec) (agenthub.SignInState, error) {
+	if f.onCheck != nil {
+		f.onCheck()
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.checks++

@@ -163,6 +163,9 @@ func (a *CodexAdapter) StartBrowserSignIn(ctx context.Context) (SignInFlow, erro
 // the loopback callback port, so starting one cancels another in progress, whichever
 // account it was for.
 func (a *CodexAdapter) StartBrowserSignInAt(ctx context.Context, spec OpenSpec, accountID string) (SignInFlow, error) {
+	if err := checkSignInHome(spec); err != nil {
+		return SignInFlow{}, err
+	}
 	return a.startSignIn(ctx, spec, accountID, codexapp.LoginChatGPT, SignInBrowser)
 }
 
@@ -177,10 +180,23 @@ func (a *CodexAdapter) StartDeviceSignIn(ctx context.Context) (SignInFlow, error
 // StartDeviceSignInAt is StartDeviceSignIn for an added account (see
 // StartBrowserSignInAt).
 func (a *CodexAdapter) StartDeviceSignInAt(ctx context.Context, spec OpenSpec, accountID string) (SignInFlow, error) {
+	if err := checkSignInHome(spec); err != nil {
+		return SignInFlow{}, err
+	}
 	return a.startSignIn(ctx, spec, accountID, codexapp.LoginDeviceCode, SignInDeviceCode)
 }
 
 var _ AccountInAppSignIn = (*CodexAdapter)(nil)
+
+// checkSignInHome refuses an account home that is not absolute, as SignInCommandFor
+// does: a relative one would put the login wherever the process happens to run.
+// An empty home is the built-in account's.
+func checkSignInHome(spec OpenSpec) error {
+	if spec.AccountHome != "" && !filepath.IsAbs(spec.AccountHome) {
+		return fmt.Errorf("%w: the account's home must be an absolute path", ErrAccountHome)
+	}
+	return nil
+}
 
 // startSignIn runs the login in a short-lived app-server under spec's jail: the
 // zero spec is the built-in home, a spec with an AccountHome is that account's. The

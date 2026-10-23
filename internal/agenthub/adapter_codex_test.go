@@ -1576,10 +1576,10 @@ func TestCodexBuiltInSignInResultHasNoAccount(t *testing.T) {
 	}
 }
 
-// Every way a flow ends carries the account it was started for: a cancel and a
-// replacement too, not only a completion.
-func TestCodexAccountSignInCancelAndReplaceCarryTheAccount(t *testing.T) {
-	f := newCodexFixture(t, "login")
+// Every way a flow ends carries the account it was started for: a cancel, a
+// replacement and a timeout too, not only a completion.
+func TestCodexAccountSignInCancelCarriesTheAccount(t *testing.T) {
+	f := newCodexFixture(t, "loginWait")
 	var mu sync.Mutex
 	var got []SignInResult
 	f.adapter.opts.OnSignInCompleted = func(r SignInResult) {
@@ -1599,6 +1599,60 @@ func TestCodexAccountSignInCancelAndReplaceCarryTheAccount(t *testing.T) {
 	defer mu.Unlock()
 	if len(got) != 1 || got[0].Success || got[0].AccountID != "codex-work" {
 		t.Fatalf("results = %+v, want one failure carrying the account", got)
+	}
+}
+
+func TestCodexAccountSignInReplacedByANewOneCarriesTheFirstsAccount(t *testing.T) {
+	f := newCodexFixture(t, "loginWait")
+	results := make(chan SignInResult, 2)
+	f.adapter.opts.OnSignInCompleted = func(r SignInResult) { results <- r }
+	root := t.TempDir()
+	if _, err := f.adapter.StartBrowserSignInAt(context.Background(), OpenSpec{AccountHome: filepath.Join(root, "a")}, "codex-a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.adapter.StartBrowserSignInAt(context.Background(), OpenSpec{AccountHome: filepath.Join(root, "b")}, "codex-b"); err != nil {
+		t.Fatal(err)
+	}
+	first := waitSignIn(t, results)
+	if first.Success || first.Error != "Replaced by a new sign-in." || first.AccountID != "codex-a" {
+		t.Fatalf("first result = %+v, want the replacement failure carrying the first account", first)
+	}
+	if err := f.adapter.CancelSignIn(context.Background(), "login-1"); err != nil {
+		t.Fatal(err)
+	}
+	if second := waitSignIn(t, results); second.AccountID != "codex-b" {
+		t.Fatalf("second result = %+v, want the second account", second)
+	}
+}
+
+func TestCodexAccountSignInTimeoutCarriesTheAccount(t *testing.T) {
+	defer func(old time.Duration) { codexSignInTimeout = old }(codexSignInTimeout)
+	codexSignInTimeout = 100 * time.Millisecond
+	f := newCodexFixture(t, "loginWait")
+	results := make(chan SignInResult, 1)
+	f.adapter.opts.OnSignInCompleted = func(r SignInResult) { results <- r }
+	if _, err := f.adapter.StartBrowserSignInAt(context.Background(), OpenSpec{AccountHome: filepath.Join(t.TempDir(), "work")}, "codex-work"); err != nil {
+		t.Fatal(err)
+	}
+	if r := waitSignIn(t, results); r.Success || r.AccountID != "codex-work" {
+		t.Fatalf("result = %+v, want the timeout failure carrying the account", r)
+	}
+}
+
+// A relative home would put the login wherever the process happens to run, so the
+// in-app starts refuse it before anything is spawned, as the terminal command does.
+func TestCodexAccountSignInRefusesARelativeHome(t *testing.T) {
+	f := newCodexFixture(t, "login")
+	f.adapter.opts.OnSignInCompleted = func(SignInResult) {}
+	spec := OpenSpec{AccountHome: "relative/home"}
+	if _, err := f.adapter.StartBrowserSignInAt(context.Background(), spec, "codex-work"); !errors.Is(err, ErrAccountHome) {
+		t.Errorf("browser: %v, want ErrAccountHome", err)
+	}
+	if _, err := f.adapter.StartDeviceSignInAt(context.Background(), spec, "codex-work"); !errors.Is(err, ErrAccountHome) {
+		t.Errorf("device: %v, want ErrAccountHome", err)
+	}
+	if pol, _ := f.runner.started(); pol.Env != nil {
+		t.Errorf("a process was started for a refused home: %+v", pol)
 	}
 }
 

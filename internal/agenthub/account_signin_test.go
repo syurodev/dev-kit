@@ -128,6 +128,49 @@ func TestRefreshAccountStatusRecordsWhatTheVendorSays(t *testing.T) {
 	}
 }
 
+// The vendor call can take long; the row can change under it (a turn marking the
+// account signed out, a sign-in marking it in). The answer is written against the row
+// as it is when the vendor has answered, not as it was when the call began.
+func TestRefreshAccountStatusComparesWithTheRowAsItIsWhenTheVendorAnswers(t *testing.T) {
+	for _, vendorSays := range []bool{true, false} {
+		fake := &signInFake{state: agenthub.SignInState{SignedIn: vendorSays}}
+		rig := newAccountRigWith(t, preferences.RefusalNone, rigOptions{signIn: fake})
+		if err := rig.book.SetSignedIn(context.Background(), "work", vendorSays); err != nil {
+			t.Fatal(err)
+		}
+		fake.onCheck = func() { // the row moves the other way while the vendor is asked
+			if err := rig.book.SetSignedIn(context.Background(), "work", !vendorSays); err != nil {
+				t.Error(err)
+			}
+		}
+		changed := 0
+		rig.svc.OnAccountsChanged = func() { changed++ }
+		acct, err := rig.svc.RefreshAccountStatus(uiCtx(), "work")
+		if err != nil || acct.SignedIn != vendorSays {
+			t.Fatalf("vendor says %v: returned %+v, %v", vendorSays, acct, err)
+		}
+		if got := signedIn(t, rig, "work"); got != vendorSays {
+			t.Errorf("vendor says %v: the row is %v, the answer the person asked for was lost", vendorSays, got)
+		}
+		if changed != 1 {
+			t.Errorf("vendor says %v: %d events, want 1 (the row really changed)", vendorSays, changed)
+		}
+	}
+}
+
+func TestRefreshAccountStatusSaysSoWhenTheAccountWasRemovedMeanwhile(t *testing.T) {
+	fake := &signInFake{state: agenthub.SignInState{SignedIn: false}}
+	rig := newAccountRigWith(t, preferences.RefusalNone, rigOptions{signIn: fake})
+	fake.onCheck = func() {
+		if err := rig.book.Delete(context.Background(), "work"); err != nil {
+			t.Error(err)
+		}
+	}
+	if _, err := rig.svc.RefreshAccountStatus(uiCtx(), "work"); !errors.Is(err, agenthub.ErrAccountNotFound) {
+		t.Errorf("err = %v, want ErrAccountNotFound", err)
+	}
+}
+
 func TestRefreshAccountStatusAnswersNothingWhenTheVendorCannotSay(t *testing.T) {
 	for _, from := range []bool{true, false} {
 		for _, cause := range []error{agenthub.ErrProcessFailed, agenthub.ErrAuthMethodUnknown, context.DeadlineExceeded} {
