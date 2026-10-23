@@ -1,6 +1,7 @@
 package agenthub
 
 import (
+	"slices"
 	"testing"
 
 	"devkit/internal/codexapp"
@@ -126,5 +127,95 @@ func TestCodexConnectorsStartedBeforeAnyHandlerAreAnnounced(t *testing.T) {
 	got := ParseSessionUpdate(tr.connectorsUpdate())
 	if got.Kind != UpdateConnectors || len(got.Connectors) != 1 || got.Connectors[0].State != "ready" {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+func codexSnap(id, name string, primaryPct, secondaryPct float64) codexapp.RateLimitSnapshot {
+	five, week := int64(300), int64(10080)
+	s := codexapp.RateLimitSnapshot{
+		Primary:   &codexapp.RateLimitWindow{UsedPercent: primaryPct, WindowDurationMins: &five},
+		Secondary: &codexapp.RateLimitWindow{UsedPercent: secondaryPct, WindowDurationMins: &week},
+	}
+	if id != "" {
+		s.LimitID = &id
+	}
+	if name != "" {
+		s.LimitName = &name
+	}
+	return s
+}
+
+func windowLabels(ws []LimitWindow) []string {
+	var out []string
+	for _, w := range ws {
+		out = append(out, w.Label)
+	}
+	return out
+}
+
+func TestLimitWindowsOfReadOrdersBucketsAndNamesUnnamedOnes(t *testing.T) {
+	res := codexapp.RateLimitsReadResponse{
+		RateLimits: codexSnap("codex", "", 1, 2),
+		RateLimitsByLimitID: map[string]codexapp.RateLimitSnapshot{
+			"zeta":         codexSnap("zeta", "", 3, 4),
+			"codex_bengal": codexSnap("codex_bengal", "", 5, 6),
+			"codex":        codexSnap("codex", "", 1, 2),
+			"spark":        codexSnap("spark", "Spark", 7, 8),
+		},
+	}
+	got := windowLabels(limitWindowsOfRead(res))
+	want := []string{"5-hour", "Weekly", "codex_bengal · 5-hour", "codex_bengal · Weekly", "Spark · 5-hour", "Spark · Weekly", "zeta · 5-hour", "zeta · Weekly"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("labels = %q, want %q", got, want)
+	}
+}
+
+func TestLimitWindowsOfReadFallsBackToTheLegacySnapshot(t *testing.T) {
+	res := codexapp.RateLimitsReadResponse{RateLimits: codexSnap("codex", "", 10, 20)}
+	if got := limitWindowsOfRead(res); len(got) != 2 || got[0].UsedPercent != 10 {
+		t.Fatalf("legacy only = %+v", got)
+	}
+	if got := limitWindowsOfRead(codexapp.RateLimitsReadResponse{}); len(got) != 0 {
+		t.Fatalf("an empty answer has no windows: %+v", got)
+	}
+}
+
+func TestLimitWindowsOfReadKeepsALegacyBucketTheMapLacks(t *testing.T) {
+	res := codexapp.RateLimitsReadResponse{
+		RateLimits:          codexSnap("codex", "", 10, 20),
+		RateLimitsByLimitID: map[string]codexapp.RateLimitSnapshot{"spark": codexSnap("spark", "Spark", 7, 8)},
+	}
+	got := windowLabels(limitWindowsOfRead(res))
+	if want := []string{"5-hour", "Weekly", "Spark · 5-hour", "Spark · Weekly"}; !slices.Equal(got, want) {
+		t.Fatalf("labels = %q, want %q (the account-wide bucket is not in the map)", got, want)
+	}
+	// Held under another key, matched by its LimitID: not repeated.
+	res.RateLimitsByLimitID = map[string]codexapp.RateLimitSnapshot{"main": codexSnap("codex", "", 10, 20)}
+	if got := limitWindowsOfRead(res); len(got) != 2 {
+		t.Fatalf("a bucket held by LimitID is not listed twice: %+v", got)
+	}
+}
+
+func TestLimitWindowsOfReadDedupesLabels(t *testing.T) {
+	res := codexapp.RateLimitsReadResponse{
+		RateLimits: codexSnap("codex", "", 1, 2),
+		RateLimitsByLimitID: map[string]codexapp.RateLimitSnapshot{
+			"a": codexSnap("a", "Same", 1, 2),
+			"b": codexSnap("b", "Same", 3, 4),
+		},
+	}
+	got := limitWindowsOfRead(res)
+	if labels := windowLabels(got); !slices.Equal(labels, []string{"5-hour", "Weekly", "Same · 5-hour", "Same · Weekly"}) || got[2].UsedPercent != 1 {
+		t.Fatalf("windows = %+v", got)
+	}
+}
+
+func TestCodexLimitPercentsAreRoundedAndClamped(t *testing.T) {
+	got := codexLimitWindows(codexSnap("codex", "", 42.123456, 130))
+	if got[0].UsedPercent != 42.12 || got[1].UsedPercent != 100 || got[1].Status != "reached" {
+		t.Fatalf("windows = %+v", got)
+	}
+	if got := codexLimitWindows(codexSnap("codex", "", -5, 0)); got[0].UsedPercent != 0 {
+		t.Fatalf("a negative percent is clamped: %+v", got)
 	}
 }

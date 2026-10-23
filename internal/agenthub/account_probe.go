@@ -19,11 +19,19 @@ type SignInState struct {
 // UsageChecker asks the vendor, through its own CLI under the session jail and with
 // spec's account home, what an account has left. It returns the account-wide windows
 // (other people's use of a shared login included) and never reads a token.
+//
+// The caller builds spec like accountProbeSpec does: the account's home, the shared
+// store, the deny-read paths carved around them and the private/shared home choice. A
+// probe runs under the same jail a session does, so a spec without them probes a wider
+// jail than a session would have. For an added account (AccountHome set) the Claude
+// probe also drops the host's credential variables, so it describes the account's own
+// login and never a host key.
 type UsageChecker interface {
 	CheckUsage(ctx context.Context, spec OpenSpec) ([]LimitWindow, error)
 }
 
-// SignInChecker asks the vendor whether a home is signed in, without a prompt.
+// SignInChecker asks the vendor whether a home is signed in, without a prompt. The
+// caller builds spec as for UsageChecker (accountProbeSpec-style fields).
 type SignInChecker interface {
 	CheckSignIn(ctx context.Context, spec OpenSpec) (SignInState, error)
 }

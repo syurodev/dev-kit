@@ -96,6 +96,10 @@ type ClaudeAdapter struct {
 	authMu      sync.Mutex
 	authKey     string
 	authMethods []AuthMethod
+
+	// cliTimeout and cliGrace override claudeCLITimeout / claudeCLIExitGrace (tests).
+	cliTimeout time.Duration
+	cliGrace   time.Duration
 }
 
 // NewClaudeAdapter returns a Claude ACP adapter. Production Open always uses

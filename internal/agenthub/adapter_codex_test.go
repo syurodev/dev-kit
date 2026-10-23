@@ -174,6 +174,10 @@ func runFakeCodex(scenario, logPath string) {
 				reply(map[string]any{"account": map[string]any{"type": "chatgpt", "email": "me@example.com", "planType": "plus"}, "requiresOpenaiAuth": true})
 			}
 		case codexapp.MethodRateLimitsRead:
+			if scenario == "noRateLimits" {
+				reply(json.RawMessage(`{"rateLimits":{"limitId":"codex","primary":null,"secondary":null},"rateLimitsByLimitId":null}`))
+				break
+			}
 			reply(json.RawMessage(`{"rateLimits":{"limitId":"codex","limitName":null,"primary":{"usedPercent":0,"windowDurationMins":300,"resetsAt":1792669235},"secondary":{"usedPercent":10,"windowDurationMins":10080,"resetsAt":1793108266},"credits":null,"individualLimit":null,"spendControlReached":false,"planType":"plus","rateLimitReachedType":null},"rateLimitsByLimitId":{"codex":{"limitId":"codex","limitName":null,"primary":{"usedPercent":0,"windowDurationMins":300,"resetsAt":1792669235},"secondary":{"usedPercent":10,"windowDurationMins":10080,"resetsAt":1793108266},"credits":null,"planType":"plus","rateLimitReachedType":null}},"rateLimitResetCredits":{"availableCount":0,"credits":[]}}`))
 		case "config/read":
 			if scenario == "configReloadFails" {
@@ -1439,6 +1443,13 @@ func TestCodexCheckUsageReadsBothWindowsFromTheMeasuredAnswer(t *testing.T) {
 	}
 	if len(windows) != len(want) || windows[0] != want[0] || windows[1] != want[1] {
 		t.Fatalf("windows = %+v, want %+v", windows, want)
+	}
+}
+
+func TestCodexCheckUsageWithNoWindowsIsNotCheckable(t *testing.T) {
+	fx := newCodexFixture(t, "noRateLimits")
+	if _, err := fx.adapter.CheckUsage(t.Context(), OpenSpec{}); !errors.Is(err, ErrUsageNotCheckable) {
+		t.Fatalf("error = %v, want ErrUsageNotCheckable", err)
 	}
 }
 
