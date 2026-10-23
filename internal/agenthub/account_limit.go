@@ -69,11 +69,17 @@ func (s *Service) markAccountLimited(ctx context.Context, sess AgentSession, sto
 }
 
 // noteSignedOut marks the account a refused turn ran as signed out when the vendor
-// said sign-in is required, so PickAccount skips it until the person signs in again
-// (Refresh status, or signing in, sets it back). Only for a vendor the person
-// configured, like markAccountLimited. Best effort: errors are logged.
-func (s *Service) noteSignedOut(ctx context.Context, sess AgentSession, stop SessionStop) {
-	if s.Accounts == nil || stop.Kind != StopAuthRequired || !s.vendorConfigured(sess.AgentType) {
+// said sign-in is required, so PickAccount skips it as a target and moves a
+// session off it until it is signed in again. Only a turn that failed with
+// ErrAgentAuthRequired counts: StopFromError also reads a missing CLI
+// (ErrAgentNotInstalled) and a vendor-wide bad API key (ErrAgentAPIKeyUnusable)
+// as auth_required, but those are not one account's login dying, and marking
+// the account would leave it out for every session. Setting it back is the job
+// of the status refresh / sign-in flow of a later task; nothing here does it.
+// Only for a vendor the person configured, like markAccountLimited. Best effort:
+// errors are logged.
+func (s *Service) noteSignedOut(ctx context.Context, sess AgentSession, stop SessionStop, turnErr error) {
+	if s.Accounts == nil || stop.Kind != StopAuthRequired || !errors.Is(turnErr, ErrAgentAuthRequired) || !s.vendorConfigured(sess.AgentType) {
 		return
 	}
 	if _, err := s.Accounts.List(ctx, sess.AgentType); err != nil { // creates the built-in row

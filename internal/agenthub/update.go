@@ -658,7 +658,11 @@ func ParseSessionUpdate(raw json.RawMessage) SessionUpdate {
 		usage := Usage{Used: wire.Used, Size: wire.Size, RateLimit: parseRateLimit(wire.Meta)}
 		usage.Limits = limitsOfRateLimit(usage.RateLimit)
 		if unified := unifiedLimitWindows(wire.Meta); len(unified) > 0 {
-			usage.Limits = applyRateLimitStatus(unified, usage.RateLimit)
+			verdict := usage.RateLimit
+			if verdict == nil && usingOverage(wire.Meta) {
+				verdict = &RateLimit{IsUsingOverage: true} // no status: only the overage fact
+			}
+			usage.Limits = applyRateLimitStatus(unified, verdict)
 		}
 		if wire.DevKit != nil {
 			usage.Tokens = wire.DevKit.Tokens
@@ -859,7 +863,9 @@ func parseSessionGoal(meta json.RawMessage) (*SessionGoal, bool) {
 }
 
 // parseRateLimit reads Claude's own rate-limit block off a usage_update's
-// _meta. Its key is namespaced by the vendor, not by ACP.
+// _meta. Its key is namespaced by the vendor, not by ACP. A block with no status
+// is no verdict and gives nil (a status is what every consumer of RateLimit
+// reads); its isUsingOverage is still read, by usingOverage.
 func parseRateLimit(meta json.RawMessage) *RateLimit {
 	if len(meta) == 0 {
 		return nil
@@ -877,13 +883,25 @@ func parseRateLimit(meta json.RawMessage) *RateLimit {
 		return nil
 	}
 	return &RateLimit{
-		Status:      parsed.RateLimit.Status,
-		ResetsAt:    parsed.RateLimit.ResetsAt,
-		LimitType:   parsed.RateLimit.RateLimitType,
-		Utilization: parsed.RateLimit.Utilization,
-
+		Status:         parsed.RateLimit.Status,
+		ResetsAt:       parsed.RateLimit.ResetsAt,
+		LimitType:      parsed.RateLimit.RateLimitType,
+		Utilization:    parsed.RateLimit.Utilization,
 		IsUsingOverage: parsed.RateLimit.IsUsingOverage,
 	}
+}
+
+// usingOverage reads only isUsingOverage off the rate-limit block, for an event
+// parseRateLimit refuses because it carries no status. Such an event is no
+// rate-limit verdict (no RateLimit), but it still says the plan goes on through
+// overage, which keeps a window past 100% from reading as reached.
+func usingOverage(meta json.RawMessage) bool {
+	var parsed struct {
+		RateLimit *struct {
+			IsUsingOverage bool `json:"isUsingOverage"`
+		} `json:"_claude/rateLimit"`
+	}
+	return len(meta) > 0 && json.Unmarshal(meta, &parsed) == nil && parsed.RateLimit != nil && parsed.RateLimit.IsUsingOverage
 }
 
 // The percentages at which a window reads "warning" and "reached", for every

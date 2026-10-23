@@ -3,6 +3,8 @@ package agenthub
 import (
 	"context"
 	"time"
+
+	"devkit/internal/identity"
 )
 
 // Accessors the external test package needs and production has no use for.
@@ -143,4 +145,15 @@ func (s *Service) UsageSeenKnownForTest(accountID string) bool {
 	defer s.mu.Unlock()
 	_, ok := s.usageSeen[accountID]
 	return ok
+}
+
+// RecordStopForTest records a session's turn as ended with err, the way a turn's
+// failure is recorded (stop, account marks), without running a turn.
+func (s *Service) RecordStopForTest(ctx context.Context, id string, err error) error {
+	sess, gerr := s.store.GetSession(ctx, id)
+	if gerr != nil {
+		return gerr
+	}
+	s.recordStop(ctx, sess, err, false, identity.Caller{})
+	return nil
 }

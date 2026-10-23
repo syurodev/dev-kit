@@ -23,8 +23,8 @@ func (s *Service) recordStop(ctx context.Context, sess AgentSession, turnErr err
 	// A real limit keeps the account the turn ran as out until it is usable
 	// again (account_limit.go). sess is the session after any account move.
 	s.markAccountLimited(ctx, sess, stop)
-	// A dead sign-in keeps the account out until the person signs in again.
-	s.noteSignedOut(ctx, sess, stop)
+	// A dead sign-in keeps the account out until it is signed in again.
+	s.noteSignedOut(ctx, sess, stop, turnErr)
 	if err := s.store.UpdateSessionStop(ctx, sess.ID, &stop, stop.Since); err != nil {
 		log.Printf("agenthub: recording why session %s stopped: %v", sess.ID, err)
 		return

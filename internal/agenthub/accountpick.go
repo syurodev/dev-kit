@@ -56,6 +56,14 @@ type PickDecision struct {
 // PickAccount is pure. A reading is used as it is: a window's usage only grows
 // until it resets, so an old reading over the threshold is still true, and an old
 // one under it proves nothing and leaves the account eligible.
+//
+// An account that is signed out is not usable, current or not. As a candidate it
+// is skipped. As the CURRENT account it makes the session move, at once (no flip
+// hold: a dead sign-in is not a number that may drop again), to the best
+// signed-in account that is fine and not cooling down, with the reason
+// "signed out". With no such account the session stays: a sign-out alone is
+// never AllLimited (no account reached a limit), and nothing is moved to an
+// account that is no better, so a session never thrashes between dead logins.
 func PickAccount(in PickInput) PickDecision {
 	stay := PickDecision{Target: in.Current}
 	if !in.Policy.Enabled || len(in.Accounts) < 2 {
@@ -68,10 +76,13 @@ func PickAccount(in PickInput) PickDecision {
 	}
 	stay.Target = cur.ID
 	ok, why := accountFine(*cur, in.Policy, in.Now, 0)
+	if !cur.SignedIn {
+		ok, why = false, "signed out"
+	}
 	if ok {
 		return stay
 	}
-	refused := cur.ExhaustedUntil.After(in.Now)
+	refused := cur.ExhaustedUntil.After(in.Now) || !cur.SignedIn
 	if !refused && !in.SwitchedAt.IsZero() && in.Now.Sub(in.SwitchedAt) < accountFlipHold {
 		return stay
 	}
@@ -104,6 +115,12 @@ func PickAccount(in PickInput) PickDecision {
 			}
 			return PickDecision{Target: a.ID, Switch: true, Reason: reason}
 		}
+	}
+	if !cur.SignedIn {
+		// Nothing better to move to. No account reached a limit, so this is
+		// not AllLimited: the turn runs where it is and the vendor answers.
+		stay.Reason = why
+		return stay
 	}
 	if retry, all := earliestReturn(ordered, in.Now); all {
 		return PickDecision{Target: cur.ID, AllLimited: true, RetryAt: retry, Reason: why}

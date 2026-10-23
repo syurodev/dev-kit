@@ -63,7 +63,10 @@ type AccountBook interface {
 	// Put adds an account or edits its label, home, sign-in state and shared
 	// flag. It never touches usage or the exhausted marker.
 	Put(ctx context.Context, a AccountRecord) error
-	// SaveUsage merges windows into the stored ones by label.
+	// SaveUsage merges windows into the stored ones by label. A reading that is
+	// stale for every window it carries (a lower percentage of a window already
+	// stored with the same reset), and an empty list, change nothing: usage and
+	// its observed time stay as they were. An unknown id is ErrAccountNotFound.
 	SaveUsage(ctx context.Context, id string, windows []LimitWindow, source string, at time.Time) error
 	// MarkExhausted moves the marker later, never earlier.
 	MarkExhausted(ctx context.Context, id string, until time.Time) error
@@ -79,7 +82,7 @@ type AccountBook interface {
 	MarkCooldown(ctx context.Context, id string, until time.Time) error
 }
 
-// mergeWindows returns old with each of fresh replacing the window of the same
+// mergeWindowsReport returns old with each of fresh replacing the window of the same
 // label, in old's order, new labels last.
 //
 // A reading is not replaced by an older one of the same window: usage only
@@ -88,15 +91,11 @@ type AccountBook interface {
 // same known reset is the stale one and the stored window wins entirely
 // (percentage, reset and status). A different reset is a new window and a
 // window with no known reset (ResetsAt 0) cannot be told apart, so both replace.
-func mergeWindows(old, fresh []LimitWindow) []LimitWindow {
-	merged, _ := mergeWindowsReport(old, fresh)
-	return merged
-}
-
-// mergeWindowsReport is mergeWindows that also says whether any fresh window was
-// accepted (replaced one, or was appended), as opposed to every one being
-// rejected as a stale reading of a window already stored. A reading that is all
-// stale says nothing new about the account.
+//
+// It also says whether any fresh window was accepted (replaced one, or was
+// appended), as opposed to every one being rejected as a stale reading of a
+// window already stored. A reading that is all stale says nothing new about the
+// account.
 func mergeWindowsReport(old, fresh []LimitWindow) ([]LimitWindow, bool) {
 	out := append([]LimitWindow(nil), old...)
 	accepted := false

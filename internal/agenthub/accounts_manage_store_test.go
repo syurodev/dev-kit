@@ -160,3 +160,21 @@ func TestAccountBookSaveUsageKeepsObservedAtWhenEveryWindowWasStale(t *testing.T
 		t.Errorf("a stale reading must not make the usage look newer: observedAt=%v usage=%+v", got.ObservedAt, got.Usage)
 	}
 }
+
+func TestAccountBookSaveUsageWithNoWindowsChangesNothing(t *testing.T) {
+	book, _, _ := newAccountDB(t)
+	ctx := context.Background()
+	addWork(t, book)
+	first := time.Unix(1_800_000_000, 0)
+	w := agenthub.LimitWindow{Label: "5-hour", UsedPercent: 90, ResetsAt: 1_800_010_000}
+	if err := book.SaveUsage(ctx, "codex-work", []agenthub.LimitWindow{w}, "observed", first); err != nil {
+		t.Fatal(err)
+	}
+	if err := book.SaveUsage(ctx, "codex-work", nil, "checked", first.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := book.Get(ctx, "codex-work")
+	if !got.ObservedAt.Equal(first) || got.UsageSource != "observed" || len(got.Usage) != 1 {
+		t.Errorf("an empty list must be a no-op: observedAt=%v source=%q usage=%+v", got.ObservedAt, got.UsageSource, got.Usage)
+	}
+}
