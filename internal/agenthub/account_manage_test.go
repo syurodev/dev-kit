@@ -227,11 +227,11 @@ func TestRemoveAccountRefusesTheBuiltInAndOneInUse(t *testing.T) {
 
 func TestListAccountsStartsWithTheBuiltInAccount(t *testing.T) {
 	rig, _, _ := manageRig(t)
-	if _, err := rig.svc.AddAccount(uiCtx(), agenthub.AgentTypeCodex, "Work"); err != nil {
+	if _, err := rig.svc.AddAccount(uiCtx(), agenthub.AgentTypeMock, "Second"); err != nil {
 		t.Fatal(err)
 	}
-	list, err := rig.svc.ListAccounts(uiCtx(), agenthub.AgentTypeCodex)
-	if err != nil || len(list) != 2 || !list[0].Builtin() || list[1].ID != "codex-work" {
+	list, err := rig.svc.ListAccounts(uiCtx(), agenthub.AgentTypeMock)
+	if err != nil || len(list) != 3 || !list[0].Builtin() || list[2].ID != "mock-second" {
 		t.Fatalf("list = %+v, %v", list, err)
 	}
 }
@@ -532,5 +532,47 @@ func TestConcurrentAddsOfOneSlugGetDifferentIds(t *testing.T) {
 	list, _ := rig.book.List(context.Background(), agenthub.AgentTypeCodex)
 	if len(list) != 3 { // built-in + two
 		t.Fatalf("accounts = %+v", list)
+	}
+}
+
+// Listing creates the vendor's built-in row, so it only answers for a vendor the
+// service knows: a caller-chosen string must not leave a row behind.
+func TestListAccountsRefusesAnUnknownVendorAndWritesNothing(t *testing.T) {
+	rig, _, _ := manageRig(t)
+	if _, err := rig.svc.ListAccounts(uiCtx(), agenthub.AgentType("nope")); !errors.Is(err, agenthub.ErrVendorUnknown) {
+		t.Fatalf("error = %v, want ErrVendorUnknown", err)
+	}
+	if _, err := rig.book.Get(context.Background(), agenthub.BuiltinAccountID("nope")); !errors.Is(err, agenthub.ErrAccountNotFound) {
+		t.Errorf("an unknown vendor left a built-in row behind: %v", err)
+	}
+}
+
+// The row is already gone when the folder cannot be deleted, and the error says so with
+// its own sentinel (not ErrAccountHome, whose public sentence says nothing was changed).
+func TestRemoveAccountSaysWhenOnlyTheFolderWasLeft(t *testing.T) {
+	rig, dir, _ := manageRig(t)
+	ctx := uiCtx()
+	acct, err := rig.svc.AddAccount(ctx, agenthub.AgentTypeCodex, "Work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	vendorDir := filepath.Join(dir, string(agenthub.AgentTypeCodex))
+	if err := os.Chmod(vendorDir, 0o500); err != nil { // the home cannot be unlinked from it
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(vendorDir, 0o700) })
+	if f, err := os.Create(filepath.Join(vendorDir, "probe")); err == nil { // running as root: the test proves nothing
+		f.Close()
+		t.Skip("directory permissions are not enforced for this user")
+	}
+	err = rig.svc.RemoveAccount(ctx, acct.ID)
+	if !errors.Is(err, agenthub.ErrAccountFolderLeft) {
+		t.Fatalf("error = %v, want ErrAccountFolderLeft", err)
+	}
+	if errors.Is(err, agenthub.ErrAccountHome) {
+		t.Errorf("a removal that already happened must not read as the Add path's \"nothing was changed\": %v", err)
+	}
+	if _, err := rig.book.Get(context.Background(), acct.ID); !errors.Is(err, agenthub.ErrAccountNotFound) {
+		t.Errorf("the row should be gone: %v", err)
 	}
 }

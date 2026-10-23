@@ -3,7 +3,9 @@ package bridge
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"devkit/internal/agenthub"
 	"devkit/internal/agentruntime"
@@ -68,6 +70,11 @@ func TestPublicErrorMapsAgentHubSentinels(t *testing.T) {
 			"validation_failed: DevKit could not prepare a folder for that account. Nothing was changed."},
 		{fmt.Errorf("%w: %w", agenthub.ErrInvalidAccount, fmt.Errorf("%w: /secret/path", agenthub.ErrAccountHome)),
 			"validation_failed: DevKit could not prepare a folder for that account. Nothing was changed."},
+		// The row is already gone when the folder cannot be: not "nothing was changed".
+		{fmt.Errorf("%w: /home/someone/.local/share/devkit/agent-accounts/claude/x: %v", agenthub.ErrAccountFolderLeft, errors.New("permission denied")),
+			"validation_failed: The account was removed, but DevKit could not delete its folder. You can delete it by hand."},
+		{errAgentAccountsDesktopOnly,
+			"validation_failed: Changing agent accounts is only available in the desktop app: this window cannot be trusted to do it."},
 		{agenthub.ErrAccountLabelTaken, "validation_failed: You already have an account with that name."},
 		{agenthub.ErrAccountInUse, "validation_failed: A session is using that account. Close it first."},
 		{fmt.Errorf("%w: the CLI said something with a path /x/y", agenthub.ErrUsageNotCheckable), "validation_failed: This account's usage cannot be read right now."},
@@ -176,5 +183,42 @@ func TestPublicErrorMapsAccountPolicyRefusals(t *testing.T) {
 		if got == nil || got.Error() != tc.want {
 			t.Fatalf("%v → %v, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+func TestCapitalisedIsSafeForAnyFirstRune(t *testing.T) {
+	for in, want := range map[string]string{
+		"every account": "Every account",
+		"élan vital":    "Élan vital",
+		"日本語":           "日本語",
+		"":              "",
+		"\xff\xfeabc":   "\xff\xfeabc", // invalid UTF-8 comes back as it was
+		"a":             "A",
+	} {
+		if got := capitalised(in); got != want {
+			t.Errorf("capitalised(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestSentenceAfterIsOneBoundedLine(t *testing.T) {
+	sentinel := agenthub.ErrInvalidAccount
+	if got := sentenceAfter(fmt.Errorf("%w: a name is at most 40 characters", sentinel), sentinel, "fb"); got != "a name is at most 40 characters" {
+		t.Errorf("plain = %q", got)
+	}
+	if got := sentenceAfter(sentinel, sentinel, "fb"); got != "fb" {
+		t.Errorf("nothing after = %q", got)
+	}
+	if got := sentenceAfter(fmt.Errorf("%w: \n\t  \x1b\x00", sentinel), sentinel, "fb"); got != "fb" {
+		t.Errorf("only control characters = %q, want the fallback", got)
+	}
+	got := sentenceAfter(fmt.Errorf("%w: first line\nsecond\r\n\tline\x1b[2Jend\x00", sentinel), sentinel, "fb")
+	if got != "first line second line[2Jend" {
+		t.Errorf("control characters not folded: %q", got)
+	}
+	long := strings.Repeat("é", 500)
+	got = sentenceAfter(fmt.Errorf("%w: %s", sentinel, long), sentinel, "fb")
+	if n := len([]rune(got)); n > 201 || !strings.HasSuffix(got, "…") || !utf8.ValidString(got) {
+		t.Errorf("long text: %d runes, %q", n, got[:20])
 	}
 }

@@ -24,6 +24,10 @@ var (
 	ErrAccountLabelTaken = errors.New("agenthub.accountLabelTaken")
 	// ErrAccountInUse: a running session's process runs as the account.
 	ErrAccountInUse = errors.New("agenthub.accountInUse")
+	// ErrAccountFolderLeft: the account was removed but its folder could not be
+	// deleted. Not an ErrAccountHome: that one is "nothing was changed", and here the
+	// row is already gone.
+	ErrAccountFolderLeft = errors.New("agenthub.accountFolderLeft")
 )
 
 const maxAccountLabel = 40
@@ -158,6 +162,11 @@ func (s *Service) ListAccounts(ctx context.Context, vendor AgentType) ([]Account
 	book, err := s.accountBook(ctx)
 	if err != nil {
 		return nil, err
+	}
+	// List creates the vendor's built-in row, so only a vendor this service runs may
+	// reach it: a caller-chosen string must not leave a row behind.
+	if _, ok := s.reg.Get(vendor); !ok {
+		return nil, ErrVendorUnknown
 	}
 	return book.List(ctx, vendor)
 }
@@ -326,7 +335,7 @@ func (s *Service) RemoveAccount(ctx context.Context, id string) error {
 	default:
 		if err := os.RemoveAll(acct.HomeDir); err != nil {
 			s.accountsChanged()
-			return fmt.Errorf("%w: the account was removed but its folder could not be: %v", ErrAccountHome, err)
+			return fmt.Errorf("%w: %s: %v", ErrAccountFolderLeft, acct.HomeDir, err)
 		}
 	}
 	s.accountsChanged()

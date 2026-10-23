@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -19,15 +20,24 @@ import (
 // metadata carries ids and booleans only — never a label, a folder, a usage number,
 // an error text or anything a login printed.
 
+// errAgentAccountsDesktopOnly: changing accounts, or the rules that act on them, does
+// not exist in server mode. That bridge is unauthenticated loopback where an unstamped
+// call is the window, so any local process could fabricate the terms acknowledgement,
+// start a login or remove an account.
+var errAgentAccountsDesktopOnly = errors.New("bridge.agentAccountsDesktopOnly")
+
 // AgentAccountInfo is one vendor account as Settings draws it. Times are Unix seconds
 // (0 = none). The account's home folder and every credential stay in Go.
 type AgentAccountInfo struct {
-	ID             string                 `json:"id"`
-	Vendor         string                 `json:"vendor"`
-	Label          string                 `json:"label"`
-	Builtin        bool                   `json:"builtin"`
-	SignedIn       bool                   `json:"signedIn"`
-	Shared         bool                   `json:"shared"`
+	ID       string `json:"id"`
+	Vendor   string `json:"vendor"`
+	Label    string `json:"label"`
+	Builtin  bool   `json:"builtin"`
+	SignedIn bool   `json:"signedIn"`
+	Shared   bool   `json:"shared"`
+	// ExhaustedUntil and CooldownUntil are when a refusal or a failed probe keeps the
+	// account out. They may be past values (nothing clears them when time passes):
+	// a consumer must treat a time at or before now as "not limited".
 	ExhaustedUntil int64                  `json:"exhaustedUntil"`
 	CooldownUntil  int64                  `json:"cooldownUntil"`
 	Usage          []agenthub.LimitWindow `json:"usage"`
@@ -58,6 +68,10 @@ var accountIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 
 // accountScopeID keeps a caller-chosen id out of the capability scope and the audit
 // metadata unless it has the shape DevKit itself generates (a vendor-label slug).
+//
+// "list" and "new" are fixed scope names ("account:list", "account:new"). They cannot
+// collide with an account's scope: DevKit-generated ids always start with "<vendor>-"
+// (accountIDCandidate), so none is the bare word "list" or "new".
 func accountScopeID(id string) string {
 	if accountIDPattern.MatchString(id) {
 		return id
@@ -71,6 +85,9 @@ func (s *AppService) agentAccountsCall(ctx context.Context, capability, scope st
 	return s.call(ctx, "builtin.agenthub", capability, scope, meta, func(callCtx context.Context) (any, error) {
 		if err := uiOnly(callCtx); err != nil {
 			return nil, err
+		}
+		if capability != "agenthub:read" && s.inServerMode() {
+			return nil, errAgentAccountsDesktopOnly
 		}
 		svc, err := s.agentHubService()
 		if err != nil {
@@ -326,6 +343,9 @@ func (s *AppService) AgentAccountPolicySet(ctx context.Context, state AgentAccou
 	}, func(callCtx context.Context) (any, error) {
 		if err := uiOnly(callCtx); err != nil {
 			return nil, err
+		}
+		if s.inServerMode() {
+			return nil, errAgentAccountsDesktopOnly
 		}
 		if s.container.Preferences == nil {
 			return nil, errPreferencesUnavailable
