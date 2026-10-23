@@ -331,6 +331,104 @@ export function AccountsVerify(id: string): $CancellablePromise<accounts$0.Accou
 }
 
 /**
+ * AgentAccountPolicyGet reads the switching rules.
+ */
+export function AgentAccountPolicyGet(): $CancellablePromise<$models.AgentAccountPolicyState> {
+    return $Call.ByID(1493252064);
+}
+
+/**
+ * AgentAccountPolicySet replaces the rules when state.Revision is the stored one.
+ * acknowledgeRisk records that the person accepted the terms warning; the timestamp is
+ * DevKit's own (RiskAcknowledgedAt in state is ignored) and a stored acknowledgement
+ * is kept on later saves. A vendor cannot be enabled without one: the preferences
+ * validator refuses with the terms sentence.
+ */
+export function AgentAccountPolicySet(state: $models.AgentAccountPolicyState, acknowledgeRisk: boolean): $CancellablePromise<$models.AgentAccountPolicyState> {
+    return $Call.ByID(3673361996, state, acknowledgeRisk);
+}
+
+/**
+ * AgentAccountsAdd adds an account: its folder and its link to the shared
+ * conversation store. Nothing is signed in yet.
+ */
+export function AgentAccountsAdd(vendor: string, label: string): $CancellablePromise<$models.AgentAccountInfo> {
+    return $Call.ByID(1531749702, vendor, label);
+}
+
+/**
+ * AgentAccountsList lists a vendor's accounts, its built-in one first.
+ */
+export function AgentAccountsList(vendor: string): $CancellablePromise<$models.AgentAccountInfo[] | null> {
+    return $Call.ByID(2254272907, vendor);
+}
+
+/**
+ * AgentAccountsRefreshStatus re-reads whether the account is signed in.
+ */
+export function AgentAccountsRefreshStatus(id: string): $CancellablePromise<$models.AgentAccountInfo> {
+    return $Call.ByID(1819544616, id);
+}
+
+/**
+ * AgentAccountsRefreshUsage asks the vendor what the account has left. It starts a
+ * short-lived vendor process, so the Service limits how often it runs per account.
+ */
+export function AgentAccountsRefreshUsage(id: string): $CancellablePromise<$models.AgentAccountInfo> {
+    return $Call.ByID(1378653233, id);
+}
+
+/**
+ * AgentAccountsRemove removes an added account and its folder.
+ */
+export function AgentAccountsRemove(id: string): $CancellablePromise<void> {
+    return $Call.ByID(414856559, id);
+}
+
+/**
+ * AgentAccountsRename renames an added account; the built-in one has a fixed name.
+ */
+export function AgentAccountsRename(id: string, label: string): $CancellablePromise<$models.AgentAccountInfo> {
+    return $Call.ByID(1535605305, id, label);
+}
+
+/**
+ * AgentAccountsSetShared says whether other people also use the login, which makes
+ * what DevKit saw of its usage a lower bound.
+ */
+export function AgentAccountsSetShared(id: string, shared: boolean): $CancellablePromise<$models.AgentAccountInfo> {
+    return $Call.ByID(563316608, id, shared);
+}
+
+/**
+ * AgentAccountsStartBrowserSignIn starts the in-app sign-in (Codex) at an added
+ * account's home. The flow ends with agenthub:signInCompleted, which carries the
+ * account id; AgentHubCancelSignIn abandons it.
+ */
+export function AgentAccountsStartBrowserSignIn(id: string): $CancellablePromise<agenthub$0.SignInFlow> {
+    return $Call.ByID(4093664057, id);
+}
+
+/**
+ * AgentAccountsStartDeviceSignIn is the same by code, for a machine with no browser.
+ */
+export function AgentAccountsStartDeviceSignIn(id: string): $CancellablePromise<agenthub$0.SignInFlow> {
+    return $Call.ByID(582137541, id);
+}
+
+/**
+ * AgentAccountsStartSignIn runs the vendor's terminal sign-in (Claude) for an added
+ * account in a new terminal session and returns its id, for a terminal tab to attach
+ * to. Only a method id crosses the bridge, never a command. It mirrors
+ * AgentHubStartSignIn; when the terminal exits the account's status is read again
+ * (AfterAccountSignIn, which has no caller identity and is only ever reached from
+ * here, never from the bridge or an MCP tool).
+ */
+export function AgentAccountsStartSignIn(id: string, methodID: string, rows: number, cols: number): $CancellablePromise<string> {
+    return $Call.ByID(2732222239, id, methodID, rows, cols);
+}
+
+/**
  * AgentHubApplyRestore carries out a plan. overwrite names the conflicts the
  * user chose to force; the backend honours only the ones that can be forced.
  */

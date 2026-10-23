@@ -19,10 +19,14 @@ type ServerModeAdapter struct {
 }
 
 var (
-	_ SessionLoader = (*ServerModeAdapter)(nil)
-	_ AuthProvider  = (*ServerModeAdapter)(nil)
-	_ RuntimeForker = (*ServerModeAdapter)(nil)
-	_ InAppSignIn   = (*ServerModeAdapter)(nil)
+	_ SessionLoader       = (*ServerModeAdapter)(nil)
+	_ AuthProvider        = (*ServerModeAdapter)(nil)
+	_ RuntimeForker       = (*ServerModeAdapter)(nil)
+	_ InAppSignIn         = (*ServerModeAdapter)(nil)
+	_ AccountAuthProvider = (*ServerModeAdapter)(nil)
+	_ AccountInAppSignIn  = (*ServerModeAdapter)(nil)
+	_ SignInChecker       = (*ServerModeAdapter)(nil)
+	_ UsageChecker        = (*ServerModeAdapter)(nil)
 )
 
 // NewServerModeAdapter returns a stub for t whose sessions never start.
@@ -91,3 +95,24 @@ func (a *ServerModeAdapter) CancelSignIn(context.Context, string) error {
 }
 
 func (a *ServerModeAdapter) SignOut(context.Context) error { return ErrUnavailableInServerMode }
+
+// The per-account sign-in and status checks refuse for the same reason.
+func (a *ServerModeAdapter) SignInCommandFor(context.Context, string, string) (SignInCommand, error) {
+	return SignInCommand{}, ErrUnavailableInServerMode
+}
+
+func (a *ServerModeAdapter) StartBrowserSignInAt(context.Context, OpenSpec, string) (SignInFlow, error) {
+	return SignInFlow{}, ErrUnavailableInServerMode
+}
+
+func (a *ServerModeAdapter) StartDeviceSignInAt(context.Context, OpenSpec, string) (SignInFlow, error) {
+	return SignInFlow{}, ErrUnavailableInServerMode
+}
+
+func (a *ServerModeAdapter) CheckSignIn(context.Context, OpenSpec) (SignInState, error) {
+	return SignInState{}, ErrUnavailableInServerMode
+}
+
+func (a *ServerModeAdapter) CheckUsage(context.Context, OpenSpec) ([]LimitWindow, error) {
+	return nil, ErrUnavailableInServerMode
+}

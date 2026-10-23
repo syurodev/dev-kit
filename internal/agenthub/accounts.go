@@ -30,7 +30,10 @@ type AccountRecord struct {
 	// ExhaustedUntil is when a real limit refusal says the account is usable
 	// again; zero (or past) means not marked.
 	ExhaustedUntil time.Time
-	Usage          []LimitWindow
+	// CooldownUntil keeps the account out of selection until then without saying
+	// it reached a limit: a reopen in its home failed. Zero or past: not cooling.
+	CooldownUntil time.Time
+	Usage         []LimitWindow
 	// UsageSource is "observed" (from a session's own updates) or "checked"
 	// (asked of the vendor). Empty when there is no reading.
 	UsageSource string
@@ -57,16 +60,35 @@ type AccountBook interface {
 	// one on first use.
 	List(ctx context.Context, vendor AgentType) ([]AccountRecord, error)
 	Get(ctx context.Context, id string) (AccountRecord, error)
-	// Put adds an account or edits its label, home, sign-in state and shared
-	// flag. It never touches usage or the exhausted marker.
+	// Put adds an account, or rewrites an existing one's label, home and shared
+	// flag. The sign-in state is written only when the row is created: after that it
+	// belongs to SetSignedIn, so a Put made from an earlier read cannot undo a
+	// status check that ran in between. It never touches usage or the markers.
 	Put(ctx context.Context, a AccountRecord) error
-	// SaveUsage merges windows into the stored ones by label.
+	// SetLabel and SetShared change one field of an existing account and nothing
+	// else; an unknown id is ErrAccountNotFound and no row is created.
+	SetLabel(ctx context.Context, id, label string) error
+	SetShared(ctx context.Context, id string, shared bool) error
+	// SaveUsage merges windows into the stored ones by label. A reading that is
+	// stale for every window it carries (a lower percentage of a window already
+	// stored with the same reset), and an empty list, change nothing: usage and
+	// its observed time stay as they were. An unknown id is ErrAccountNotFound.
 	SaveUsage(ctx context.Context, id string, windows []LimitWindow, source string, at time.Time) error
 	// MarkExhausted moves the marker later, never earlier.
 	MarkExhausted(ctx context.Context, id string, until time.Time) error
+	// Delete removes an added account and returns its sessions to the built-in
+	// account. The built-in account cannot be deleted.
+	Delete(ctx context.Context, id string) error
+	// SetSignedIn records what the vendor's own status said.
+	SetSignedIn(ctx context.Context, id string, signedIn bool) error
+	// ReplaceUsage stores windows as the whole reading: an on-demand check returns
+	// the full set, unlike an observed update, which carries some windows.
+	ReplaceUsage(ctx context.Context, id string, windows []LimitWindow, source string, at time.Time) error
+	// MarkCooldown moves the cooldown later, never earlier.
+	MarkCooldown(ctx context.Context, id string, until time.Time) error
 }
 
-// mergeWindows returns old with each of fresh replacing the window of the same
+// mergeWindowsReport returns old with each of fresh replacing the window of the same
 // label, in old's order, new labels last.
 //
 // A reading is not replaced by an older one of the same window: usage only
@@ -75,8 +97,14 @@ type AccountBook interface {
 // same known reset is the stale one and the stored window wins entirely
 // (percentage, reset and status). A different reset is a new window and a
 // window with no known reset (ResetsAt 0) cannot be told apart, so both replace.
-func mergeWindows(old, fresh []LimitWindow) []LimitWindow {
+//
+// It also says whether any fresh window was accepted (replaced one, or was
+// appended), as opposed to every one being rejected as a stale reading of a
+// window already stored. A reading that is all stale says nothing new about the
+// account.
+func mergeWindowsReport(old, fresh []LimitWindow) ([]LimitWindow, bool) {
 	out := append([]LimitWindow(nil), old...)
+	accepted := false
 	for _, w := range fresh {
 		replaced := false
 		for i := range out {
@@ -84,6 +112,7 @@ func mergeWindows(old, fresh []LimitWindow) []LimitWindow {
 				stale := w.ResetsAt != 0 && out[i].ResetsAt == w.ResetsAt && w.UsedPercent < out[i].UsedPercent
 				if !stale {
 					out[i] = w
+					accepted = true
 				}
 				replaced = true
 				break
@@ -91,9 +120,10 @@ func mergeWindows(old, fresh []LimitWindow) []LimitWindow {
 		}
 		if !replaced {
 			out = append(out, w)
+			accepted = true
 		}
 	}
-	return out
+	return out, accepted
 }
 
 // isWeeklyLabel reports whether a window is one of the weekly ones ("Weekly",

@@ -353,6 +353,10 @@ func main() {
 	// is never the session's (Codex spec §6). Also the built-in account's home
 	// for the vendor account feature below, so the two cannot drift.
 	codexHome := filepath.Join(dataDir, "agent-homes", "codex")
+	// Set once the agent service exists, below: a finished sign-in into an ADDED
+	// account has it read the account's status again (the only Go-side caller of
+	// AfterAccountSignIn besides the bridge's terminal-exit goroutine).
+	var accountSignInDone func(accountID string)
 	codexOpts := agenthub.CodexOptions{
 		Home: codexHome,
 		Runtime: func() (agentruntime.Resolved, error) {
@@ -364,18 +368,23 @@ func main() {
 		// is open.
 		APIKey: app.CodexAPIKey{C: container}.Key,
 		OnSignInCompleted: func(r agenthub.SignInResult) {
-			if r.Success {
-				// Accounts notes the sign-in so its list answers "what am I
-				// signed in to". The credential stays in Codex's home.
+			if r.Success && r.AccountID == "" {
+				// Accounts notes the built-in sign-in so its list answers "what
+				// am I signed in to". The credential stays in Codex's home. An
+				// added account's state lives in agent_accounts.signed_in instead.
 				if err := app.RecordAgentSignIn(container, r.Agent); err != nil {
 					log.Printf("agenthub: sign-in: accounts note: %v", err)
 				}
 			}
+			if r.AccountID != "" && accountSignInDone != nil {
+				go accountSignInDone(r.AccountID)
+			}
 			emitAppEvent("agenthub:signInCompleted", map[string]any{
-				"agent":   string(r.Agent),
-				"loginId": r.LoginID,
-				"success": r.Success,
-				"error":   r.Error,
+				"agent":     string(r.Agent),
+				"loginId":   r.LoginID,
+				"success":   r.Success,
+				"error":     r.Error,
+				"accountId": r.AccountID,
 			})
 		},
 	}
@@ -619,6 +628,19 @@ func main() {
 		}
 		return ""
 	}
+	// Added accounts live under <data>/agent-accounts/<vendor>/<id>, hidden from every
+	// session except the one that runs as the account (protect.go dataDirSecrets).
+	// AccountsDirOf spells the folder exactly as ProtectedPaths below spells its deny
+	// entry, from the same dataDir: the carve-out is lexical. Only Claude and Codex
+	// have added accounts. The window learns of any change from one payload-free
+	// event and of a move from a second that carries only ids and the reason.
+	agentSvc.AccountsDir = agenthub.AccountsDirOf(dataDir)
+	agentSvc.AccountVendors = []agenthub.AgentType{agenthub.AgentTypeClaude, agenthub.AgentTypeCodex}
+	agentSvc.OnAccountsChanged = func() { emitAppEvent("agentaccounts:changed", map[string]any{}) }
+	agentSvc.OnAccountSwitched = func(sessionID, from, to, reason string) {
+		emitAppEvent("agentaccounts:switched", map[string]any{"sessionId": sessionID, "from": from, "to": to, "reason": reason})
+	}
+	accountSignInDone = agentSvc.AfterAccountSignIn
 	agentSvc.ResolveElicitation = agentElicitations.Resolve
 	agentSvc.CancelPendingElicitations = agentElicitations.CancelSession
 	// Read fresh on every spawn/resume/fork (see Service.SandboxExtras), so a

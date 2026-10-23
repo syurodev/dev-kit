@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestMergeWindows(t *testing.T) {
+func TestMergeWindowsReport(t *testing.T) {
 	w := func(label string, pct float64) LimitWindow { return LimitWindow{Label: label, UsedPercent: pct} }
 	wr := func(label string, pct float64, resets int64, status string) LimitWindow {
 		return LimitWindow{Label: label, UsedPercent: pct, ResetsAt: resets, Status: status}
@@ -39,7 +39,7 @@ func TestMergeWindows(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			old := append([]LimitWindow(nil), tc.old...)
-			got := mergeWindows(tc.old, tc.fresh)
+			got, _ := mergeWindowsReport(tc.old, tc.fresh)
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("merge = %+v, want %+v", got, tc.want)
 			}
@@ -47,5 +47,21 @@ func TestMergeWindows(t *testing.T) {
 				t.Errorf("old was modified: %+v, was %+v", tc.old, old)
 			}
 		})
+	}
+}
+
+func TestMergeWindowsReportSaysWhetherAnythingWasAccepted(t *testing.T) {
+	stored := []LimitWindow{{Label: "5-hour", UsedPercent: 90, ResetsAt: 1000}}
+	if _, accepted := mergeWindowsReport(stored, []LimitWindow{{Label: "5-hour", UsedPercent: 10, ResetsAt: 1000}}); accepted {
+		t.Error("a lower reading of the same window is stale: nothing accepted")
+	}
+	if _, accepted := mergeWindowsReport(stored, []LimitWindow{{Label: "5-hour", UsedPercent: 95, ResetsAt: 1000}}); !accepted {
+		t.Error("a higher reading is accepted")
+	}
+	if _, accepted := mergeWindowsReport(stored, []LimitWindow{{Label: "Weekly", UsedPercent: 1, ResetsAt: 2000}}); !accepted {
+		t.Error("a new window is accepted")
+	}
+	if _, accepted := mergeWindowsReport(stored, nil); accepted {
+		t.Error("an empty reading accepts nothing")
 	}
 }

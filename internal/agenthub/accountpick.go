@@ -3,6 +3,7 @@ package agenthub
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"devkit/internal/preferences"
@@ -55,6 +56,14 @@ type PickDecision struct {
 // PickAccount is pure. A reading is used as it is: a window's usage only grows
 // until it resets, so an old reading over the threshold is still true, and an old
 // one under it proves nothing and leaves the account eligible.
+//
+// An account that is signed out is not usable, current or not. As a candidate it
+// is skipped. As the CURRENT account it makes the session move, at once (no flip
+// hold: a dead sign-in is not a number that may drop again), to the best
+// signed-in account that is fine and not cooling down, with the reason
+// "signed out". With no such account the session stays: a sign-out alone is
+// never AllLimited (no account reached a limit), and nothing is moved to an
+// account that is no better, so a session never thrashes between dead logins.
 func PickAccount(in PickInput) PickDecision {
 	stay := PickDecision{Target: in.Current}
 	if !in.Policy.Enabled || len(in.Accounts) < 2 {
@@ -67,15 +76,32 @@ func PickAccount(in PickInput) PickDecision {
 	}
 	stay.Target = cur.ID
 	ok, why := accountFine(*cur, in.Policy, in.Now, 0)
+	if !cur.SignedIn {
+		ok, why = false, "signed out"
+	}
 	if ok {
 		return stay
 	}
-	refused := cur.ExhaustedUntil.After(in.Now)
+	refused := cur.ExhaustedUntil.After(in.Now) || !cur.SignedIn
 	if !refused && !in.SwitchedAt.IsZero() && in.Now.Sub(in.SwitchedAt) < accountFlipHold {
 		return stay
 	}
+	var skipped []string
 	for _, a := range ordered {
-		if a.ID == cur.ID || !a.SignedIn {
+		if a.ID == cur.ID {
+			continue
+		}
+		if !a.SignedIn {
+			name := a.Label
+			if name == "" {
+				name = a.ID
+			}
+			skipped = append(skipped, name)
+			continue
+		}
+		// A cooldown keeps a candidate out, not the account a session already
+		// runs on: another session's failed reopen says nothing about this one.
+		if a.CooldownUntil.After(in.Now) {
 			continue
 		}
 		margin := 0.0
@@ -83,18 +109,33 @@ func PickAccount(in PickInput) PickDecision {
 			margin = accountReturnGap
 		}
 		if fine, _ := accountFine(a, in.Policy, in.Now, margin); fine {
-			return PickDecision{Target: a.ID, Switch: true, Reason: why}
+			reason := why
+			if len(skipped) > 0 {
+				reason += "; skipped " + strings.Join(skipped, ", ") + " (signed out)"
+			}
+			return PickDecision{Target: a.ID, Switch: true, Reason: reason}
 		}
+	}
+	if !cur.SignedIn {
+		// Nothing better to move to. No account reached a limit, so this is
+		// not AllLimited: the turn runs where it is and the vendor answers.
+		stay.Reason = why
+		return stay
 	}
 	if retry, all := earliestReturn(ordered, in.Now); all {
 		return PickDecision{Target: cur.ID, AllLimited: true, RetryAt: retry, Reason: why}
 	}
+	// Exhausted, with the only alternative cooling down: stay, and do not say
+	// AllLimited. The turn runs on the refused account and the person sees the
+	// vendor's own refusal, because a just-failed reopen is the strongest
+	// evidence about the target.
 	stay.Reason = why
 	return stay
 }
 
 // accountFine reports whether an account may run a turn: not marked exhausted
 // and every window not yet reset under its threshold (lowered by margin). A
+// cooldown is not read here: PickAccount applies it to candidates only. A
 // weekly window (isWeeklyLabel) uses the policy's weekly threshold in place of
 // the main one when that is set. A non-positive main threshold falls back to the
 // default. A window with ResetsAt == 0 has no known reset and stays live. margin
@@ -155,7 +196,8 @@ func findAccount(accounts []AccountRecord, id string) *AccountRecord {
 }
 
 // earliestReturn reports whether every signed-in account is marked exhausted
-// and, if so, when the first comes back.
+// and, if so, when the first comes back. An account that is only cooling down
+// is not exhausted, so it makes this report false: nothing has reached a limit.
 func earliestReturn(accounts []AccountRecord, now time.Time) (time.Time, bool) {
 	var first time.Time
 	signedIn := 0

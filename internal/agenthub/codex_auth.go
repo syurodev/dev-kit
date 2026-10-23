@@ -39,6 +39,9 @@ type SignInResult struct {
 	LoginID string    `json:"loginId"`
 	Success bool      `json:"success"`
 	Error   string    `json:"error,omitempty"`
+	// AccountID is the added account the flow signed in to; empty for the built-in
+	// sign-in, which is how the window tells them apart.
+	AccountID string `json:"accountId,omitempty"`
 }
 
 // Sign-in methods a flow can use.
@@ -143,6 +146,8 @@ type codexSignIn struct {
 	work    string
 	timer   *time.Timer
 	once    sync.Once
+	// accountID is the added account this flow was started for ("" for the built-in).
+	accountID string
 	// early is a completion that arrived before login/start answered.
 	early *SignInResult
 }
@@ -150,7 +155,18 @@ type codexSignIn struct {
 // StartBrowserSignIn is the default (spec §6.1): Codex serves the callback on
 // localhost:1455 from inside the jail, which shares the host's loopback.
 func (a *CodexAdapter) StartBrowserSignIn(ctx context.Context) (SignInFlow, error) {
-	return a.startSignIn(ctx, codexapp.LoginChatGPT, SignInBrowser)
+	return a.startSignIn(ctx, OpenSpec{}, "", codexapp.LoginChatGPT, SignInBrowser)
+}
+
+// StartBrowserSignInAt is StartBrowserSignIn for an added account: the login is
+// written in spec.AccountHome, and the result carries accountID. The sign-in holds
+// the loopback callback port, so starting one cancels another in progress, whichever
+// account it was for.
+func (a *CodexAdapter) StartBrowserSignInAt(ctx context.Context, spec OpenSpec, accountID string) (SignInFlow, error) {
+	if err := checkSignInHome(spec); err != nil {
+		return SignInFlow{}, err
+	}
+	return a.startSignIn(ctx, spec, accountID, codexapp.LoginChatGPT, SignInBrowser)
 }
 
 // StartDeviceSignIn is for a machine that cannot open a browser. It is off by
@@ -158,10 +174,35 @@ func (a *CodexAdapter) StartBrowserSignIn(ctx context.Context) (SignInFlow, erro
 // ChatGPT → Settings → Security first, and Codex does not say so — the UI has
 // to.
 func (a *CodexAdapter) StartDeviceSignIn(ctx context.Context) (SignInFlow, error) {
-	return a.startSignIn(ctx, codexapp.LoginDeviceCode, SignInDeviceCode)
+	return a.startSignIn(ctx, OpenSpec{}, "", codexapp.LoginDeviceCode, SignInDeviceCode)
 }
 
-func (a *CodexAdapter) startSignIn(ctx context.Context, loginType, method string) (SignInFlow, error) {
+// StartDeviceSignInAt is StartDeviceSignIn for an added account (see
+// StartBrowserSignInAt).
+func (a *CodexAdapter) StartDeviceSignInAt(ctx context.Context, spec OpenSpec, accountID string) (SignInFlow, error) {
+	if err := checkSignInHome(spec); err != nil {
+		return SignInFlow{}, err
+	}
+	return a.startSignIn(ctx, spec, accountID, codexapp.LoginDeviceCode, SignInDeviceCode)
+}
+
+var _ AccountInAppSignIn = (*CodexAdapter)(nil)
+
+// checkSignInHome refuses an account home that is not absolute, as SignInCommandFor
+// does: a relative one would put the login wherever the process happens to run.
+// An empty home is the built-in account's.
+func checkSignInHome(spec OpenSpec) error {
+	if spec.AccountHome != "" && !filepath.IsAbs(spec.AccountHome) {
+		return fmt.Errorf("%w: the account's home must be an absolute path", ErrAccountHome)
+	}
+	return nil
+}
+
+// startSignIn runs the login in a short-lived app-server under spec's jail: the
+// zero spec is the built-in home, a spec with an AccountHome is that account's. The
+// login always writes the file store and never reads the global API key, which
+// belongs to the built-in account.
+func (a *CodexAdapter) startSignIn(ctx context.Context, spec OpenSpec, accountID, loginType, method string) (SignInFlow, error) {
 	// One start at a time, so two quick clicks cannot both find no flow and
 	// leave the first running, holding the callback port, until it times out.
 	a.signInStart.Lock()
@@ -183,8 +224,8 @@ func (a *CodexAdapter) startSignIn(ctx context.Context, loginType, method string
 		l.releaseLease()
 		return SignInFlow{}, err
 	}
-	s := &codexSignIn{work: work}
-	p, err := a.start(work, l, OpenSpec{}, codexStoreFile, &codexSignInHandler{a: a, s: s}, codexLoginCallbackPort)
+	s := &codexSignIn{work: work, accountID: accountID}
+	p, err := a.start(work, l, spec, codexStoreFile, &codexSignInHandler{a: a, s: s}, codexLoginCallbackPort)
 	if err != nil {
 		_ = os.RemoveAll(work)
 		return SignInFlow{}, err
@@ -260,6 +301,7 @@ func (a *CodexAdapter) finishSignIn(s *codexSignIn, result SignInResult, withdra
 		// The code and the page are never logged; whether it worked is.
 		log.Printf("agenthub: codex: sign-in ended (success %v)", result.Success)
 		result.Agent = AgentTypeCodex
+		result.AccountID = s.accountID
 		if a.opts.OnSignInCompleted != nil {
 			a.opts.OnSignInCompleted(result)
 		}
@@ -336,8 +378,15 @@ func (a *CodexAdapter) SignInStatus(ctx context.Context) (SignInStatus, error) {
 	if key != "" {
 		return SignInStatus{SignedIn: true, Method: codexapp.AccountAPIKey}, nil
 	}
+	return a.signInStateAt(ctx, OpenSpec{})
+}
+
+// signInStateAt asks a fresh app-server in spec's home (the built-in home for the
+// zero spec) what account/read says. It never reads the global API key: that key
+// belongs to the built-in account, and an added account's home has its own login.
+func (a *CodexAdapter) signInStateAt(ctx context.Context, spec OpenSpec) (SignInStatus, error) {
 	var res codexapp.GetAccountResponse
-	err = a.oneShot(ctx, func(ctx context.Context, p *codexProcess) error {
+	err := a.oneShot(ctx, spec, func(ctx context.Context, p *codexProcess) error {
 		if err := p.conn.Call(ctx, codexapp.MethodAccountRead, map[string]any{"refreshToken": false}, &res); err != nil {
 			return p.failure("account/read", err)
 		}
@@ -362,7 +411,7 @@ func (a *CodexAdapter) SignInStatus(ctx context.Context) (SignInStatus, error) {
 // SignOut removes the ChatGPT sign-in from the home. An API key is not
 // Codex's to forget: it is unlinked where it was chosen, in Settings.
 func (a *CodexAdapter) SignOut(ctx context.Context) error {
-	return a.oneShot(ctx, func(ctx context.Context, p *codexProcess) error {
+	return a.oneShot(ctx, OpenSpec{}, func(ctx context.Context, p *codexProcess) error {
 		if err := p.conn.Call(ctx, codexapp.MethodAccountLogout, nil, nil); err != nil {
 			return p.failure("account/logout", err)
 		}
@@ -370,8 +419,9 @@ func (a *CodexAdapter) SignOut(ctx context.Context) error {
 	})
 }
 
-// oneShot runs call against a fresh app-server under the jail, then stops it.
-func (a *CodexAdapter) oneShot(ctx context.Context, call func(context.Context, *codexProcess) error) error {
+// oneShot runs call against a fresh app-server under the jail, then stops it. spec
+// carries the account home (the zero spec is the built-in home).
+func (a *CodexAdapter) oneShot(ctx context.Context, spec OpenSpec, call func(context.Context, *codexProcess) error) error {
 	l, err := a.resolveCommand()
 	if err != nil {
 		return err
@@ -382,7 +432,7 @@ func (a *CodexAdapter) oneShot(ctx context.Context, call func(context.Context, *
 		return err
 	}
 	defer os.RemoveAll(work)
-	p, err := a.start(work, l, OpenSpec{}, codexStoreFile, codexNoHandler{})
+	p, err := a.start(work, l, spec, codexStoreFile, codexNoHandler{})
 	if err != nil {
 		return err
 	}

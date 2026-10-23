@@ -7,6 +7,21 @@ import (
 	"strings"
 )
 
+// accountsDirName is the entry of the data directory that holds each added
+// vendor account's home (<data>/agent-accounts/<vendor>/<id>).
+const accountsDirName = "agent-accounts"
+
+// AccountsDirOf is Service.AccountsDir for a data directory. carveOutAll matches
+// paths lexically, so the accounts folder must be spelled exactly as
+// ProtectDataDir spells its deny entry for it: both are filepath.Join(dataDir, …)
+// of the same dataDir string, and main.go must pass the same one to both.
+func AccountsDirOf(dataDir string) string {
+	if dataDir == "" {
+		return ""
+	}
+	return filepath.Join(dataDir, accountsDirName)
+}
+
 // dataDirSecrets are the entries of DevKit's data directory hidden even when
 // they do not exist yet at session open: Seatbelt denies a path that is not
 // there, and the database's WAL files come and go.
@@ -18,7 +33,7 @@ var dataDirSecrets = []string{
 	"consoles",        // saved query consoles
 	"agent-documents", // PDFs attached to sessions: read through the pdf.* tools, scoped per session
 	"pdf-engine",      // the PDF engine's compiled-module cache
-	"agent-accounts",  // each added account's own home: one account's session reads only its own
+	accountsDirName,   // each added account's own home: one account's session reads only its own
 }
 
 // ProtectDataDir is what to hide of DevKit's data directory from an agent

@@ -259,7 +259,7 @@ func TestUsageUpdatesNeedNoAccountBook(t *testing.T) {
 }
 
 func TestAnUnchangedUsageReadingIsNotAChange(t *testing.T) {
-	svc := &Service{usageSeen: map[string][]LimitWindow{}}
+	svc := &Service{usageSeen: map[string]seenUsage{}}
 	w := []LimitWindow{{Label: "5-hour", UsedPercent: 50, ResetsAt: 1900000000}}
 	if !svc.usageChanged("a", w) {
 		t.Fatal("the first reading is a change")
@@ -319,5 +319,23 @@ func TestUsageIsNotObservedForAVendorThePersonDidNotConfigure(t *testing.T) {
 				t.Errorf("log = %q, want no write attempted", logged.String())
 			}
 		})
+	}
+}
+
+func TestAnIdenticalUsageReadingIsWrittenAgainAfterAMinute(t *testing.T) {
+	svc := &Service{usageSeen: map[string]seenUsage{}}
+	now := time.Unix(1_800_000_000, 0)
+	svc.usageClock = func() time.Time { return now }
+	w := []LimitWindow{{Label: "5-hour", UsedPercent: 50, ResetsAt: 1_900_000_000}}
+	if !svc.usageChanged("a", w) {
+		t.Fatal("the first reading is a change")
+	}
+	now = now.Add(30 * time.Second)
+	if svc.usageChanged("a", w) {
+		t.Error("the same reading 30 s later needs no write")
+	}
+	now = now.Add(31 * time.Second)
+	if !svc.usageChanged("a", w) {
+		t.Error("the same reading after a minute must be written so observed_at stays fresh")
 	}
 }

@@ -240,3 +240,18 @@ func TestUtilCommandsAreNotGrantedUnderTheHashCapability(t *testing.T) {
 		}
 	}
 }
+
+func TestNewContainerGrantsAgentAccounts(t *testing.T) {
+	container := NewContainer()
+	for _, grant := range []permissions.Grant{
+		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_account_policy"},
+		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_account_policy"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "account:list"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "account:new"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "account:claude-work"},
+	} {
+		if !container.Permissions.Check(permissions.Request(grant)).Allowed {
+			t.Errorf("%s %s on %s was denied", grant.SubjectID, grant.Capability, grant.Scope)
+		}
+	}
+}

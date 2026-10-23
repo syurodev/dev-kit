@@ -20,6 +20,7 @@ const (
 	MethodThreadCompactStart    = "thread/compact/start"
 	MethodReviewStart           = "review/start"
 	MethodAccountRead           = "account/read"
+	MethodRateLimitsRead        = "account/rateLimits/read"
 	MethodAccountLoginStart     = "account/login/start"
 	MethodAccountLoginCancel    = "account/login/cancel"
 	MethodAccountLogout         = "account/logout"

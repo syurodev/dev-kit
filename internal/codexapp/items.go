@@ -301,19 +301,29 @@ type McpElicitationResponse struct {
 // RateLimitWindow is one ceiling of the account's plan: how much of it is
 // used, how long the window is, and when it resets (a Unix second).
 type RateLimitWindow struct {
-	UsedPercent        int64  `json:"usedPercent"`
-	WindowDurationMins *int64 `json:"windowDurationMins"`
-	ResetsAt           *int64 `json:"resetsAt"`
+	UsedPercent        float64 `json:"usedPercent"`
+	WindowDurationMins *int64  `json:"windowDurationMins"`
+	ResetsAt           *int64  `json:"resetsAt"`
 }
 
 // RateLimitSnapshot is the plan's limits at one moment. Primary is the short
 // window, Secondary the long one; either may be absent. LimitName is set for a
 // limit that belongs to one model rather than to the whole account.
 type RateLimitSnapshot struct {
+	LimitID              *string          `json:"limitId"`
+	PlanType             *string          `json:"planType"`
 	LimitName            *string          `json:"limitName"`
 	Primary              *RateLimitWindow `json:"primary"`
 	Secondary            *RateLimitWindow `json:"secondary"`
 	RateLimitReachedType *string          `json:"rateLimitReachedType"`
+}
+
+// RateLimitsReadResponse is the answer to account/rateLimits/read (measured against
+// codex 0.147.0). RateLimits is the legacy single-bucket view; RateLimitsByLimitID is
+// keyed by metered limit id ("codex") and may be null.
+type RateLimitsReadResponse struct {
+	RateLimits          RateLimitSnapshot            `json:"rateLimits"`
+	RateLimitsByLimitID map[string]RateLimitSnapshot `json:"rateLimitsByLimitId"`
 }
 
 // RateLimitsUpdatedNotification is account/rateLimits/updated.

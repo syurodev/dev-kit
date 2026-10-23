@@ -2,7 +2,9 @@ package agenthub_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"devkit/internal/agenthub"
 )
@@ -75,5 +77,53 @@ func TestUsageWithoutARateLimitKeepsItsNumbers(t *testing.T) {
 	update := parse(t, `{"sessionUpdate":"usage_update","used":10,"size":100}`)
 	if update.Usage == nil || update.Usage.RateLimit != nil || update.Usage.Used != 10 {
 		t.Fatalf("usage = %+v", update.Usage)
+	}
+}
+
+func TestAccountSwitchNoticesAreTypedOnTheUpdate(t *testing.T) {
+	sw := parse(t, `{"sessionUpdate":"session_info_update","_meta":{"devkit":{"accountSwitch":{"from":"claude-default","to":"claude-work","reason":"Weekly 95% ≥ 90%"}}}}`)
+	if sw.Kind != agenthub.UpdateSessionInfo || sw.AccountNotice == nil {
+		t.Fatalf("update = %+v, want a session_info_update with an account notice", sw)
+	}
+	if got := *sw.AccountNotice; got.Kind != "switch" || got.From != "claude-default" || got.To != "claude-work" || got.Reason != "Weekly 95% ≥ 90%" {
+		t.Errorf("notice = %+v", got)
+	}
+	failed := parse(t, `{"sessionUpdate":"session_info_update","_meta":{"devkit":{"accountSwitchFailed":{"from":"a","to":"b","reason":"sign-in expired"}}}}`)
+	if failed.AccountNotice == nil || failed.AccountNotice.Kind != "failed" {
+		t.Errorf("notice = %+v, want kind failed", failed.AccountNotice)
+	}
+	if plain := parse(t, `{"sessionUpdate":"session_info_update","title":"x"}`); plain.AccountNotice != nil {
+		t.Errorf("an ordinary info update has no notice: %+v", plain.AccountNotice)
+	}
+	if junk := parse(t, `{"sessionUpdate":"session_info_update","_meta":{"devkit":{"accountSwitch":"nope"}}}`); junk.AccountNotice != nil {
+		t.Errorf("a malformed notice is no notice: %+v", junk.AccountNotice)
+	}
+	long := parse(t, `{"sessionUpdate":"session_info_update","_meta":{"devkit":{"accountSwitch":{"from":"a","to":"b","reason":"`+strings.Repeat("x", 600)+`"}}}}`)
+	if long.AccountNotice == nil || utf8.RuneCountInString(long.AccountNotice.Reason) > 300 {
+		t.Errorf("the reason is clipped to 300 runes: %+v", long.AccountNotice)
+	}
+}
+
+// The parser must accept exactly what the service writes.
+func TestAccountNoticeRoundTripsThroughTheRealWriter(t *testing.T) {
+	cases := []struct {
+		kind  string
+		write json.RawMessage
+	}{
+		{"switch", agenthub.AccountSwitchUpdateForTest("claude-default", "claude-work", "Weekly 95% ≥ 90%")},
+		{"failed", agenthub.AccountSwitchFailedUpdateForTest("claude-work", "codex-x", "sign-in expired")},
+	}
+	for _, c := range cases {
+		got := agenthub.ParseSessionUpdate(c.write)
+		if got.Kind != agenthub.UpdateSessionInfo || got.AccountNotice == nil {
+			t.Fatalf("%s: parsed %+v from %s", c.kind, got, c.write)
+		}
+		if n := *got.AccountNotice; n.Kind != c.kind || n.From == "" || n.To == "" || n.Reason == "" {
+			t.Errorf("%s: notice = %+v", c.kind, n)
+		}
+	}
+	got := agenthub.ParseSessionUpdate(cases[0].write)
+	if n := *got.AccountNotice; n.From != "claude-default" || n.To != "claude-work" || n.Reason != "Weekly 95% ≥ 90%" {
+		t.Errorf("notice = %+v", n)
 	}
 }

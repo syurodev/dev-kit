@@ -173,6 +173,12 @@ func runFakeCodex(scenario, logPath string) {
 			} else {
 				reply(map[string]any{"account": map[string]any{"type": "chatgpt", "email": "me@example.com", "planType": "plus"}, "requiresOpenaiAuth": true})
 			}
+		case codexapp.MethodRateLimitsRead:
+			if scenario == "noRateLimits" {
+				reply(json.RawMessage(`{"rateLimits":{"limitId":"codex","primary":null,"secondary":null},"rateLimitsByLimitId":null}`))
+				break
+			}
+			reply(json.RawMessage(`{"rateLimits":{"limitId":"codex","limitName":null,"primary":{"usedPercent":0,"windowDurationMins":300,"resetsAt":1792669235},"secondary":{"usedPercent":10,"windowDurationMins":10080,"resetsAt":1793108266},"credits":null,"individualLimit":null,"spendControlReached":false,"planType":"plus","rateLimitReachedType":null},"rateLimitsByLimitId":{"codex":{"limitId":"codex","limitName":null,"primary":{"usedPercent":0,"windowDurationMins":300,"resetsAt":1792669235},"secondary":{"usedPercent":10,"windowDurationMins":10080,"resetsAt":1793108266},"credits":null,"planType":"plus","rateLimitReachedType":null}},"rateLimitResetCredits":{"availableCount":0,"credits":[]}}`))
 		case "config/read":
 			if scenario == "configReloadFails" {
 				send(map[string]any{"id": m.ID, "error": map[string]any{"code": -32603, "message": "failed to synchronize managed preferences"}})
@@ -1422,5 +1428,259 @@ func TestCodexSignInEndsWhenItsProcessDies(t *testing.T) {
 	}
 	if r := waitSignIn(t, results); r.Success || !strings.Contains(r.Error, "exited") {
 		t.Fatalf("result = %+v", r)
+	}
+}
+
+func TestCodexCheckUsageReadsBothWindowsFromTheMeasuredAnswer(t *testing.T) {
+	fx := newCodexFixture(t, "turn")
+	windows, err := fx.adapter.CheckUsage(t.Context(), OpenSpec{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []LimitWindow{
+		{Label: "5-hour", UsedPercent: 0, ResetsAt: 1792669235, Status: "ok"},
+		{Label: "Weekly", UsedPercent: 10, ResetsAt: 1793108266, Status: "ok"},
+	}
+	if len(windows) != len(want) || windows[0] != want[0] || windows[1] != want[1] {
+		t.Fatalf("windows = %+v, want %+v", windows, want)
+	}
+}
+
+func TestCodexCheckUsageWithNoWindowsIsNotCheckable(t *testing.T) {
+	fx := newCodexFixture(t, "noRateLimits")
+	if _, err := fx.adapter.CheckUsage(t.Context(), OpenSpec{}); !errors.Is(err, ErrUsageNotCheckable) {
+		t.Fatalf("error = %v, want ErrUsageNotCheckable", err)
+	}
+}
+
+func TestCodexCheckUsageRunsInTheAccountsHome(t *testing.T) {
+	fx := newCodexFixture(t, "turn")
+	home := filepath.Join(t.TempDir(), "work")
+	if _, err := fx.adapter.CheckUsage(t.Context(), OpenSpec{AccountHome: home}); err != nil {
+		t.Fatal(err)
+	}
+	pol, _ := fx.runner.started()
+	if pol.Env["CODEX_HOME"] != home {
+		t.Errorf("CODEX_HOME = %q, want the account home %q", pol.Env["CODEX_HOME"], home)
+	}
+}
+
+func TestCodexCheckSignInAtAnAccountHomeNeverReadsTheGlobalAPIKey(t *testing.T) {
+	fx := newCodexFixture(t, "signedout")
+	asked := 0
+	fx.adapter.opts.APIKey = func(context.Context) (string, error) {
+		asked++
+		return "sk-global", nil
+	}
+	home := filepath.Join(t.TempDir(), "work")
+	st, err := fx.adapter.CheckSignIn(t.Context(), OpenSpec{AccountHome: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asked != 0 {
+		t.Error("the global API key must not decide an added account's sign-in")
+	}
+	if st.SignedIn {
+		t.Errorf("state = %+v, want signed out from account/read", st)
+	}
+	fx2 := newCodexFixture(t, "turn")
+	st, err = fx2.adapter.CheckSignIn(t.Context(), OpenSpec{AccountHome: home})
+	if err != nil || !st.SignedIn || st.Email != "me@example.com" || st.Plan != "plus" {
+		t.Fatalf("state = %+v, %v", st, err)
+	}
+}
+
+func TestCodexCheckSignInOfTheBuiltInAccountHonoursTheAPIKey(t *testing.T) {
+	// "signedout": account/read would say signed out, so a signed-in answer can only
+	// come from the API key the built-in account's sessions actually use.
+	fx := newCodexFixture(t, "signedout")
+	fx.adapter.opts.APIKey = func(context.Context) (string, error) { return "sk-global", nil }
+	st, err := fx.adapter.CheckSignIn(t.Context(), OpenSpec{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.SignedIn {
+		t.Errorf("state = %+v, want signed in through the API key", st)
+	}
+	// A chosen key that cannot be read reads as signed out, as SignInStatus says.
+	fx2 := newCodexFixture(t, "turn")
+	fx2.adapter.opts.APIKey = func(context.Context) (string, error) { return "", ErrAgentAPIKeyUnusable }
+	st, err = fx2.adapter.CheckSignIn(t.Context(), OpenSpec{})
+	if err != nil || st.SignedIn {
+		t.Errorf("state = %+v, %v; want signed out for an unusable key", st, err)
+	}
+}
+
+func TestCodexRuntimeReadsRateLimitsOnItsOwnConnection(t *testing.T) {
+	fx := newCodexFixture(t, "turn")
+	rt, err := fx.adapter.Open(t.Context(), OpenSpec{Cwd: fx.cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = rt.Close(context.Background()) })
+	reader, ok := rt.(RateLimitReader)
+	if !ok {
+		t.Fatal("the Codex runtime must read rate limits so a running account is never probed by a second process")
+	}
+	windows, err := reader.ReadRateLimits(t.Context())
+	if err != nil || len(windows) != 2 {
+		t.Fatalf("windows = %+v, %v", windows, err)
+	}
+}
+
+func TestCodexSignInAtAnAccountHomeCarriesTheAccountToTheResult(t *testing.T) {
+	f := newCodexFixture(t, "login")
+	results := make(chan SignInResult, 1)
+	f.adapter.opts.OnSignInCompleted = func(r SignInResult) { results <- r }
+	asked := 0
+	f.adapter.opts.APIKey = func(context.Context) (string, error) {
+		asked++
+		return "sk-global", nil
+	}
+	home := filepath.Join(t.TempDir(), "work")
+	other := filepath.Join(t.TempDir(), "other-account")
+	spec := OpenSpec{AccountHome: home, DenyReadPaths: []string{other, home}}
+	flow, err := f.adapter.StartBrowserSignInAt(context.Background(), spec, "codex-work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flow.Method != SignInBrowser || flow.LoginID != "login-1" {
+		t.Fatalf("flow = %+v", flow)
+	}
+	result := waitSignIn(t, results)
+	if !result.Success || result.AccountID != "codex-work" || result.Agent != AgentTypeCodex {
+		t.Fatalf("result = %+v, want a success carrying the account id", result)
+	}
+	pol, cmd := f.runner.started()
+	if pol.Env["CODEX_HOME"] != home {
+		t.Errorf("CODEX_HOME = %q, want %q", pol.Env["CODEX_HOME"], home)
+	}
+	if !strings.Contains(strings.Join(cmd.Args, " "), `cli_auth_credentials_store="file"`) {
+		t.Errorf("an added account's login must land in its own home's file store: %v", cmd.Args)
+	}
+	if !slices.Equal(pol.ListenLoopbackPorts, []int{1455}) {
+		t.Errorf("listen ports = %v, want the callback port only", pol.ListenLoopbackPorts)
+	}
+	if slices.Contains(pol.DenyReadPaths, home) || !slices.Contains(pol.DenyReadPaths, other) {
+		t.Errorf("deny-read = %v, want the account's own home carved out and another account's still hidden", pol.DenyReadPaths)
+	}
+	if asked != 0 {
+		t.Error("the global API key must not be read for an added account's sign-in")
+	}
+}
+
+func TestCodexDeviceSignInAtAnAccountHomeCarriesTheAccountToTheResult(t *testing.T) {
+	f := newCodexFixture(t, "login")
+	results := make(chan SignInResult, 1)
+	f.adapter.opts.OnSignInCompleted = func(r SignInResult) { results <- r }
+	flow, err := f.adapter.StartDeviceSignInAt(context.Background(), OpenSpec{AccountHome: filepath.Join(t.TempDir(), "work")}, "codex-work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flow.Method != SignInDeviceCode || flow.UserCode != "ABCD-1234" {
+		t.Fatalf("flow = %+v", flow)
+	}
+	if r := waitSignIn(t, results); r.AccountID != "codex-work" {
+		t.Fatalf("result = %+v", r)
+	}
+}
+
+func TestCodexBuiltInSignInResultHasNoAccount(t *testing.T) {
+	f := newCodexFixture(t, "login")
+	results := make(chan SignInResult, 1)
+	f.adapter.opts.OnSignInCompleted = func(r SignInResult) { results <- r }
+	if _, err := f.adapter.StartBrowserSignIn(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if r := waitSignIn(t, results); r.AccountID != "" {
+		t.Errorf("the built-in sign-in carries account %q, want none (it must keep adding the Accounts row)", r.AccountID)
+	}
+}
+
+// Every way a flow ends carries the account it was started for: a cancel, a
+// replacement and a timeout too, not only a completion.
+func TestCodexAccountSignInCancelCarriesTheAccount(t *testing.T) {
+	f := newCodexFixture(t, "loginWait")
+	var mu sync.Mutex
+	var got []SignInResult
+	f.adapter.opts.OnSignInCompleted = func(r SignInResult) {
+		mu.Lock()
+		got = append(got, r)
+		mu.Unlock()
+	}
+	home := filepath.Join(t.TempDir(), "work")
+	flow, err := f.adapter.StartBrowserSignInAt(context.Background(), OpenSpec{AccountHome: home}, "codex-work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.adapter.CancelSignIn(context.Background(), flow.LoginID); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 1 || got[0].Success || got[0].AccountID != "codex-work" {
+		t.Fatalf("results = %+v, want one failure carrying the account", got)
+	}
+}
+
+func TestCodexAccountSignInReplacedByANewOneCarriesTheFirstsAccount(t *testing.T) {
+	f := newCodexFixture(t, "loginWait")
+	results := make(chan SignInResult, 2)
+	f.adapter.opts.OnSignInCompleted = func(r SignInResult) { results <- r }
+	root := t.TempDir()
+	if _, err := f.adapter.StartBrowserSignInAt(context.Background(), OpenSpec{AccountHome: filepath.Join(root, "a")}, "codex-a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.adapter.StartBrowserSignInAt(context.Background(), OpenSpec{AccountHome: filepath.Join(root, "b")}, "codex-b"); err != nil {
+		t.Fatal(err)
+	}
+	first := waitSignIn(t, results)
+	if first.Success || first.Error != "Replaced by a new sign-in." || first.AccountID != "codex-a" {
+		t.Fatalf("first result = %+v, want the replacement failure carrying the first account", first)
+	}
+	if err := f.adapter.CancelSignIn(context.Background(), "login-1"); err != nil {
+		t.Fatal(err)
+	}
+	if second := waitSignIn(t, results); second.AccountID != "codex-b" {
+		t.Fatalf("second result = %+v, want the second account", second)
+	}
+}
+
+func TestCodexAccountSignInTimeoutCarriesTheAccount(t *testing.T) {
+	defer func(old time.Duration) { codexSignInTimeout = old }(codexSignInTimeout)
+	codexSignInTimeout = 100 * time.Millisecond
+	f := newCodexFixture(t, "loginWait")
+	results := make(chan SignInResult, 1)
+	f.adapter.opts.OnSignInCompleted = func(r SignInResult) { results <- r }
+	if _, err := f.adapter.StartBrowserSignInAt(context.Background(), OpenSpec{AccountHome: filepath.Join(t.TempDir(), "work")}, "codex-work"); err != nil {
+		t.Fatal(err)
+	}
+	if r := waitSignIn(t, results); r.Success || r.AccountID != "codex-work" {
+		t.Fatalf("result = %+v, want the timeout failure carrying the account", r)
+	}
+}
+
+// A relative home would put the login wherever the process happens to run, so the
+// in-app starts refuse it before anything is spawned, as the terminal command does.
+func TestCodexAccountSignInRefusesARelativeHome(t *testing.T) {
+	f := newCodexFixture(t, "login")
+	f.adapter.opts.OnSignInCompleted = func(SignInResult) {}
+	spec := OpenSpec{AccountHome: "relative/home"}
+	if _, err := f.adapter.StartBrowserSignInAt(context.Background(), spec, "codex-work"); !errors.Is(err, ErrAccountHome) {
+		t.Errorf("browser: %v, want ErrAccountHome", err)
+	}
+	if _, err := f.adapter.StartDeviceSignInAt(context.Background(), spec, "codex-work"); !errors.Is(err, ErrAccountHome) {
+		t.Errorf("device: %v, want ErrAccountHome", err)
+	}
+	if pol, _ := f.runner.started(); pol.Env != nil {
+		t.Errorf("a process was started for a refused home: %+v", pol)
+	}
+}
+
+func TestCodexCheckSignInAtAHome(t *testing.T) {
+	fx := newCodexFixture(t, "signedout")
+	state, err := fx.adapter.CheckSignIn(t.Context(), OpenSpec{AccountHome: filepath.Join(t.TempDir(), "work")})
+	if err != nil || state.SignedIn {
+		t.Fatalf("state = %+v, %v, want signed out", state, err)
 	}
 }

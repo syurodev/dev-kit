@@ -1436,7 +1436,18 @@ CREATE TABLE IF NOT EXISTS workspace_memory_revisions (
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38, m39, m40, m41, m42, m43, m44, m45})
+	// m46: an account whose reopen failed (or any other reason that is not "it reached
+	// a limit") is kept out of selection for a while: agent_accounts.cooldown_until,
+	// Unix seconds. exhausted_until keeps meaning "a limit was reached".
+	m46 := Migration{
+		Version: 46,
+		Name:    "agent accounts cooldown",
+		Up: func(ctx context.Context) error {
+			return addColumnIfNotExists(ctx, db, TableAgentAccounts, "cooldown_until", "INTEGER NOT NULL DEFAULT 0")
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38, m39, m40, m41, m42, m43, m44, m45, m46})
 	if err != nil {
 		return err
 	}
