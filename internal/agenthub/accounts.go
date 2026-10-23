@@ -30,7 +30,10 @@ type AccountRecord struct {
 	// ExhaustedUntil is when a real limit refusal says the account is usable
 	// again; zero (or past) means not marked.
 	ExhaustedUntil time.Time
-	Usage          []LimitWindow
+	// CooldownUntil keeps the account out of selection until then without saying
+	// it reached a limit: a reopen in its home failed. Zero or past: not cooling.
+	CooldownUntil time.Time
+	Usage         []LimitWindow
 	// UsageSource is "observed" (from a session's own updates) or "checked"
 	// (asked of the vendor). Empty when there is no reading.
 	UsageSource string
@@ -64,6 +67,16 @@ type AccountBook interface {
 	SaveUsage(ctx context.Context, id string, windows []LimitWindow, source string, at time.Time) error
 	// MarkExhausted moves the marker later, never earlier.
 	MarkExhausted(ctx context.Context, id string, until time.Time) error
+	// Delete removes an added account and returns its sessions to the built-in
+	// account. The built-in account cannot be deleted.
+	Delete(ctx context.Context, id string) error
+	// SetSignedIn records what the vendor's own status said.
+	SetSignedIn(ctx context.Context, id string, signedIn bool) error
+	// ReplaceUsage stores windows as the whole reading: an on-demand check returns
+	// the full set, unlike an observed update, which carries some windows.
+	ReplaceUsage(ctx context.Context, id string, windows []LimitWindow, source string, at time.Time) error
+	// MarkCooldown moves the cooldown later, never earlier.
+	MarkCooldown(ctx context.Context, id string, until time.Time) error
 }
 
 // mergeWindows returns old with each of fresh replacing the window of the same
