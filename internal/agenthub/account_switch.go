@@ -157,7 +157,8 @@ func (s *Service) switchAccountForTurn(ctx context.Context, sess *AgentSession) 
 
 // abandonMove handles a move whose process would not open in the target's
 // home: back to the account the row named before (bound, exactly as it was
-// spelled), the target kept out for accountProbeCooldown, and a notice that the
+// spelled), the target kept out for accountProbeCooldown (a cooldown, not an
+// exhaustion: it has not reached a limit), and a notice that the
 // switch failed. If the move back cannot be written the session stays on the
 // target — the row says so, so the transcript says the move happened — and the
 // turn's own resolve tries the target once more, failing as any resume does.
@@ -177,7 +178,7 @@ func (s *Service) abandonMove(ctx context.Context, sess *AgentSession, bound, fr
 	} else {
 		log.Printf("agenthub: session %s: could not open on account %s: %v; moving it back to %s", sess.ID, target, openErr, from)
 		backErr = s.moveSession(ctx, sess, bound)
-		if err := s.Accounts.MarkExhausted(ctx, target, time.Now().Add(accountProbeCooldown)); err != nil {
+		if err := s.Accounts.MarkCooldown(ctx, target, time.Now().Add(accountProbeCooldown)); err != nil {
 			log.Printf("agenthub: account %s: could not keep it out after a failed open: %v", target, err)
 		}
 	}

@@ -2,6 +2,7 @@ package agenthub_test
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -221,7 +222,7 @@ func TestPickAccount(t *testing.T) {
 			policy:   pickPolicy(),
 			accounts: []agenthub.AccountRecord{pickAccount(builtin, pickWindow("5-hour", 99)), signedOut(pickAccount("b")), pickAccount("c")},
 			current:  builtin,
-			want:     want{target: "c", switched: true, reason: "5-hour 99% ≥ 90%"},
+			want:     want{target: "c", switched: true, reason: "5-hour 99% ≥ 90%; skipped b (signed out)"},
 		},
 		{
 			name:     "exhausted target is skipped",
@@ -441,5 +442,51 @@ func TestPickAccountDoesNotChangeItsInput(t *testing.T) {
 	}
 	if !reflect.DeepEqual(accounts, before) {
 		t.Fatalf("PickAccount changed its input:\n got %+v\nwant %+v", accounts, before)
+	}
+}
+
+func TestPickAccountSkipsAnAccountThatIsCoolingDown(t *testing.T) {
+	cooling := pickAccount("b")
+	cooling.CooldownUntil = pickNow.Add(time.Minute)
+	got := agenthub.PickAccount(agenthub.PickInput{
+		Policy:   pickPolicy(),
+		Accounts: []agenthub.AccountRecord{pickAccount(pickBuiltin, pickWindow("5-hour", 99)), cooling, pickAccount("c")},
+		Current:  pickBuiltin, Now: pickNow,
+	})
+	if !got.Switch || got.Target != "c" {
+		t.Fatalf("got %+v, want a move to c (b is cooling down)", got)
+	}
+}
+
+func TestPickAccountACooldownAloneIsNotAllLimited(t *testing.T) {
+	exhausted := pickAccount(pickBuiltin)
+	exhausted.ExhaustedUntil = pickNow.Add(time.Hour)
+	cooling := pickAccount("b")
+	cooling.CooldownUntil = pickNow.Add(time.Minute)
+	got := agenthub.PickAccount(agenthub.PickInput{
+		Policy: pickPolicy(), Accounts: []agenthub.AccountRecord{exhausted, cooling}, Current: pickBuiltin, Now: pickNow,
+	})
+	if got.AllLimited {
+		t.Fatalf("got %+v: b has not reached a limit, so the turn must not be refused with \"every account reached its limit\"", got)
+	}
+	if got.Switch {
+		t.Fatalf("got %+v: b is cooling down, it must not be chosen", got)
+	}
+}
+
+func TestPickAccountNamesTheSignedOutAccountsItSkipped(t *testing.T) {
+	out := pickAccount("b")
+	out.SignedIn = false
+	out.Label = "Work"
+	got := agenthub.PickAccount(agenthub.PickInput{
+		Policy:   pickPolicy(),
+		Accounts: []agenthub.AccountRecord{pickAccount(pickBuiltin, pickWindow("5-hour", 99)), out, pickAccount("c")},
+		Current:  pickBuiltin, Now: pickNow,
+	})
+	if !got.Switch || got.Target != "c" {
+		t.Fatalf("got %+v, want a move to c", got)
+	}
+	if !strings.Contains(got.Reason, "Work") || !strings.Contains(got.Reason, "signed out") {
+		t.Errorf("reason = %q, want it to say that Work was skipped because it is signed out", got.Reason)
 	}
 }

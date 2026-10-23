@@ -370,8 +370,11 @@ func TestAccountTurnStaysOnItsAccountWhenTheNewOneCannotOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !work.ExhaustedUntil.After(before.Add(10 * time.Minute)) {
-		t.Errorf("work kept out until %v, want about 15 minutes from now", work.ExhaustedUntil)
+	if !work.CooldownUntil.After(before.Add(10 * time.Minute)) {
+		t.Errorf("work kept out until %v, want about 15 minutes from now", work.CooldownUntil)
+	}
+	if !work.ExhaustedUntil.IsZero() {
+		t.Error("a failed reopen must not claim a limit")
 	}
 	if got := rig.vendor.homeOpens.Load(); got != 1 {
 		t.Fatalf("opens tried in the work home = %d, want 1", got)
@@ -439,8 +442,8 @@ func TestAccountTurnEndedWhileTheNewOneOpensDoesNotBlameIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !work.ExhaustedUntil.IsZero() {
-		t.Errorf("work kept out until %v, want no cooldown: the account was not at fault", work.ExhaustedUntil)
+	if !work.ExhaustedUntil.IsZero() || !work.CooldownUntil.IsZero() {
+		t.Errorf("work kept out (exhausted %v, cooldown %v), want neither: the account was not at fault", work.ExhaustedUntil, work.CooldownUntil)
 	}
 	if status := mustStatus(t, rig, sess.ID); status != agenthub.SessionStatusIdle {
 		t.Errorf("status after the ended turn = %s, want idle", status)
@@ -530,8 +533,11 @@ func TestAccountTurnWhoseMoveBackCannotBeWrittenStaysOnTheNewAccount(t *testing.
 	if gerr != nil {
 		t.Fatal(gerr)
 	}
-	if !work.ExhaustedUntil.After(time.Now()) {
-		t.Errorf("work must be kept out after its failed open; until %v", work.ExhaustedUntil)
+	if !work.CooldownUntil.After(time.Now()) {
+		t.Errorf("work must be kept out after its failed open; until %v", work.CooldownUntil)
+	}
+	if !work.ExhaustedUntil.IsZero() {
+		t.Error("a failed reopen must not claim a limit")
 	}
 	if status := mustStatus(t, rig, sess.ID); status != agenthub.SessionStatusIdle {
 		t.Errorf("status = %s, want idle", status)

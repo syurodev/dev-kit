@@ -3,6 +3,7 @@ package agenthub
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"devkit/internal/preferences"
@@ -74,8 +75,18 @@ func PickAccount(in PickInput) PickDecision {
 	if !refused && !in.SwitchedAt.IsZero() && in.Now.Sub(in.SwitchedAt) < accountFlipHold {
 		return stay
 	}
+	var skipped []string
 	for _, a := range ordered {
-		if a.ID == cur.ID || !a.SignedIn {
+		if a.ID == cur.ID {
+			continue
+		}
+		if !a.SignedIn {
+			skipped = append(skipped, a.Label)
+			continue
+		}
+		// A cooldown keeps a candidate out, not the account a session already
+		// runs on: another session's failed reopen says nothing about this one.
+		if a.CooldownUntil.After(in.Now) {
 			continue
 		}
 		margin := 0.0
@@ -83,7 +94,11 @@ func PickAccount(in PickInput) PickDecision {
 			margin = accountReturnGap
 		}
 		if fine, _ := accountFine(a, in.Policy, in.Now, margin); fine {
-			return PickDecision{Target: a.ID, Switch: true, Reason: why}
+			reason := why
+			if len(skipped) > 0 {
+				reason += "; skipped " + strings.Join(skipped, ", ") + " (signed out)"
+			}
+			return PickDecision{Target: a.ID, Switch: true, Reason: reason}
 		}
 	}
 	if retry, all := earliestReturn(ordered, in.Now); all {
@@ -94,7 +109,7 @@ func PickAccount(in PickInput) PickDecision {
 }
 
 // accountFine reports whether an account may run a turn: not marked exhausted
-// and every window not yet reset under its threshold (lowered by margin). A
+// (a cooldown is not read here: PickAccount applies it to candidates only) and every window not yet reset under its threshold (lowered by margin). A
 // weekly window (isWeeklyLabel) uses the policy's weekly threshold in place of
 // the main one when that is set. A non-positive main threshold falls back to the
 // default. A window with ResetsAt == 0 has no known reset and stays live. margin
@@ -155,7 +170,8 @@ func findAccount(accounts []AccountRecord, id string) *AccountRecord {
 }
 
 // earliestReturn reports whether every signed-in account is marked exhausted
-// and, if so, when the first comes back.
+// and, if so, when the first comes back. An account that is only cooling down
+// is not exhausted, so it makes this report false: nothing has reached a limit.
 func earliestReturn(accounts []AccountRecord, now time.Time) (time.Time, bool) {
 	var first time.Time
 	signedIn := 0
