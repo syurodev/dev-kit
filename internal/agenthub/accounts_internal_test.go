@@ -49,3 +49,16 @@ func TestMergeWindows(t *testing.T) {
 		})
 	}
 }
+
+func TestMergeWindowsReportsWhetherAnythingWasAccepted(t *testing.T) {
+	stored := []LimitWindow{{Label: "5-hour", UsedPercent: 90, ResetsAt: 1000}}
+	if _, accepted := mergeWindowsReport(stored, []LimitWindow{{Label: "5-hour", UsedPercent: 10, ResetsAt: 1000}}); accepted {
+		t.Error("a lower reading of the same window is stale: nothing accepted")
+	}
+	if _, accepted := mergeWindowsReport(stored, []LimitWindow{{Label: "5-hour", UsedPercent: 95, ResetsAt: 1000}}); !accepted {
+		t.Error("a higher reading is accepted")
+	}
+	if _, accepted := mergeWindowsReport(stored, []LimitWindow{{Label: "Weekly", UsedPercent: 1, ResetsAt: 2000}}); !accepted {
+		t.Error("a new window is accepted")
+	}
+}

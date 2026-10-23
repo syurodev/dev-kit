@@ -430,7 +430,14 @@ type Service struct {
 	accountSwitches map[string]accountSwitch
 	sessionAccount  map[string]string
 	turnProgress    map[string]bool
-	usageSeen       map[string][]LimitWindow
+	usageSeen       map[string]seenUsage
+	// policyCached/policyAt/policyGen: the last account-policy read and when
+	// (account_policy_cache.go). usageClock and policyClock replace time.Now in tests.
+	policyCached preferences.AgentAccountPolicy
+	policyAt     time.Time
+	policyGen    uint64
+	policyClock  func() time.Time
+	usageClock   func() time.Time
 	// waitHook, when set (tests only, see export_test.go), is called each time
 	// a caller is about to wait on a resume or a move in flight: waiter is
 	// "move" (moveSession) or "resume" (resumeRuntime). Read under mu.
@@ -481,7 +488,7 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 		accountSwitches: make(map[string]accountSwitch),
 		sessionAccount:  make(map[string]string),
 		turnProgress:    make(map[string]bool),
-		usageSeen:       make(map[string][]LimitWindow),
+		usageSeen:       make(map[string]seenUsage),
 		// Off until main.go says otherwise: a machine with no git, or a user
 		// who turned the feature off, runs the same Invoke as everyone else.
 		checkpoints: noCheckpoints{},

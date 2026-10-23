@@ -86,7 +86,7 @@ func (s *Service) accountPolicyFor(vendor AgentType) (preferences.AccountVendorP
 	if s.Accounts == nil || s.AccountPolicy == nil {
 		return preferences.AccountVendorPolicy{}, false
 	}
-	policy, err := s.AccountPolicy()
+	policy, err := s.cachedAccountPolicy()
 	if err != nil {
 		log.Printf("agenthub: account policy: %v", err)
 		return preferences.AccountVendorPolicy{}, false

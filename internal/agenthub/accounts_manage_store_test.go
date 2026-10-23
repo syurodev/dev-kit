@@ -140,3 +140,23 @@ func TestAccountBookMarkCooldownOnlyMovesLaterAndIsNotAnExhaustion(t *testing.T)
 		t.Errorf("unknown account: %v, want ErrAccountNotFound", err)
 	}
 }
+
+func TestAccountBookSaveUsageKeepsObservedAtWhenEveryWindowWasStale(t *testing.T) {
+	book, _, _ := newAccountDB(t)
+	ctx := context.Background()
+	addWork(t, book)
+	first := time.Unix(1_800_000_000, 0)
+	w := agenthub.LimitWindow{Label: "5-hour", UsedPercent: 90, ResetsAt: 1_800_010_000}
+	if err := book.SaveUsage(ctx, "codex-work", []agenthub.LimitWindow{w}, "observed", first); err != nil {
+		t.Fatal(err)
+	}
+	stale := w
+	stale.UsedPercent = 10
+	if err := book.SaveUsage(ctx, "codex-work", []agenthub.LimitWindow{stale}, "observed", first.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := book.Get(ctx, "codex-work")
+	if !got.ObservedAt.Equal(first) || got.Usage[0].UsedPercent != 90 {
+		t.Errorf("a stale reading must not make the usage look newer: observedAt=%v usage=%+v", got.ObservedAt, got.Usage)
+	}
+}

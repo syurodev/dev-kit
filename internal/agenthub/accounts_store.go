@@ -116,7 +116,8 @@ func (st *SQLAccountStore) Put(ctx context.Context, a AccountRecord) error {
 	return err
 }
 
-// SaveUsage reads, merges and writes the usage in one transaction: sessions of
+// SaveUsage reads, merges and writes the usage in one transaction (writing nothing
+// when every fresh window is stale, so observed_at is not refreshed by it): sessions of
 // one account report concurrently, each with a different window, and a
 // read-merge-write across separate statements would lose one of them.
 func (st *SQLAccountStore) SaveUsage(ctx context.Context, id string, windows []LimitWindow, source string, at time.Time) error {
@@ -137,7 +138,13 @@ func (st *SQLAccountStore) SaveUsage(ctx context.Context, id string, windows []L
 		// A reading this build cannot read is no reading, as in scanAccount.
 		_ = json.Unmarshal([]byte(stored), &cur)
 	}
-	raw, err := json.Marshal(mergeWindows(cur, windows))
+	merged, accepted := mergeWindowsReport(cur, windows)
+	if !accepted {
+		// Every window was a stale reading of one already stored: keep the
+		// stored usage and its time, or a stale reading would look newer.
+		return nil
+	}
+	raw, err := json.Marshal(merged)
 	if err != nil {
 		return err
 	}

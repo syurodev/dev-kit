@@ -89,7 +89,17 @@ type AccountBook interface {
 // (percentage, reset and status). A different reset is a new window and a
 // window with no known reset (ResetsAt 0) cannot be told apart, so both replace.
 func mergeWindows(old, fresh []LimitWindow) []LimitWindow {
+	merged, _ := mergeWindowsReport(old, fresh)
+	return merged
+}
+
+// mergeWindowsReport is mergeWindows that also says whether any fresh window was
+// accepted (replaced one, or was appended), as opposed to every one being
+// rejected as a stale reading of a window already stored. A reading that is all
+// stale says nothing new about the account.
+func mergeWindowsReport(old, fresh []LimitWindow) ([]LimitWindow, bool) {
 	out := append([]LimitWindow(nil), old...)
+	accepted := false
 	for _, w := range fresh {
 		replaced := false
 		for i := range out {
@@ -97,6 +107,7 @@ func mergeWindows(old, fresh []LimitWindow) []LimitWindow {
 				stale := w.ResetsAt != 0 && out[i].ResetsAt == w.ResetsAt && w.UsedPercent < out[i].UsedPercent
 				if !stale {
 					out[i] = w
+					accepted = true
 				}
 				replaced = true
 				break
@@ -104,9 +115,10 @@ func mergeWindows(old, fresh []LimitWindow) []LimitWindow {
 		}
 		if !replaced {
 			out = append(out, w)
+			accepted = true
 		}
 	}
-	return out
+	return out, accepted
 }
 
 // isWeeklyLabel reports whether a window is one of the weekly ones ("Weekly",

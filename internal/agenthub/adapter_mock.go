@@ -443,6 +443,10 @@ func (r *mockRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, pro
 		const said = "429 Too Many Requests"
 		return PromptOutcome{}, vendorMessageError(AgentTypeMock, fmt.Errorf("%w: %s", ErrTurnFailed, said), said)
 	}
+	// The vendor says sign-in is required: StopFromError reads it as auth_required.
+	if strings.Contains(text, "FAIL_AUTH_REQUIRED") {
+		return PromptOutcome{}, vendorError(AgentTypeMock, ErrAgentAuthRequired)
+	}
 	// A turn that failed with nothing in its words to say why, the way a
 	// refusal DevKit cannot read arrives: StopFromError reads it as failed.
 	// FAIL_LIMIT_IN_BUILTIN_HOME is that failure only in an added account's

@@ -68,6 +68,31 @@ func (s *Service) markAccountLimited(ctx context.Context, sess AgentSession, sto
 	}
 }
 
+// noteSignedOut marks the account a refused turn ran as signed out when the vendor
+// said sign-in is required, so PickAccount skips it until the person signs in again
+// (Refresh status, or signing in, sets it back). Only for a vendor the person
+// configured, like markAccountLimited. Best effort: errors are logged.
+func (s *Service) noteSignedOut(ctx context.Context, sess AgentSession, stop SessionStop) {
+	if s.Accounts == nil || stop.Kind != StopAuthRequired || !s.vendorConfigured(sess.AgentType) {
+		return
+	}
+	if _, err := s.Accounts.List(ctx, sess.AgentType); err != nil { // creates the built-in row
+		log.Printf("agenthub: accounts of %s: %v", sess.AgentType, err)
+		return
+	}
+	id := s.observedAccountID(ctx, sess.ID)
+	if id == "" {
+		id = accountIDOf(sess)
+	}
+	if err := s.Accounts.SetSignedIn(ctx, id, false); err != nil {
+		if !errors.Is(err, ErrAccountNotFound) {
+			log.Printf("agenthub: account %s: marking it signed out: %v", id, err)
+		}
+		return
+	}
+	s.accountsChanged()
+}
+
 // vendorConfigured reports whether the person's account policy has an entry for
 // the vendor, enabled or not. No policy, or one that cannot be read (logged),
 // configures nothing.
@@ -75,7 +100,7 @@ func (s *Service) vendorConfigured(vendor AgentType) bool {
 	if s.AccountPolicy == nil {
 		return false
 	}
-	policy, err := s.AccountPolicy()
+	policy, err := s.cachedAccountPolicy()
 	if err != nil {
 		log.Printf("agenthub: account policy: %v", err)
 		return false

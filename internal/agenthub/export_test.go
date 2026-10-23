@@ -135,7 +135,7 @@ func (s *Service) AccountSwitchKnownForTest(sessionID string) bool {
 func (s *Service) SetUsageSeenForTest(accountID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.usageSeen[accountID] = []LimitWindow{{Label: "Weekly", UsedPercent: 1}}
+	s.usageSeen[accountID] = seenUsage{windows: []LimitWindow{{Label: "Weekly", UsedPercent: 1}}, at: time.Now()}
 }
 
 func (s *Service) UsageSeenKnownForTest(accountID string) bool {

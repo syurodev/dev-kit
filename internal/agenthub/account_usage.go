@@ -86,15 +86,31 @@ func (s *Service) observedAccountID(ctx context.Context, sessionID string) strin
 	return id
 }
 
+// usageRefreshEvery is how long an identical reading is skipped: after that it
+// is written again, so observed_at keeps saying the account was seen lately
+// (a reading the book rejects as stale does not move it, see SaveUsage).
+var usageRefreshEvery = 60 * time.Second
+
+// seenUsage is what was last written for an account and when.
+type seenUsage struct {
+	windows []LimitWindow
+	at      time.Time
+}
+
 // usageChanged reports whether windows differ from what was last written for
-// the account, and remembers them.
+// the account, or that write is older than usageRefreshEvery, and remembers
+// them.
 func (s *Service) usageChanged(accountID string, windows []LimitWindow) bool {
+	now := time.Now()
+	if s.usageClock != nil {
+		now = s.usageClock()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if prev, ok := s.usageSeen[accountID]; ok && slices.Equal(prev, windows) {
+	if prev, ok := s.usageSeen[accountID]; ok && slices.Equal(prev.windows, windows) && now.Sub(prev.at) < usageRefreshEvery {
 		return false
 	}
-	s.usageSeen[accountID] = slices.Clone(windows)
+	s.usageSeen[accountID] = seenUsage{windows: slices.Clone(windows), at: now}
 	return true
 }
 

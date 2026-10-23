@@ -186,3 +186,25 @@ func TestClaudeUnreadableUnifiedWindowsFallBackToTheOldReading(t *testing.T) {
 		}
 	}
 }
+
+func TestClaudeOverageIsNotAReachedWindow(t *testing.T) {
+	update := []byte(`{"sessionUpdate":"usage_update","used":1,"size":2,"_meta":{"_claude/rateLimit":{
+		"status":"allowed","rateLimitType":"five_hour","isUsingOverage":true,"overageStatus":"allowed",
+		"unifiedWindows":{"five_hour":{"utilization":1.2,"resetsAt":1792653600},"seven_day":{"utilization":0.4,"resetsAt":1793080800}}}}}`)
+	got := ParseSessionUpdate(update)
+	if got.Usage == nil || len(got.Usage.Limits) != 2 {
+		t.Fatalf("limits = %+v", got.Usage)
+	}
+	if status := got.Usage.Limits[0].Status; status != "warning" {
+		t.Errorf("a window past 100%% while the plan goes on through overage is %q, want warning (the account still answers)", status)
+	}
+}
+
+func TestClaudeOverageThatIsRejectedStaysReached(t *testing.T) {
+	update := []byte(`{"sessionUpdate":"usage_update","used":1,"size":2,"_meta":{"_claude/rateLimit":{
+		"status":"rejected","rateLimitType":"five_hour","isUsingOverage":true,
+		"unifiedWindows":{"five_hour":{"utilization":1.2,"resetsAt":1792653600}}}}}`)
+	if got := ParseSessionUpdate(update); got.Usage == nil || got.Usage.Limits[0].Status != "reached" {
+		t.Fatalf("limits = %+v, want the rejected window reached", got.Usage)
+	}
+}

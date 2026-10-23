@@ -325,6 +325,9 @@ type RateLimit struct {
 	ResetsAt    int64   `json:"resetsAt,omitempty"`
 	LimitType   string  `json:"limitType,omitempty"`
 	Utilization float64 `json:"utilization,omitempty"`
+	// IsUsingOverage says the plan is going on through overage: a window past
+	// 100 % is then not a refusal (only Status "rejected" is).
+	IsUsingOverage bool `json:"isUsingOverage,omitempty"`
 }
 
 // TokenCounts is one tally of tokens, as a vendor splits them.
@@ -863,10 +866,11 @@ func parseRateLimit(meta json.RawMessage) *RateLimit {
 	}
 	var parsed struct {
 		RateLimit *struct {
-			Status        string  `json:"status"`
-			ResetsAt      int64   `json:"resetsAt"`
-			RateLimitType string  `json:"rateLimitType"`
-			Utilization   float64 `json:"utilization"`
+			Status         string  `json:"status"`
+			ResetsAt       int64   `json:"resetsAt"`
+			RateLimitType  string  `json:"rateLimitType"`
+			Utilization    float64 `json:"utilization"`
+			IsUsingOverage bool    `json:"isUsingOverage"`
 		} `json:"_claude/rateLimit"`
 	}
 	if err := json.Unmarshal(meta, &parsed); err != nil || parsed.RateLimit == nil || parsed.RateLimit.Status == "" {
@@ -877,6 +881,8 @@ func parseRateLimit(meta json.RawMessage) *RateLimit {
 		ResetsAt:    parsed.RateLimit.ResetsAt,
 		LimitType:   parsed.RateLimit.RateLimitType,
 		Utilization: parsed.RateLimit.Utilization,
+
+		IsUsingOverage: parsed.RateLimit.IsUsingOverage,
 	}
 }
 
