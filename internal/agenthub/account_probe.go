@@ -42,3 +42,20 @@ type SignInChecker interface {
 type RateLimitReader interface {
 	ReadRateLimits(ctx context.Context) ([]LimitWindow, error)
 }
+
+// AccountAuthProvider is a vendor that signs in through a terminal (Claude): the same
+// command as SignInCommand, run with an account's home as its config directory.
+type AccountAuthProvider interface {
+	SignInCommandFor(ctx context.Context, methodID, home string) (SignInCommand, error)
+}
+
+// AccountInAppSignIn is a vendor that signs in inside the app (Codex), at an account's
+// home. spec is built like accountProbeSpec's (the home, the shared store, the deny
+// paths, the private/shared home choice): the login runs under the same jail a session
+// does. accountID rides on the result so the window can tell it from the built-in
+// sign-in. Starting one holds the loopback callback port, so it cancels another
+// sign-in in progress (for any account, the built-in one included).
+type AccountInAppSignIn interface {
+	StartBrowserSignInAt(ctx context.Context, spec OpenSpec, accountID string) (SignInFlow, error)
+	StartDeviceSignInAt(ctx context.Context, spec OpenSpec, accountID string) (SignInFlow, error)
+}

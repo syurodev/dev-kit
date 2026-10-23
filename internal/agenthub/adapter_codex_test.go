@@ -1506,3 +1506,106 @@ func TestCodexRuntimeReadsRateLimitsOnItsOwnConnection(t *testing.T) {
 		t.Fatalf("windows = %+v, %v", windows, err)
 	}
 }
+
+func TestCodexSignInAtAnAccountHomeCarriesTheAccountToTheResult(t *testing.T) {
+	f := newCodexFixture(t, "login")
+	results := make(chan SignInResult, 1)
+	f.adapter.opts.OnSignInCompleted = func(r SignInResult) { results <- r }
+	asked := 0
+	f.adapter.opts.APIKey = func(context.Context) (string, error) {
+		asked++
+		return "sk-global", nil
+	}
+	home := filepath.Join(t.TempDir(), "work")
+	other := filepath.Join(t.TempDir(), "other-account")
+	spec := OpenSpec{AccountHome: home, DenyReadPaths: []string{other, home}}
+	flow, err := f.adapter.StartBrowserSignInAt(context.Background(), spec, "codex-work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flow.Method != SignInBrowser || flow.LoginID != "login-1" {
+		t.Fatalf("flow = %+v", flow)
+	}
+	result := waitSignIn(t, results)
+	if !result.Success || result.AccountID != "codex-work" || result.Agent != AgentTypeCodex {
+		t.Fatalf("result = %+v, want a success carrying the account id", result)
+	}
+	pol, cmd := f.runner.started()
+	if pol.Env["CODEX_HOME"] != home {
+		t.Errorf("CODEX_HOME = %q, want %q", pol.Env["CODEX_HOME"], home)
+	}
+	if !strings.Contains(strings.Join(cmd.Args, " "), `cli_auth_credentials_store="file"`) {
+		t.Errorf("an added account's login must land in its own home's file store: %v", cmd.Args)
+	}
+	if !slices.Equal(pol.ListenLoopbackPorts, []int{1455}) {
+		t.Errorf("listen ports = %v, want the callback port only", pol.ListenLoopbackPorts)
+	}
+	if slices.Contains(pol.DenyReadPaths, home) || !slices.Contains(pol.DenyReadPaths, other) {
+		t.Errorf("deny-read = %v, want the account's own home carved out and another account's still hidden", pol.DenyReadPaths)
+	}
+	if asked != 0 {
+		t.Error("the global API key must not be read for an added account's sign-in")
+	}
+}
+
+func TestCodexDeviceSignInAtAnAccountHomeCarriesTheAccountToTheResult(t *testing.T) {
+	f := newCodexFixture(t, "login")
+	results := make(chan SignInResult, 1)
+	f.adapter.opts.OnSignInCompleted = func(r SignInResult) { results <- r }
+	flow, err := f.adapter.StartDeviceSignInAt(context.Background(), OpenSpec{AccountHome: filepath.Join(t.TempDir(), "work")}, "codex-work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flow.Method != SignInDeviceCode || flow.UserCode != "ABCD-1234" {
+		t.Fatalf("flow = %+v", flow)
+	}
+	if r := waitSignIn(t, results); r.AccountID != "codex-work" {
+		t.Fatalf("result = %+v", r)
+	}
+}
+
+func TestCodexBuiltInSignInResultHasNoAccount(t *testing.T) {
+	f := newCodexFixture(t, "login")
+	results := make(chan SignInResult, 1)
+	f.adapter.opts.OnSignInCompleted = func(r SignInResult) { results <- r }
+	if _, err := f.adapter.StartBrowserSignIn(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if r := waitSignIn(t, results); r.AccountID != "" {
+		t.Errorf("the built-in sign-in carries account %q, want none (it must keep adding the Accounts row)", r.AccountID)
+	}
+}
+
+// Every way a flow ends carries the account it was started for: a cancel and a
+// replacement too, not only a completion.
+func TestCodexAccountSignInCancelAndReplaceCarryTheAccount(t *testing.T) {
+	f := newCodexFixture(t, "login")
+	var mu sync.Mutex
+	var got []SignInResult
+	f.adapter.opts.OnSignInCompleted = func(r SignInResult) {
+		mu.Lock()
+		got = append(got, r)
+		mu.Unlock()
+	}
+	home := filepath.Join(t.TempDir(), "work")
+	flow, err := f.adapter.StartBrowserSignInAt(context.Background(), OpenSpec{AccountHome: home}, "codex-work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.adapter.CancelSignIn(context.Background(), flow.LoginID); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 1 || got[0].Success || got[0].AccountID != "codex-work" {
+		t.Fatalf("results = %+v, want one failure carrying the account", got)
+	}
+}
+
+func TestCodexCheckSignInAtAHome(t *testing.T) {
+	fx := newCodexFixture(t, "signedout")
+	state, err := fx.adapter.CheckSignIn(t.Context(), OpenSpec{AccountHome: filepath.Join(t.TempDir(), "work")})
+	if err != nil || state.SignedIn {
+		t.Fatalf("state = %+v, %v, want signed out", state, err)
+	}
+}

@@ -1903,6 +1903,7 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 	}
 
 	s.stopRecovered(in.SessionID)
+	s.noteSignedIn(recordCtx, sess)
 	if workspaceContext != "" {
 		s.workspaceContextDelivered(in.SessionID, contextFingerprint, carriesContext)
 	}

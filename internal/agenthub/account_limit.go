@@ -99,6 +99,39 @@ func (s *Service) noteSignedOut(ctx context.Context, sess AgentSession, stop Ses
 	s.accountsChanged()
 }
 
+// noteSignedIn is the way back from noteSignedOut that needs no one to press
+// Refresh: a turn that completed on an account marked signed out is the vendor
+// accepting the login (the person signed in in a terminal, or the mark was
+// wrong), so the mark is set back. Only for a vendor the person configured, and
+// the event fires only when the mark really changed. Best effort: errors are
+// logged, nothing is held across the book calls.
+func (s *Service) noteSignedIn(ctx context.Context, sess AgentSession) {
+	if s.Accounts == nil || !s.vendorConfigured(sess.AgentType) {
+		return
+	}
+	id := s.observedAccountID(ctx, sess.ID)
+	if id == "" {
+		id = accountIDOf(sess)
+	}
+	acct, err := s.Accounts.Get(ctx, id)
+	if err != nil {
+		if !errors.Is(err, ErrAccountNotFound) {
+			log.Printf("agenthub: account %s: reading its sign-in mark: %v", id, err)
+		}
+		return
+	}
+	if acct.SignedIn {
+		return
+	}
+	if err := s.Accounts.SetSignedIn(ctx, id, true); err != nil {
+		if !errors.Is(err, ErrAccountNotFound) {
+			log.Printf("agenthub: account %s: marking it signed in: %v", id, err)
+		}
+		return
+	}
+	s.accountsChanged()
+}
+
 // vendorConfigured reports whether the person's account policy has an entry for
 // the vendor, enabled or not. No policy, or one that cannot be read (logged),
 // configures nothing.

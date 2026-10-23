@@ -904,6 +904,25 @@ func (a *ClaudeAdapter) AuthMethods(ctx context.Context) ([]AuthMethod, error) {
 // login needs. The method is looked up again rather than taken from the
 // caller, so the UI can only ever name an id, never a command.
 func (a *ClaudeAdapter) SignInCommand(ctx context.Context, methodID string) (SignInCommand, error) {
+	return a.signInCommand(ctx, methodID, "")
+}
+
+// SignInCommandFor is SignInCommand for an added account: the login runs with the
+// account's home as its config directory, so the credential lands there. The
+// home's value beats the host's own CLAUDE_CONFIG_DIR (signInEnv lets a launch
+// variable replace the process environment's, whatever its spelling). home must be
+// absolute: a relative one would put the login wherever the terminal happens to be.
+// Nothing the login prints or stores passes through DevKit.
+func (a *ClaudeAdapter) SignInCommandFor(ctx context.Context, methodID, home string) (SignInCommand, error) {
+	if home == "" || !filepath.IsAbs(home) {
+		return SignInCommand{}, fmt.Errorf("%w: the account's home must be an absolute path", ErrAccountHome)
+	}
+	return a.signInCommand(ctx, methodID, home)
+}
+
+var _ AccountAuthProvider = (*ClaudeAdapter)(nil)
+
+func (a *ClaudeAdapter) signInCommand(ctx context.Context, methodID, home string) (SignInCommand, error) {
 	l, err := a.resolveCommand()
 	if err != nil {
 		return SignInCommand{}, err
@@ -920,8 +939,21 @@ func (a *ClaudeAdapter) SignInCommand(ctx context.Context, methodID string) (Sig
 	}
 	for _, m := range methods {
 		if m.ID == methodID {
+			env := make(map[string]string, len(l.env)+1)
+			for k, v := range l.env {
+				env[k] = v
+			}
+			if home != "" {
+				// Whatever spelling the launch used, the account's home is the only one.
+				for k := range env {
+					if strings.EqualFold(k, "CLAUDE_CONFIG_DIR") {
+						delete(env, k)
+					}
+				}
+				env["CLAUDE_CONFIG_DIR"] = home
+			}
 			owned = false
-			return SignInCommand{Release: l.release, Path: m.Command, Args: m.Args, Env: signInEnv(l.env), Label: m.Label}, nil
+			return SignInCommand{Release: l.release, Path: m.Command, Args: m.Args, Env: signInEnv(env), Label: m.Label}, nil
 		}
 	}
 	return SignInCommand{}, ErrAuthMethodUnknown
