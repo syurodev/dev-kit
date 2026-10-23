@@ -173,6 +173,8 @@ func runFakeCodex(scenario, logPath string) {
 			} else {
 				reply(map[string]any{"account": map[string]any{"type": "chatgpt", "email": "me@example.com", "planType": "plus"}, "requiresOpenaiAuth": true})
 			}
+		case codexapp.MethodRateLimitsRead:
+			reply(json.RawMessage(`{"rateLimits":{"limitId":"codex","limitName":null,"primary":{"usedPercent":0,"windowDurationMins":300,"resetsAt":1792669235},"secondary":{"usedPercent":10,"windowDurationMins":10080,"resetsAt":1793108266},"credits":null,"individualLimit":null,"spendControlReached":false,"planType":"plus","rateLimitReachedType":null},"rateLimitsByLimitId":{"codex":{"limitId":"codex","limitName":null,"primary":{"usedPercent":0,"windowDurationMins":300,"resetsAt":1792669235},"secondary":{"usedPercent":10,"windowDurationMins":10080,"resetsAt":1793108266},"credits":null,"planType":"plus","rateLimitReachedType":null}},"rateLimitResetCredits":{"availableCount":0,"credits":[]}}`))
 		case "config/read":
 			if scenario == "configReloadFails" {
 				send(map[string]any{"id": m.ID, "error": map[string]any{"code": -32603, "message": "failed to synchronize managed preferences"}})
@@ -1422,5 +1424,74 @@ func TestCodexSignInEndsWhenItsProcessDies(t *testing.T) {
 	}
 	if r := waitSignIn(t, results); r.Success || !strings.Contains(r.Error, "exited") {
 		t.Fatalf("result = %+v", r)
+	}
+}
+
+func TestCodexCheckUsageReadsBothWindowsFromTheMeasuredAnswer(t *testing.T) {
+	fx := newCodexFixture(t, "turn")
+	windows, err := fx.adapter.CheckUsage(t.Context(), OpenSpec{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []LimitWindow{
+		{Label: "5-hour", UsedPercent: 0, ResetsAt: 1792669235, Status: "ok"},
+		{Label: "Weekly", UsedPercent: 10, ResetsAt: 1793108266, Status: "ok"},
+	}
+	if len(windows) != len(want) || windows[0] != want[0] || windows[1] != want[1] {
+		t.Fatalf("windows = %+v, want %+v", windows, want)
+	}
+}
+
+func TestCodexCheckUsageRunsInTheAccountsHome(t *testing.T) {
+	fx := newCodexFixture(t, "turn")
+	home := filepath.Join(t.TempDir(), "work")
+	if _, err := fx.adapter.CheckUsage(t.Context(), OpenSpec{AccountHome: home}); err != nil {
+		t.Fatal(err)
+	}
+	pol, _ := fx.runner.started()
+	if pol.Env["CODEX_HOME"] != home {
+		t.Errorf("CODEX_HOME = %q, want the account home %q", pol.Env["CODEX_HOME"], home)
+	}
+}
+
+func TestCodexCheckSignInAtAnAccountHomeNeverReadsTheGlobalAPIKey(t *testing.T) {
+	fx := newCodexFixture(t, "signedout")
+	asked := 0
+	fx.adapter.opts.APIKey = func(context.Context) (string, error) {
+		asked++
+		return "sk-global", nil
+	}
+	home := filepath.Join(t.TempDir(), "work")
+	st, err := fx.adapter.CheckSignIn(t.Context(), OpenSpec{AccountHome: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asked != 0 {
+		t.Error("the global API key must not decide an added account's sign-in")
+	}
+	if st.SignedIn {
+		t.Errorf("state = %+v, want signed out from account/read", st)
+	}
+	fx2 := newCodexFixture(t, "turn")
+	st, err = fx2.adapter.CheckSignIn(t.Context(), OpenSpec{AccountHome: home})
+	if err != nil || !st.SignedIn || st.Email != "me@example.com" || st.Plan != "plus" {
+		t.Fatalf("state = %+v, %v", st, err)
+	}
+}
+
+func TestCodexRuntimeReadsRateLimitsOnItsOwnConnection(t *testing.T) {
+	fx := newCodexFixture(t, "turn")
+	rt, err := fx.adapter.Open(t.Context(), OpenSpec{Cwd: fx.cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = rt.Close(context.Background()) })
+	reader, ok := rt.(RateLimitReader)
+	if !ok {
+		t.Fatal("the Codex runtime must read rate limits so a running account is never probed by a second process")
+	}
+	windows, err := reader.ReadRateLimits(t.Context())
+	if err != nil || len(windows) != 2 {
+		t.Fatalf("windows = %+v, %v", windows, err)
 	}
 }

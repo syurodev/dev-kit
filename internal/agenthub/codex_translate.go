@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -614,6 +615,26 @@ func codexLimitWindows(s codexapp.RateLimitSnapshot) []LimitWindow {
 			window.Status = "reached"
 		}
 		out = append(out, window)
+	}
+	return out
+}
+
+// limitWindowsOfRead is every window an account/rateLimits/read answer carries: the
+// per-bucket view when present (it already holds the "codex" bucket the legacy field
+// repeats), else the legacy one. Labels are the ones codexLimitWindows gives the
+// updated notification, so one translator serves both.
+func limitWindowsOfRead(res codexapp.RateLimitsReadResponse) []LimitWindow {
+	if len(res.RateLimitsByLimitID) == 0 {
+		return codexLimitWindows(res.RateLimits)
+	}
+	keys := make([]string, 0, len(res.RateLimitsByLimitID))
+	for k := range res.RateLimitsByLimitID {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var out []LimitWindow
+	for _, k := range keys {
+		out = append(out, codexLimitWindows(res.RateLimitsByLimitID[k])...)
 	}
 	return out
 }

@@ -1760,3 +1760,52 @@ func (r *codexRuntime) ask(ctx context.Context, a codexApproval) json.RawMessage
 	outcome, _ := onPermission(ctx, a.Params)
 	return a.Response(outcome)
 }
+
+// CheckUsage reads account/rateLimits/read through a short-lived app-server in spec's
+// home (the built-in home for the zero spec).
+func (a *CodexAdapter) CheckUsage(ctx context.Context, spec OpenSpec) ([]LimitWindow, error) {
+	var res codexapp.RateLimitsReadResponse
+	err := a.oneShot(ctx, spec, func(callCtx context.Context, p *codexProcess) error {
+		if err := p.conn.Call(callCtx, codexapp.MethodRateLimitsRead, nil, &res); err != nil {
+			return p.failure("account/rateLimits/read", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	windows := limitWindowsOfRead(res)
+	if len(windows) == 0 {
+		return nil, ErrUsageNotCheckable
+	}
+	return windows, nil
+}
+
+// CheckSignIn is the status check for a home, through account/read. It never
+// consults the global API key (see signInStateAt).
+func (a *CodexAdapter) CheckSignIn(ctx context.Context, spec OpenSpec) (SignInState, error) {
+	status, err := a.signInStateAt(ctx, spec)
+	if err != nil {
+		return SignInState{}, err
+	}
+	return SignInState{SignedIn: status.SignedIn, Email: status.Email, Plan: status.Plan}, nil
+}
+
+// ReadRateLimits answers a UsageChecker's question on this session's own connection.
+func (r *codexRuntime) ReadRateLimits(ctx context.Context) ([]LimitWindow, error) {
+	var res codexapp.RateLimitsReadResponse
+	if err := r.conn.Call(ctx, codexapp.MethodRateLimitsRead, nil, &res); err != nil {
+		return nil, err
+	}
+	windows := limitWindowsOfRead(res)
+	if len(windows) == 0 {
+		return nil, ErrUsageNotCheckable
+	}
+	return windows, nil
+}
+
+var (
+	_ UsageChecker    = (*CodexAdapter)(nil)
+	_ SignInChecker   = (*CodexAdapter)(nil)
+	_ RateLimitReader = (*codexRuntime)(nil)
+)

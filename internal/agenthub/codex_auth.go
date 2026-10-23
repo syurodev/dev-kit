@@ -336,8 +336,15 @@ func (a *CodexAdapter) SignInStatus(ctx context.Context) (SignInStatus, error) {
 	if key != "" {
 		return SignInStatus{SignedIn: true, Method: codexapp.AccountAPIKey}, nil
 	}
+	return a.signInStateAt(ctx, OpenSpec{})
+}
+
+// signInStateAt asks a fresh app-server in spec's home (the built-in home for the
+// zero spec) what account/read says. It never reads the global API key: that key
+// belongs to the built-in account, and an added account's home has its own login.
+func (a *CodexAdapter) signInStateAt(ctx context.Context, spec OpenSpec) (SignInStatus, error) {
 	var res codexapp.GetAccountResponse
-	err = a.oneShot(ctx, func(ctx context.Context, p *codexProcess) error {
+	err := a.oneShot(ctx, spec, func(ctx context.Context, p *codexProcess) error {
 		if err := p.conn.Call(ctx, codexapp.MethodAccountRead, map[string]any{"refreshToken": false}, &res); err != nil {
 			return p.failure("account/read", err)
 		}
@@ -362,7 +369,7 @@ func (a *CodexAdapter) SignInStatus(ctx context.Context) (SignInStatus, error) {
 // SignOut removes the ChatGPT sign-in from the home. An API key is not
 // Codex's to forget: it is unlinked where it was chosen, in Settings.
 func (a *CodexAdapter) SignOut(ctx context.Context) error {
-	return a.oneShot(ctx, func(ctx context.Context, p *codexProcess) error {
+	return a.oneShot(ctx, OpenSpec{}, func(ctx context.Context, p *codexProcess) error {
 		if err := p.conn.Call(ctx, codexapp.MethodAccountLogout, nil, nil); err != nil {
 			return p.failure("account/logout", err)
 		}
@@ -370,8 +377,9 @@ func (a *CodexAdapter) SignOut(ctx context.Context) error {
 	})
 }
 
-// oneShot runs call against a fresh app-server under the jail, then stops it.
-func (a *CodexAdapter) oneShot(ctx context.Context, call func(context.Context, *codexProcess) error) error {
+// oneShot runs call against a fresh app-server under the jail, then stops it. spec
+// carries the account home (the zero spec is the built-in home).
+func (a *CodexAdapter) oneShot(ctx context.Context, spec OpenSpec, call func(context.Context, *codexProcess) error) error {
 	l, err := a.resolveCommand()
 	if err != nil {
 		return err
@@ -382,7 +390,7 @@ func (a *CodexAdapter) oneShot(ctx context.Context, call func(context.Context, *
 		return err
 	}
 	defer os.RemoveAll(work)
-	p, err := a.start(work, l, OpenSpec{}, codexStoreFile, codexNoHandler{})
+	p, err := a.start(work, l, spec, codexStoreFile, codexNoHandler{})
 	if err != nil {
 		return err
 	}
