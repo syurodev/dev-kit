@@ -3,8 +3,10 @@ package agenthub_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"devkit/internal/agenthub"
 )
@@ -111,5 +113,47 @@ func TestMockPromptWithoutPermission(t *testing.T) {
 	}
 	if permissionCalls != 0 {
 		t.Fatalf("permissionCalls=%d want 0", permissionCalls)
+	}
+}
+
+func TestMockLimitMarkers(t *testing.T) {
+	cases := []struct {
+		marker  string
+		home    string // the account home the runtime opens in; "" is the built-in account
+		chunks  int
+		want    error
+		stopFor agenthub.StopKind
+	}{
+		{"FAIL_USAGE_LIMIT", "", 0, agenthub.ErrAgentUsageLimit, agenthub.StopUsageLimit},
+		{"FAIL_USAGE_LIMIT_AFTER_OUTPUT", "", 1, agenthub.ErrAgentUsageLimit, agenthub.StopUsageLimit},
+		{"FAIL_RATE_LIMIT_429", "", 0, agenthub.ErrTurnFailed, agenthub.StopRateLimited},
+		{"FAIL_TURN_PLAIN", "", 0, agenthub.ErrTurnFailed, agenthub.StopFailed},
+		{"FAIL_LIMIT_IN_BUILTIN_HOME", "", 0, agenthub.ErrAgentUsageLimit, agenthub.StopUsageLimit},
+		{"FAIL_LIMIT_IN_BUILTIN_HOME", "/added/account/home", 0, agenthub.ErrTurnFailed, agenthub.StopFailed},
+	}
+	for _, c := range cases {
+		t.Run(c.marker+" home="+c.home, func(t *testing.T) {
+			rt, err := agenthub.NewMockAdapter().Open(context.Background(), agenthub.OpenSpec{Cwd: t.TempDir(), AccountHome: c.home})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = rt.Close(context.Background()) }()
+			var chunks int
+			rt.SetHandlers(agenthub.RuntimeHandlers{OnUpdate: func(u json.RawMessage, _ json.RawMessage) {
+				if strings.Contains(string(u), "agent_message_chunk") {
+					chunks++
+				}
+			}})
+			_, err = rt.Prompt(context.Background(), agenthub.TextPrompt("please "+c.marker), nil)
+			if !errors.Is(err, c.want) {
+				t.Fatalf("error = %v, want %v", err, c.want)
+			}
+			if chunks != c.chunks {
+				t.Errorf("agent message chunks before the refusal = %d, want %d", chunks, c.chunks)
+			}
+			if got := agenthub.StopFromError(err, time.Now(), false).Kind; got != c.stopFor {
+				t.Errorf("stop kind = %q, want %q", got, c.stopFor)
+			}
+		})
 	}
 }

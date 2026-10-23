@@ -88,6 +88,8 @@ func (s *Service) Environment(ctx context.Context, vendor AgentType, sessionID s
 		if reporter, ok := rt.(environmentReporter); ok {
 			return reporter.reportEnvironment(ctx)
 		}
+		// A read-only report: it must not record which account a runtime runs as.
+		s.fillAccountSpec(ctx, &spec, sess)
 	}
 	s.applySandboxExtras(&spec)
 	adapter, ok := s.reg.Get(vendor)
@@ -108,7 +110,13 @@ func (a *CodexAdapter) inspectEnvironment(ctx context.Context, spec OpenSpec) (E
 		return missingEnvironment(AgentTypeCodex), nil
 	}
 	defer l.releaseLease()
-	return (environmentSnapshot{Agent: AgentTypeCodex, Spec: spec, Env: codexEnv(l, spec, a.opts.Home), Command: l.path, SkillHome: a.opts.Home}).report(ctx, "next")
+	// An account's session reports from its own home; the built-in account
+	// reports from the adapter's.
+	home := a.opts.Home
+	if spec.AccountHome != "" {
+		home = spec.AccountHome
+	}
+	return (environmentSnapshot{Agent: AgentTypeCodex, Spec: spec, Env: codexEnv(l, spec, home), Command: l.path, SkillHome: home}).report(ctx, "next")
 }
 
 func (a *ClaudeAdapter) inspectEnvironment(ctx context.Context, spec OpenSpec) (EnvironmentReport, error) {

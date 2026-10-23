@@ -542,3 +542,34 @@ func TestStoreNamesATurnByItsPromptAndForgetsItsCheckpoints(t *testing.T) {
 		t.Fatalf("checkpoints left = %d, %v", left, err)
 	}
 }
+
+func TestStoreSessionAccountRoundTrip(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	s := sampleSession("sess-acct")
+	s.AccountID = "codex-work"
+	if err := store.InsertSession(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetSession(ctx, s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AccountID != "codex-work" {
+		t.Fatalf("AccountID = %q, want codex-work", got.AccountID)
+	}
+	at := s.UpdatedAt.Add(time.Minute)
+	if err := store.UpdateSessionAccount(ctx, s.ID, "codex-home", at); err != nil {
+		t.Fatal(err)
+	}
+	got, err = store.GetSession(ctx, s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AccountID != "codex-home" {
+		t.Fatalf("after update AccountID = %q, want codex-home", got.AccountID)
+	}
+	if err := store.UpdateSessionAccount(ctx, "missing", "x", at); !errors.Is(err, agenthub.ErrSessionNotFound) {
+		t.Fatalf("missing session error = %v, want ErrSessionNotFound", err)
+	}
+}

@@ -654,6 +654,9 @@ func ParseSessionUpdate(raw json.RawMessage) SessionUpdate {
 		out.Kind = UpdateUsage
 		usage := Usage{Used: wire.Used, Size: wire.Size, RateLimit: parseRateLimit(wire.Meta)}
 		usage.Limits = limitsOfRateLimit(usage.RateLimit)
+		if unified := unifiedLimitWindows(wire.Meta); len(unified) > 0 {
+			usage.Limits = applyRateLimitStatus(unified, usage.RateLimit)
+		}
 		if wire.DevKit != nil {
 			usage.Tokens = wire.DevKit.Tokens
 			if len(wire.DevKit.Limits) > 0 {
@@ -875,6 +878,24 @@ func parseRateLimit(meta json.RawMessage) *RateLimit {
 		LimitType:   parsed.RateLimit.RateLimitType,
 		Utilization: parsed.RateLimit.Utilization,
 	}
+}
+
+// The percentages at which a window reads "warning" and "reached", for every
+// vendor whose windows are percentages.
+const (
+	limitWarnPercent    = 80
+	limitReachedPercent = 100
+)
+
+// percentStatus is a window's status from how much of it is used.
+func percentStatus(pct float64) string {
+	switch {
+	case pct >= limitReachedPercent:
+		return "reached"
+	case pct >= limitWarnPercent:
+		return "warning"
+	}
+	return "ok"
 }
 
 // limitsOfRateLimit is Claude's rate-limit block as a LimitWindow, so the

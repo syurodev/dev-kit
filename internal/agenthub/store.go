@@ -27,6 +27,8 @@ type Store interface {
 	UpdateSessionPreview(ctx context.Context, id, preview string, at time.Time) error
 	// UpdateSessionStop records why the last turn did not complete; nil clears it.
 	UpdateSessionStop(ctx context.Context, id string, stop *SessionStop, at time.Time) error
+	// UpdateSessionAccount points a session at another vendor account.
+	UpdateSessionAccount(ctx context.Context, id, accountID string, at time.Time) error
 	// UpdateSessionACPID points a session at another vendor session — the
 	// fork a rewind made. Its own writer, like status and title.
 	UpdateSessionACPID(ctx context.Context, id, acpSessionID string, at time.Time) error
@@ -80,15 +82,15 @@ func nullableWorkspaceID(id string) sql.NullString {
 	return sql.NullString{String: id, Valid: id != ""}
 }
 
-const sessionColumns = `id, agent_type, project_path, workspace_id, status, parent_session_id, depth, title, acp_session_id, extra_rw_paths, preview, stop, created_at, updated_at`
+const sessionColumns = `id, agent_type, project_path, workspace_id, status, parent_session_id, depth, title, acp_session_id, extra_rw_paths, preview, stop, agent_account_id, created_at, updated_at`
 
 func scanSession(scan func(dest ...any) error) (AgentSession, error) {
 	var s AgentSession
 	var parent, title, workspaceID sql.NullString
 	var createdAt, updatedAt string
-	var agentType, status, extraRW, stopJSON string
+	var agentType, status, extraRW, stopJSON, accountID string
 	if err := scan(
-		&s.ID, &agentType, &s.ProjectPath, &workspaceID, &status, &parent, &s.Depth, &title, &s.ACPSessionID, &extraRW, &s.Preview, &stopJSON, &createdAt, &updatedAt,
+		&s.ID, &agentType, &s.ProjectPath, &workspaceID, &status, &parent, &s.Depth, &title, &s.ACPSessionID, &extraRW, &s.Preview, &stopJSON, &accountID, &createdAt, &updatedAt,
 	); err != nil {
 		return AgentSession{}, err
 	}
@@ -106,6 +108,7 @@ func scanSession(scan func(dest ...any) error) (AgentSession, error) {
 		}
 	}
 	s.AgentType = AgentType(agentType)
+	s.AccountID = accountID
 	s.Status = SessionStatus(status)
 	s.ParentSessionID = stringPtr(parent)
 	s.WorkspaceID = workspaceID.String
@@ -122,11 +125,11 @@ func scanSession(scan func(dest ...any) error) (AgentSession, error) {
 func (st *SQLStore) InsertSession(ctx context.Context, s AgentSession) error {
 	_, err := st.db.ExecContext(ctx, `
 		INSERT INTO `+tableAgentSessions+` (
-			id, agent_type, project_path, workspace_id, status, parent_session_id, depth, title, acp_session_id, extra_rw_paths, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, agent_type, project_path, workspace_id, status, parent_session_id, depth, title, acp_session_id, extra_rw_paths, agent_account_id, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		s.ID, string(s.AgentType), s.ProjectPath, nullableWorkspaceID(s.WorkspaceID), string(s.Status),
 		nullString(s.ParentSessionID), s.Depth, nullString(s.Title), s.ACPSessionID,
-		encodePathList(s.ExtraReadWritePaths),
+		encodePathList(s.ExtraReadWritePaths), s.AccountID,
 		formatStoreTime(s.CreatedAt), formatStoreTime(s.UpdatedAt),
 	)
 	return err
@@ -209,6 +212,11 @@ func (st *SQLStore) UpdateSessionStop(ctx context.Context, id string, stop *Sess
 // UpdateSessionACPID writes the vendor session id alone, for the same reason.
 func (st *SQLStore) UpdateSessionACPID(ctx context.Context, id, acpSessionID string, at time.Time) error {
 	return st.updateSessionColumn(ctx, `acp_session_id = ?`, id, acpSessionID, at)
+}
+
+// UpdateSessionAccount writes the account alone, for the same reason.
+func (st *SQLStore) UpdateSessionAccount(ctx context.Context, id, accountID string, at time.Time) error {
+	return st.updateSessionColumn(ctx, `agent_account_id = ?`, id, accountID, at)
 }
 
 // AdoptSessionTitle sets the title only while the session has none, in the same

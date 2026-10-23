@@ -66,6 +66,15 @@ type OpenSpec struct {
 	// SubagentLimits is the person's cap on subagents (Service.applySubagentLimits);
 	// only the Codex adapter acts on it.
 	SubagentLimits SubagentLimits
+	// AccountHome is the home of the vendor account this session runs as
+	// (CODEX_HOME for Codex, CLAUDE_CONFIG_DIR for Claude); empty is the
+	// built-in account, exactly as sessions ran before accounts existed.
+	// AccountSharedPaths are the conversation-store directories that home links
+	// to (SharedStorePaths); the jail grants them read-write.
+	// AccountSharedPaths is ignored without an AccountHome. Both are set by the
+	// service, from the session's own row, never from a tool.
+	AccountHome        string
+	AccountSharedPaths []string
 }
 
 // VendorAdapter wraps a concrete agent vendor (mock, claude, …).

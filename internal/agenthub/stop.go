@@ -293,13 +293,17 @@ func stopHeadline(kind StopKind) string {
 	return "its turn ended with an error"
 }
 
+// retryClock is how a time something may be tried again reads in a sentence:
+// local, to the minute, with the day ("15:04 on 2 Jan").
+func retryClock(t time.Time) string { return t.Local().Format("15:04 on 2 Jan") }
+
 // stopAdvice is what a parent should do about a stop, in the notice it is sent.
 func stopAdvice(s SessionStop, now time.Time) string {
 	switch {
 	case s.Kind == StopAuthRequired:
 		return "Only the person can fix the sign-in. Do not resume or message it; tell the person."
 	case s.Waiting(now):
-		return fmt.Sprintf("Resuming or messaging it now will fail the same way. Wait until %s, or tell the person.", s.RetryAfter.Local().Format("15:04 on 2 Jan"))
+		return fmt.Sprintf("Resuming or messaging it now will fail the same way. Wait until %s, or tell the person.", retryClock(*s.RetryAfter))
 	case !s.Retryable:
 		return "Resuming or messaging it now will most likely fail the same way. Wait, or tell the person; do not loop on it. Moving its work to another model needs the person's approval."
 	}

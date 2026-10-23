@@ -208,6 +208,23 @@ func TestProtectDataDir(t *testing.T) {
 	}
 }
 
+// The accounts' homes are hidden before the first one exists: a session that
+// is already running must not see a directory created later, and Seatbelt
+// denies a path that is not there. A name passed in keep is still excluded.
+func TestProtectDataDirHidesAgentAccountsBeforeTheyExist(t *testing.T) {
+	dir := t.TempDir()
+	want := filepath.Join(dir, "agent-accounts")
+	if _, err := os.Stat(want); err == nil {
+		t.Fatal("precondition: agent-accounts must not exist")
+	}
+	if got := ProtectDataDir(dir, "runtimes"); !slices.Contains(got, want) {
+		t.Errorf("agent-accounts missing from %v", got)
+	}
+	if got := ProtectDataDir(dir, "agent-accounts"); slices.Contains(got, want) {
+		t.Errorf("a kept name must be excluded: %v", got)
+	}
+}
+
 // A vendor's home inside the hidden data directory is carved out for that
 // vendor's sessions: the path down to it opens, everything beside it on the
 // way stays hidden, and deny paths that do not hold it are left alone.

@@ -177,18 +177,31 @@ func sandboxFor(workDir string, l launch, spec OpenSpec) (sandbox.Policy, sandbo
 		env[key] = value
 	}
 	completeToolPath(env, spec)
+	var readWrite, denyRead []string
+	if spec.AccountHome != "" {
+		// An added account is a config directory of its own. The machine's own
+		// ~/.claude and ~/.claude.json hold the built-in account's login, so they
+		// are not granted here (a shared $HOME still shows them, as it always did).
+		env["CLAUDE_CONFIG_DIR"] = spec.AccountHome
+		keep := append([]string{spec.AccountHome}, spec.AccountSharedPaths...)
+		readWrite = append(keep, spec.ExtraReadWritePaths...)
+		denyRead = carveOutAll(spec.DenyReadPaths, keep...)
+	} else {
+		readWrite = append(claudeCredentialPaths(env["HOME"]), spec.ExtraReadWritePaths...)
+		denyRead = append([]string(nil), spec.DenyReadPaths...)
+	}
 	pol := sandbox.Policy{
 		WorkDir:                workDir,
 		Network:                sandbox.NetworkHost,
 		AllowLoopbackListeners: true,
 		Env:                    env,
 		ReadOnlyPaths:          uniqueAbsPaths(append(append([]string(nil), l.ro...), spec.ReadOnlyPaths...)...),
-		ReadWritePaths:         uniqueAbsPaths(append(claudeCredentialPaths(env["HOME"]), spec.ExtraReadWritePaths...)...),
+		ReadWritePaths:         uniqueAbsPaths(readWrite...),
 		// Subscription login keeps the OAuth token in the macOS keychain
 		// (service "Claude Code-credentials-*"), not in ~/.claude.json.
 		AllowKeychain:    true,
 		AllowUnixSockets: append([]string(nil), spec.AllowUnixSockets...),
-		DenyReadPaths:    append([]string(nil), spec.DenyReadPaths...),
+		DenyReadPaths:    denyRead,
 		// nil keeps sandbox.Policy's own default (private home on); false
 		// when AgentSandboxSettings.ShareHome is on, which is its default.
 		PrivateHome: spec.PrivateHome,

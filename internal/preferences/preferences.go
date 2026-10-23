@@ -263,6 +263,8 @@ type Repository interface {
 	SetAgentModelProfiles(profiles AgentModelProfiles) error
 	GetAgentSubagentLimits() (AgentSubagentLimits, bool, error)
 	SetAgentSubagentLimits(limits AgentSubagentLimits) error
+	GetAgentAccountPolicy() (AgentAccountPolicy, bool, error)
+	SetAgentAccountPolicy(policy AgentAccountPolicy) error
 }
 
 type Service struct {

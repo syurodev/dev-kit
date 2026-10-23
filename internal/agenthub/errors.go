@@ -81,6 +81,10 @@ var (
 	// arrives inside a VendorError whose Message is the vendor's own sentence,
 	// which is the only place that says when the limit lifts.
 	ErrAgentUsageLimit = errors.New("agenthub.usageLimit")
+	// ErrAllAccountsLimited: switching is on and every signed-in account of the
+	// vendor is marked as having reached its limit. The turn is not started; the
+	// sentence names when the first account returns.
+	ErrAllAccountsLimited = errors.New("agenthub.allAccountsLimited")
 	// ErrTurnFailed is a turn the vendor ended with an error of its own — the
 	// context window full, a budget spent, a provider error — while its
 	// process stays up. Not ErrProcessFailed: that read "Agent process failed"

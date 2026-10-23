@@ -37,6 +37,13 @@ export interface AgentSession {
      * starts; nil on a session whose last turn completed.
      */
     "Stop"?: SessionStop | null;
+
+    /**
+     * AccountID is the vendor account this session's process runs as ("" is the
+     * built-in account: the machine's own Claude login, DevKit's own Codex home).
+     * Set when a turn moves the session to another account (account_switch.go).
+     */
+    "AccountID"?: string;
     "ACPSessionID": string;
     "CreatedAt": string;
     "UpdatedAt": string;

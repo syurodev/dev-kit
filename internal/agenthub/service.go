@@ -400,6 +400,34 @@ type Service struct {
 	// started, so a change applies to the next session and to a Reload.
 	SubagentLimits func() (preferences.AgentSubagentLimits, error)
 
+	// Accounts holds the vendor accounts a session can run as and what is known
+	// of their usage. nil means the feature is off: every session runs as the
+	// built-in account, exactly as before. AccountPolicy reads the person's
+	// switching rules, AccountSharedHome the built-in account's home for a vendor
+	// (where the conversation store an added account links to lives). All set in
+	// main.go; read on every turn and every open, so an edit applies at once.
+	Accounts          AccountBook
+	AccountPolicy     func() (preferences.AgentAccountPolicy, error)
+	AccountSharedHome func(vendor AgentType) string
+
+	// All guarded by mu.
+	// accountSwitches: when and from where a session last moved.
+	// sessionAccount: the account a session's runtime runs as.
+	// turnProgress: whether the running turn has produced output or a tool call.
+	// usageSeen: the last usage windows written per account, to skip repeats.
+	accountSwitches map[string]accountSwitch
+	sessionAccount  map[string]string
+	turnProgress    map[string]bool
+	usageSeen       map[string][]LimitWindow
+	// waitHook, when set (tests only, see export_test.go), is called each time
+	// a caller is about to wait on a resume or a move in flight: waiter is
+	// "move" (moveSession) or "resume" (resumeRuntime). Read under mu.
+	waitHook func(waiter, sessionID string)
+	// followUpHook, when set (tests only, see export_test.go), is called just
+	// before the one follow-up of a turn refused for a real limit is sent
+	// (runLimitFollowUp, account_limit.go). Read under mu.
+	followUpHook func(sessionID string)
+
 	// restores and rewinds hold the previews waiting between plan and apply.
 	restores restorePlans
 	rewinds  rewindPlans
@@ -430,14 +458,18 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 		emit = func(string, json.RawMessage) {}
 	}
 	s := &Service{
-		reg:       reg,
-		store:     store,
-		recorder:  NewRecorder(store),
-		runtimes:  make(map[string]SessionRuntime),
-		endpoints: make(map[string]func()),
-		invoking:  make(map[string]struct{}),
-		resuming:  make(map[string]*resumeCall),
-		emit:      emit,
+		reg:             reg,
+		store:           store,
+		recorder:        NewRecorder(store),
+		runtimes:        make(map[string]SessionRuntime),
+		endpoints:       make(map[string]func()),
+		invoking:        make(map[string]struct{}),
+		resuming:        make(map[string]*resumeCall),
+		emit:            emit,
+		accountSwitches: make(map[string]accountSwitch),
+		sessionAccount:  make(map[string]string),
+		turnProgress:    make(map[string]bool),
+		usageSeen:       make(map[string][]LimitWindow),
 		// Off until main.go says otherwise: a machine with no git, or a user
 		// who turned the feature off, runs the same Invoke as everyone else.
 		checkpoints: noCheckpoints{},
@@ -1296,6 +1328,7 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	rt := s.runtimes[id]
 	delete(s.runtimes, id)
 	s.forgetWorkspaceContextLocked(id)
+	s.forgetSessionAccountLocked(id)
 	closeEndpoint := s.endpoints[id]
 	delete(s.endpoints, id)
 	s.mu.Unlock()
@@ -1405,6 +1438,9 @@ func (s *Service) DeleteSession(ctx context.Context, id string) error {
 	for _, target := range ids {
 		s.recorder.Drop(target)
 		s.peers.forget(target) // messages waiting for a session that no longer exists
+		s.mu.Lock()
+		s.forgetSessionAccountLocked(target)
+		s.mu.Unlock()
 	}
 	return nil
 }
@@ -1443,8 +1479,20 @@ func descendantsOf(byID map[string]AgentSession, root string) []string {
 }
 
 // Invoke runs a blocking prompt turn on an existing session.
+//
+// A turn the vendor refused for a real limit has left its account marked
+// (recordStop). Whether anything is sent on the next account is the person's
+// onLimitRefusal: runLimitFollowUp sends at most one follow-up, through invoke,
+// so it is never followed in turn. A peer's turn (invoke with a peerRun) gets
+// none. The refusal is the vendor's sentinel or the usage-limit stop recorded
+// for this turn (endedInUsageLimit).
 func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, error) {
-	return s.invoke(ctx, in, nil)
+	started := time.Now()
+	result, err := s.invoke(ctx, in, nil)
+	if s.endedInUsageLimit(ctx, in.SessionID, err, started) {
+		return s.runLimitFollowUp(ctx, in, result, err)
+	}
+	return result, err
 }
 
 // invoke is Invoke, and the turn a message from another session starts (peer
@@ -1557,6 +1605,8 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 		delete(s.invoking, in.SessionID)
 		s.mu.Unlock()
 	}
+	// A new turn has produced nothing yet (what a refusal may resend depends on it).
+	s.resetTurnProgress(in.SessionID)
 	// The turn's one name, from here to the row written when it ends: the
 	// prompt's echo carries it, the turn row stores it, and a checkpoint or a
 	// rewind names the turn by it. The live stream and a reloaded page agree on
@@ -1578,6 +1628,17 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 		PromptMessageID: promptMessageID,
 		ParentSessionID: derefString(sess.ParentSessionID),
 	})
+
+	// Accounts: the start of a turn is the only moment a session changes
+	// account (never inside a running turn). Under the claim, before the
+	// runtime is resolved: a move closes the idle process and the resolve below
+	// reopens it in the new account's home. A refusal ends here, before the
+	// session is marked running or the prompt recorded: nothing ran.
+	if err := s.switchAccountForTurn(ctx, &sess); err != nil {
+		cp.Finish(context.WithoutCancel(ctx), TurnResult{Cancelled: true})
+		release()
+		return InvokeResult{}, err
+	}
 
 	// An orphan — the row outlived the process that served it, which is what
 	// every restart does to every open session, and what a mid-turn crash does
@@ -1917,6 +1978,10 @@ func (s *Service) handleUpdate(ctx context.Context, sessionID string, update jso
 	if parsed.Kind == UpdateProviderRetry {
 		s.markProviderRetry(sessionID, parsed.Retry != nil)
 	}
+	if parsed.Kind == UpdateUsage {
+		s.observeAccountUsage(ctx, sessionID, parsed)
+	}
+	s.noteTurnProgress(sessionID, parsed.Kind)
 	// The live event above carries any page picture; the stored row does not.
 	stored, _ := slimPageImages(parsed)
 	if err := s.recorder.Record(ctx, sessionID, stored); err != nil && s.OnRecordError != nil {
@@ -2116,6 +2181,9 @@ func (s *Service) liveRuntime(ctx context.Context, id string) SessionRuntime {
 	}
 	delete(s.runtimes, id)
 	s.forgetWorkspaceContextLocked(id)
+	// Nothing runs as an account now; the reopen writes it again. The switch
+	// memory stays: the session is still the same one.
+	delete(s.sessionAccount, id)
 	closeEndpoint := s.endpoints[id]
 	delete(s.endpoints, id)
 	s.mu.Unlock()
@@ -2142,7 +2210,10 @@ type resumeCall struct {
 // Fails with ErrUnavailable, not something new: to a caller this is still "no
 // runtime", and only the reason differs — vendor cannot resume, no id was
 // recorded, or the attempt failed. The old behaviour is the floor, so a vendor
-// without SessionLoader is exactly as available as before.
+// without SessionLoader is exactly as available as before. The one exception is
+// a session deleted between the caller's read and the resume: the row is read
+// again once the resume owns the session, and its absence is the store's
+// ErrSessionNotFound.
 //
 // A fresh MCP endpoint is opened for the resumed session because the old one
 // died with its process, and the identity-bound socket is what ties the agent's
@@ -2172,7 +2243,11 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 	// resume, and two at once would open two MCP endpoints on one socket path.
 	s.mu.Lock()
 	if call, busy := s.resuming[sess.ID]; busy {
+		hook := s.waitHook
 		s.mu.Unlock()
+		if hook != nil {
+			hook("resume", sess.ID)
+		}
 		select {
 		case <-call.done:
 		case <-ctx.Done():
@@ -2208,6 +2283,15 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 		close(call.done)
 	}()
 
+	// The row, not the caller's copy, names the account: a caller that read the
+	// session before an account move (and waited on the move's barrier above)
+	// must reopen where the session is bound now, not where it was.
+	row, err := s.store.GetSession(ctx, sess.ID)
+	if err != nil {
+		return nil, err
+	}
+	sess.AccountID = row.AccountID
+
 	spec := sessionOpenSpec(sess)
 	closeEndpoint := func() {}
 	if s.MCPEndpoints != nil {
@@ -2223,6 +2307,7 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 		spec.ReadOnlyPaths = []string{ep.Server.Command}
 	}
 	s.applySandboxExtras(&spec)
+	s.recordSessionAccount(sess.ID, s.fillAccountSpec(ctx, &spec, sess))
 	s.applySubagents(&spec, sess.AgentType)
 
 	if fresh {
