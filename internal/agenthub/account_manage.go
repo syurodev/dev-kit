@@ -354,3 +354,8 @@ func (s *Service) forgetAccount(id string) {
 	delete(s.usageSeen, id)
 	s.mu.Unlock()
 }
+
+// NotifyAccountsChanged tells whoever listens (the window's Accounts pages) that the
+// accounts or the rules that act on them changed. The bridge calls it after the
+// switching rules are saved; the Service's own writes already call accountsChanged.
+func (s *Service) NotifyAccountsChanged() { s.accountsChanged() }
