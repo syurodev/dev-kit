@@ -14,8 +14,10 @@ import {
   type SignInFlow,
   type SignInResult,
 } from "@/bridge/agentSignIn";
+import { agentAccountsStartBrowserSignIn, agentAccountsStartDeviceSignIn } from "@/bridge/agentAccounts";
 import { copyText } from "@/bridge/clipboard";
 import { errorMessage } from "@/bridge/errors";
+import { AGENT_ACCOUNTS_KEY } from "./accounts/useAgentAccounts";
 
 export const agentSignInStatusQueryKey = (agent: string) => ["agentSignInStatus", agent] as const;
 
@@ -51,8 +53,12 @@ const EARLY_RESULTS = 8;
  * - An end that arrives before the start that made it has answered (Codex
  *   exiting at once): remembered, and taken when the start resolves, so the
  *   panel does not wait for an event that already came.
+ *
+ * `accountId` is the added account this tracker signs in ("" for the built-in
+ * sign-in). Every rule above holds only among events about that account: the
+ * built-in panel ignores an added account's flow and the other way round.
  */
-export function createSignInTracker() {
+export function createSignInTracker(accountId = "") {
   let current: SignInFlow | null = null;
   // Results of flows not known to be this tracker's, newest last.
   const early: SignInResult[] = [];
@@ -77,7 +83,7 @@ export function createSignInTracker() {
     },
     /** An event. Returns the result to act on, or null to ignore it. */
     event(result: SignInResult): SignInResult | null {
-      if (result.agent !== CODEX_VENDOR) return null;
+      if (result.agent !== CODEX_VENDOR || (result.accountId ?? "") !== accountId) return null;
       if (current && result.loginId === current.loginId) {
         current = null;
         return result;
@@ -105,15 +111,20 @@ export function createSignInTracker() {
  * The flow runs in the backend (a short-lived Codex in the jail, holding the
  * login page's callback port) and ends with an agenthub:signInCompleted event;
  * createSignInTracker decides which events count.
+ *
+ * With an `accountId` it signs in that added account instead (its own folder),
+ * and finishing refreshes the accounts lists rather than the built-in status.
+ * The id is fixed for the hook's life: give a panel for another account its own
+ * mount (a `key`).
  */
-export function useCodexSignIn(onDone?: (outcome: SignInOutcome) => void) {
+export function useCodexSignIn(onDone?: (outcome: SignInOutcome) => void, accountId = "") {
   const client = useQueryClient();
   const [flow, setFlow] = useState<SignInFlow | null>(null);
   const [starting, setStarting] = useState<CodexSignInMethod | "">("");
   const [outcome, setOutcome] = useState<SignInOutcome | null>(null);
   const [startError, setStartError] = useState("");
   // Read by the event handler and by cleanup, which see neither render's state.
-  const [tracker] = useState(createSignInTracker);
+  const [tracker] = useState(() => createSignInTracker(accountId));
   const alive = useRef(true);
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
@@ -122,7 +133,9 @@ export function useCodexSignIn(onDone?: (outcome: SignInOutcome) => void) {
     setFlow(null);
     const next = codexSignInOutcome(result);
     setOutcome(next);
-    void client.invalidateQueries({ queryKey: agentSignInStatusQueryKey(CODEX_VENDOR) });
+    void client.invalidateQueries({
+      queryKey: accountId ? AGENT_ACCOUNTS_KEY : agentSignInStatusQueryKey(CODEX_VENDOR),
+    });
     onDoneRef.current?.(next);
   }
   const finishRef = useRef(finish);
@@ -154,10 +167,10 @@ export function useCodexSignIn(onDone?: (outcome: SignInOutcome) => void) {
     setOutcome(null);
     setStartError("");
     try {
-      const next =
-        method === "browser"
-          ? await agentHubStartBrowserSignIn(CODEX_VENDOR)
-          : await agentHubStartDeviceSignIn(CODEX_VENDOR);
+      const browser = method === "browser";
+      const next = accountId
+        ? await (browser ? agentAccountsStartBrowserSignIn(accountId) : agentAccountsStartDeviceSignIn(accountId))
+        : await (browser ? agentHubStartBrowserSignIn(CODEX_VENDOR) : agentHubStartDeviceSignIn(CODEX_VENDOR));
       if (!alive.current) {
         void agentHubCancelSignIn(CODEX_VENDOR, next.loginId).catch(() => {});
         return;
@@ -201,13 +214,17 @@ export type CodexSignInController = ReturnType<typeof useCodexSignIn>;
 export function CodexSignIn({
   signIn,
   onStart,
+  note,
 }: {
   signIn: CodexSignInController;
   /** Called as a sign-in starts, e.g. to get a dialog out of its way. */
   onStart?: () => void;
+  /** Replaces the line under the buttons, for a sign-in that is not into DevKit's own Codex home. */
+  note?: React.ReactNode;
 }) {
   return (
     <CodexSignInPanel
+      note={note}
       flow={signIn.flow}
       starting={signIn.starting}
       outcome={signIn.outcome}
@@ -229,7 +246,9 @@ export function CodexSignInPanel({
   startError,
   onStart,
   onCancel,
+  note,
 }: {
+  note?: React.ReactNode;
   flow: SignInFlow | null;
   starting: CodexSignInMethod | "";
   outcome: SignInOutcome | null;
@@ -267,8 +286,12 @@ export function CodexSignInPanel({
             </Button>
           </div>
           <p className="text-caption-11 text-text-tertiary">
-            Codex&apos;s own ChatGPT login, into a Codex home only DevKit uses — your ~/.codex is
-            left alone. DevKit never sees your password.
+            {note ?? (
+              <>
+                Codex&apos;s own ChatGPT login, into a Codex home only DevKit uses — your ~/.codex is
+                left alone. DevKit never sees your password.
+              </>
+            )}
           </p>
         </>
       )}

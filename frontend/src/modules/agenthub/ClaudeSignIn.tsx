@@ -5,6 +5,7 @@ import { Check, Loader2, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { errorMessage } from "@/bridge/errors";
+import { agentAccountsStartSignIn } from "@/bridge/agentAccounts";
 import {
   CLAUDE_VENDOR,
   agentHubAuthMethods,
@@ -32,6 +33,9 @@ export const agentAuthMethodsQueryKey = (agent: string) => ["agentAuthMethods", 
  *
  * `onDone` is read through a ref so it sees the render the exit arrives in,
  * not the one the button was pressed in.
+ *
+ * With an `accountId` the login runs at that added account's folder instead
+ * (AgentAccountsStartSignIn); the terminal tab and the exit are the same.
  */
 export function useClaudeSignIn(
   onDone?: (outcome: SignInOutcome) => void,
@@ -41,6 +45,7 @@ export function useClaudeSignIn(
    * answer per install), so a vendor nobody is using yet leaves it off.
    */
   enabled = true,
+  accountId = "",
 ) {
   const methods = useQuery({
     queryKey: agentAuthMethodsQueryKey(vendor),
@@ -63,7 +68,10 @@ export function useClaudeSignIn(
     useTerminalTabsStore.getState().openTab({
       title: method.label || signInLabel(method),
       start: (rows, cols) =>
-        agentHubStartSignIn(vendor, method.id, rows, cols).catch((e: unknown) => {
+        (accountId
+          ? agentAccountsStartSignIn(accountId, method.id, rows, cols)
+          : agentHubStartSignIn(vendor, method.id, rows, cols)
+        ).catch((e: unknown) => {
           setRunning("");
           setStartError(errorMessage(e));
           throw e;
@@ -94,11 +102,14 @@ export function ClaudeSignIn({
   signIn,
   onStart,
   vendor = CLAUDE_VENDOR,
+  note,
 }: {
   signIn: ClaudeSignInController;
   /** Called as the terminal opens, e.g. to get a dialog out of its way. */
   onStart?: () => void;
   vendor?: string;
+  /** Replaces the line under the buttons, for a login that is not the machine's own. */
+  note?: React.ReactNode;
 }) {
   const { methods, running, outcome, startError } = signIn;
 
@@ -132,7 +143,9 @@ export function ClaudeSignIn({
       )}
       <p className="text-caption-11 text-text-tertiary">
         {running ? "Finish signing in in the terminal. " : ""}
-        {vendor === CLAUDE_VENDOR ? (
+        {note ? (
+          note
+        ) : vendor === CLAUDE_VENDOR ? (
           <>
             Or set <code className="text-code-11">ANTHROPIC_API_KEY</code>. Sign-in runs Claude
             Code&apos;s own login; DevKit never sees your password.
