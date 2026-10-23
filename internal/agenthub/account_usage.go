@@ -33,6 +33,7 @@ func (s *Service) observeAccountUsage(ctx context.Context, sessionID string, par
 	}
 	switch err := s.saveObservedUsage(ctx, sess, id, parsed.Usage.Limits); {
 	case err == nil:
+		s.accountsChangedThrottled()
 	case errors.Is(err, ErrAccountNotFound):
 		// The account was deleted while its session still runs. Nothing to
 		// keep the reading on, and the dedupe entry stays so identical updates

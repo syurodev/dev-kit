@@ -228,3 +228,9 @@ func AccountSwitchUpdateForTest(from, to, reason string) json.RawMessage {
 func AccountSwitchFailedUpdateForTest(from, to, reason string) json.RawMessage {
 	return accountSwitchFailedUpdate(from, to, reason)
 }
+
+// ObserveUsageForTest feeds the usage reading of a session's turn through
+// observeAccountUsage, the path handleUpdate takes for a limits-carrying update.
+func (s *Service) ObserveUsageForTest(ctx context.Context, sessionID string, w []LimitWindow) {
+	s.observeAccountUsage(ctx, sessionID, SessionUpdate{Kind: UpdateUsage, Usage: &Usage{Limits: w}})
+}

@@ -204,6 +204,10 @@ func (s *Service) noteAccountSwitch(ctx context.Context, id, from, to, reason st
 	s.accountSwitches[id] = accountSwitch{at: time.Now(), from: from}
 	s.mu.Unlock()
 	s.handleUpdate(context.WithoutCancel(ctx), id, accountSwitchUpdate(from, to, reason))
+	if s.OnAccountSwitched != nil {
+		s.OnAccountSwitched(id, from, to, reason)
+	}
+	s.accountsChanged()
 }
 
 // moveSession closes the session's idle runtime and binds it to target. The

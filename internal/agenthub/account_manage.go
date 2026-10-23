@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -55,6 +56,20 @@ func (s *Service) accountsChanged() {
 	if s.OnAccountsChanged != nil {
 		s.OnAccountsChanged()
 	}
+}
+
+// accountsChangedThrottled is accountsChanged for a stream of small changes
+// (observed usage): at most one event every two seconds.
+func (s *Service) accountsChangedThrottled() {
+	now := time.Now()
+	s.mu.Lock()
+	if now.Sub(s.accountsEventAt) < 2*time.Second {
+		s.mu.Unlock()
+		return
+	}
+	s.accountsEventAt = now
+	s.mu.Unlock()
+	s.accountsChanged()
 }
 
 var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)

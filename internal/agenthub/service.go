@@ -417,6 +417,11 @@ type Service struct {
 	AccountsDir       string
 	AccountVendors    []AgentType
 	OnAccountsChanged func()
+	// OnAccountSwitched fires after a session moved to another account and the new
+	// process opened; never for a move that was undone. It carries ids and the
+	// reason sentence, no credential. Set in main.go; the window's notice is the
+	// transcript row, this tells the Accounts page which session moved.
+	OnAccountSwitched func(sessionID, from, to, reason string)
 
 	// accountMgmt serialises AddAccount, editAccount and RemoveAccount, each a
 	// read-then-write on the account book. Lock order: accountMgmt, then mu.
@@ -428,6 +433,8 @@ type Service struct {
 	// turnProgress: whether the running turn has produced output or a tool call.
 	// usageSeen: the last usage windows written per account, to skip repeats.
 	accountSwitches map[string]accountSwitch
+	// accountsEventAt: when accountsChangedThrottled last fired.
+	accountsEventAt time.Time
 	sessionAccount  map[string]string
 	turnProgress    map[string]bool
 	usageSeen       map[string]seenUsage
