@@ -128,6 +128,9 @@ func (s *Service) decideAccount(ctx context.Context, sess *AgentSession) (PickDe
 // account out for accountProbeCooldown. Only a move whose process opened is
 // remembered and announced.
 func (s *Service) switchAccountForTurn(ctx context.Context, sess *AgentSession) error {
+	// A shared account's reading may be old: ask again first (time-boxed), so
+	// the pick below reads what the account has left now.
+	s.refreshStaleForTurn(ctx, sess)
 	d, ok := s.decideAccount(ctx, sess)
 	if !ok {
 		return nil

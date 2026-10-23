@@ -36,6 +36,9 @@ type rigOptions struct {
 	store func(agenthub.Store) agenthub.Store
 	// noWork leaves the "work" account out: the vendor has only its built-in one.
 	noWork bool
+	// probe makes the vendor answer usage checks with probe.answer; nil leaves
+	// it unable to ("not checkable"), as before.
+	probe *usageProbe
 }
 
 // countedMock is resumableMock counting every process it opens, and doing
@@ -44,6 +47,30 @@ type countedMock struct {
 	resumableMock
 	opens *atomic.Int32
 	hook  *vendorHook
+	probe *usageProbe
+}
+
+// usageProbe is what a rig's vendor answers to CheckUsage, and what it was asked.
+type usageProbe struct {
+	calls  atomic.Int32
+	mu     sync.Mutex
+	specs  []agenthub.OpenSpec
+	answer func(ctx context.Context, spec agenthub.OpenSpec) ([]agenthub.LimitWindow, error)
+}
+
+func (p *usageProbe) check(ctx context.Context, spec agenthub.OpenSpec) ([]agenthub.LimitWindow, error) {
+	p.calls.Add(1)
+	p.mu.Lock()
+	p.specs = append(p.specs, spec)
+	p.mu.Unlock()
+	return p.answer(ctx, spec)
+}
+
+func (c countedMock) CheckUsage(ctx context.Context, spec agenthub.OpenSpec) ([]agenthub.LimitWindow, error) {
+	if c.probe == nil {
+		return nil, agenthub.ErrUsageNotCheckable
+	}
+	return c.probe.check(ctx, spec)
 }
 
 func (c countedMock) Open(ctx context.Context, spec agenthub.OpenSpec) (agenthub.SessionRuntime, error) {
@@ -169,7 +196,7 @@ func newAccountRigWith(t *testing.T, refusal string, opts rigOptions) *accountRi
 		opens: new(atomic.Int32), vendor: new(vendorHook), reg: agenthub.NewRegistry(), refusal: refusal,
 	}
 	// reload needs a vendor that can reopen a conversation
-	rig.reg.Register(countedMock{resumableMock{rig.mock}, rig.opens, rig.vendor})
+	rig.reg.Register(countedMock{resumableMock{rig.mock}, rig.opens, rig.vendor, opts.probe})
 	rig.store = agenthub.NewSQLStore(db)
 	if opts.store != nil {
 		rig.store = opts.store(rig.store)

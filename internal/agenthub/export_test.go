@@ -157,3 +157,35 @@ func (s *Service) RecordStopForTest(ctx context.Context, id string, err error) e
 	s.recordStop(ctx, sess, err, false, identity.Caller{})
 	return nil
 }
+
+// SetCheckClockForTest replaces the clock the usage-check floor reads.
+func (s *Service) SetCheckClockForTest(now func() time.Time) {
+	s.mu.Lock()
+	s.checkClock = now
+	s.mu.Unlock()
+}
+
+// SetCheckWaitHookForTest sets what is called when a usage check finds one for the
+// same account already running, just before it waits on it.
+func (s *Service) SetCheckWaitHookForTest(hook func(accountID string)) {
+	s.mu.Lock()
+	s.checkWaitHook = hook
+	s.mu.Unlock()
+}
+
+// SetTurnCheckTimeoutForTest shortens how long a turn waits for a pre-turn check;
+// call the returned func to restore it.
+func SetTurnCheckTimeoutForTest(d time.Duration) (restore func()) {
+	old := turnCheckTimeout
+	turnCheckTimeout = d
+	return func() { turnCheckTimeout = old }
+}
+
+// SetRuntimeForTest puts rt in the service's runtime map for the session and
+// records the account it runs as.
+func (s *Service) SetRuntimeForTest(sessionID, accountID string, rt SessionRuntime) {
+	s.mu.Lock()
+	s.runtimes[sessionID] = rt
+	s.sessionAccount[sessionID] = accountID
+	s.mu.Unlock()
+}

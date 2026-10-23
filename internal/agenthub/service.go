@@ -438,6 +438,13 @@ type Service struct {
 	policyGen    uint64
 	policyClock  func() time.Time
 	usageClock   func() time.Time
+	// checks and checkClock are the on-demand usage checks' guards and clock
+	// (account_check.go); checkWaitHook (tests only) is called when a caller
+	// joins a check already in flight, just before it waits. checkClock and
+	// checkWaitHook are read under mu.
+	checks        usageChecks
+	checkClock    func() time.Time
+	checkWaitHook func(accountID string)
 	// waitHook, when set (tests only, see export_test.go), is called each time
 	// a caller is about to wait on a resume or a move in flight: waiter is
 	// "move" (moveSession) or "resume" (resumeRuntime). Read under mu.
