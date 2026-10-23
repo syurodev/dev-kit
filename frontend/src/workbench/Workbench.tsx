@@ -11,6 +11,7 @@ import { buildSwitcherItems, slotModuleIds, slotTarget } from "./switcherItems";
 import { editsText, inRichTextEditor, isPaletteShortcut, isReopenTabShortcut, moduleIndexFromEvent, peekIndexFromEvent } from "./moduleShortcuts";
 import { shortcut } from "@/lib/shortcut";
 import { AgentSessionsSubscriber } from "./AgentSessionsSubscriber";
+import { AgentAccountsSubscriber } from "./AgentAccountsSubscriber";
 import { CommandPalette } from "./CommandPalette";
 import { SystemStatusMenu } from "./SystemStatusMenu";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
@@ -715,6 +716,7 @@ export function Workbench() {
       overlays={
         <>
           <AgentSessionsSubscriber />
+          <AgentAccountsSubscriber />
           <CommandPalette
             open={paletteOpen}
             onClose={() => setPaletteOpen(false)}
