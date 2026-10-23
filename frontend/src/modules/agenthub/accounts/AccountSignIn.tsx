@@ -7,13 +7,14 @@ import { CodexSignIn, useCodexSignIn } from "../CodexSignIn";
 import { vendorInfo } from "../vendors";
 import { AGENT_ACCOUNTS_KEY } from "./useAgentAccounts";
 
-/** The line under a sign-in button: where this login goes, and that the machine's own is left alone. */
+/** The line under a sign-in button: what this login is, and that the one the person uses themselves is left alone. */
 export function accountSignInNote(vendor: string): string {
   const name = vendorInfo(vendor).name;
-  return vendor === "claude"
-    ? "Signs in to this account's own folder. The Claude login you use yourself in ~/.claude is left alone, and DevKit never sees your password."
-    : `Signs in to this account's own ${name} folder. Your ~/.codex is left alone, and DevKit never sees your password.`;
+  return `Signs in as a separate ${name} login for DevKit. The login you use yourself is left alone, and DevKit never sees your password.`;
 }
+
+/** What a signed-out built-in account says instead of a sign-in: Go refuses one here, Runtimes owns it. */
+export const BUILTIN_SIGN_IN_LINE = "Sign in to this account under Settings → Agents → Runtimes.";
 
 /**
  * Claude's login runs in a terminal tab, as it does under Runtimes: the tab is
@@ -43,8 +44,13 @@ function CodexAccountSignIn({ account }: { account: AgentAccount }) {
   return <CodexSignIn signIn={signIn} note={accountSignInNote(account.vendor)} />;
 }
 
-/** The sign-in for a signed-out account, by how its vendor signs in. */
+/**
+ * The sign-in for a signed-out account, by how its vendor signs in. The built-in
+ * account signs in from Runtimes (the backend refuses it here), so it gets one
+ * line and none of the sign-in controls, which would start their own probes.
+ */
 export function AccountSignIn({ account }: { account: AgentAccount }) {
+  if (account.builtin) return <p className="text-caption-11 text-text-tertiary">{BUILTIN_SIGN_IN_LINE}</p>;
   return vendorInfo(account.vendor).signIn === "inApp" ? (
     <CodexAccountSignIn account={account} />
   ) : (

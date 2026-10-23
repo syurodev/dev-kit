@@ -134,12 +134,12 @@ export function AccountRow({
         {count > 1 ? (
           <>
             <ActionTooltip label="Move up" wrap>
-              <Button type="button" variant="ghost" size="icon-xs" disabled={busy || index === 0} onClick={() => onMove(-1)}>
+              <Button type="button" variant="ghost" size="icon-xs" aria-label={`Move ${account.label} up`} disabled={busy || index === 0} onClick={() => onMove(-1)}>
                 <ChevronUp />
               </Button>
             </ActionTooltip>
             <ActionTooltip label="Move down" wrap>
-              <Button type="button" variant="ghost" size="icon-xs" disabled={busy || index === count - 1} onClick={() => onMove(1)}>
+              <Button type="button" variant="ghost" size="icon-xs" aria-label={`Move ${account.label} down`} disabled={busy || index === count - 1} onClick={() => onMove(1)}>
                 <ChevronDown />
               </Button>
             </ActionTooltip>
@@ -147,7 +147,7 @@ export function AccountRow({
         ) : null}
         {account.signedIn ? (
           <ActionTooltip label="Refresh usage" wrap>
-            <Button type="button" variant="ghost" size="icon-xs" disabled={busy} onClick={onRefreshUsage}>
+            <Button type="button" variant="ghost" size="icon-xs" aria-label={`Refresh usage for ${account.label}`} disabled={busy} onClick={onRefreshUsage}>
               <RefreshCw />
             </Button>
           </ActionTooltip>
@@ -155,12 +155,12 @@ export function AccountRow({
         {!account.builtin ? (
           <>
             <ActionTooltip label="Rename" wrap>
-              <Button type="button" variant="ghost" size="icon-xs" disabled={busy} onClick={() => setRenaming(true)}>
+              <Button type="button" variant="ghost" size="icon-xs" aria-label={`Rename ${account.label}`} disabled={busy} onClick={() => setRenaming(true)}>
                 <Pencil />
               </Button>
             </ActionTooltip>
             <ActionTooltip label="Remove" wrap>
-              <Button type="button" variant="ghost" size="icon-xs" disabled={busy} onClick={onAskRemove}>
+              <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove ${account.label}`} disabled={busy} onClick={onAskRemove}>
                 <Trash2 />
               </Button>
             </ActionTooltip>
@@ -234,8 +234,7 @@ export function AccountRow({
         error={error || undefined}
         onConfirm={() => void onConfirmRemove()}
       >
-        DevKit removes this account and its folder, including the login stored there. A session that is running as it must
-        be closed first.
+        DevKit removes this account's folder and stops using it. A session that is running as it must be closed first.
       </ConfirmDialog>
     </li>
   );

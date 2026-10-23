@@ -65,7 +65,7 @@ describe("AgentAccountsSetting", () => {
     expect(html).toContain('value="85"');
     // The signed-out account carries Claude's own sign-in, with where it goes.
     expect(html).toContain('data-testid="claude-sign-in"');
-    expect(html).toContain("this account&#x27;s own folder");
+    expect(html).toContain("a separate Claude login");
   });
 
   test("before the first answer both halves wait instead of showing an empty list", () => {
@@ -92,6 +92,18 @@ describe("AgentAccountsSetting", () => {
     const html = render(client);
     expect(html).not.toContain("claude-sign-in");
     expect(html).not.toContain("codex-sign-in");
+  });
+
+  test("a signed-out built-in account sends the person to Runtimes and mounts no sign-in", () => {
+    const client = new QueryClient();
+    client.setQueryData(agentAccountsKey("claude"), [account({ signedIn: false })]);
+    client.setQueryData(AGENT_ACCOUNT_POLICY_KEY, policy);
+    const html = render(client);
+    expect(html).not.toContain("claude-sign-in");
+    expect(html).not.toContain("codex-sign-in");
+    expect(html).toContain("Sign in to this account under Settings → Agents → Runtimes.");
+    // Checking again stays: Go can re-read the built-in account's status.
+    expect(html).toContain("Check again");
   });
 
   test("with no stored policy the form shows the defaults", () => {
@@ -135,7 +147,7 @@ describe("AccountSignIn", () => {
   test("a claude account gets Claude's sign-in with where it goes", () => {
     const html = draw("claude");
     expect(html).toContain('data-testid="claude-sign-in"');
-    expect(html).toContain("this account&#x27;s own folder");
+    expect(html).toContain("a separate Claude login");
     expect(html).not.toContain("codex-sign-in");
   });
 });

@@ -141,6 +141,30 @@ export function acknowledgeFor(accepted: boolean, enabled: boolean, riskAcknowle
   return accepted && enabled && !riskAcknowledged;
 }
 
+/**
+ * Where the switch and the terms dialog stand: whether switching is on in the
+ * form, whether the dialog is open, and whether the person accepted the terms
+ * in this sitting (so the next save carries it, and turning the switch on again
+ * asks nothing). Pure so every transition can be read and tested; a failed save
+ * makes no transition, so `accepted` survives it.
+ */
+export type RiskFlow = { enabled: boolean; askRisk: boolean; accepted: boolean };
+
+export const riskFlow = {
+  initial: (enabled: boolean): RiskFlow => ({ enabled, askRisk: false, accepted: false }),
+  /** The switch was flipped. Turning it on asks first when the terms were never accepted; the switch stays where it was until confirmed. */
+  toggle: (state: RiskFlow, on: boolean, riskAcknowledged: boolean): RiskFlow =>
+    on && !riskAcknowledged && !state.accepted ? { ...state, askRisk: true } : { ...state, enabled: on },
+  /** "Turn on" in the dialog. */
+  confirm: (): RiskFlow => ({ enabled: true, askRisk: false, accepted: true }),
+  /** Cancel in the dialog: the switch stays where it was. */
+  cancel: (state: RiskFlow): RiskFlow => ({ ...state, askRisk: false }),
+  /** What is stored moved under the form (a save elsewhere, the first read): start from it, forget an acceptance, keep an open dialog. */
+  storedChanged: (state: RiskFlow, enabled: boolean): RiskFlow => ({ enabled, askRisk: state.askRisk, accepted: false }),
+  /** The save was stored: what was accepted is now the stored acknowledgement. */
+  saved: (state: RiskFlow): RiskFlow => ({ ...state, accepted: false }),
+};
+
 /** Whether the form differs from what is stored, field by field as the person wrote them. */
 export function fieldsDiffer(a: PolicyFields, b: PolicyFields): boolean {
   return (
@@ -154,8 +178,8 @@ export function fieldsDiffer(a: PolicyFields, b: PolicyFields): boolean {
 
 /** The one-line truth shown beside the switch and in the terms dialog. */
 export const SWITCHING_TRUTH =
-  "Switching happens only at the start of a new turn: a turn that is already running is never moved. Each account signs in through the agent's own login, in its own folder, so DevKit never holds a token.";
+  "Switching happens only at the start of a new turn: a turn that is already running is never moved. Each account signs in through the agent's own login, so DevKit never holds a token.";
 
 /** The terms warning. Short and factual: DevKit makes no claim that any of this is permitted. */
 export const TERMS_WARNING =
-  "Some providers' terms restrict how subscription logins may be used, including holding several accounts or sharing one login. DevKit cannot tell what yours allow: use only accounts you are entitled to use, and check each provider's terms and your plan's.";
+  "Some providers' terms restrict how subscription logins may be used, and some may treat rotating accounts to avoid a limit, or sharing one login, as a violation. DevKit cannot tell what yours allow: use only accounts you are entitled to use, and check each provider's terms and your plan's.";

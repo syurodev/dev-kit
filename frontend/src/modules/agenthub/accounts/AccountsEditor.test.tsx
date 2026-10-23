@@ -60,9 +60,9 @@ describe("AccountsEditor", () => {
     expect(html).toContain("System default");
     expect(html).toContain("Built in");
     expect(html).toContain("already uses on this computer");
-    expect(html).not.toContain('aria-label="Move up"');
-    expect(html).not.toContain('aria-label="Remove"');
-    expect(html).not.toContain('aria-label="Rename"');
+    expect(html).not.toContain('aria-label="Move ');
+    expect(html).not.toContain('aria-label="Remove ');
+    expect(html).not.toContain('aria-label="Rename ');
     expect(html).toContain("Add account");
   });
 
@@ -76,10 +76,10 @@ describe("AccountsEditor", () => {
     expect(at("claude-spare")).toBeLessThan(at("claude-work"));
     expect(at("claude-work")).toBeLessThan(at("claude-default"));
     expect(html).toContain("tries them from the top");
-    expect(html.match(/aria-label="Move up"/g)?.length).toBe(3);
+    expect(html.match(/aria-label="Move [^"]* up"/g)?.length).toBe(3);
     // The first row cannot go up and the last cannot go down.
-    expect(html.match(/<button[^>]*disabled=""[^>]*aria-label="Move up"|aria-label="Move up"[^>]*disabled=""/g)?.length).toBe(1);
-    expect(html.match(/<button[^>]*disabled=""[^>]*aria-label="Move down"|aria-label="Move down"[^>]*disabled=""/g)?.length).toBe(1);
+    expect(html.match(/<button[^>]*disabled=""[^>]*aria-label="Move [^"]* up"|aria-label="Move [^"]* up"[^>]*disabled=""/g)?.length).toBe(1);
+    expect(html.match(/<button[^>]*disabled=""[^>]*aria-label="Move [^"]* down"|aria-label="Move [^"]* down"[^>]*disabled=""/g)?.length).toBe(1);
   });
 
   test("a signed-in account shows its windows as meters, how old the reading is, and the lower bound of a shared login", () => {
@@ -122,7 +122,7 @@ describe("AccountsEditor", () => {
     expect(html).toContain('data-testid="sign-in-panel"');
     expect(html).toContain("Check again");
     expect(html).not.toContain('role="meter"');
-    expect(html).not.toContain('aria-label="Refresh usage"');
+    expect(html).not.toContain('aria-label="Refresh usage');
   });
 
   test("a refresh that read nothing says why, quietly", () => {
@@ -159,6 +159,20 @@ describe("AccountsEditor", () => {
 
   test("an account being changed has its controls off", () => {
     const html = render({ accounts: [builtin, account()], busyId: "claude-work" });
-    expect(html.match(/<button[^>]*disabled=""[^>]*aria-label="Remove"|aria-label="Remove"[^>]*disabled=""/g)?.length).toBe(1);
+    expect(html.match(/<button[^>]*disabled=""[^>]*aria-label="Remove Work"|aria-label="Remove Work"[^>]*disabled=""/g)?.length).toBe(1);
+  });
+
+  test("each row's icon buttons carry the account's name, so a screen reader can tell them apart", () => {
+    const html = render({ accounts: [builtin, account(), account({ id: "claude-spare", label: "Spare" })] });
+    for (const label of ["Work", "Spare"]) {
+      expect(html).toContain(`aria-label="Remove ${label}"`);
+      expect(html).toContain(`aria-label="Rename ${label}"`);
+      expect(html).toContain(`aria-label="Refresh usage for ${label}"`);
+      expect(html).toContain(`aria-label="Move ${label} up"`);
+      expect(html).toContain(`aria-label="Move ${label} down"`);
+    }
+    expect(html).toContain('aria-label="Move System default up"');
+    // The visible tooltip text is unchanged and stays one word per action.
+    expect(html).not.toContain('aria-label="Remove"');
   });
 });

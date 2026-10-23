@@ -17,6 +17,7 @@ import {
   fieldsOf,
   parseFields,
   refusalOf,
+  riskFlow,
   thresholdMeaning,
   type PolicyFields,
 } from "./accountPolicy";
@@ -51,26 +52,36 @@ export function AccountPolicyEditor({
 }) {
   const stored = fieldsOf(policy);
   const storedKey = JSON.stringify(stored);
-  const [fields, setFields] = useState<PolicyFields>(stored);
+  const [others, setOthers] = useState<PolicyFields>(stored);
+  const [flow, setFlow] = useState(() => riskFlow.initial(stored.enabled));
   const [problem, setProblem] = useState<Problem | null>(null);
   const [saved, setSaved] = useState(false);
-  const [askRisk, setAskRisk] = useState(false);
-  const [accepted, setAccepted] = useState(false);
+  const { askRisk, accepted } = flow;
+  // The switch lives in the flow beside the terms dialog; the rest of the form is `others`.
+  const fields: PolicyFields = { ...others, enabled: flow.enabled };
 
   // A save elsewhere (or the first read) moves what is stored under the form.
   useEffect(() => {
-    setFields(JSON.parse(storedKey) as PolicyFields);
+    const next = JSON.parse(storedKey) as PolicyFields;
+    setOthers(next);
+    setFlow((current) => riskFlow.storedChanged(current, next.enabled));
     setProblem(null);
-    setAccepted(false);
   }, [storedKey]);
 
   const parsed = parseFields(fields);
   const dirty = fieldsDiffer(fields, stored);
   const refusal = REFUSAL_CHOICES.find((choice) => choice.value === fields.refusal) ?? REFUSAL_CHOICES[0];
   const edit = (change: Partial<PolicyFields>) => {
-    setFields((current) => ({ ...current, ...change }));
+    setOthers((current) => ({ ...current, ...change }));
     setProblem(null);
     setSaved(false);
+  };
+  const move = (next: typeof flow) => {
+    if (next.enabled !== flow.enabled) {
+      setProblem(null);
+      setSaved(false);
+    }
+    setFlow(next);
   };
 
   async function save() {
@@ -83,7 +94,7 @@ export function AccountPolicyEditor({
     setSaved(false);
     if (await onSave({ ...next.value, order: policy.order }, acknowledgeFor(accepted, next.value.enabled, riskAcknowledged))) {
       setSaved(true);
-      setAccepted(false);
+      setFlow(riskFlow.saved);
     }
   }
 
@@ -106,10 +117,7 @@ export function AccountPolicyEditor({
             aria-label={`Switch ${vendorName} accounts at a limit`}
             checked={fields.enabled}
             disabled={saving}
-            onCheckedChange={(on) => {
-              if (on && !riskAcknowledged && !accepted) setAskRisk(true);
-              else edit({ enabled: on });
-            }}
+            onCheckedChange={(on) => move(riskFlow.toggle(flow, on, riskAcknowledged))}
           />
         </label>
         {fields.enabled && signedInCount < 2 ? (
@@ -203,12 +211,8 @@ export function AccountPolicyEditor({
       <AccountRiskDialog
         open={askRisk}
         vendorName={vendorName}
-        onCancel={() => setAskRisk(false)}
-        onConfirm={() => {
-          setAccepted(true);
-          setAskRisk(false);
-          edit({ enabled: true });
-        }}
+        onCancel={() => move(riskFlow.cancel(flow))}
+        onConfirm={() => move(riskFlow.confirm())}
       />
     </section>
   );

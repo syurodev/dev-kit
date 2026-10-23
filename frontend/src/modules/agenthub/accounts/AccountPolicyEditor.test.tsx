@@ -86,6 +86,10 @@ describe("the terms warning", () => {
     const html = renderToStaticMarkup(<AccountRiskBody checked={false} onCheckedChange={() => {}} />);
     expect(html).toContain("only at the start of a new turn");
     expect(html).toContain("restrict how subscription logins may be used");
+    // The spec's own claims: rotating to avoid a limit and sharing one login. Holding several accounts was unchecked.
+    expect(html).toContain("rotating accounts to avoid a limit");
+    expect(html).toContain("sharing one login");
+    expect(html).not.toContain("holding several accounts");
     expect(html).toContain("check each provider&#x27;s terms");
     expect(html).toContain('role="checkbox"');
     expect(html).toContain('aria-checked="false"');

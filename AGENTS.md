@@ -1064,8 +1064,8 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     original error returned) on busy or all-limited. A peer-message turn (`invoke` with a peerRun) never gets one.
     "Progress" is an in-memory per-session flag set from the update stream (agent message / thought chunks, tool calls;
     `turn_progress.go`), reset when a turn starts, not read from transcript rows. `continue` sends a fixed sentence
-    (`continueAfterLimit`) and a resend sends the same input; both are recorded as ordinary user prompts until the
-    accounts UI plan did not add the `devkit`-sourced one. Edges: the parent notice and `agenthub.resumeSession`'s refusal read the
+    (`continueAfterLimit`) and a resend sends the same input; both are recorded as ordinary user prompts, and the accounts UI did not add a
+    `devkit`-sourced one. Edges: the parent notice and `agenthub.resumeSession`'s refusal read the
     stored stop, so they can be stale once failover is on (the session would move on its next turn); an agent's
     `invokeAgent` can take up to two turn time limits (each `invoke` bounds itself); a follow-up whose own account move
     fails runs on the refused account and is refused again.
@@ -1197,7 +1197,21 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   - **Rows.** Order is the saved `order` then the rest (`orderedAccounts`); Move up / Move down save the whole policy at
     once (no drag and drop). A past `exhaustedUntil` / `cooldownUntil` says nothing; a window past its `resetsAt` is drawn
     empty ("reset since the last reading"). Removal shows Go's refusal inside the confirmation, and a removal that failed
-    after the row was gone (folder left behind) shows its sentence on the page.
+    after the row was gone (folder left behind) shows its sentence on the page. The built-in account's sign-in is not
+    drawn there (Go refuses it, `prepareForSignIn`): a signed-out built-in row says "Sign in to this account under Settings →
+    Agents → Runtimes." and mounts none of the sign-in hooks, while "Check again" stays. Icon buttons carry the account's
+    name in their `aria-label` ("Remove Work"); the tooltip text stays the bare action. The sign-in and Remove copy does not
+    say where the login lands (the macOS keychain naming under `CLAUDE_CONFIG_DIR` is unverified).
+  - **Two honest notes on the rules and the events.** (a) The first Move on a vendor with no stored policy writes a default
+    policy entry (`enabled=false`, 90, 300, `none`) so the order has somewhere to live; Go's `vendorConfigured` is "has an
+    entry", so from then on that vendor gets usage observation and `agent_accounts` rows. With no entry the usage meters stay
+    at "No usage reading yet" until rules are saved or Refresh is pressed. Not changed here. (b) `agentaccounts:changed` can
+    arrive before `agenthub:signInCompleted`, so a Codex row can flip to signed in (and unmount its panel, with its handler)
+    before the success toast fires: the row is right, the toast can be lost. Not changed here.
+  - **The terms flow is pure** (`accountPolicy.ts` `riskFlow`: `toggle`, `confirm`, `cancel`, `storedChanged`, `saved`, state
+    `{enabled, askRisk, accepted}`), tested in `accountPolicy.test.ts`; `AccountPolicyEditor` only calls it. The terms warning
+    (`TERMS_WARNING`) claims only what the design spec does: rotation to avoid a limit and sharing one login may be
+    restricted; holding several accounts was unchecked.
   - **Transcript.** A move is the item kind `devkit_account_notice` (`readAccountNotice`, both `applySessionUpdates` and
     `initTranscript`; a copy that arrived while the page loaded is dropped by `dropRecordedChunks`), lands in the previous
     turn's `notes` and is drawn by `AgentTurn` through `AccountNoticeLine` (`transcript/AccountNotice.tsx`). The summary

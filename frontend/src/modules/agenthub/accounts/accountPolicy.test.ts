@@ -7,6 +7,7 @@ import {
   needsRiskAcknowledgement,
   parseFields,
   refusalOf,
+  riskFlow,
   thresholdMeaning,
   vendorPolicyOf,
   withVendorPolicy,
@@ -153,5 +154,61 @@ describe("acknowledgeFor", () => {
     expect(acknowledgeFor(true, false, false)).toBe(false);
     expect(acknowledgeFor(false, true, false)).toBe(false);
     expect(acknowledgeFor(false, false, false)).toBe(false);
+  });
+});
+
+describe("riskFlow", () => {
+  const off = riskFlow.initial(false);
+
+  test("switching on before the terms were ever accepted asks, and the switch stays off until confirmed", () => {
+    const asked = riskFlow.toggle(off, true, false);
+    expect(asked).toEqual({ enabled: false, askRisk: true, accepted: false });
+    const confirmed = riskFlow.confirm();
+    expect(confirmed).toEqual({ enabled: true, askRisk: false, accepted: true });
+  });
+
+  test("cancelling the dialog closes it and leaves the switch off and nothing accepted", () => {
+    const cancelled = riskFlow.cancel(riskFlow.toggle(off, true, false));
+    expect(cancelled).toEqual({ enabled: false, askRisk: false, accepted: false });
+  });
+
+  test("switching on when the terms were acknowledged before asks nothing", () => {
+    expect(riskFlow.toggle(off, true, true)).toEqual({ enabled: true, askRisk: false, accepted: false });
+  });
+
+  test("switching on again in the same sitting, after accepting, asks nothing", () => {
+    const accepted = riskFlow.confirm();
+    const switchedOff = riskFlow.toggle(accepted, false, false);
+    expect(switchedOff).toEqual({ enabled: false, askRisk: false, accepted: true });
+    expect(riskFlow.toggle(switchedOff, true, false)).toEqual({ enabled: true, askRisk: false, accepted: true });
+  });
+
+  test("switching off never asks", () => {
+    expect(riskFlow.toggle(riskFlow.initial(true), false, false).askRisk).toBe(false);
+  });
+
+  test("accepting survives a failed save, which changes nothing, and is cleared when what is stored moves", () => {
+    const accepted = riskFlow.confirm();
+    // A save that failed makes no transition: the state is the one the person left.
+    expect(accepted.accepted).toBe(true);
+    expect(riskFlow.saved(accepted)).toEqual({ enabled: true, askRisk: false, accepted: false });
+    expect(riskFlow.storedChanged(accepted, true)).toEqual({ enabled: true, askRisk: false, accepted: false });
+    expect(riskFlow.storedChanged(accepted, false)).toEqual({ enabled: false, askRisk: false, accepted: false });
+  });
+
+  test("stored values moving under an open dialog do not close it", () => {
+    expect(riskFlow.storedChanged(riskFlow.toggle(off, true, false), false).askRisk).toBe(true);
+  });
+
+  test("the save carries acknowledgeRisk only after accepting, and only while enabling", () => {
+    const asked = riskFlow.toggle(off, true, false);
+    expect(acknowledgeFor(asked.accepted, asked.enabled, false)).toBe(false);
+    const accepted = riskFlow.confirm();
+    expect(acknowledgeFor(accepted.accepted, accepted.enabled, false)).toBe(true);
+    const switchedOff = riskFlow.toggle(accepted, false, false);
+    expect(acknowledgeFor(switchedOff.accepted, switchedOff.enabled, false)).toBe(false);
+    // Acknowledged before: nothing is sent again.
+    const before = riskFlow.toggle(off, true, true);
+    expect(acknowledgeFor(before.accepted, before.enabled, true)).toBe(false);
   });
 });
