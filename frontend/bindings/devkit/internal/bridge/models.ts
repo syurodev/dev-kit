@@ -16,6 +16,52 @@ export interface ActiveProfileDTO {
 }
 
 /**
+ * AgentAccountInfo is one vendor account as Settings draws it. Times are Unix seconds
+ * (0 = none). The account's home folder and every credential stay in Go.
+ */
+export interface AgentAccountInfo {
+    "id": string;
+    "vendor": string;
+    "label": string;
+    "builtin": boolean;
+    "signedIn": boolean;
+    "shared": boolean;
+
+    /**
+     * ExhaustedUntil and CooldownUntil are when a refusal or a failed probe keeps the
+     * account out. They may be past values (nothing clears them when time passes):
+     * a consumer must treat a time at or before now as "not limited".
+     */
+    "exhaustedUntil": number;
+    "cooldownUntil": number;
+    "usage": agenthub$0.LimitWindow[] | null;
+    "usageSource": string;
+    "observedAt": number;
+}
+
+/**
+ * AgentAccountPolicyState is preferences.AgentAccountPolicy as the window sees it.
+ * RiskAcknowledgedAt is read-only here: DevKit stamps it itself (AgentAccountPolicySet).
+ */
+export interface AgentAccountPolicyState {
+    "revision": number;
+    "riskAcknowledgedAt": string;
+    "vendors": { [_ in string]?: AgentAccountVendorPolicyState } | null;
+}
+
+/**
+ * AgentAccountVendorPolicyState is one vendor's switching rules as Settings edits them.
+ */
+export interface AgentAccountVendorPolicyState {
+    "enabled": boolean;
+    "thresholdPercent": number;
+    "weeklyThresholdPercent": number;
+    "usageMaxAgeSeconds": number;
+    "order": string[] | null;
+    "onLimitRefusal": string;
+}
+
+/**
  * AgentModelProfilesState is the person's list as Settings edits it. Statuses
  * are left empty here — checking one asks its vendor for the model list, which
  * can take seconds — and AgentHubCheckModelProfiles fills them in.
