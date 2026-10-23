@@ -508,6 +508,96 @@ func TestRenameRacingRemoveNeverResurrectsTheAccount(t *testing.T) {
 	}
 }
 
+// A sign-in check that lands between the rename's read and its write must survive:
+// the rename writes the label alone, not the record it read.
+func TestRenameAndShareKeepASignInThatMovedAfterTheRead(t *testing.T) {
+	for _, op := range []string{"rename", "share"} {
+		t.Run(op, func(t *testing.T) {
+			rig, _, _ := manageRig(t)
+			ctx := uiCtx()
+			acct, err := rig.svc.AddAccount(ctx, agenthub.AgentTypeCodex, "Work")
+			if err != nil {
+				t.Fatal(err)
+			}
+			slow := &slowBook{AccountBook: rig.book, gate: make(chan struct{}), started: make(chan struct{})}
+			rig.svc.Accounts = slow
+			done := make(chan error, 1)
+			go func() {
+				var err error
+				if op == "rename" {
+					_, err = rig.svc.RenameAccount(ctx, acct.ID, "Personal")
+				} else {
+					_, err = rig.svc.SetAccountShared(ctx, acct.ID, true)
+				}
+				done <- err
+			}()
+			<-slow.started // the edit has read the account, signed out
+			if err := rig.book.SetSignedIn(context.Background(), acct.ID, true); err != nil {
+				t.Fatal(err)
+			}
+			close(slow.gate)
+			if err := <-done; err != nil {
+				t.Fatal(err)
+			}
+			got, _ := rig.book.Get(context.Background(), acct.ID)
+			if !got.SignedIn {
+				t.Fatalf("the edit wrote a stale sign-in state back: %+v", got)
+			}
+			if op == "rename" && got.Label != "Personal" || op == "share" && !got.Shared {
+				t.Errorf("the edit itself was lost: %+v", got)
+			}
+		})
+	}
+}
+
+func TestRenameAndShareOfARemovedAccountCreateNoRow(t *testing.T) {
+	rig, _, _ := manageRig(t)
+	ctx := uiCtx()
+	acct, err := rig.svc.AddAccount(ctx, agenthub.AgentTypeCodex, "Work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rig.svc.RemoveAccount(ctx, acct.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rig.svc.RenameAccount(ctx, acct.ID, "Back"); !errors.Is(err, agenthub.ErrAccountNotFound) {
+		t.Errorf("rename: %v, want ErrAccountNotFound", err)
+	}
+	if _, err := rig.svc.SetAccountShared(ctx, acct.ID, true); !errors.Is(err, agenthub.ErrAccountNotFound) {
+		t.Errorf("share: %v, want ErrAccountNotFound", err)
+	}
+	if _, err := rig.book.Get(context.Background(), acct.ID); !errors.Is(err, agenthub.ErrAccountNotFound) {
+		t.Errorf("a row was created for a removed account: %v", err)
+	}
+}
+
+// A hook that calls back into account management must not deadlock on accountMgmt.
+func TestAccountsChangedHookRunsAfterManagementIsUnlocked(t *testing.T) {
+	rig, _, _ := manageRig(t)
+	ctx := uiCtx()
+	reentered := 0
+	rig.svc.OnAccountsChanged = func() {
+		if reentered++; reentered > 1 {
+			return
+		}
+		if _, err := rig.svc.AddAccount(ctx, agenthub.AgentTypeCodex, "Inner"); err != nil {
+			t.Errorf("a hook could not call back in: %v", err)
+		}
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if _, err := rig.svc.AddAccount(ctx, agenthub.AgentTypeCodex, "Outer"); err != nil {
+			t.Error(err)
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the hook ran under accountMgmt and deadlocked")
+	}
+}
+
 func TestConcurrentAddsOfOneSlugGetDifferentIds(t *testing.T) {
 	rig, _, _ := manageRig(t)
 	ctx := uiCtx()

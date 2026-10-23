@@ -1781,10 +1781,21 @@ func (a *CodexAdapter) CheckUsage(ctx context.Context, spec OpenSpec) ([]LimitWi
 	return windows, nil
 }
 
-// CheckSignIn is the status check for a home, through account/read. It never
-// consults the global API key (see signInStateAt).
+// CheckSignIn is the status check for an account. The built-in account (no
+// AccountHome) answers through SignInStatus: the global API key, when one is
+// chosen, is what its sessions sign in with, so it decides first. An added
+// account's home has a login of its own and never reads that key; it asks account/read
+// there (see signInStateAt).
 func (a *CodexAdapter) CheckSignIn(ctx context.Context, spec OpenSpec) (SignInState, error) {
-	status, err := a.signInStateAt(ctx, spec)
+	var (
+		status SignInStatus
+		err    error
+	)
+	if spec.AccountHome == "" {
+		status, err = a.SignInStatus(ctx)
+	} else {
+		status, err = a.signInStateAt(ctx, spec)
+	}
 	if err != nil {
 		return SignInState{}, err
 	}

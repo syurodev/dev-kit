@@ -191,6 +191,15 @@ func (s *Service) AddAccount(ctx context.Context, vendor AgentType, label string
 	if err != nil {
 		return AccountRecord{}, err
 	}
+	rec, err := s.addAccount(ctx, book, vendor, label)
+	if err == nil {
+		s.accountsChanged() // after accountMgmt is released: a hook may call back in
+	}
+	return rec, err
+}
+
+func (s *Service) addAccount(ctx context.Context, book AccountBook, vendor AgentType, label string) (AccountRecord, error) {
+	var err error
 	// One management call at a time: each reads the book, then writes what it read.
 	// Taken before s.mu (accountInUse, forgetAccount), never after.
 	s.accountMgmt.Lock()
@@ -222,19 +231,27 @@ func (s *Service) AddAccount(ctx context.Context, vendor AgentType, label string
 	if err := book.Put(ctx, AccountRecord{ID: id, Vendor: vendor, Label: label, HomeDir: home}); err != nil {
 		return AccountRecord{}, err
 	}
-	s.accountsChanged()
 	return book.Get(ctx, id)
 }
 
-// editAccount reads an added account, lets change adjust the editable fields and
-// writes them back. Usage and markers are never touched (Put does not write them).
-// The whole read-change-write holds accountMgmt, so a removal cannot slip between
-// the read and the write and have the row put back.
-func (s *Service) editAccount(ctx context.Context, id string, change func(AccountBook, *AccountRecord) error) (AccountRecord, error) {
+// editAccount reads an added account, refuses the built-in one and lets change write
+// the one field it edits through a targeted book call (SetLabel, SetShared), so a
+// sign-in state or a marker that moved since the read is never written back. The
+// whole read-change-write holds accountMgmt, so a removal cannot slip between the
+// read and the write; the change event fires once it is released.
+func (s *Service) editAccount(ctx context.Context, id string, change func(AccountBook, AccountRecord) error) (AccountRecord, error) {
 	book, err := s.accountBook(ctx)
 	if err != nil {
 		return AccountRecord{}, err
 	}
+	rec, err := s.editAccountLocked(ctx, book, id, change)
+	if err == nil {
+		s.accountsChanged()
+	}
+	return rec, err
+}
+
+func (s *Service) editAccountLocked(ctx context.Context, book AccountBook, id string, change func(AccountBook, AccountRecord) error) (AccountRecord, error) {
 	s.accountMgmt.Lock()
 	defer s.accountMgmt.Unlock()
 	acct, err := book.Get(ctx, id)
@@ -244,13 +261,9 @@ func (s *Service) editAccount(ctx context.Context, id string, change func(Accoun
 	if acct.Builtin() {
 		return AccountRecord{}, fmt.Errorf("%w: the built-in account cannot be changed here", ErrInvalidAccount)
 	}
-	if err := change(book, &acct); err != nil {
+	if err := change(book, acct); err != nil {
 		return AccountRecord{}, err
 	}
-	if err := book.Put(ctx, acct); err != nil {
-		return AccountRecord{}, err
-	}
-	s.accountsChanged()
 	return book.Get(ctx, id)
 }
 
@@ -262,7 +275,7 @@ func (s *Service) RenameAccount(ctx context.Context, id, label string) (AccountR
 	if err != nil {
 		return AccountRecord{}, err
 	}
-	return s.editAccount(ctx, id, func(book AccountBook, a *AccountRecord) error {
+	return s.editAccount(ctx, id, func(book AccountBook, a AccountRecord) error {
 		others, err := book.List(ctx, a.Vendor)
 		if err != nil {
 			return err
@@ -272,15 +285,13 @@ func (s *Service) RenameAccount(ctx context.Context, id, label string) (AccountR
 				return ErrAccountLabelTaken
 			}
 		}
-		a.Label = label
-		return nil
+		return book.SetLabel(ctx, a.ID, label)
 	})
 }
 
 func (s *Service) SetAccountShared(ctx context.Context, id string, shared bool) (AccountRecord, error) {
-	return s.editAccount(ctx, id, func(_ AccountBook, a *AccountRecord) error {
-		a.Shared = shared
-		return nil
+	return s.editAccount(ctx, id, func(book AccountBook, a AccountRecord) error {
+		return book.SetShared(ctx, a.ID, shared)
 	})
 }
 
@@ -315,25 +326,35 @@ func (s *Service) RemoveAccount(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	changed, err := s.removeAccountLocked(ctx, book, id)
+	if changed {
+		s.accountsChanged() // after accountMgmt is released: a hook may call back in
+	}
+	return err
+}
+
+// removeAccountLocked does the removal under accountMgmt and says whether the
+// account's row is gone (the folder may still have been left behind).
+func (s *Service) removeAccountLocked(ctx context.Context, book AccountBook, id string) (changed bool, err error) {
 	s.accountMgmt.Lock()
 	defer s.accountMgmt.Unlock()
 	acct, err := book.Get(ctx, id)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if acct.Builtin() {
-		return fmt.Errorf("%w: the built-in account cannot be removed", ErrInvalidAccount)
+		return false, fmt.Errorf("%w: the built-in account cannot be removed", ErrInvalidAccount)
 	}
 	if s.accountInUse(id) {
-		return ErrAccountInUse
+		return false, ErrAccountInUse
 	}
 	// Refuse before deleting the row: with no accounts folder the home could not be
 	// removed, and the person would be left with a row-less folder.
 	if acct.HomeDir != "" && s.AccountsDir == "" {
-		return fmt.Errorf("%w: the folder for added accounts is not set", ErrAccountsUnavailable)
+		return false, fmt.Errorf("%w: the folder for added accounts is not set", ErrAccountsUnavailable)
 	}
 	if err := book.Delete(ctx, id); err != nil {
-		return err
+		return false, err
 	}
 	s.forgetAccount(id)
 	s.forgetUsageCheck(id) // takes the check lock; s.mu was released by forgetAccount
@@ -349,12 +370,10 @@ func (s *Service) RemoveAccount(ctx context.Context, id string) error {
 		log.Printf("agenthub: account %s removed; its home %q is not DevKit's to delete and was left alone (expected %q; link check: %v)", id, acct.HomeDir, want, linkErr)
 	default:
 		if err := os.RemoveAll(acct.HomeDir); err != nil {
-			s.accountsChanged()
-			return fmt.Errorf("%w: %s: %v", ErrAccountFolderLeft, acct.HomeDir, err)
+			return true, fmt.Errorf("%w: %s: %v", ErrAccountFolderLeft, acct.HomeDir, err)
 		}
 	}
-	s.accountsChanged()
-	return nil
+	return true, nil
 }
 
 // forgetAccount drops every in-memory trace of a removed account. The book's

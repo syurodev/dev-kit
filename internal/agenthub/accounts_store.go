@@ -111,7 +111,7 @@ func (st *SQLAccountStore) Put(ctx context.Context, a AccountRecord) error {
 		`INSERT INTO `+tableAgentAccounts+` (id, vendor, label, home_dir, signed_in, shared, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET label = excluded.label, home_dir = excluded.home_dir,
-		   signed_in = excluded.signed_in, shared = excluded.shared`,
+		   shared = excluded.shared`,
 		a.ID, string(a.Vendor), a.Label, a.HomeDir, boolInt(a.SignedIn), boolInt(a.Shared), formatStoreTime(time.Now()))
 	return err
 }
@@ -202,6 +202,14 @@ func (st *SQLAccountStore) updateAccount(ctx context.Context, set, id string, ar
 
 func (st *SQLAccountStore) SetSignedIn(ctx context.Context, id string, signedIn bool) error {
 	return st.updateAccount(ctx, `signed_in = ?`, id, boolInt(signedIn))
+}
+
+func (st *SQLAccountStore) SetLabel(ctx context.Context, id, label string) error {
+	return st.updateAccount(ctx, `label = ?`, id, label)
+}
+
+func (st *SQLAccountStore) SetShared(ctx context.Context, id string, shared bool) error {
+	return st.updateAccount(ctx, `shared = ?`, id, boolInt(shared))
 }
 
 func (st *SQLAccountStore) ReplaceUsage(ctx context.Context, id string, windows []LimitWindow, source string, at time.Time) error {

@@ -17,7 +17,6 @@ import (
 const accountProbeCooldown = 15 * time.Minute
 
 // accountSwitch is when a session last moved to another account, and from which.
-// Set by the switch itself (Task 10).
 type accountSwitch struct {
 	at   time.Time
 	from string
@@ -164,7 +163,10 @@ func (s *Service) switchAccountForTurn(ctx context.Context, sess *AgentSession) 
 // exhaustion: it has not reached a limit), and a notice that the switch
 // failed. If the move back cannot be written the session stays on the
 // target — the row says so, so the transcript says the move happened — and the
-// turn's own resolve tries the target once more, failing as any resume does.
+// turn's own resolve tries the target once more, failing as any resume does. That
+// edge is announced like a move that stands (noteAccountSwitch: the hooks fire and
+// the pick rules remember it) although the target's process never opened, because
+// the row is what the window and the next pick read.
 //
 // The clean-up runs on a context that outlives the turn's: the open that failed
 // may have failed because the turn's own context ended, and a dead context
@@ -183,6 +185,8 @@ func (s *Service) abandonMove(ctx context.Context, sess *AgentSession, bound, fr
 		backErr = s.moveSession(ctx, sess, bound)
 		if err := s.Accounts.MarkCooldown(ctx, target, time.Now().Add(accountProbeCooldown)); err != nil {
 			log.Printf("agenthub: account %s: could not keep it out after a failed open: %v", target, err)
+		} else {
+			s.accountsChanged() // the Accounts page shows the cooldown
 		}
 	}
 	if backErr != nil {
@@ -193,8 +197,24 @@ func (s *Service) abandonMove(ctx context.Context, sess *AgentSession, bound, fr
 	if turnEnded {
 		return
 	}
-	s.handleUpdate(ctx, sess.ID,
-		accountSwitchFailedUpdate(from, target, clipRunes(oneLine(openErr.Error()), 300)))
+	s.handleUpdate(ctx, sess.ID, accountSwitchFailedUpdate(from, target, switchFailureReason(openErr)))
+}
+
+// switchFailureReason is the sentence a failed-switch notice carries. The notice is
+// stored in the transcript and sent to the window, and the error behind it can hold
+// the account's home path or the vendor's stderr, so it is never quoted: a known
+// failure maps to a fixed phrase and anything else to a generic one.
+func switchFailureReason(err error) string {
+	switch {
+	case errors.Is(err, ErrAccountHome):
+		return "the account's folder could not be prepared"
+	case errors.Is(err, ErrAgentAuthRequired):
+		return "its sign-in is no longer valid"
+	case errors.Is(err, ErrProcessFailed):
+		return "its process could not be started"
+	default:
+		return "it could not be opened"
+	}
 }
 
 // noteAccountSwitch remembers a move that stands (for PickAccount's hold and

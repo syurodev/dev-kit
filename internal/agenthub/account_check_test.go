@@ -238,13 +238,25 @@ func TestATurnDoesNotCheckAnUnsharedOrFreshOrSignedOutAccount(t *testing.T) {
 	if probe.calls.Load() != 0 {
 		t.Fatalf("an account nobody else uses is read from its own sessions: checks = %d", probe.calls.Load())
 	}
+	// Staleness is measured from the last successful CHECK. The shared account has
+	// never been checked, so the first turn asks; a second turn past the 60 s floor
+	// but inside the 300 s default max age asks nothing.
+	now := time.Now()
+	rig.svc.SetCheckClockForTest(func() time.Time { return now })
+	rig.fillBuiltin(t, 10) // creates the built-in row
 	markShared(t, rig, agenthub.BuiltinAccountID(agenthub.AgentTypeMock))
-	rig.fillBuiltin(t, 10) // a reading made just now
 	if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "again"}); err != nil {
 		t.Fatal(err)
 	}
-	if probe.calls.Load() != 0 {
-		t.Fatalf("a fresh reading needs no check: checks = %d", probe.calls.Load())
+	if probe.calls.Load() != 1 {
+		t.Fatalf("a shared account never checked is checked on the first turn: checks = %d", probe.calls.Load())
+	}
+	now = now.Add(120 * time.Second)
+	if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "and again"}); err != nil {
+		t.Fatal(err)
+	}
+	if probe.calls.Load() != 1 {
+		t.Fatalf("a check made 120 s ago is fresh under the 300 s default: checks = %d", probe.calls.Load())
 	}
 }
 
@@ -318,6 +330,37 @@ func TestARunningAccountIsReadThroughItsOwnSessionNotASecondProcess(t *testing.T
 	}
 	if len(got.Usage) != 1 || got.Usage[0].UsedPercent != 77 {
 		t.Errorf("usage = %+v, want the running session's reading", got.Usage)
+	}
+}
+
+// A runtime that no resume recorded an account for (CreateSession opened it) runs as
+// the built-in account, which the session's row names: the check must read it through
+// that session, not start a second process on the same home.
+func TestABuiltInAccountIsReadThroughASessionWhoseAccountWasNeverRecorded(t *testing.T) {
+	rig, probe := checkRig(t, answerWith(1))
+	sess := startSession(t, rig) // the row names the built-in account (empty)
+	rig.svc.SetRuntimeForTest(sess.ID, "", fakeRateRuntime{windows: windows(66)})
+	// No List has run for the vendor either: the built-in id must work on its own.
+	got, err := rig.svc.RefreshAccountUsage(uiCtx(), agenthub.BuiltinAccountID(agenthub.AgentTypeMock))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if probe.calls.Load() != 0 {
+		t.Error("a session already runs on the built-in home: a second process must not start on it")
+	}
+	if len(got.Usage) != 1 || got.Usage[0].UsedPercent != 66 {
+		t.Errorf("usage = %+v, want the running session's reading", got.Usage)
+	}
+}
+
+func TestRefreshAccountUsageOfTheBuiltInAccountWorksBeforeAnyList(t *testing.T) {
+	rig, probe := checkRig(t, answerWith(33))
+	got, err := rig.svc.RefreshAccountUsage(uiCtx(), agenthub.BuiltinAccountID(agenthub.AgentTypeMock))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if probe.calls.Load() != 1 || len(got.Usage) != 1 || got.Usage[0].UsedPercent != 33 {
+		t.Errorf("checks = %d, usage = %+v", probe.calls.Load(), got.Usage)
 	}
 }
 
@@ -736,11 +779,14 @@ func TestATurnDoesNotProbeWhenThereIsNoOtherAccountToSwitchTo(t *testing.T) {
 	}
 }
 
+// Staleness is the age of the last successful CHECK (made through RefreshAccountUsage
+// here), not of the last observed reading: sessions of this app keep refreshing
+// observed_at, which would hide what other people of a shared login spend.
 func TestTheTurnChecksHonourTheUsageMaxAgeOfThePolicy(t *testing.T) {
 	for name, tc := range map[string]struct {
 		age  time.Duration
 		want int32
-	}{"older than the policy": {90 * time.Second, 1}, "within the policy": {30 * time.Second, 0}} {
+	}{"older than the policy": {90 * time.Second, 2}, "within the policy": {30 * time.Second, 1}} {
 		t.Run(name, func(t *testing.T) {
 			rig, probe := checkRig(t, answerWith(10))
 			rig.svc.AccountPolicy = func() (preferences.AgentAccountPolicy, error) {
@@ -751,20 +797,58 @@ func TestTheTurnChecksHonourTheUsageMaxAgeOfThePolicy(t *testing.T) {
 					},
 				}}, nil
 			}
+			now := time.Now()
+			rig.svc.SetCheckClockForTest(func() time.Time { return now })
 			rig.fillBuiltin(t, 10)
 			markShared(t, rig, agenthub.BuiltinAccountID(agenthub.AgentTypeMock))
-			w := agenthub.LimitWindow{Label: "Weekly", UsedPercent: 10, ResetsAt: time.Now().Add(24 * time.Hour).Unix()}
-			if err := rig.book.SaveUsage(context.Background(), agenthub.BuiltinAccountID(agenthub.AgentTypeMock), []agenthub.LimitWindow{w}, "observed", time.Now().Add(-tc.age)); err != nil {
+			if _, err := rig.svc.RefreshAccountUsage(uiCtx(), agenthub.BuiltinAccountID(agenthub.AgentTypeMock)); err != nil {
 				t.Fatal(err)
 			}
+			now = now.Add(tc.age)
 			sess := startSession(t, rig)
 			if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"}); err != nil {
 				t.Fatal(err)
 			}
 			if probe.calls.Load() != tc.want {
-				t.Errorf("a reading %v old under a 60 s policy: checks = %d, want %d", tc.age, probe.calls.Load(), tc.want)
+				t.Errorf("a check %v old under a 60 s policy: checks = %d, want %d", tc.age, probe.calls.Load(), tc.want)
 			}
 		})
+	}
+}
+
+// A reading the app's own sessions keep observing says nothing about other people's
+// use of a shared login, so it must not make the account look fresh.
+func TestAnObservedReadingDoesNotMakeASharedAccountFreshForTheTurnChecks(t *testing.T) {
+	rig, probe := checkRig(t, answerWith(10))
+	rig.fillBuiltin(t, 10) // an observed reading made just now (also creates the built-in row)
+	markShared(t, rig, agenthub.BuiltinAccountID(agenthub.AgentTypeMock))
+	sess := startSession(t, rig)
+	if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if probe.calls.Load() != 1 {
+		t.Fatalf("checks = %d, want 1: an observed reading is not a check", probe.calls.Load())
+	}
+}
+
+// A check that failed stores nothing and must not make the account look checked.
+func TestAFailedCheckDoesNotMakeASharedAccountLookFresh(t *testing.T) {
+	rig, probe := checkRig(t, func(context.Context, agenthub.OpenSpec) ([]agenthub.LimitWindow, error) {
+		return nil, errors.New("the vendor is down")
+	})
+	now := time.Now()
+	rig.svc.SetCheckClockForTest(func() time.Time { return now })
+	rig.fillBuiltin(t, 10)
+	markShared(t, rig, agenthub.BuiltinAccountID(agenthub.AgentTypeMock))
+	sess := startSession(t, rig)
+	for i := 1; i <= 2; i++ {
+		if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"}); err != nil {
+			t.Fatal(err)
+		}
+		if got := probe.calls.Load(); got != int32(i) {
+			t.Fatalf("turn %d: checks = %d, want %d (a failed check leaves the account stale)", i, got, i)
+		}
+		now = now.Add(2 * time.Minute)
 	}
 }
 
@@ -786,9 +870,6 @@ func TestOneTimeBoxCoversBothPreTurnChecks(t *testing.T) {
 	rig.fillBuiltin(t, 10)
 	markShared(t, rig, agenthub.BuiltinAccountID(agenthub.AgentTypeMock))
 	markShared(t, rig, "work")
-	if err := rig.book.SaveUsage(context.Background(), agenthub.BuiltinAccountID(agenthub.AgentTypeMock), windows(10), "observed", time.Now().Add(-time.Hour)); err != nil {
-		t.Fatal(err)
-	}
 	sess := startSession(t, rig)
 	if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"}); err != nil {
 		t.Fatal(err)

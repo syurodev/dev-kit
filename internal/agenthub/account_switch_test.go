@@ -174,9 +174,10 @@ var errAccountHomeBroken = errors.New("the account's sign-in has expired")
 // vendorHook lets a test hold an open, refuse the ones in an account home, and
 // read back which home each runtime was opened in.
 type vendorHook struct {
-	homeOpens atomic.Int32 // opens (attempted) in an added account's home
-	failHome  atomic.Bool  // refuse every open in an added account's home
-	ctxEnds   atomic.Bool  // an open in an added account's home answers its context's error once that has ended
+	homeOpens atomic.Int32          // opens (attempted) in an added account's home
+	failHome  atomic.Bool           // refuse every open in an added account's home
+	failErr   atomic.Pointer[error] // what failHome answers; errAccountHomeBroken when nil
+	ctxEnds   atomic.Bool           // an open in an added account's home answers its context's error once that has ended
 
 	mu      sync.Mutex
 	block   chan struct{} // the next open waits for it to close
@@ -204,6 +205,9 @@ func (h *vendorHook) enter(ctx context.Context, spec agenthub.OpenSpec) error {
 	if spec.AccountHome != "" {
 		h.homeOpens.Add(1)
 		if h.failHome.Load() {
+			if e := h.failErr.Load(); e != nil {
+				return *e
+			}
 			return errAccountHomeBroken
 		}
 	}

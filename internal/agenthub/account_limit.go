@@ -71,11 +71,13 @@ func (s *Service) markAccountLimited(ctx context.Context, sess AgentSession, sto
 // noteSignedOut marks the account a refused turn ran as signed out when the vendor
 // said sign-in is required, so PickAccount skips it as a target and moves a
 // session off it until it is signed in again. Only a turn that failed with
-// ErrAgentAuthRequired counts: StopFromError also reads a missing CLI
-// (ErrAgentNotInstalled) and a vendor-wide bad API key (ErrAgentAPIKeyUnusable)
-// as auth_required, but those are not one account's login dying, and marking
-// the account would leave it out for every session. Setting it back is the job
-// of the status refresh / sign-in flow of a later task; nothing here does it.
+// ErrAgentAuthRequired counts. StopFromError also reads a missing CLI
+// (ErrAgentNotInstalled) as auth_required, but that is not one account's login
+// dying and is not marked. A vendor-wide bad API key wraps both
+// ErrAgentAuthRequired and ErrAgentAPIKeyUnusable and is marked: for the built-in
+// account (the one the key serves) a bad chosen key reads as signed out, which is
+// intended, since its sessions fail however signed in the home is. The way back is
+// noteSignedIn (a completed turn) or the status refresh / sign-in flow.
 // Sessions running on one account at the same time can disagree (one refused, one
 // completed): the marks are last-write-wins and correct themselves on the next turn
 // or a Refresh status.

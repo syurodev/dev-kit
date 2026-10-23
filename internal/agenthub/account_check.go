@@ -38,16 +38,21 @@ type usageFlight struct {
 // on how often one account is asked, and a cap on checks running at once. The zero
 // value works.
 type usageChecks struct {
-	once   sync.Once
-	mu     sync.Mutex
-	last   map[string]time.Time
-	flight map[string]*usageFlight
-	slots  chan struct{}
+	once sync.Once
+	mu   sync.Mutex
+	last map[string]time.Time
+	// checkedAt is when each account's last SUCCESSFUL stored check began. Unlike last
+	// (the floor, set when a check starts), a failed or empty check never moves it, and
+	// observed readings do not either: it is what "stale" means for a shared login.
+	checkedAt map[string]time.Time
+	flight    map[string]*usageFlight
+	slots     chan struct{}
 }
 
 func (c *usageChecks) init() {
 	c.once.Do(func() {
 		c.last = map[string]time.Time{}
+		c.checkedAt = map[string]time.Time{}
 		c.flight = map[string]*usageFlight{}
 		c.slots = make(chan struct{}, usageCheckSlots)
 	})
@@ -95,15 +100,31 @@ func (s *Service) accountProbeSpec(acct AccountRecord) OpenSpec {
 // and can answer the usage question itself, if there is one. Only the Codex runtime
 // implements RateLimitReader; for a Claude account there is none and checkUsage starts
 // a probe process on the home (see checkUsage).
-func (s *Service) liveRateReaderOn(accountID string) (RateLimitReader, bool) {
+//
+// sessionAccount is filled lazily (CreateSession records nothing), so a runtime with no
+// entry runs as whatever its session's row names, which observedAccountID reads and
+// remembers. The rows are read with no lock held.
+func (s *Service) liveRateReaderOn(ctx context.Context, accountID string) (RateLimitReader, bool) {
+	type candidate struct {
+		sessionID string
+		reader    RateLimitReader
+		known     string
+	}
+	var candidates []candidate
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	for sessionID, rt := range s.runtimes {
-		if s.sessionAccount[sessionID] != accountID {
-			continue
-		}
 		if reader, ok := rt.(RateLimitReader); ok {
-			return reader, true
+			candidates = append(candidates, candidate{sessionID, reader, s.sessionAccount[sessionID]})
+		}
+	}
+	s.mu.Unlock()
+	for _, c := range candidates {
+		acct := c.known
+		if acct == "" {
+			acct = s.observedAccountID(ctx, c.sessionID)
+		}
+		if acct == accountID {
+			return c.reader, true
 		}
 	}
 	return nil, false
@@ -224,7 +245,7 @@ func (s *Service) checkUsage(ctx context.Context, acct AccountRecord, minGap tim
 		defer cancel()
 		var windows []LimitWindow
 		var err error
-		if reader, ok := s.liveRateReaderOn(acct.ID); ok {
+		if reader, ok := s.liveRateReaderOn(ctx, acct.ID); ok {
 			windows, err = reader.ReadRateLimits(vctx)
 		} else if isChecker {
 			windows, err = checker.CheckUsage(vctx, s.accountProbeSpec(acct))
@@ -246,6 +267,9 @@ func (s *Service) checkUsage(ctx context.Context, acct AccountRecord, minGap tim
 		if saveErr := s.Accounts.ReplaceUsage(saveCtx, acct.ID, windows, "checked", now); saveErr != nil {
 			return nil, true, saveErr
 		}
+		c.mu.Lock()
+		c.checkedAt[acct.ID] = now
+		c.mu.Unlock()
 		// The next identical observed reading must not be skipped as "unchanged".
 		s.forgetUsageSeen(acct.ID)
 		s.accountsChanged()
@@ -267,7 +291,18 @@ func (s *Service) forgetUsageCheck(id string) {
 	c.init()
 	c.mu.Lock()
 	delete(c.last, id)
+	delete(c.checkedAt, id)
 	c.mu.Unlock()
+}
+
+// lastCheckedAt is when the account's last successful check began, in this process
+// (zero: none yet, e.g. since the app started).
+func (s *Service) lastCheckedAt(id string) time.Time {
+	c := &s.checks
+	c.init()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.checkedAt[id]
 }
 
 // RefreshAccountUsage is the Refresh button: one account, the window only (an agent
@@ -278,7 +313,7 @@ func (s *Service) RefreshAccountUsage(ctx context.Context, id string) (AccountRe
 	if err != nil {
 		return AccountRecord{}, err
 	}
-	acct, err := book.Get(ctx, id)
+	acct, err := s.accountRow(ctx, book, id)
 	if err != nil {
 		return AccountRecord{}, err
 	}
@@ -288,9 +323,12 @@ func (s *Service) RefreshAccountUsage(ctx context.Context, id string) (AccountRe
 	return book.Get(ctx, id)
 }
 
-// refreshStaleForTurn runs at the start of a turn, before the pick: a shared account's
-// reading older than the policy allows is asked again, because what this app's sessions
-// saw is only a lower bound of a login other people use. The session's own account is
+// refreshStaleForTurn runs at the start of a turn, before the pick: a shared account
+// whose last successful CHECK is older than the policy allows (or that has not been
+// checked since the app started) is asked again, because what this app's sessions saw
+// is only a lower bound of a login other people use. Staleness is the age of the last
+// check, never of the last observation: sessions here keep refreshing observed readings,
+// which would make the account look fresh for ever. The session's own account is
 // checked first, then the one the pick is about to choose. Only shared, signed-in
 // accounts are checked, and only when the vendor has at least two signed-in accounts
 // (with one there is nothing to switch to, so nothing to ask). A failure keeps the old
@@ -325,7 +363,11 @@ func (s *Service) refreshStaleForTurn(ctx context.Context, sess *AgentSession) {
 		maxAge = 300 * time.Second
 	}
 	stale := func(a *AccountRecord) bool {
-		return a != nil && a.Shared && a.SignedIn && (a.ObservedAt.IsZero() || s.checkNow().Sub(a.ObservedAt) > maxAge)
+		if a == nil || !a.Shared || !a.SignedIn {
+			return false
+		}
+		lastCheck := s.lastCheckedAt(a.ID)
+		return lastCheck.IsZero() || s.checkNow().Sub(lastCheck) > maxAge
 	}
 	cctx, cancel := context.WithTimeout(ctx, turnCheckTimeout)
 	defer cancel()

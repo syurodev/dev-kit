@@ -60,9 +60,15 @@ type AccountBook interface {
 	// one on first use.
 	List(ctx context.Context, vendor AgentType) ([]AccountRecord, error)
 	Get(ctx context.Context, id string) (AccountRecord, error)
-	// Put adds an account or edits its label, home, sign-in state and shared
-	// flag. It never touches usage or the exhausted marker.
+	// Put adds an account, or rewrites an existing one's label, home and shared
+	// flag. The sign-in state is written only when the row is created: after that it
+	// belongs to SetSignedIn, so a Put made from an earlier read cannot undo a
+	// status check that ran in between. It never touches usage or the markers.
 	Put(ctx context.Context, a AccountRecord) error
+	// SetLabel and SetShared change one field of an existing account and nothing
+	// else; an unknown id is ErrAccountNotFound and no row is created.
+	SetLabel(ctx context.Context, id, label string) error
+	SetShared(ctx context.Context, id string, shared bool) error
 	// SaveUsage merges windows into the stored ones by label. A reading that is
 	// stale for every window it carries (a lower percentage of a window already
 	// stored with the same reset), and an empty list, change nothing: usage and

@@ -1490,6 +1490,27 @@ func TestCodexCheckSignInAtAnAccountHomeNeverReadsTheGlobalAPIKey(t *testing.T) 
 	}
 }
 
+func TestCodexCheckSignInOfTheBuiltInAccountHonoursTheAPIKey(t *testing.T) {
+	// "signedout": account/read would say signed out, so a signed-in answer can only
+	// come from the API key the built-in account's sessions actually use.
+	fx := newCodexFixture(t, "signedout")
+	fx.adapter.opts.APIKey = func(context.Context) (string, error) { return "sk-global", nil }
+	st, err := fx.adapter.CheckSignIn(t.Context(), OpenSpec{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.SignedIn {
+		t.Errorf("state = %+v, want signed in through the API key", st)
+	}
+	// A chosen key that cannot be read reads as signed out, as SignInStatus says.
+	fx2 := newCodexFixture(t, "turn")
+	fx2.adapter.opts.APIKey = func(context.Context) (string, error) { return "", ErrAgentAPIKeyUnusable }
+	st, err = fx2.adapter.CheckSignIn(t.Context(), OpenSpec{})
+	if err != nil || st.SignedIn {
+		t.Errorf("state = %+v, %v; want signed out for an unusable key", st, err)
+	}
+}
+
 func TestCodexRuntimeReadsRateLimitsOnItsOwnConnection(t *testing.T) {
 	fx := newCodexFixture(t, "turn")
 	rt, err := fx.adapter.Open(t.Context(), OpenSpec{Cwd: fx.cwd})

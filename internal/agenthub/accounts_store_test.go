@@ -180,17 +180,67 @@ func TestAccountBookListTwiceDoesNotDuplicateTheBuiltin(t *testing.T) {
 func TestAccountBookSignedInIsReadBackAfterPut(t *testing.T) {
 	book := newAccountBook(t)
 	ctx := context.Background()
-	for _, signedIn := range []bool{true, false} {
-		if err := book.Put(ctx, agenthub.AccountRecord{ID: "a", Vendor: agenthub.AgentTypeCodex, Label: "A", HomeDir: "/h/a", SignedIn: signedIn}); err != nil {
+	for i, signedIn := range []bool{true, false} {
+		id := []string{"a", "b"}[i]
+		if err := book.Put(ctx, agenthub.AccountRecord{ID: id, Vendor: agenthub.AgentTypeCodex, Label: id, HomeDir: "/h/" + id, SignedIn: signedIn}); err != nil {
 			t.Fatal(err)
 		}
-		got, err := book.Get(ctx, "a")
+		got, err := book.Get(ctx, id)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if got.SignedIn != signedIn {
 			t.Errorf("SignedIn = %v after Put(%v)", got.SignedIn, signedIn)
 		}
+	}
+}
+
+// After the row exists the sign-in state belongs to SetSignedIn: a Put made from an
+// older read must not write a stale state back.
+func TestAccountBookPutDoesNotOverwriteSignedInOfAnExistingRow(t *testing.T) {
+	book := newAccountBook(t)
+	ctx := context.Background()
+	rec := agenthub.AccountRecord{ID: "a", Vendor: agenthub.AgentTypeCodex, Label: "A", HomeDir: "/h/a"}
+	if err := book.Put(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	if err := book.SetSignedIn(ctx, "a", true); err != nil {
+		t.Fatal(err)
+	}
+	rec.Label = "A2"
+	if err := book.Put(ctx, rec); err != nil { // rec still says SignedIn false
+		t.Fatal(err)
+	}
+	got, _ := book.Get(ctx, "a")
+	if !got.SignedIn || got.Label != "A2" {
+		t.Errorf("got %+v, want signed in kept and the label updated", got)
+	}
+}
+
+func TestAccountBookSetLabelAndSetSharedTouchOneFieldAndNeverCreateARow(t *testing.T) {
+	book := newAccountBook(t)
+	ctx := context.Background()
+	if err := book.Put(ctx, agenthub.AccountRecord{ID: "a", Vendor: agenthub.AgentTypeCodex, Label: "A", HomeDir: "/h/a", SignedIn: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := book.SetLabel(ctx, "a", "Renamed"); err != nil {
+		t.Fatal(err)
+	}
+	if err := book.SetShared(ctx, "a", true); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := book.Get(ctx, "a")
+	if got.Label != "Renamed" || !got.Shared || !got.SignedIn || got.HomeDir != "/h/a" {
+		t.Errorf("got %+v", got)
+	}
+	if err := book.SetLabel(ctx, "gone", "x"); !errors.Is(err, agenthub.ErrAccountNotFound) {
+		t.Errorf("SetLabel of an unknown id: %v", err)
+	}
+	if err := book.SetShared(ctx, "gone", true); !errors.Is(err, agenthub.ErrAccountNotFound) {
+		t.Errorf("SetShared of an unknown id: %v", err)
+	}
+	if _, err := book.Get(ctx, "gone"); !errors.Is(err, agenthub.ErrAccountNotFound) {
+		t.Errorf("a row was created: %v", err)
 	}
 }
 

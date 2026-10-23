@@ -418,7 +418,9 @@ type Service struct {
 	AccountVendors    []AgentType
 	OnAccountsChanged func()
 	// OnAccountSwitched fires after a session moved to another account and the new
-	// process opened; never for a move that was undone. It carries ids and the
+	// process opened; never for a move that was undone. The one edge: a reopen that
+	// failed whose move back could not be written leaves the row on the target, and
+	// that is announced as a move although the target's process never opened. It carries ids and the
 	// reason sentence, no credential. Set in main.go; the window's notice is the
 	// transcript row, this tells the Accounts page which session moved.
 	OnAccountSwitched func(sessionID, from, to, reason string)
