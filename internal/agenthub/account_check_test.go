@@ -387,3 +387,418 @@ func TestTheProbeRunsUnderTheJailASessionWouldGetIt(t *testing.T) {
 		t.Errorf("PrivateHome = %v, want nil (private home is the adapter's default)", *spec.PrivateHome)
 	}
 }
+
+// blockedRig is a rig with "work" and the built-in account, and two probes held (on
+// "work" and the built-in account) so both slots are taken. release lets them go.
+type blockedRig struct {
+	*accountRig
+	probe   *usageProbe
+	release chan struct{}
+	wg      *sync.WaitGroup
+}
+
+func slotsTakenRig(t *testing.T) *blockedRig {
+	t.Helper()
+	release := make(chan struct{})
+	started := make(chan struct{}, 8)
+	rig, probe := checkRig(t, func(ctx context.Context, _ agenthub.OpenSpec) ([]agenthub.LimitWindow, error) {
+		started <- struct{}{}
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		return windows(10), nil
+	})
+	if _, err := rig.book.List(context.Background(), agenthub.AgentTypeMock); err != nil { // creates the built-in row
+		t.Fatal(err)
+	}
+	if err := rig.book.Put(context.Background(), agenthub.AccountRecord{ID: "other", Vendor: agenthub.AgentTypeMock, Label: "Other", HomeDir: t.TempDir(), SignedIn: true}); err != nil {
+		t.Fatal(err)
+	}
+	b := &blockedRig{accountRig: rig, probe: probe, release: release, wg: new(sync.WaitGroup)}
+	for _, id := range []string{"work", agenthub.BuiltinAccountID(agenthub.AgentTypeMock)} {
+		b.wg.Add(1)
+		go func() {
+			defer b.wg.Done()
+			if _, err := rig.svc.RefreshAccountUsage(uiCtx(), id); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	<-started
+	<-started
+	return b
+}
+
+func TestAJoinerWithALiveContextIsNotHandedTheFirstCallersCancellation(t *testing.T) {
+	b := slotsTakenRig(t)
+	flightUp := make(chan string, 8)
+	joined := make(chan struct{}, 8)
+	b.svc.SetCheckFlightHookForTest(func(id string) { flightUp <- id })
+	b.svc.SetCheckWaitHookForTest(func(string) { joined <- struct{}{} })
+
+	// The first caller registers its flight and waits for a slot; it then gives up.
+	ctxA, cancelA := context.WithCancel(uiCtx())
+	errA := make(chan error, 1)
+	go func() {
+		_, err := b.svc.RefreshAccountUsage(ctxA, "other")
+		errA <- err
+	}()
+	<-flightUp
+	type result struct {
+		acct agenthub.AccountRecord
+		err  error
+	}
+	resB := make(chan result, 1)
+	go func() {
+		acct, err := b.svc.RefreshAccountUsage(uiCtx(), "other")
+		resB <- result{acct, err}
+	}()
+	<-joined // B waits on A's flight
+	cancelA()
+	if err := <-errA; !errors.Is(err, context.Canceled) {
+		t.Fatalf("the first caller's error = %v, want its own cancellation", err)
+	}
+	// B, whose own context is live, does its own check once a slot frees.
+	<-flightUp
+	close(b.release)
+	got := <-resB
+	if got.err != nil {
+		t.Fatalf("the joiner was handed another caller's error: %v", got.err)
+	}
+	if len(got.acct.Usage) != 1 || got.acct.UsageSource != "checked" {
+		t.Errorf("the joiner's account = %+v, want a real check result", got.acct)
+	}
+	b.wg.Wait()
+	if b.probe.calls.Load() != 3 {
+		t.Errorf("checks = %d, want 3 (two holders and the joiner's own)", b.probe.calls.Load())
+	}
+}
+
+func TestAJoinerWithALiveContextIsNotHandedAFirstCallersDeadline(t *testing.T) {
+	started := make(chan struct{}, 2)
+	expire := make(chan struct{})
+	rig, probe := checkRig(t, func(context.Context, agenthub.OpenSpec) ([]agenthub.LimitWindow, error) {
+		started <- struct{}{}
+		<-expire
+		return nil, context.DeadlineExceeded // the first caller's short box ran out mid-probe
+	})
+	joined := make(chan struct{}, 2)
+	rig.svc.SetCheckWaitHookForTest(func(string) { joined <- struct{}{} })
+	errA := make(chan error, 1)
+	go func() {
+		_, err := rig.svc.RefreshAccountUsage(uiCtx(), "work")
+		errA <- err
+	}()
+	<-started
+	errB := make(chan error, 1)
+	go func() {
+		_, err := rig.svc.RefreshAccountUsage(uiCtx(), "work")
+		errB <- err
+	}()
+	<-joined
+	close(expire)
+	if err := <-errA; !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("the first caller's error = %v, want its deadline", err)
+	}
+	// The vendor was asked a moment ago, so the floor answers the joiner: nothing
+	// is asked again and nothing is reported as its own failure.
+	if err := <-errB; err != nil {
+		t.Fatalf("the joiner got %v, want no error (the floor applies again)", err)
+	}
+	if probe.calls.Load() != 1 {
+		t.Errorf("checks = %d, want 1", probe.calls.Load())
+	}
+}
+
+func TestAJoinerWhoseOwnContextEndedGetsItsOwnError(t *testing.T) {
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	rig, _ := checkRig(t, func(context.Context, agenthub.OpenSpec) ([]agenthub.LimitWindow, error) {
+		started <- struct{}{}
+		<-release
+		return windows(1), nil
+	})
+	joined := make(chan struct{}, 1)
+	rig.svc.SetCheckWaitHookForTest(func(string) { joined <- struct{}{} })
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if _, err := rig.svc.RefreshAccountUsage(uiCtx(), "work"); err != nil {
+			t.Error(err)
+		}
+	}()
+	<-started
+	ctx, cancel := context.WithCancel(uiCtx())
+	errB := make(chan error, 1)
+	go func() {
+		_, err := rig.svc.RefreshAccountUsage(ctx, "work")
+		errB <- err
+	}()
+	<-joined
+	cancel()
+	if err := <-errB; !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want the joiner's own cancellation", err)
+	}
+	close(release)
+	<-done
+}
+
+func TestAWedgedVendorCallIsCutAtTheCheckTimeoutAndTheNextRefreshStartsFresh(t *testing.T) {
+	restore := agenthub.SetUsageCheckTimeoutForTest(50 * time.Millisecond)
+	defer restore()
+	var calls int
+	rig, probe := checkRig(t, func(ctx context.Context, _ agenthub.OpenSpec) ([]agenthub.LimitWindow, error) {
+		calls++
+		if calls == 1 {
+			<-ctx.Done() // wedged: only the context ends it
+			return nil, ctx.Err()
+		}
+		return windows(33), nil
+	})
+	now := time.Unix(1_800_000_000, 0)
+	rig.svc.SetCheckClockForTest(func() time.Time { return now })
+	done := make(chan error, 1)
+	go func() {
+		_, err := rig.svc.RefreshAccountUsage(uiCtx(), "work") // the caller's context has no deadline
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("error = %v, want the check's timeout", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a wedged vendor call held the refresh for ever")
+	}
+	got, _ := rig.book.Get(context.Background(), "work")
+	if len(got.Usage) != 0 {
+		t.Errorf("a timed-out check stored %+v", got.Usage)
+	}
+	now = now.Add(manualGapForTest)
+	acct, err := rig.svc.RefreshAccountUsage(uiCtx(), "work")
+	if err != nil {
+		t.Fatalf("the refresh after the floor: %v (a dead flight must not be joined)", err)
+	}
+	if probe.calls.Load() != 2 || len(acct.Usage) != 1 || acct.Usage[0].UsedPercent != 33 {
+		t.Errorf("checks = %d, usage = %+v, want a fresh second check", probe.calls.Load(), acct.Usage)
+	}
+}
+
+const manualGapForTest = 11 * time.Second
+
+func TestAPanickingVendorCallIsAnErrorToTheOnesWaitingOnIt(t *testing.T) {
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	rig, _ := checkRig(t, func(context.Context, agenthub.OpenSpec) ([]agenthub.LimitWindow, error) {
+		started <- struct{}{}
+		<-release
+		panic("vendor bug")
+	})
+	joined := make(chan struct{}, 1)
+	rig.svc.SetCheckWaitHookForTest(func(string) { joined <- struct{}{} })
+	panicked := make(chan any, 1)
+	go func() {
+		defer func() { panicked <- recover() }()
+		_, _ = rig.svc.RefreshAccountUsage(uiCtx(), "work")
+	}()
+	<-started
+	errB := make(chan error, 1)
+	go func() {
+		_, err := rig.svc.RefreshAccountUsage(uiCtx(), "work")
+		errB <- err
+	}()
+	<-joined
+	close(release)
+	if p := <-panicked; p == nil {
+		t.Error("the panic must propagate, not be swallowed")
+	}
+	if err := <-errB; err == nil {
+		t.Fatal("a check that panicked was handed to its joiner as a success")
+	}
+}
+
+func TestACancelledContextNeverStartsACheckAndLeavesTheFloorAlone(t *testing.T) {
+	rig, probe := checkRig(t, answerWith(10))
+	now := time.Unix(1_800_000_000, 0)
+	rig.svc.SetCheckClockForTest(func() time.Time { return now })
+	for i := 0; i < 30; i++ { // a free slot and a dead context are both ready: it must never pick the slot
+		ctx, cancel := context.WithCancel(uiCtx())
+		cancel()
+		asked, err := rig.svc.CheckUsageForTest(ctx, "work", time.Hour)
+		if !errors.Is(err, context.Canceled) || asked {
+			t.Fatalf("round %d: asked = %v, err = %v, want not asked and Canceled", i, asked, err)
+		}
+	}
+	if probe.calls.Load() != 0 {
+		t.Fatalf("checks = %d, want 0 for a context that was already done", probe.calls.Load())
+	}
+	if asked, err := rig.svc.CheckUsageForTest(uiCtx(), "work", time.Hour); err != nil || !asked {
+		t.Fatalf("the next check: asked = %v, err = %v; the floor must not have been burned", asked, err)
+	}
+}
+
+func TestACheckThatAnswersAtTheEndOfItsBoxStillSavesTheAnswer(t *testing.T) {
+	ctx, cancel := context.WithCancel(uiCtx())
+	// The vendor answers; the caller's context ends in the same instant.
+	rig2, _ := checkRig(t, func(context.Context, agenthub.OpenSpec) ([]agenthub.LimitWindow, error) {
+		cancel()
+		return windows(61), nil
+	})
+	asked, err := rig2.svc.CheckUsageForTest(ctx, "work", 0)
+	if err != nil || !asked {
+		t.Fatalf("asked = %v, err = %v, want the answer to be kept", asked, err)
+	}
+	got, _ := rig2.book.Get(context.Background(), "work")
+	if len(got.Usage) != 1 || got.Usage[0].UsedPercent != 61 {
+		t.Errorf("stored %+v, want the 61%% reading even though the caller's context ended", got.Usage)
+	}
+}
+
+func TestAnEmptyAnswerIsNotCheckableAndKeepsTheGoodReading(t *testing.T) {
+	for name, answer := range map[string][]agenthub.LimitWindow{"nil": nil, "empty": {}} {
+		t.Run(name, func(t *testing.T) {
+			rig, _ := checkRig(t, func(context.Context, agenthub.OpenSpec) ([]agenthub.LimitWindow, error) { return answer, nil })
+			if err := rig.book.SaveUsage(context.Background(), "work", windows(30), "observed", time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			changed := 0
+			rig.svc.OnAccountsChanged = func() { changed++ }
+			if _, err := rig.svc.RefreshAccountUsage(uiCtx(), "work"); !errors.Is(err, agenthub.ErrUsageNotCheckable) {
+				t.Fatalf("error = %v, want ErrUsageNotCheckable", err)
+			}
+			got, _ := rig.book.Get(context.Background(), "work")
+			if len(got.Usage) != 1 || got.Usage[0].UsedPercent != 30 || got.UsageSource != "observed" || changed != 0 {
+				t.Errorf("a stub answer wiped the reading: %+v (events %d)", got, changed)
+			}
+		})
+	}
+}
+
+func TestRemovingAnAccountForgetsItsCheckFloor(t *testing.T) {
+	rig, probe := checkRig(t, answerWith(10))
+	wireManage(rig.svc, t.TempDir(), t.TempDir())
+	now := time.Unix(1_800_000_000, 0)
+	rig.svc.SetCheckClockForTest(func() time.Time { return now })
+	ctx := uiCtx()
+	acct, err := rig.svc.AddAccount(ctx, agenthub.AgentTypeMock, "Gone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rig.svc.RefreshAccountUsage(ctx, acct.ID); err != nil || probe.calls.Load() != 1 {
+		t.Fatalf("first check: checks = %d, err = %v", probe.calls.Load(), err)
+	}
+	if err := rig.svc.RemoveAccount(ctx, acct.ID); err != nil {
+		t.Fatal(err)
+	}
+	again, err := rig.svc.AddAccount(ctx, agenthub.AgentTypeMock, "Gone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.ID != acct.ID {
+		t.Fatalf("the re-added account has id %q, want the same %q", again.ID, acct.ID)
+	}
+	if _, err := rig.svc.RefreshAccountUsage(ctx, again.ID); err != nil || probe.calls.Load() != 2 {
+		t.Fatalf("a re-added account was held to its predecessor's floor: checks = %d, err = %v", probe.calls.Load(), err)
+	}
+}
+
+func TestATurnChecksTheTargetWhenItIsTheOneWithAnOldSharedReading(t *testing.T) {
+	rig, probe := checkRig(t, answerWith(10))
+	rig.fillBuiltin(t, 95) // the session's own account: fresh, not shared, over the threshold
+	markShared(t, rig, "work")
+	sess := startSession(t, rig)
+	if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if probe.calls.Load() != 1 || probe.specs[0].AccountHome != rig.home {
+		t.Fatalf("checks = %d, specs = %+v, want exactly the target (work) checked", probe.calls.Load(), probe.specs)
+	}
+	if got := rowAccount(t, rig, sess.ID); got != "work" {
+		t.Errorf("account = %q, want the turn moved to work", got)
+	}
+}
+
+func TestATurnDoesNotProbeWhenThereIsNoOtherAccountToSwitchTo(t *testing.T) {
+	probe := &usageProbe{answer: answerWith(95)}
+	rig := newAccountRigWith(t, preferences.RefusalNone, rigOptions{noWork: true, probe: probe})
+	if _, err := rig.book.List(context.Background(), agenthub.AgentTypeMock); err != nil {
+		t.Fatal(err)
+	}
+	markShared(t, rig, agenthub.BuiltinAccountID(agenthub.AgentTypeMock))
+	sess := startSession(t, rig)
+	if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if n := probe.calls.Load(); n != 0 {
+		t.Fatalf("checks = %d: with one account there is nothing to switch to, so nothing to ask", n)
+	}
+}
+
+func TestTheTurnChecksHonourTheUsageMaxAgeOfThePolicy(t *testing.T) {
+	for name, tc := range map[string]struct {
+		age  time.Duration
+		want int32
+	}{"older than the policy": {90 * time.Second, 1}, "within the policy": {30 * time.Second, 0}} {
+		t.Run(name, func(t *testing.T) {
+			rig, probe := checkRig(t, answerWith(10))
+			rig.svc.AccountPolicy = func() (preferences.AgentAccountPolicy, error) {
+				return preferences.AgentAccountPolicy{Vendors: map[string]preferences.AccountVendorPolicy{
+					string(agenthub.AgentTypeMock): {
+						Enabled: true, ThresholdPercent: 90, UsageMaxAgeSeconds: 60,
+						Order: []string{agenthub.BuiltinAccountID(agenthub.AgentTypeMock), "work"},
+					},
+				}}, nil
+			}
+			rig.fillBuiltin(t, 10)
+			markShared(t, rig, agenthub.BuiltinAccountID(agenthub.AgentTypeMock))
+			w := agenthub.LimitWindow{Label: "Weekly", UsedPercent: 10, ResetsAt: time.Now().Add(24 * time.Hour).Unix()}
+			if err := rig.book.SaveUsage(context.Background(), agenthub.BuiltinAccountID(agenthub.AgentTypeMock), []agenthub.LimitWindow{w}, "observed", time.Now().Add(-tc.age)); err != nil {
+				t.Fatal(err)
+			}
+			sess := startSession(t, rig)
+			if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"}); err != nil {
+				t.Fatal(err)
+			}
+			if probe.calls.Load() != tc.want {
+				t.Errorf("a reading %v old under a 60 s policy: checks = %d, want %d", tc.age, probe.calls.Load(), tc.want)
+			}
+		})
+	}
+}
+
+func TestOneTimeBoxCoversBothPreTurnChecks(t *testing.T) {
+	restore := agenthub.SetTurnCheckTimeoutForTest(300 * time.Millisecond)
+	defer restore()
+	var mu sync.Mutex
+	var deadlines []time.Time
+	rig, _ := checkRig(t, func(ctx context.Context, _ agenthub.OpenSpec) ([]agenthub.LimitWindow, error) {
+		d, ok := ctx.Deadline()
+		if !ok {
+			t.Error("a pre-turn check has no deadline")
+		}
+		mu.Lock()
+		deadlines = append(deadlines, d)
+		mu.Unlock()
+		return windows(95), nil // over the threshold: the pick then names work, which is stale too
+	})
+	rig.fillBuiltin(t, 10)
+	markShared(t, rig, agenthub.BuiltinAccountID(agenthub.AgentTypeMock))
+	markShared(t, rig, "work")
+	if err := rig.book.SaveUsage(context.Background(), agenthub.BuiltinAccountID(agenthub.AgentTypeMock), windows(10), "observed", time.Now().Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	sess := startSession(t, rig)
+	if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(deadlines) != 2 {
+		t.Fatalf("checks = %d, want 2 (own account, then the target)", len(deadlines))
+	}
+	// The probe's context also carries the check's own 30 s cap, so the earlier
+	// deadline is the turn's box: both checks share it.
+	if d := deadlines[1].Sub(deadlines[0]); d < 0 || d > 100*time.Millisecond {
+		t.Errorf("the two checks' deadlines differ by %v: they must share one box", d)
+	}
+}

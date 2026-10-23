@@ -445,6 +445,8 @@ type Service struct {
 	checks        usageChecks
 	checkClock    func() time.Time
 	checkWaitHook func(accountID string)
+	// checkFlightHook (tests only) is called once a check has registered its flight.
+	checkFlightHook func(accountID string)
 	// waitHook, when set (tests only, see export_test.go), is called each time
 	// a caller is about to wait on a resume or a move in flight: waiter is
 	// "move" (moveSession) or "resume" (resumeRuntime). Read under mu.

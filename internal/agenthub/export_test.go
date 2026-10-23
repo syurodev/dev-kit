@@ -189,3 +189,30 @@ func (s *Service) SetRuntimeForTest(sessionID, accountID string, rt SessionRunti
 	s.sessionAccount[sessionID] = accountID
 	s.mu.Unlock()
 }
+
+// SetCheckFlightHookForTest sets what is called once a usage check has registered
+// its flight, before it waits for a slot.
+func (s *Service) SetCheckFlightHookForTest(hook func(accountID string)) {
+	s.mu.Lock()
+	s.checkFlightHook = hook
+	s.mu.Unlock()
+}
+
+// SetUsageCheckTimeoutForTest shortens how long one vendor usage call may run; call
+// the returned func to restore it.
+func SetUsageCheckTimeoutForTest(d time.Duration) (restore func()) {
+	old := usageCheckTimeout
+	usageCheckTimeout = d
+	return func() { usageCheckTimeout = old }
+}
+
+// CheckUsageForTest runs the account's usage check as RefreshAccountUsage does,
+// without the permission check and the book read, and says whether the vendor was asked.
+func (s *Service) CheckUsageForTest(ctx context.Context, id string, minGap time.Duration) (asked bool, err error) {
+	acct, err := s.Accounts.Get(context.Background(), id)
+	if err != nil {
+		return false, err
+	}
+	_, asked, err = s.checkUsage(ctx, acct, minGap)
+	return asked, err
+}

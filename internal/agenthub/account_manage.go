@@ -312,6 +312,7 @@ func (s *Service) RemoveAccount(ctx context.Context, id string) error {
 		return err
 	}
 	s.forgetAccount(id)
+	s.forgetUsageCheck(id) // takes the check lock; s.mu was released by forgetAccount
 	// Only the canonical home is DevKit's to delete. This check is not atomic with
 	// the delete below and assumes nothing else writes to the accounts folder.
 	want := filepath.Join(s.AccountsDir, string(acct.Vendor), acct.ID)

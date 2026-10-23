@@ -3,6 +3,7 @@ package agenthub
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -14,8 +15,18 @@ const (
 	autoCheckGap    = 60 * time.Second // a pre-turn check, per account
 )
 
-// turnCheckTimeout is how long a turn waits for a pre-turn check; a var for tests.
+// turnCheckTimeout is how long a turn waits for its pre-turn checks, all of them
+// together; a var for tests.
 var turnCheckTimeout = 5 * time.Second
+
+// usageCheckTimeout bounds one vendor usage call (a live session's read or a probe
+// process), whoever asked; a var for tests. usageSaveTimeout bounds writing the answer,
+// which is done even when the caller's context has ended.
+var usageCheckTimeout = 30 * time.Second
+
+const usageSaveTimeout = 5 * time.Second
+
+var errUsageCheckAborted = errors.New("usage check aborted")
 
 type usageFlight struct {
 	done    chan struct{}
@@ -81,7 +92,9 @@ func (s *Service) accountProbeSpec(acct AccountRecord) OpenSpec {
 }
 
 // liveRateReaderOn is the connection of a running session that runs as the account
-// and can answer the usage question itself, if there is one.
+// and can answer the usage question itself, if there is one. Only the Codex runtime
+// implements RateLimitReader; for a Claude account there is none and checkUsage starts
+// a probe process on the home (see checkUsage).
 func (s *Service) liveRateReaderOn(accountID string) (RateLimitReader, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -103,8 +116,21 @@ func (s *Service) liveRateReaderOn(accountID string) (RateLimitReader, bool) {
 // account answers on its own connection instead of a second process starting on the
 // same home (two processes could refresh the login's tokens at the same moment).
 //
-// A check that fails stores nothing: the old reading stays. Neither s.mu nor a
-// transaction is held while the vendor or the book is called.
+// Only the Codex runtime implements RateLimitReader. On Claude a probe therefore still
+// starts a second CLI process on a home a session may be using, so the token-refresh
+// race of two processes on one home remains there (unverified; the probe is read-only
+// and short, and the floors bound how often it happens).
+//
+// The vendor call alone is bounded by usageCheckTimeout (a wedged session or CLI must
+// not hold the caller, the flight and a slot for ever); waiting for a slot is bounded
+// only by the caller's context. A caller that joins a check in flight never takes over
+// the first caller's context error: when the flight ended on a cancellation or a
+// deadline and the joiner's own context is live, the joiner looks again (the floor
+// answers it if the vendor was asked, otherwise it starts its own check).
+//
+// A check that fails stores nothing: the old reading stays, and so does an answer with
+// no window at all (a vendor that cannot say is "not checkable", not "nothing used").
+// Neither s.mu nor a transaction is held while the vendor or the book is called.
 func (s *Service) checkUsage(ctx context.Context, acct AccountRecord, minGap time.Duration) (windows []LimitWindow, asked bool, err error) {
 	adapter, ok := s.reg.Get(acct.Vendor)
 	if !ok {
@@ -113,33 +139,48 @@ func (s *Service) checkUsage(ctx context.Context, acct AccountRecord, minGap tim
 	checker, isChecker := adapter.(UsageChecker)
 	c := &s.checks
 	c.init()
-	now := s.checkNow()
-	c.mu.Lock()
-	if running, ok := c.flight[acct.ID]; ok {
-		c.mu.Unlock()
-		s.mu.Lock()
-		hook := s.checkWaitHook
-		s.mu.Unlock()
-		if hook != nil {
-			hook(acct.ID)
+	var (
+		f           *usageFlight
+		now         time.Time
+		previous    time.Time
+		hadPrevious bool
+	)
+	for f == nil {
+		now = s.checkNow()
+		c.mu.Lock()
+		if running, ok := c.flight[acct.ID]; ok {
+			c.mu.Unlock()
+			s.mu.Lock()
+			hook := s.checkWaitHook
+			s.mu.Unlock()
+			if hook != nil {
+				hook(acct.ID)
+			}
+			select {
+			case <-running.done:
+				if isContextError(running.err) {
+					// The context error is the first caller's, not this one's.
+					if ctx.Err() != nil {
+						return nil, false, ctx.Err()
+					}
+					continue
+				}
+				return running.windows, true, running.err
+			case <-ctx.Done():
+				return nil, false, ctx.Err()
+			}
 		}
-		select {
-		case <-running.done:
-			return running.windows, true, running.err
-		case <-ctx.Done():
-			return nil, false, ctx.Err()
+		previous, hadPrevious = c.last[acct.ID]
+		if hadPrevious && now.Sub(previous) < minGap {
+			c.mu.Unlock()
+			return nil, false, nil
 		}
-	}
-	previous, hadPrevious := c.last[acct.ID]
-	if hadPrevious && now.Sub(previous) < minGap {
+		f = &usageFlight{done: make(chan struct{})}
+		c.flight[acct.ID] = f
+		c.last[acct.ID] = now
 		c.mu.Unlock()
-		return nil, false, nil
 	}
-	f := &usageFlight{done: make(chan struct{})}
-	c.flight[acct.ID] = f
-	c.last[acct.ID] = now
-	c.mu.Unlock()
-	started := false
+	started, finished := false, false
 	defer func() {
 		c.mu.Lock()
 		delete(c.flight, acct.ID)
@@ -152,37 +193,81 @@ func (s *Service) checkUsage(ctx context.Context, acct AccountRecord, minGap tim
 			}
 		}
 		c.mu.Unlock()
+		if !finished {
+			// The vendor call panicked (the panic goes on): whoever waits on this
+			// flight must not read nil/nil as a success.
+			windows, err = nil, errUsageCheckAborted
+		}
 		f.windows, f.err = windows, err
 		close(f.done)
 	}()
+	windows, asked, err = func() ([]LimitWindow, bool, error) {
+		s.mu.Lock()
+		hook := s.checkFlightHook
+		s.mu.Unlock()
+		if hook != nil {
+			hook(acct.ID)
+		}
+		// A done context and a free slot are both ready to a select, which would
+		// pick at random: look first.
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
+		}
+		select {
+		case c.slots <- struct{}{}:
+			defer func() { <-c.slots }()
+		case <-ctx.Done():
+			return nil, false, ctx.Err()
+		}
+		started = true
+		vctx, cancel := context.WithTimeout(ctx, usageCheckTimeout)
+		defer cancel()
+		var windows []LimitWindow
+		var err error
+		if reader, ok := s.liveRateReaderOn(acct.ID); ok {
+			windows, err = reader.ReadRateLimits(vctx)
+		} else if isChecker {
+			windows, err = checker.CheckUsage(vctx, s.accountProbeSpec(acct))
+		} else {
+			err = ErrUsageNotCheckable
+		}
+		if err != nil {
+			if ctx.Err() == nil && errors.Is(vctx.Err(), context.DeadlineExceeded) && isContextError(err) {
+				err = fmt.Errorf("the vendor did not answer within %s: %w", usageCheckTimeout, err)
+			}
+			return nil, true, err
+		}
+		if len(windows) == 0 {
+			return nil, true, fmt.Errorf("%w: the vendor listed no window", ErrUsageNotCheckable)
+		}
+		// The answer is in: keep it even if the caller's box ended in the meantime.
+		saveCtx, cancelSave := context.WithTimeout(context.WithoutCancel(ctx), usageSaveTimeout)
+		defer cancelSave()
+		if saveErr := s.Accounts.ReplaceUsage(saveCtx, acct.ID, windows, "checked", now); saveErr != nil {
+			return nil, true, saveErr
+		}
+		// The next identical observed reading must not be skipped as "unchanged".
+		s.forgetUsageSeen(acct.ID)
+		s.accountsChanged()
+		return windows, true, nil
+	}()
+	finished = true
+	return windows, asked, err
+}
 
-	select {
-	case c.slots <- struct{}{}:
-		defer func() { <-c.slots }()
-	case <-ctx.Done():
-		return nil, false, ctx.Err()
-	}
-	started = true
-	if reader, ok := s.liveRateReaderOn(acct.ID); ok {
-		windows, err = reader.ReadRateLimits(ctx)
-	} else if isChecker {
-		windows, err = checker.CheckUsage(ctx, s.accountProbeSpec(acct))
-	} else {
-		err = ErrUsageNotCheckable
-	}
-	if err != nil {
-		return nil, true, err
-	}
-	if windows == nil {
-		windows = []LimitWindow{}
-	}
-	if saveErr := s.Accounts.ReplaceUsage(ctx, acct.ID, windows, "checked", now); saveErr != nil {
-		return nil, true, saveErr
-	}
-	// The next identical observed reading must not be skipped as "unchanged".
-	s.forgetUsageSeen(acct.ID)
-	s.accountsChanged()
-	return windows, true, nil
+func isContextError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+// forgetUsageCheck drops an account's check floor (a removed account: one added again
+// under the same label gets the same id and must not wait out its predecessor's floor).
+// A check still in flight is left alone.
+func (s *Service) forgetUsageCheck(id string) {
+	c := &s.checks
+	c.init()
+	c.mu.Lock()
+	delete(c.last, id)
+	c.mu.Unlock()
 }
 
 // RefreshAccountUsage is the Refresh button: one account, the window only (an agent
@@ -207,11 +292,32 @@ func (s *Service) RefreshAccountUsage(ctx context.Context, id string) (AccountRe
 // reading older than the policy allows is asked again, because what this app's sessions
 // saw is only a lower bound of a login other people use. The session's own account is
 // checked first, then the one the pick is about to choose. Only shared, signed-in
-// accounts are checked; each check is time-boxed and a failure keeps the old reading,
-// so a check never fails or delays a turn beyond turnCheckTimeout.
+// accounts are checked, and only when the vendor has at least two signed-in accounts
+// (with one there is nothing to switch to, so nothing to ask). A failure keeps the old
+// reading and never fails the turn.
+//
+// Both checks share ONE time box of turnCheckTimeout, so the checks never hold the turn
+// (and the session's claim) longer than that, plus the moment a probe killed at the end
+// of the box needs to be reaped (up to its exit grace, about 2 s). A turn started by an
+// agent (invokeAgent, sendMessage) comes through here too, so an agent can cause a
+// probe indirectly; that is bounded by the 60 s floor per account, the 2 slots and this
+// box, and it asks the vendor about an account, never reads or changes anything.
 func (s *Service) refreshStaleForTurn(ctx context.Context, sess *AgentSession) {
 	vp, ok := s.accountPolicyFor(sess.AgentType)
 	if !ok {
+		return
+	}
+	accounts, err := s.Accounts.List(ctx, sess.AgentType)
+	if err != nil {
+		return
+	}
+	signedIn := 0
+	for _, a := range accounts {
+		if a.SignedIn {
+			signedIn++
+		}
+	}
+	if signedIn < 2 {
 		return
 	}
 	maxAge := time.Duration(vp.UsageMaxAgeSeconds) * time.Second
@@ -221,16 +327,12 @@ func (s *Service) refreshStaleForTurn(ctx context.Context, sess *AgentSession) {
 	stale := func(a *AccountRecord) bool {
 		return a != nil && a.Shared && a.SignedIn && (a.ObservedAt.IsZero() || s.checkNow().Sub(a.ObservedAt) > maxAge)
 	}
+	cctx, cancel := context.WithTimeout(ctx, turnCheckTimeout)
+	defer cancel()
 	check := func(a AccountRecord) {
-		cctx, cancel := context.WithTimeout(ctx, turnCheckTimeout)
-		defer cancel()
 		if _, _, err := s.checkUsage(cctx, a, autoCheckGap); err != nil && !errors.Is(err, ErrUsageNotCheckable) {
 			log.Printf("agenthub: account %s: checking its usage before a turn: %v", a.ID, err)
 		}
-	}
-	accounts, err := s.Accounts.List(ctx, sess.AgentType)
-	if err != nil {
-		return
 	}
 	if cur := findAccount(accounts, sess.AccountID); stale(cur) {
 		check(*cur)
