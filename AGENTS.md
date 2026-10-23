@@ -969,14 +969,13 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   `account_limit.go`, `claude_limits.go`, `turn_progress.go`, `account_manage.go`, `account_check.go`,
   `account_signin.go`, `account_policy_cache.go`, `account_probe.go`; migrations 45, 46; backend plans
   `docs/superpowers/plans/2026-10-22-agent-multi-account-failover.md` and
-  `docs/superpowers/plans/2026-10-22-agent-accounts-window-backend.md`). **Backend and bridge, no frontend yet**: the
-  Settings page, the add/sign-in flows, the transcript's notices and the summary row are the accounts UI work (the
-  bindings it starts from are generated). `Service.Accounts` / `AccountPolicy` / `AccountSharedHome` / `AccountsDir` /
+  `docs/superpowers/plans/2026-10-22-agent-accounts-window-backend.md`). **Backend, bridge and window UI** (the UI is
+  its own bullet, **Accounts UI**, below; it has only been rendered in tests and the gallery). `Service.Accounts` / `AccountPolicy` / `AccountSharedHome` / `AccountsDir` /
   `AccountVendors` and the two events are set in `main.go`; nothing enables a vendor except writing the preference
   `agent_account_policy` (the UI-only `AgentAccountPolicySet`, below). With no policy entry for a vendor nothing is
   switched, so the feature is off and a session runs as before. The two notices are `session_info_update` rows carrying
   `_meta.devkit.accountSwitch` / `accountSwitchFailed` (`{from, to, reason}`, typed as `SessionUpdate.AccountNotice`),
-  kept as ordinary rows; nothing draws them yet. An account is a row
+  kept as ordinary rows, which the window now draws as a transcript line (**Accounts UI**). An account is a row
   (`SQLAccountStore`, no credential): the vendor CLI keeps its login in the account's own home. `AgentSession.AccountID`
   is `""` for the built-in account (`<vendor>-default`, `BuiltinAccountID`, empty `HomeDir`), which is byte-for-byte what
   sessions always ran as.
@@ -1066,7 +1065,7 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     "Progress" is an in-memory per-session flag set from the update stream (agent message / thought chunks, tool calls;
     `turn_progress.go`), reset when a turn starts, not read from transcript rows. `continue` sends a fixed sentence
     (`continueAfterLimit`) and a resend sends the same input; both are recorded as ordinary user prompts until the
-    accounts UI plan adds a `devkit`-sourced one. Edges: the parent notice and `agenthub.resumeSession`'s refusal read the
+    accounts UI plan did not add the `devkit`-sourced one. Edges: the parent notice and `agenthub.resumeSession`'s refusal read the
     stored stop, so they can be stale once failover is on (the session would move on its next turn); an agent's
     `invokeAgent` can take up to two turn time limits (each `invoke` bounds itself); a follow-up whose own account move
     fails runs on the refused account and is refused again.
@@ -1135,8 +1134,8 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     `agentaccounts:switched` carries `sessionId`, `from`, `to`, `reason` and nothing else. `Service.OnAccountSwitched` fires
     from `noteAccountSwitch`, i.e. after the new process opened and never for an undone move (`account_events_test.go`).
   - **Not done / known gaps**:
-    - The frontend (the accounts UI work): Settings page, add and sign-in flows, drawing the two transcript notices, the
-      summary row, a `devkit`-sourced prompt for `continue`. Hand-off notes for it:
+    - A `devkit`-sourced prompt for `continue` (the window's side is built: see **Accounts UI** below). The hand-off
+      notes the frontend followed:
       `agenthub:signInCompleted` also fires for added-account flows, carrying `accountId` — every existing handler (the
       Runtimes page toast, status, "Signed in") must filter on it; `agentaccounts:changed` is payload-free, and the ones caused by observed usage are throttled
       leading-edge only (at most one per 2 s, no trailing event, so the last reading can go unannounced; the page should also
@@ -1171,6 +1170,47 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
       the accounts folder.
     - A window with `ResetsAt == 0` stays live for ever (no known reset to expire it).
     - Claude's summary card shows both `unifiedWindows` windows for everyone (intended).
+- **Accounts UI: Settings → Agents → Accounts & limits** (plan `docs/superpowers/plans/2026-10-23-agent-accounts-settings-ui.md`;
+  gallery `?gallery#agent-accounts`). Frontend only: no Go changed. It reuses the Agents pages' own parts (`VendorSwitch`,
+  the container/presentational split with compare-and-swap save, `ActionTooltip` icon buttons, the summary card's
+  `role="meter"` bar, `ConfirmDialog`, `AlertDialog` + `Checkbox`) and adds no library, colour or layout primitive.
+  - **Where it lives.** `frontend/src/modules/agenthub/accounts/` (pure `accountModel.ts`, `accountPolicy.ts`,
+    `accountActions.ts`; `useAgentAccounts.ts` keys, hooks and `watchAgentAccounts`; presentational `AccountsEditor`,
+    `AccountRow`, `AddAccountForm`, `UsageMeter`, `AccountPolicyEditor`, `AccountRiskDialog`; connected
+    `AgentAccountsSetting`, `AccountSignIn`). Settings only mounts it from `AgentsPages.tsx` (`AgentAccountsPage`, page id
+    `agents-accounts`, the same way it mounts `AgentEnvironmentPanel`), so `moduleBoundaryRatchet` stays at
+    `settings -> agenthub: 3`. `VendorSwitch` takes `vendors` now; accounts offer Claude | Codex only (`ACCOUNT_VENDORS`).
+  - **Bridge** `bridge/agentAccounts.ts` over the real bindings: `usage` and `order` come back `[]` not `null`
+    (`accountOf`, `policyOf`), times are Unix seconds, the policy is replaced whole with its `revision`.
+    `acknowledgeRisk` is sent only when the person accepted the terms dialog in that edit and is turning switching on.
+    Hand-typed because not bound: `SignInResult.accountId`, `SessionUpdate.accountNotice`, the `agentaccounts:switched`
+    payload.
+  - **`agenthub:signInCompleted` carries `accountId`, and every handler filters on it.** `createSignInTracker(accountId)`
+    acts only on events about its own account (`""` = the built-in sign-in); `useCodexSignIn(onDone, accountId)` /
+    `useClaudeSignIn(onDone, vendor, enabled, accountId)` start the account flow instead; `AgentHubView`'s config-catalog
+    refresh ignores an added account's event. A new handler of that event must check `accountId` too.
+  - **Fresh without polling.** `AgentAccountsSubscriber` (mounted in `Workbench` beside `AgentSessionsSubscriber`) refetches
+    the lists on `agentaccounts:changed` and on window focus (the event is throttled leading-edge: the newest reading can
+    go unannounced), writes a moved session's `accountId` into the sessions store, and toasts "Moved to X" only when that
+    session is on screen. Refresh usage has no "asked" flag in the answer: an unchanged `observedAt` is how the row says
+    "nothing new" (`refreshNote`).
+  - **Rows.** Order is the saved `order` then the rest (`orderedAccounts`); Move up / Move down save the whole policy at
+    once (no drag and drop). A past `exhaustedUntil` / `cooldownUntil` says nothing; a window past its `resetsAt` is drawn
+    empty ("reset since the last reading"). Removal shows Go's refusal inside the confirmation, and a removal that failed
+    after the row was gone (folder left behind) shows its sentence on the page.
+  - **Transcript.** A move is the item kind `devkit_account_notice` (`readAccountNotice`, both `applySessionUpdates` and
+    `initTranscript`; a copy that arrived while the page loaded is dropped by `dropRecordedChunks`), lands in the previous
+    turn's `notes` and is drawn by `AgentTurn` through `AccountNoticeLine` (`transcript/AccountNotice.tsx`). The summary
+    card's `Account` row (`EnvironmentInput.accountLabel`) is absent while `AgentSession.accountId` is empty or its list has
+    not arrived.
+  - **Not verified.** The UI has been rendered only by `renderToStaticMarkup` tests and the dev gallery. It has never been
+    driven in the running desktop app (no session of this work started it) and never against real Claude or Codex
+    accounts: sign-in at an added account's home, a real usage reading, a real move and the toast are untested outside
+    fakes. The Remove-while-in-use refusal, the focus refetch and the throttle gap come from reading the Go side, not from
+    running it.
+  - **Not done.** A toast for "every account is limited" (it reaches the window as the turn's `agent_usage_limit` error, as
+    before; `agenthub.allAccountsLimited` is still unpublished in `keptCodes`); a drag-to-reorder list; any account UI for
+    opencode; "Refresh all"; usage polling.
 - **The window learns of a session someone else created** (`Service.OnSessionCreated` → `agenthub:sessionCreated`, frontend
   `adoptCreatedSession` in `AgentSessionsSubscriber`). The session list is read once at start; before this a child started
   by `agenthub.createAgentSession` (or from the terminal) never reached the rail and its tab said "Session not available"
@@ -1203,13 +1243,14 @@ DEVKIT_CODEX_COMMAND=/abs/path/to/codex go test ./internal/agenthub/ -run CodexR
 ```
 
 ### Agent customization and recovery
-- **Settings → Agents is its own nav group of six one-topic pages**, not one tab
+- **Settings → Agents is its own nav group of seven one-topic pages**, not one tab
   (`frontend/src/modules/settings/settingsNavigation.ts` is the model, `AgentsPages.tsx` the pages):
   Runtimes (`agents-runtimes`, + Codex observed sessions), Models & subagents (`agents-models`),
+  Accounts & limits (`agents-accounts`, several logins per vendor and failover, see **Accounts UI**),
   Skills & MCP (`agents-skills`, the tools/skills/MCP report and `AgentCustomization` overrides,
   `AgentEnvironmentPanel`), Safety (`agents-safety`, sandbox + file checkpoints), Notifications & remote
   (`agents-notifications`, + Telegram) and DevKit as MCP (`agents-mcp`). Runtimes and Skills & MCP carry a shadcn
-  `Tabs` Claude | Codex | opencode switch whose last choice is shared and kept in `localStorage`
+  `Tabs` Claude | Codex | opencode switch (Accounts & limits has Claude | Codex only) whose last choice is shared and kept in `localStorage`
   (`agentVendorChoice.ts`, guarded); the other pages are vendor-neutral. The old ids `agents`, `remote` and `mcp`
   stay valid for callers (`requestSettings("agents")`): `resolveSettingsTab` maps them to Runtimes, Notifications &
   remote and DevKit as MCP. A new agent setting is a panel on the page whose topic it is, plus keywords on that
