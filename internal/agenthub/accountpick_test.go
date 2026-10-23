@@ -2,6 +2,7 @@ package agenthub_test
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -41,6 +42,11 @@ func TestPickAccount(t *testing.T) {
 		return a
 	}
 	signedOut := func(a agenthub.AccountRecord) agenthub.AccountRecord { a.SignedIn = false; return a }
+	coolingFor := func(a agenthub.AccountRecord, d time.Duration) agenthub.AccountRecord {
+		a.CooldownUntil = pickNow.Add(d)
+		return a
+	}
+	unlabelled := func(a agenthub.AccountRecord) agenthub.AccountRecord { a.Label = ""; return a }
 
 	weekly := pickPolicy()
 	weekly.WeeklyThresholdPercent = 70
@@ -221,7 +227,7 @@ func TestPickAccount(t *testing.T) {
 			policy:   pickPolicy(),
 			accounts: []agenthub.AccountRecord{pickAccount(builtin, pickWindow("5-hour", 99)), signedOut(pickAccount("b")), pickAccount("c")},
 			current:  builtin,
-			want:     want{target: "c", switched: true, reason: "5-hour 99% ≥ 90%"},
+			want:     want{target: "c", switched: true, reason: "5-hour 99% ≥ 90%; skipped b (signed out)"},
 		},
 		{
 			name:     "exhausted target is skipped",
@@ -243,13 +249,6 @@ func TestPickAccount(t *testing.T) {
 			accounts: []agenthub.AccountRecord{exhausted(pickAccount(builtin)), pickAccount("b")},
 			current:  builtin,
 			want:     want{target: "b", switched: true, reason: "usage limit reached"},
-		},
-		{
-			name:     "signed-out current that is fine stays (nothing special-cases it)",
-			policy:   pickPolicy(),
-			accounts: []agenthub.AccountRecord{signedOut(pickAccount(builtin)), pickAccount("b")},
-			current:  builtin,
-			want:     want{target: builtin},
 		},
 
 		// The hold after a switch.
@@ -388,6 +387,113 @@ func TestPickAccount(t *testing.T) {
 			current: builtin,
 			want:    want{target: builtin, allLimited: true, reason: "usage limit reached", retryAt: pickNow.Add(time.Hour)},
 		},
+
+		// Cooldowns: a candidate is kept out while one runs, never the account
+		// a session is already on.
+		{
+			name:     "a current account with a cooldown but otherwise fine stays",
+			policy:   pickPolicy(),
+			accounts: []agenthub.AccountRecord{coolingFor(pickAccount(builtin, pickWindow("5-hour", 10)), time.Minute), pickAccount("b")},
+			current:  builtin,
+			want:     want{target: builtin},
+		},
+		{
+			name:     "a cooldown that ends exactly now makes the candidate eligible",
+			policy:   pickPolicy(),
+			accounts: []agenthub.AccountRecord{pickAccount(builtin, pickWindow("5-hour", 99)), coolingFor(pickAccount("b"), 0)},
+			current:  builtin,
+			want:     want{target: "b", switched: true, reason: "5-hour 99% ≥ 90%"},
+		},
+		{
+			name:     "a cooldown in the past makes the candidate eligible",
+			policy:   pickPolicy(),
+			accounts: []agenthub.AccountRecord{pickAccount(builtin, pickWindow("5-hour", 99)), coolingFor(pickAccount("b"), -time.Minute)},
+			current:  builtin,
+			want:     want{target: "b", switched: true, reason: "5-hour 99% ≥ 90%"},
+		},
+		{
+			name:   "a cooling alternative is never named, a signed-out one is",
+			policy: pickPolicy(),
+			accounts: []agenthub.AccountRecord{
+				pickAccount(builtin, pickWindow("5-hour", 99)),
+				signedOut(pickAccount("b")),
+				coolingFor(pickAccount("c"), time.Minute),
+				pickAccount("d"),
+			},
+			current: builtin,
+			want:    want{target: "d", switched: true, reason: "5-hour 99% ≥ 90%; skipped b (signed out)"},
+		},
+		{
+			name:   "a signed-out account with no label is named by its id",
+			policy: pickPolicy(),
+			accounts: []agenthub.AccountRecord{
+				pickAccount(builtin, pickWindow("5-hour", 99)),
+				unlabelled(signedOut(pickAccount("b"))),
+				pickAccount("c"),
+			},
+			current: builtin,
+			want:    want{target: "c", switched: true, reason: "5-hour 99% ≥ 90%; skipped b (signed out)"},
+		},
+
+		// The account the session runs on is signed out: it is not "fine".
+		{
+			name:     "a signed-out current account moves to a signed-in one",
+			policy:   pickPolicy(),
+			accounts: []agenthub.AccountRecord{signedOut(pickAccount(builtin)), pickAccount("b")},
+			current:  builtin,
+			want:     want{target: "b", switched: true, reason: "signed out"},
+		},
+		{
+			name:     "a signed-out current account that is under every limit still moves",
+			policy:   pickPolicy(),
+			accounts: []agenthub.AccountRecord{signedOut(pickAccount("b", pickWindow("5-hour", 10))), pickAccount(builtin)},
+			current:  "b",
+			want:     want{target: builtin, switched: true, reason: "signed out"},
+		},
+		{
+			name:       "a signed-out current account is not held by the flip hold",
+			policy:     pickPolicy(),
+			accounts:   []agenthub.AccountRecord{signedOut(pickAccount("b")), pickAccount(builtin)},
+			current:    "b",
+			switchedAt: pickNow.Add(-time.Minute),
+			previous:   builtin,
+			want:       want{target: builtin, switched: true, reason: "signed out"},
+		},
+		{
+			name:     "a signed-out current account with no alternative stays",
+			policy:   pickPolicy(),
+			accounts: []agenthub.AccountRecord{signedOut(pickAccount(builtin)), pickAccount("b", pickWindow("5-hour", 99))},
+			current:  builtin,
+			want:     want{target: builtin, reason: "signed out"},
+		},
+		{
+			name:     "a signed-out current account whose only alternative is cooling down stays",
+			policy:   pickPolicy(),
+			accounts: []agenthub.AccountRecord{signedOut(pickAccount(builtin)), coolingFor(pickAccount("b"), time.Minute)},
+			current:  builtin,
+			want:     want{target: builtin, reason: "signed out"},
+		},
+		{
+			name:     "a signed-out current account whose alternative is signed out too stays",
+			policy:   pickPolicy(),
+			accounts: []agenthub.AccountRecord{signedOut(pickAccount(builtin)), signedOut(pickAccount("b"))},
+			current:  builtin,
+			want:     want{target: builtin, reason: "signed out"},
+		},
+		{
+			name:     "a signed-out current account is never AllLimited because the others are exhausted",
+			policy:   pickPolicy(),
+			accounts: []agenthub.AccountRecord{signedOut(pickAccount(builtin)), exhausted(pickAccount("b")), exhausted(pickAccount("c"))},
+			current:  builtin,
+			want:     want{target: builtin, reason: "signed out"},
+		},
+		{
+			name:     "a signed-out current account that is also exhausted is reported as signed out",
+			policy:   pickPolicy(),
+			accounts: []agenthub.AccountRecord{exhausted(signedOut(pickAccount(builtin))), pickAccount("b")},
+			current:  builtin,
+			want:     want{target: "b", switched: true, reason: "signed out"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -441,5 +547,54 @@ func TestPickAccountDoesNotChangeItsInput(t *testing.T) {
 	}
 	if !reflect.DeepEqual(accounts, before) {
 		t.Fatalf("PickAccount changed its input:\n got %+v\nwant %+v", accounts, before)
+	}
+}
+
+func TestPickAccountSkipsAnAccountThatIsCoolingDown(t *testing.T) {
+	cooling := pickAccount("b")
+	cooling.CooldownUntil = pickNow.Add(time.Minute)
+	got := agenthub.PickAccount(agenthub.PickInput{
+		Policy:   pickPolicy(),
+		Accounts: []agenthub.AccountRecord{pickAccount(pickBuiltin, pickWindow("5-hour", 99)), cooling, pickAccount("c")},
+		Current:  pickBuiltin, Now: pickNow,
+	})
+	if !got.Switch || got.Target != "c" {
+		t.Fatalf("got %+v, want a move to c (b is cooling down)", got)
+	}
+}
+
+func TestPickAccountACooldownAloneIsNotAllLimited(t *testing.T) {
+	exhausted := pickAccount(pickBuiltin)
+	exhausted.ExhaustedUntil = pickNow.Add(time.Hour)
+	cooling := pickAccount("b")
+	cooling.CooldownUntil = pickNow.Add(time.Minute)
+	got := agenthub.PickAccount(agenthub.PickInput{
+		Policy: pickPolicy(), Accounts: []agenthub.AccountRecord{exhausted, cooling}, Current: pickBuiltin, Now: pickNow,
+	})
+	if got.AllLimited {
+		t.Fatalf("got %+v: b has not reached a limit, so the turn must not be refused with \"every account reached its limit\"", got)
+	}
+	if got.Switch {
+		t.Fatalf("got %+v: b is cooling down, it must not be chosen", got)
+	}
+	if got.Target != pickBuiltin || got.Reason != "usage limit reached" || !got.RetryAt.IsZero() {
+		t.Fatalf("got %+v, want a stay on %q with reason %q and no RetryAt", got, pickBuiltin, "usage limit reached")
+	}
+}
+
+func TestPickAccountNamesTheSignedOutAccountsItSkipped(t *testing.T) {
+	out := pickAccount("b")
+	out.SignedIn = false
+	out.Label = "Work"
+	got := agenthub.PickAccount(agenthub.PickInput{
+		Policy:   pickPolicy(),
+		Accounts: []agenthub.AccountRecord{pickAccount(pickBuiltin, pickWindow("5-hour", 99)), out, pickAccount("c")},
+		Current:  pickBuiltin, Now: pickNow,
+	})
+	if !got.Switch || got.Target != "c" {
+		t.Fatalf("got %+v, want a move to c", got)
+	}
+	if !strings.Contains(got.Reason, "Work") || !strings.Contains(got.Reason, "signed out") {
+		t.Errorf("reason = %q, want it to say that Work was skipped because it is signed out", got.Reason)
 	}
 }

@@ -286,3 +286,83 @@ func TestSignInEnvDropsNestedClaudeMarkers(t *testing.T) {
 		t.Fatal("the user's own Claude Code configuration was dropped")
 	}
 }
+
+func TestSignInCommandForPutsTheAccountHomeInTheLoginEnvironment(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "/the/hosts/own")
+	bin := fakeAgentBinary(t)
+	starts := 0
+	reply := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"authMethods":[`+
+		`{"id":"console-login","name":"Anthropic Console","type":"terminal","args":["--cli","auth","login","--console"],"_meta":{"terminal-auth":{"command":%q,"args":["--cli","auth","login","--console"],"label":"Anthropic Console Login"}}}]}}`, bin)
+	a := NewClaudeAdapter(ClaudeOptions{Command: bin, Runner: scriptedAgentRunner{replies: []string{reply}, starts: &starts}})
+
+	home := filepath.Join(t.TempDir(), "work")
+	cmd, err := a.SignInCommandFor(context.Background(), "console-login", home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseLater(t, cmd)
+	var got []string
+	for _, kv := range cmd.Env {
+		if strings.HasPrefix(kv, "CLAUDE_CONFIG_DIR=") {
+			got = append(got, kv)
+		}
+	}
+	if len(got) != 1 || got[0] != "CLAUDE_CONFIG_DIR="+home {
+		t.Fatalf("CLAUDE_CONFIG_DIR entries = %v, want exactly the account's home (the host's own value must lose)", got)
+	}
+	if n := len(cmd.Args); n < 4 || cmd.Args[n-4] != "--cli" || cmd.Args[n-3] != "auth" || cmd.Args[n-2] != "login" {
+		t.Errorf("args = %v, want the adapter's --cli auth login ...", cmd.Args)
+	}
+
+	plain, err := a.SignInCommand(context.Background(), "console-login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseLater(t, plain)
+	for _, kv := range plain.Env {
+		if kv == "CLAUDE_CONFIG_DIR="+home {
+			t.Error("the built-in sign-in must not pick up an account's home")
+		}
+	}
+	if _, err := a.SignInCommandFor(context.Background(), "made-up", home); !errors.Is(err, ErrAuthMethodUnknown) {
+		t.Errorf("unknown method: %v, want ErrAuthMethodUnknown", err)
+	}
+	// A relative home would put the login wherever the terminal happens to be.
+	if _, err := a.SignInCommandFor(context.Background(), "console-login", "relative/home"); !errors.Is(err, ErrAccountHome) {
+		t.Errorf("relative home: %v, want ErrAccountHome", err)
+	}
+}
+
+// The built-in sign-in keeps the environment it always had, the host's own
+// CLAUDE_CONFIG_DIR included.
+func TestSignInCommandWithoutAHomeLeavesTheHostsConfigDirAlone(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "/the/hosts/own")
+	bin := fakeAgentBinary(t)
+	starts := 0
+	reply := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"authMethods":[`+
+		`{"id":"console-login","name":"Anthropic Console","type":"terminal","args":["--cli","auth","login","--console"],"_meta":{"terminal-auth":{"command":%q,"args":["--cli","auth","login","--console"],"label":"Anthropic Console Login"}}}]}}`, bin)
+	a := NewClaudeAdapter(ClaudeOptions{Command: bin, Runner: scriptedAgentRunner{replies: []string{reply}, starts: &starts}})
+	cmd, err := a.SignInCommand(context.Background(), "console-login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseLater(t, cmd)
+	found := false
+	for _, kv := range cmd.Env {
+		if kv == "CLAUDE_CONFIG_DIR=/the/hosts/own" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the built-in sign-in keeps the environment it always had")
+	}
+}
+
+// releaseLater releases a sign-in command's lease when the test ends (a command with
+// no lease has nothing to release).
+func releaseLater(t *testing.T, cmd SignInCommand) {
+	t.Helper()
+	if cmd.Release != nil {
+		t.Cleanup(cmd.Release)
+	}
+}

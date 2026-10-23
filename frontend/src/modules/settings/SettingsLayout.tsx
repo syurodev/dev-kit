@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { User, Sun, Monitor, SlidersHorizontal, LockKeyhole, Database, Bot, Command, RefreshCw, Plug, Search, Cpu, Puzzle, ShieldCheck, Bell, Scale } from "lucide-react";
+import { User, Sun, Monitor, SlidersHorizontal, LockKeyhole, Database, Bot, Command, RefreshCw, Plug, Search, Cpu, Puzzle, ShieldCheck, Bell, Scale, Users } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { EASE_OUT, MOTION_BASE, noMotion } from "@/lib/motion";
 import { cn } from "@/lib/utils";
@@ -8,7 +8,7 @@ import { filterSettingsNavigation, type SettingsPage } from "./settingsNavigatio
 
 const ICONS = {
   account: User, appearance: Sun, sync: Monitor, environments: SlidersHorizontal, database: Database, keyboard: Command, security: LockKeyhole, updates: RefreshCw, licenses: Scale,
-  "agents-runtimes": Bot, "agents-models": Cpu, "agents-skills": Puzzle, "agents-safety": ShieldCheck, "agents-notifications": Bell, "agents-mcp": Plug,
+  "agents-runtimes": Bot, "agents-models": Cpu, "agents-accounts": Users, "agents-skills": Puzzle, "agents-safety": ShieldCheck, "agents-notifications": Bell, "agents-mcp": Plug,
 } satisfies Record<SettingsPage, unknown>;
 
 /** Internal preferences navigation, independent of workbench document tabs. */

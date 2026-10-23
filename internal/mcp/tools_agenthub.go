@@ -146,8 +146,12 @@ func (s *Server) registerAgentHub(ms *sdk.Server) {
 // words for the person's sidebar; agents read the transcript, not this. Stop is
 // kept: it is the structured reason a turn did not complete (kind, whether a
 // retry is worth it, when), with the vendor's sentence marked as third-party.
+// AccountID is blanked: it is a slug of the person's own account label, and which
+// vendor account a session runs as is for the window alone (agents read nothing about
+// vendor accounts).
 func forAgent(s agenthub.AgentSession) agenthub.AgentSession {
 	s.Preview = ""
+	s.AccountID = ""
 	return s
 }
 

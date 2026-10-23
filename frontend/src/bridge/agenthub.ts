@@ -70,6 +70,12 @@ export type AgentSession = {
    * not move while an agent streams. Absent on a row built locally.
    */
   updatedAt?: number;
+  /**
+   * The vendor account the session runs as. "" is the built-in one (the machine's
+   * own Claude login, DevKit's own Codex home); after a move back it can also be
+   * the "<vendor>-default" id. The bound JSON calls this field AccountID.
+   */
+  accountId?: string;
 };
 
 export type InvokeResult = {
@@ -229,7 +235,7 @@ function asStatus(value: string): SessionStatus {
   }
 }
 
-function toSession(raw: RawSession): AgentSession {
+export function toSession(raw: RawSession): AgentSession {
   return {
     id: raw.ID,
     agentType: asVendor(String(raw.AgentType ?? "")),
@@ -242,6 +248,7 @@ function toSession(raw: RawSession): AgentSession {
     acpSessionId: raw.ACPSessionID ?? "",
     preview: raw.Preview ?? "",
     updatedAt: toEpoch(raw.UpdatedAt),
+    accountId: raw.AccountID ?? "",
   };
 }
 

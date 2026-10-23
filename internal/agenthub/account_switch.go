@@ -17,7 +17,6 @@ import (
 const accountProbeCooldown = 15 * time.Minute
 
 // accountSwitch is when a session last moved to another account, and from which.
-// Set by the switch itself (Task 10).
 type accountSwitch struct {
 	at   time.Time
 	from string
@@ -86,7 +85,7 @@ func (s *Service) accountPolicyFor(vendor AgentType) (preferences.AccountVendorP
 	if s.Accounts == nil || s.AccountPolicy == nil {
 		return preferences.AccountVendorPolicy{}, false
 	}
-	policy, err := s.AccountPolicy()
+	policy, err := s.cachedAccountPolicy()
 	if err != nil {
 		log.Printf("agenthub: account policy: %v", err)
 		return preferences.AccountVendorPolicy{}, false
@@ -128,6 +127,9 @@ func (s *Service) decideAccount(ctx context.Context, sess *AgentSession) (PickDe
 // account out for accountProbeCooldown. Only a move whose process opened is
 // remembered and announced.
 func (s *Service) switchAccountForTurn(ctx context.Context, sess *AgentSession) error {
+	// A shared account's reading may be old: ask again first (time-boxed), so
+	// the pick below reads what the account has left now.
+	s.refreshStaleForTurn(ctx, sess)
 	d, ok := s.decideAccount(ctx, sess)
 	if !ok {
 		return nil
@@ -157,10 +159,14 @@ func (s *Service) switchAccountForTurn(ctx context.Context, sess *AgentSession) 
 
 // abandonMove handles a move whose process would not open in the target's
 // home: back to the account the row named before (bound, exactly as it was
-// spelled), the target kept out for accountProbeCooldown, and a notice that the
-// switch failed. If the move back cannot be written the session stays on the
+// spelled), the target kept out for accountProbeCooldown (a cooldown, not an
+// exhaustion: it has not reached a limit), and a notice that the switch
+// failed. If the move back cannot be written the session stays on the
 // target — the row says so, so the transcript says the move happened — and the
-// turn's own resolve tries the target once more, failing as any resume does.
+// turn's own resolve tries the target once more, failing as any resume does. That
+// edge is announced like a move that stands (noteAccountSwitch: the hooks fire and
+// the pick rules remember it) although the target's process never opened, because
+// the row is what the window and the next pick read.
 //
 // The clean-up runs on a context that outlives the turn's: the open that failed
 // may have failed because the turn's own context ended, and a dead context
@@ -177,8 +183,10 @@ func (s *Service) abandonMove(ctx context.Context, sess *AgentSession, bound, fr
 	} else {
 		log.Printf("agenthub: session %s: could not open on account %s: %v; moving it back to %s", sess.ID, target, openErr, from)
 		backErr = s.moveSession(ctx, sess, bound)
-		if err := s.Accounts.MarkExhausted(ctx, target, time.Now().Add(accountProbeCooldown)); err != nil {
+		if err := s.Accounts.MarkCooldown(ctx, target, time.Now().Add(accountProbeCooldown)); err != nil {
 			log.Printf("agenthub: account %s: could not keep it out after a failed open: %v", target, err)
+		} else {
+			s.accountsChanged() // the Accounts page shows the cooldown
 		}
 	}
 	if backErr != nil {
@@ -189,8 +197,24 @@ func (s *Service) abandonMove(ctx context.Context, sess *AgentSession, bound, fr
 	if turnEnded {
 		return
 	}
-	s.handleUpdate(ctx, sess.ID,
-		accountSwitchFailedUpdate(from, target, clipRunes(oneLine(openErr.Error()), 300)))
+	s.handleUpdate(ctx, sess.ID, accountSwitchFailedUpdate(from, target, switchFailureReason(openErr)))
+}
+
+// switchFailureReason is the sentence a failed-switch notice carries. The notice is
+// stored in the transcript and sent to the window, and the error behind it can hold
+// the account's home path or the vendor's stderr, so it is never quoted: a known
+// failure maps to a fixed phrase and anything else to a generic one.
+func switchFailureReason(err error) string {
+	switch {
+	case errors.Is(err, ErrAccountHome):
+		return "the account's folder could not be prepared"
+	case errors.Is(err, ErrAgentAuthRequired):
+		return "its sign-in is no longer valid"
+	case errors.Is(err, ErrProcessFailed):
+		return "its process could not be started"
+	default:
+		return "it could not be opened"
+	}
 }
 
 // noteAccountSwitch remembers a move that stands (for PickAccount's hold and
@@ -200,6 +224,10 @@ func (s *Service) noteAccountSwitch(ctx context.Context, id, from, to, reason st
 	s.accountSwitches[id] = accountSwitch{at: time.Now(), from: from}
 	s.mu.Unlock()
 	s.handleUpdate(context.WithoutCancel(ctx), id, accountSwitchUpdate(from, to, reason))
+	if s.OnAccountSwitched != nil {
+		s.OnAccountSwitched(id, from, to, reason)
+	}
+	s.accountsChanged()
 }
 
 // moveSession closes the session's idle runtime and binds it to target. The
@@ -278,9 +306,9 @@ func (s *Service) moveSession(ctx context.Context, sess *AgentSession, target st
 
 // accountSwitchUpdate is the transcript notice of a move: a session_info_update
 // carrying DevKit's own key under _meta, which ParseSessionUpdate reads as a
-// session_info_update with nothing applied (no title, failure or goal) and the
-// recorder keeps as an ordinary row with its raw body. The window draws it in
-// the accounts UI work (docs/superpowers/specs/2026-10-22-agent-multi-account-failover-design.md).
+// session_info_update with a typed AccountNotice (no title, failure or goal) and the
+// recorder keeps as an ordinary row. The window draws it in the accounts UI work
+// (docs/superpowers/specs/2026-10-22-agent-multi-account-failover-design.md).
 func accountSwitchUpdate(from, to, reason string) json.RawMessage {
 	return devkitInfoUpdate("accountSwitch", map[string]any{"from": from, "to": to, "reason": reason})
 }

@@ -363,6 +363,10 @@ func NewContainerWithStores(
 		// service refuses an agent caller for the in-app sign-in.
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "auth:*"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "auth:*"},
+		// Vendor accounts (Settings → Agents → Accounts & limits). UI only: no MCP tool
+		// uses these scopes and every bridge method refuses a caller that is not the window.
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "account:*"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "account:*"},
 		{SubjectID: "builtin.agenthub", Capability: "terminal:io", Scope: "session:*"},
 		{SubjectID: "builtin.vault", Capability: "vault:manage", Scope: "vault"},
 		{SubjectID: "builtin.search", Capability: "vault:search", Scope: "item:search"},
@@ -411,6 +415,8 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_model_profiles"},
 		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_subagent_limits"},
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_subagent_limits"},
+		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_account_policy"},
+		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_account_policy"},
 		// Which Accounts token Codex signs in with: the id, never the key.
 		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_codex_api_key"},
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_codex_api_key"},

@@ -3,7 +3,9 @@ package agenthub
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -591,11 +593,21 @@ func (t *codexTranslator) rateLimitsUpdated(params json.RawMessage) []codexUpdat
 	return []codexUpdate{{Update: t.usageUpdateLocked()}}
 }
 
-// codexLimitWindows reads a snapshot into the windows it has, short first.
+// codexLimitWindows reads a snapshot into the windows it has, short first. The percent
+// is read the way Claude's is (two decimals, clamped to 0-100), so a live update and a
+// check give the same number.
 func codexLimitWindows(s codexapp.RateLimitSnapshot) []LimitWindow {
+	return codexSnapshotWindows(s, "")
+}
+
+// codexSnapshotWindows is codexLimitWindows with the label prefix a snapshot without a
+// name of its own falls back to (its bucket id, for the read answer's buckets).
+func codexSnapshotWindows(s codexapp.RateLimitSnapshot, fallbackPrefix string) []LimitWindow {
 	prefix := ""
 	if s.LimitName != nil && strings.TrimSpace(*s.LimitName) != "" {
 		prefix = strings.TrimSpace(*s.LimitName) + " · "
+	} else if fallbackPrefix != "" {
+		prefix = fallbackPrefix + " · "
 	}
 	var out []LimitWindow
 	for _, w := range []*codexapp.RateLimitWindow{s.Primary, s.Secondary} {
@@ -606,7 +618,8 @@ func codexLimitWindows(s codexapp.RateLimitSnapshot) []LimitWindow {
 		if w.WindowDurationMins != nil {
 			mins = *w.WindowDurationMins
 		}
-		window := LimitWindow{Label: prefix + codexWindowLabel(mins), UsedPercent: float64(w.UsedPercent), Status: percentStatus(float64(w.UsedPercent))}
+		pct := roundPercent(math.Min(100, math.Max(0, w.UsedPercent)))
+		window := LimitWindow{Label: prefix + codexWindowLabel(mins), UsedPercent: pct, Status: percentStatus(pct)}
 		if w.ResetsAt != nil {
 			window.ResetsAt = *w.ResetsAt
 		}
@@ -616,6 +629,59 @@ func codexLimitWindows(s codexapp.RateLimitSnapshot) []LimitWindow {
 		out = append(out, window)
 	}
 	return out
+}
+
+// codexDefaultBucket is the account-wide limit: its windows carry no name prefix, and
+// the answer's legacy single-snapshot field is this bucket.
+const codexDefaultBucket = "codex"
+
+// limitWindowsOfRead is every window an account/rateLimits/read answer carries: the
+// per-bucket view when present, plus the legacy snapshot when the map does not hold its
+// bucket (compared by LimitID, a missing one meaning "codex"), else the legacy one alone.
+// Buckets are listed "codex" first, then by id; a bucket with no name of its own is
+// prefixed with its id so two of them never share a label; a label appears once, the
+// first window winning. Labels are the ones codexLimitWindows gives the updated
+// notification, so one translator serves both.
+func limitWindowsOfRead(res codexapp.RateLimitsReadResponse) []LimitWindow {
+	if len(res.RateLimitsByLimitID) == 0 {
+		return dedupeWindowsByLabel(codexLimitWindows(res.RateLimits))
+	}
+	buckets := make(map[string]codexapp.RateLimitSnapshot, len(res.RateLimitsByLimitID)+1)
+	for k, v := range res.RateLimitsByLimitID {
+		buckets[k] = v
+	}
+	legacyID := codexDefaultBucket
+	if res.RateLimits.LimitID != nil && strings.TrimSpace(*res.RateLimits.LimitID) != "" {
+		legacyID = strings.TrimSpace(*res.RateLimits.LimitID)
+	}
+	held := false
+	for k, v := range buckets {
+		if k == legacyID || (v.LimitID != nil && *v.LimitID == legacyID) {
+			held = true
+		}
+	}
+	if !held {
+		buckets[legacyID] = res.RateLimits
+	}
+	keys := make([]string, 0, len(buckets))
+	for k := range buckets {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if (keys[i] == codexDefaultBucket) != (keys[j] == codexDefaultBucket) {
+			return keys[i] == codexDefaultBucket
+		}
+		return keys[i] < keys[j]
+	})
+	var out []LimitWindow
+	for _, k := range keys {
+		fallback := ""
+		if k != codexDefaultBucket {
+			fallback = k
+		}
+		out = append(out, codexSnapshotWindows(buckets[k], fallback)...)
+	}
+	return dedupeWindowsByLabel(out)
 }
 
 // codexWindowLabel names a limit window by its length: Codex sends minutes and

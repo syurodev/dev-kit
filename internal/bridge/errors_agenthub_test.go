@@ -3,12 +3,15 @@ package bridge
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"devkit/internal/agenthub"
 	"devkit/internal/agentruntime"
 	"devkit/internal/app"
 	"devkit/internal/apperrors"
+	"devkit/internal/preferences"
 )
 
 func TestPublicErrorMapsAgentHubUnavailable(t *testing.T) {
@@ -56,6 +59,26 @@ func TestPublicErrorMapsAgentHubSentinels(t *testing.T) {
 		{agenthub.ErrSandboxUnavailable, "connection_failed: Agent sandbox is unavailable."},
 		{agenthub.ErrUnavailableInServerMode, "validation_failed: Agent Hub needs the desktop app. In server mode an agent could answer its own permission prompts."},
 		{agenthub.ErrUnavailable, "internal_error: Agent Hub is not available."},
+		// Vendor accounts (Settings → Agents → Accounts & limits). A home error wraps a
+		// path and the OS's words: neither reaches the window.
+		{fmt.Errorf("%w: every account of this vendor has reached its limit; the first one is available again at 15:04 on 2 Jan", agenthub.ErrAllAccountsLimited),
+			"agent_usage_limit: Every account of this vendor has reached its limit; the first one is available again at 15:04 on 2 Jan"},
+		{fmt.Errorf("invoke: %w", agenthub.ErrAccountNotFound), "validation_failed: That account no longer exists."},
+		{fmt.Errorf("%w: a name is at most 40 characters", agenthub.ErrInvalidAccount), "validation_failed: Account: a name is at most 40 characters"},
+		{fmt.Errorf("add: %w: a name is at most 40 characters", agenthub.ErrInvalidAccount), "validation_failed: Account: a name is at most 40 characters"},
+		{fmt.Errorf("%w: create /home/someone/.local/share/devkit/agent-accounts/claude/x: %w", agenthub.ErrAccountHome, errors.New("permission denied")),
+			"validation_failed: DevKit could not prepare a folder for that account. Nothing was changed."},
+		{fmt.Errorf("%w: %w", agenthub.ErrInvalidAccount, fmt.Errorf("%w: /secret/path", agenthub.ErrAccountHome)),
+			"validation_failed: DevKit could not prepare a folder for that account. Nothing was changed."},
+		// The row is already gone when the folder cannot be: not "nothing was changed".
+		{fmt.Errorf("%w: /home/someone/.local/share/devkit/agent-accounts/claude/x: %v", agenthub.ErrAccountFolderLeft, errors.New("permission denied")),
+			"validation_failed: The account was removed, but DevKit could not delete its folder. You can delete it by hand."},
+		{errAgentAccountsDesktopOnly,
+			"validation_failed: Changing agent accounts is only available in the desktop app: this window cannot be trusted to do it."},
+		{agenthub.ErrAccountLabelTaken, "validation_failed: You already have an account with that name."},
+		{agenthub.ErrAccountInUse, "validation_failed: A session is using that account. Close it first."},
+		{fmt.Errorf("%w: the CLI said something with a path /x/y", agenthub.ErrUsageNotCheckable), "validation_failed: This account's usage cannot be read right now."},
+		{fmt.Errorf("%w: the folder for added accounts is not set", agenthub.ErrAccountsUnavailable), "validation_failed: Accounts are not available."},
 	}
 	for _, tc := range cases {
 		got := publicError("builtin.agenthub", tc.in)
@@ -139,5 +162,63 @@ func TestInvalidPromptNamesTheRefusedAttachment(t *testing.T) {
 	// No detail to name: the generic sentence, as before.
 	if got := invalidPromptMessage(agenthub.ErrInvalidPrompt); got != invalidPromptGeneric {
 		t.Fatalf("message = %q", got)
+	}
+}
+
+// The account switching rules are saved from Settings; their refusals say what to do
+// and carry nothing but the validator's own sentence.
+func TestPublicErrorMapsAccountPolicyRefusals(t *testing.T) {
+	cases := []struct {
+		in   error
+		want string
+	}{
+		{preferences.ErrAccountPolicyConflict, "validation_failed: The account switching rules changed. Refresh and apply your change again."},
+		{fmt.Errorf("%w: claude: the threshold must be between 50 and 100 percent", preferences.ErrInvalidAccountPolicy),
+			"validation_failed: Account switching rules: claude: the threshold must be between 50 and 100 percent"},
+		{fmt.Errorf("save: %w: claude: accept the terms warning before turning switching on", preferences.ErrInvalidAccountPolicy),
+			"validation_failed: Account switching rules: claude: accept the terms warning before turning switching on"},
+	}
+	for _, tc := range cases {
+		got := publicError("builtin.settings", tc.in)
+		if got == nil || got.Error() != tc.want {
+			t.Fatalf("%v → %v, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestCapitalisedIsSafeForAnyFirstRune(t *testing.T) {
+	for in, want := range map[string]string{
+		"every account": "Every account",
+		"élan vital":    "Élan vital",
+		"日本語":           "日本語",
+		"":              "",
+		"\xff\xfeabc":   "\xff\xfeabc", // invalid UTF-8 comes back as it was
+		"a":             "A",
+	} {
+		if got := capitalised(in); got != want {
+			t.Errorf("capitalised(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestSentenceAfterIsOneBoundedLine(t *testing.T) {
+	sentinel := agenthub.ErrInvalidAccount
+	if got := sentenceAfter(fmt.Errorf("%w: a name is at most 40 characters", sentinel), sentinel, "fb"); got != "a name is at most 40 characters" {
+		t.Errorf("plain = %q", got)
+	}
+	if got := sentenceAfter(sentinel, sentinel, "fb"); got != "fb" {
+		t.Errorf("nothing after = %q", got)
+	}
+	if got := sentenceAfter(fmt.Errorf("%w: \n\t  \x1b\x00", sentinel), sentinel, "fb"); got != "fb" {
+		t.Errorf("only control characters = %q, want the fallback", got)
+	}
+	got := sentenceAfter(fmt.Errorf("%w: first line\nsecond\r\n\tline\x1b[2Jend\x00", sentinel), sentinel, "fb")
+	if got != "first line second line[2Jend" {
+		t.Errorf("control characters not folded: %q", got)
+	}
+	long := strings.Repeat("é", 500)
+	got = sentenceAfter(fmt.Errorf("%w: %s", sentinel, long), sentinel, "fb")
+	if n := len([]rune(got)); n > 201 || !strings.HasSuffix(got, "…") || !utf8.ValidString(got) {
+		t.Errorf("long text: %d runes, %q", n, got[:20])
 	}
 }

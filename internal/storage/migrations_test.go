@@ -181,8 +181,8 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	if err := db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 45 {
-		t.Fatalf("migration version = %d, want 45", version)
+	if version != 46 {
+		t.Fatalf("migration version = %d, want 46", version)
 	}
 
 	if err := Migrate(context.Background(), db); err != nil {
@@ -931,5 +931,20 @@ func TestMigration45AddsAgentAccounts(t *testing.T) {
 		if n != 1 {
 			t.Errorf("%s.%s missing after migration 45", c.table, c.column)
 		}
+	}
+}
+
+func TestMigration46AddsAgentAccountCooldown(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info(?) WHERE name = ?`, TableAgentAccounts, "cooldown_until").Scan(&n); err != nil || n != 1 {
+		t.Fatalf("agent_accounts.cooldown_until missing after migration 46 (n=%d, err=%v)", n, err)
 	}
 }

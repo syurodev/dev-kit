@@ -25,6 +25,13 @@ func newBridgeWithAgentHub(t *testing.T) *AppService {
 // session store, for a test that needs rows the bridge has no method to write.
 func newBridgeWithAgentHubStore(t *testing.T) (*AppService, *agenthub.SQLStore) {
 	t.Helper()
+	return newBridgeWithAgentHubAdapter(t, agenthub.NewMockAdapter())
+}
+
+// newBridgeWithAgentHubAdapter is newBridgeWithAgentHubStore with the given adapter
+// registered instead of the plain mock (it must report itself as the mock vendor).
+func newBridgeWithAgentHubAdapter(t *testing.T, adapter agenthub.VendorAdapter) (*AppService, *agenthub.SQLStore) {
+	t.Helper()
 	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
@@ -36,7 +43,7 @@ func newBridgeWithAgentHubStore(t *testing.T) (*AppService, *agenthub.SQLStore) 
 
 	container := app.NewContainer()
 	reg := agenthub.NewRegistry()
-	reg.Register(agenthub.NewMockAdapter())
+	reg.Register(adapter)
 	waiter := agenthub.NewPermissionWaiter(nil)
 	store := agenthub.NewSQLStore(db)
 	svc := agenthub.NewService(reg, store, nil)

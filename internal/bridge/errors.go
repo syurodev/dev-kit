@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"devkit/internal/accounts"
 	"devkit/internal/agenthub"
@@ -146,6 +148,15 @@ func publicError(subject string, err error) *apperrors.AppError {
 	if errors.Is(err, interaction.ErrInteractionTimeout) {
 		return apperrors.New(codeOperationCancelled, "Operation cancelled.", true)
 	}
+	// A window-only refusal from a settings-subject method (the preferences' UI-only
+	// reads and writes) would otherwise fall through to internal_error: only the
+	// agenthub subject's switch maps it.
+	if errors.Is(err, agenthub.ErrPermissionDenied) {
+		return apperrors.New(codePermissionDenied, "Permission denied.", false)
+	}
+	if errors.Is(err, errAgentAccountsDesktopOnly) { // reached from two subjects (accounts and settings)
+		return apperrors.New(codeValidationFailed, "Changing agent accounts is only available in the desktop app: this window cannot be trusted to do it.", true)
+	}
 	if errors.Is(err, interaction.ErrConfirmationDenied) {
 		return apperrors.New(codePermissionDenied, "Permission denied.", false)
 	}
@@ -251,6 +262,13 @@ func publicError(subject string, err error) *apperrors.AppError {
 	}
 	if errors.Is(err, preferences.ErrInvalidSubagentLimits) {
 		return apperrors.New(codeValidationFailed, "Subagent limits: "+strings.TrimPrefix(err.Error(), preferences.ErrInvalidSubagentLimits.Error()+": "), true)
+	}
+	if errors.Is(err, preferences.ErrAccountPolicyConflict) {
+		return apperrors.New(codeValidationFailed, "The account switching rules changed. Refresh and apply your change again.", true)
+	}
+	if errors.Is(err, preferences.ErrInvalidAccountPolicy) {
+		// The validator's own sentence names the vendor and the limit; it holds nothing the person did not type.
+		return apperrors.New(codeValidationFailed, "Account switching rules: "+sentenceAfter(err, preferences.ErrInvalidAccountPolicy, "those rules cannot be saved"), true)
 	}
 	if errors.Is(err, preferences.ErrInvalidTheme) {
 		return apperrors.New(codeValidationFailed, preferences.ErrInvalidTheme.Error(), true)
@@ -390,6 +408,28 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.New(codeValidationFailed, "That sign-in method isn't offered by this agent.", true)
 		case errors.Is(err, agenthub.ErrModelsUnavailable):
 			return apperrors.New(codeConnectionFailed, agentDisplayName(agenthub.ErrorVendor(err))+" didn't report which models it offers. Try Refresh models, or check that it is signed in.", true)
+		// Vendor accounts. A home error wraps a path and the OS's words, a usage check the
+		// CLI's: none of that reaches the window. ErrAccountHome comes before
+		// ErrInvalidAccount, which it can also be wrapped by.
+		case errors.Is(err, agenthub.ErrAllAccountsLimited):
+			return apperrors.New(codeAgentUsageLimit, capitalised(sentenceAfter(err, agenthub.ErrAllAccountsLimited, "every account of this vendor has reached its limit")), true)
+		case errors.Is(err, agenthub.ErrAccountNotFound):
+			return apperrors.New(codeValidationFailed, "That account no longer exists.", true)
+		case errors.Is(err, agenthub.ErrAccountFolderLeft):
+			// The row is already gone (RemoveAccount); no path, no OS words.
+			return apperrors.New(codeValidationFailed, "The account was removed, but DevKit could not delete its folder. You can delete it by hand.", true)
+		case errors.Is(err, agenthub.ErrAccountHome):
+			return apperrors.New(codeValidationFailed, "DevKit could not prepare a folder for that account. Nothing was changed.", true)
+		case errors.Is(err, agenthub.ErrInvalidAccount):
+			return apperrors.New(codeValidationFailed, "Account: "+sentenceAfter(err, agenthub.ErrInvalidAccount, "that is not a valid account"), true)
+		case errors.Is(err, agenthub.ErrAccountLabelTaken):
+			return apperrors.New(codeValidationFailed, "You already have an account with that name.", true)
+		case errors.Is(err, agenthub.ErrAccountInUse):
+			return apperrors.New(codeValidationFailed, "A session is using that account. Close it first.", true)
+		case errors.Is(err, agenthub.ErrUsageNotCheckable):
+			return apperrors.New(codeValidationFailed, "This account's usage cannot be read right now.", true)
+		case errors.Is(err, agenthub.ErrAccountsUnavailable):
+			return apperrors.New(codeValidationFailed, "Accounts are not available.", true)
 		case errors.Is(err, agenthub.ErrProcessFailed):
 			return apperrors.New(codeConnectionFailed, "Agent process failed.", true)
 		case errors.Is(err, agenthub.ErrNotDescendant):
@@ -913,4 +953,56 @@ func invalidPromptMessage(err error) string {
 		return invalidPromptGeneric
 	}
 	return "The prompt was not sent: " + detail + "."
+}
+
+// accountSentenceClip bounds what sentenceAfter hands to the window.
+const accountSentenceClip = 200
+
+// sentenceAfter is what a wrapped sentinel's own sentence says after its name:
+// "invoke: <sentinel>: a name is at most 40 characters" reads "a name is at most 40
+// characters". Only for sentinels whose wrapping sites are DevKit's own words (never
+// an OS error or vendor output), but still folded to one line without control
+// characters and clipped, as hostSaid does, so a wrapping site that ever quotes
+// something does not reach the window as a paragraph. fallback is used when nothing
+// usable follows.
+func sentenceAfter(err error, sentinel error, fallback string) string {
+	text := err.Error()
+	at := strings.Index(text, sentinel.Error()+": ")
+	if at < 0 {
+		return fallback
+	}
+	var b strings.Builder
+	space := true // leading whitespace and runs of it fold away
+	for _, r := range text[at+len(sentinel.Error())+2:] {
+		switch {
+		case unicode.IsSpace(r):
+			if !space {
+				b.WriteByte(' ')
+			}
+			space = true
+		case unicode.IsControl(r):
+			// dropped, not turned into a space: an escape sequence's bytes join their neighbours
+		default:
+			b.WriteRune(r)
+			space = false
+		}
+	}
+	rest := strings.TrimSpace(b.String())
+	if rest == "" {
+		return fallback
+	}
+	if runes := []rune(rest); len(runes) > accountSentenceClip {
+		rest = string(runes[:accountSentenceClip]) + "…"
+	}
+	return rest
+}
+
+// capitalised upper-cases the first letter of a sentence. A string that does not
+// start with valid UTF-8 comes back as it was.
+func capitalised(s string) string {
+	r, size := utf8.DecodeRuneInString(s)
+	if r == utf8.RuneError {
+		return s // empty, or an invalid first byte (size 1): nothing to change
+	}
+	return string(unicode.ToUpper(r)) + s[size:]
 }

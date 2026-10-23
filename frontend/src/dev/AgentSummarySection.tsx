@@ -174,6 +174,7 @@ function Card({
   checkpoints = new Map(),
   repos = [{ name: "his-connector", branch: "feat/receipt-manual-selection", own: true }],
   model,
+  accountLabel,
   ...rest
 }: {
   vendorName: string;
@@ -182,10 +183,13 @@ function Card({
   checkpoints?: CheckpointIndex;
   repos?: { name: string; branch: string; own: boolean }[];
   model?: string;
+  /** The account the session runs as, when it is not the built-in one that never moved. */
+  accountLabel?: string;
 } & Pick<Parameters<typeof SessionSummaryBody>[0], "connectors" | "goal" | "pullRequests">) {
   const data = useSessionSummaryData({ sessionId: "gallery", items, checkpoints, live: false });
   const environment = environmentRows({
     vendorName,
+    accountLabel,
     folderPath: "/work/chiro/his-connector",
     workspaceName: "CHIRO",
     repos,
@@ -225,7 +229,7 @@ export function AgentSummarySection() {
           </Button>
         </div>
         <div className="flex flex-wrap items-start gap-6">
-          <Card vendorName="Claude" items={claudeItems} usage={claudeUsage} goal={{ objective: "Let a person pick the receipts that count by hand" }} pullRequests={pullRequests} />
+          <Card vendorName="Claude" accountLabel="Work" items={claudeItems} usage={claudeUsage} goal={{ objective: "Let a person pick the receipts that count by hand" }} pullRequests={pullRequests} />
           <Card
             vendorName="opencode"
             model="opencode/GLM-5.3-Flash Free"

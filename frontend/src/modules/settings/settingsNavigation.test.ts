@@ -11,10 +11,10 @@ describe("Settings navigation", () => {
     expect(new Set(ids).size).toBe(ids.length);
     for (const id of ["account", "appearance", "sync", "environments", "database", "keyboard", "security", "updates"]) expect(ids).toContain(id);
   });
-  test("Agents is its own group of six pages, and Services no longer holds agent settings", () => {
+  test("Agents is its own group of seven pages, and Services no longer holds agent settings", () => {
     const agents = SETTINGS_GROUPS.find((group) => group.label === "Agents")!;
     expect(agents.items.map((item) => item.id)).toEqual([
-      "agents-runtimes", "agents-models", "agents-skills", "agents-safety", "agents-notifications", "agents-mcp",
+      "agents-runtimes", "agents-models", "agents-accounts", "agents-skills", "agents-safety", "agents-notifications", "agents-mcp",
     ]);
     expect(SETTINGS_GROUPS.find((group) => group.label === "Services")!.items.map((item) => item.id)).toEqual(["account", "sync"]);
   });
@@ -47,7 +47,15 @@ describe("Settings navigation", () => {
     expect(idsOf("skills")).toEqual(["agents-skills"]);
     expect(idsOf("proxy install")).toEqual(["agents-mcp"]);
     expect(idsOf("notifications")).toEqual(["agents-notifications"]);
-    expect(idsOf("agents")).toHaveLength(6);
+    expect(idsOf("agents")).toHaveLength(7);
+  });
+  test("accounts and their limits are found by what people call them", () => {
+    expect(idsOf("failover")).toEqual(["agents-accounts"]);
+    expect(idsOf("threshold")).toEqual(["agents-accounts"]);
+    expect(idsOf("subscription")).toEqual(["agents-accounts"]);
+    expect(idsOf("quota")).toEqual(["agents-accounts"]);
+    expect(idsOf("accounts limits")).toEqual(["agents-accounts"]);
+    expect(resolveSettingsTab("agents-accounts")).toBe("agents-accounts");
   });
 });
 
