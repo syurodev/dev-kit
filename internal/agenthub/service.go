@@ -418,6 +418,10 @@ type Service struct {
 	AccountVendors    []AgentType
 	OnAccountsChanged func()
 
+	// accountMgmt serialises AddAccount, editAccount and RemoveAccount, each a
+	// read-then-write on the account book. Lock order: accountMgmt, then mu.
+	accountMgmt sync.Mutex
+
 	// All guarded by mu.
 	// accountSwitches: when and from where a session last moved.
 	// sessionAccount: the account a session's runtime runs as.

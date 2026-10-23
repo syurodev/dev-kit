@@ -101,3 +101,46 @@ func (s *Service) SetSessionAccountCacheForTest(id, accountID string) {
 	defer s.mu.Unlock()
 	s.sessionAccount[id] = accountID
 }
+
+// SetResumingForTest raises a session's resume barrier the way resumeRuntime does
+// before it has published a runtime; release drops it.
+func (s *Service) SetResumingForTest(id string) (release func()) {
+	s.mu.Lock()
+	s.resuming[id] = &resumeCall{done: make(chan struct{})}
+	s.mu.Unlock()
+	return func() {
+		s.mu.Lock()
+		delete(s.resuming, id)
+		s.mu.Unlock()
+	}
+}
+
+// SetAccountSwitchForTest records that a session last moved away from an account.
+func (s *Service) SetAccountSwitchForTest(sessionID, from string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.accountSwitches[sessionID] = accountSwitch{at: time.Now(), from: from}
+}
+
+// AccountSwitchKnownForTest reports whether a session still has a recorded move.
+func (s *Service) AccountSwitchKnownForTest(sessionID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.accountSwitches[sessionID]
+	return ok
+}
+
+// SetUsageSeenForTest and UsageSeenKnownForTest read and set the last usage
+// written for an account.
+func (s *Service) SetUsageSeenForTest(accountID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.usageSeen[accountID] = []LimitWindow{{Label: "Weekly", UsedPercent: 1}}
+}
+
+func (s *Service) UsageSeenKnownForTest(accountID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.usageSeen[accountID]
+	return ok
+}

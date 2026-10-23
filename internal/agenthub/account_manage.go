@@ -66,15 +66,35 @@ func accountSlug(label string) string {
 	return slug
 }
 
-// newAccountID is "<vendor>-<slug of the label>", numbered when taken, and never the
-// built-in account's id.
-func newAccountID(vendor AgentType, label string, taken map[string]bool) string {
+// accountIDCandidate is the nth id for a label: "<vendor>-<slug of the label>", then
+// "...-2", "...-3". n starts at 1.
+func accountIDCandidate(vendor AgentType, label string, n int) string {
 	base := string(vendor) + "-" + accountSlug(label)
-	id := base
-	for n := 2; taken[id] || id == BuiltinAccountID(vendor); n++ {
-		id = fmt.Sprintf("%s-%d", base, n)
+	if n <= 1 {
+		return base
 	}
-	return id
+	return fmt.Sprintf("%s-%d", base, n)
+}
+
+// newAccountHome picks the first id for the label that no account has, that is not
+// the built-in account's, and whose home does not exist on disk: a folder left by a
+// failed removal or a crash is taken, so a new account never inherits its old login.
+func (s *Service) newAccountHome(vendor AgentType, label string, taken map[string]bool) (id, home string, err error) {
+	for n := 1; ; n++ {
+		id = accountIDCandidate(vendor, label, n)
+		if taken[id] || id == BuiltinAccountID(vendor) {
+			continue
+		}
+		if home, err = s.accountHomeFor(vendor, id); err != nil {
+			return "", "", err
+		}
+		if _, statErr := os.Lstat(home); statErr == nil {
+			continue
+		} else if !errors.Is(statErr, fs.ErrNotExist) {
+			return "", "", fmt.Errorf("%w: %s: %w", ErrAccountHome, home, statErr)
+		}
+		return id, home, nil
+	}
 }
 
 func cleanAccountLabel(label string) (string, error) {
@@ -147,6 +167,10 @@ func (s *Service) AddAccount(ctx context.Context, vendor AgentType, label string
 	if err != nil {
 		return AccountRecord{}, err
 	}
+	// One management call at a time: each reads the book, then writes what it read.
+	// Taken before s.mu (accountInUse, forgetAccount), never after.
+	s.accountMgmt.Lock()
+	defer s.accountMgmt.Unlock()
 	if !slices.Contains(s.AccountVendors, vendor) {
 		return AccountRecord{}, fmt.Errorf("%w: %s has no added accounts", ErrInvalidAccount, vendor)
 	}
@@ -164,8 +188,7 @@ func (s *Service) AddAccount(ctx context.Context, vendor AgentType, label string
 			return AccountRecord{}, ErrAccountLabelTaken
 		}
 	}
-	id := newAccountID(vendor, label, taken)
-	home, err := s.accountHomeFor(vendor, id)
+	id, home, err := s.newAccountHome(vendor, label, taken)
 	if err != nil {
 		return AccountRecord{}, err
 	}
@@ -181,11 +204,15 @@ func (s *Service) AddAccount(ctx context.Context, vendor AgentType, label string
 
 // editAccount reads an added account, lets change adjust the editable fields and
 // writes them back. Usage and markers are never touched (Put does not write them).
-func (s *Service) editAccount(ctx context.Context, id string, change func(*AccountRecord) error) (AccountRecord, error) {
+// The whole read-change-write holds accountMgmt, so a removal cannot slip between
+// the read and the write and have the row put back.
+func (s *Service) editAccount(ctx context.Context, id string, change func(AccountBook, *AccountRecord) error) (AccountRecord, error) {
 	book, err := s.accountBook(ctx)
 	if err != nil {
 		return AccountRecord{}, err
 	}
+	s.accountMgmt.Lock()
+	defer s.accountMgmt.Unlock()
 	acct, err := book.Get(ctx, id)
 	if err != nil {
 		return AccountRecord{}, err
@@ -193,7 +220,7 @@ func (s *Service) editAccount(ctx context.Context, id string, change func(*Accou
 	if acct.Builtin() {
 		return AccountRecord{}, fmt.Errorf("%w: the built-in account cannot be changed here", ErrInvalidAccount)
 	}
-	if err := change(&acct); err != nil {
+	if err := change(book, &acct); err != nil {
 		return AccountRecord{}, err
 	}
 	if err := book.Put(ctx, acct); err != nil {
@@ -211,8 +238,8 @@ func (s *Service) RenameAccount(ctx context.Context, id, label string) (AccountR
 	if err != nil {
 		return AccountRecord{}, err
 	}
-	return s.editAccount(ctx, id, func(a *AccountRecord) error {
-		others, err := s.Accounts.List(ctx, a.Vendor)
+	return s.editAccount(ctx, id, func(book AccountBook, a *AccountRecord) error {
+		others, err := book.List(ctx, a.Vendor)
 		if err != nil {
 			return err
 		}
@@ -227,18 +254,29 @@ func (s *Service) RenameAccount(ctx context.Context, id, label string) (AccountR
 }
 
 func (s *Service) SetAccountShared(ctx context.Context, id string, shared bool) (AccountRecord, error) {
-	return s.editAccount(ctx, id, func(a *AccountRecord) error {
+	return s.editAccount(ctx, id, func(_ AccountBook, a *AccountRecord) error {
 		a.Shared = shared
 		return nil
 	})
 }
 
-// accountInUse reports whether a running session's process runs as the account.
+// accountInUse reports whether a session's process runs as the account, or is
+// being opened as it: resumeRuntime records the account long before it publishes
+// s.runtimes[id], so a session with its resume barrier up counts too.
+//
+// Residual gaps, accepted: a resume that has not yet reached recordSessionAccount
+// (it reads the session's row, which still names the account), and a moveSession
+// whose target is this account, are not seen. Either can open a process in a home
+// that is removed a moment later; that process fails on its next turn and the
+// session returns to the built-in account when the row is rewritten.
 func (s *Service) accountInUse(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for sessionID := range s.runtimes {
-		if s.sessionAccount[sessionID] == id {
+	for sessionID, acct := range s.sessionAccount {
+		if acct != id {
+			continue
+		}
+		if s.runtimes[sessionID] != nil || s.resuming[sessionID] != nil {
 			return true
 		}
 	}
@@ -253,6 +291,8 @@ func (s *Service) RemoveAccount(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	s.accountMgmt.Lock()
+	defer s.accountMgmt.Unlock()
 	acct, err := book.Get(ctx, id)
 	if err != nil {
 		return err
@@ -263,16 +303,25 @@ func (s *Service) RemoveAccount(ctx context.Context, id string) error {
 	if s.accountInUse(id) {
 		return ErrAccountInUse
 	}
+	// Refuse before deleting the row: with no accounts folder the home could not be
+	// removed, and the person would be left with a row-less folder.
+	if acct.HomeDir != "" && s.AccountsDir == "" {
+		return fmt.Errorf("%w: the folder for added accounts is not set", ErrAccountsUnavailable)
+	}
 	if err := book.Delete(ctx, id); err != nil {
 		return err
 	}
 	s.forgetAccount(id)
+	// Only the canonical home is DevKit's to delete. This check is not atomic with
+	// the delete below and assumes nothing else writes to the accounts folder.
+	want := filepath.Join(s.AccountsDir, string(acct.Vendor), acct.ID)
+	linkErr := error(nil)
+	if s.AccountsDir != "" {
+		linkErr = noLinkBetween(s.AccountsDir, acct.HomeDir)
+	}
 	switch {
-	case s.AccountsDir == "" || !pathIsInside(acct.HomeDir, s.AccountsDir):
-		// A home somewhere else was never DevKit's to delete.
-		log.Printf("agenthub: account %s removed; its home %s is outside the accounts folder and was left alone", id, acct.HomeDir)
-	case noLinkBetween(s.AccountsDir, acct.HomeDir) != nil:
-		log.Printf("agenthub: account %s removed; its home %s goes through a symbolic link and was left alone", id, acct.HomeDir)
+	case s.AccountsDir == "" || acct.HomeDir != want || linkErr != nil:
+		log.Printf("agenthub: account %s removed; its home %q is not DevKit's to delete and was left alone (expected %q; link check: %v)", id, acct.HomeDir, want, linkErr)
 	default:
 		if err := os.RemoveAll(acct.HomeDir); err != nil {
 			s.accountsChanged()
