@@ -1546,6 +1546,14 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 	started := time.Now()
 	s.turnWork.Add(1)
 	defer s.turnWork.Add(-1) // registered first, so it runs after every other defer
+	// Where the turn's time went (see TurnTiming). Registered here, before the
+	// session is even read, so every way out of invoke — a missing row, a store
+	// failure, a cancelled context, a panic — still answers exactly once. The
+	// session id and vendor are named once the row is read; until then the line
+	// says "-". Finished at the first drawable row, or by this defer if the turn
+	// never draws one.
+	timing := newTurnTiming(started)
+	defer s.finishTurnTiming(timing)
 	if peer != nil {
 		// A turn that never reached the point of running still owes the sender
 		// an answer. Only the first settle counts.
@@ -1563,11 +1571,9 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 	if err != nil {
 		return InvokeResult{}, err
 	}
-	// Where the turn's time went (see TurnTiming). The vendor is known from the
-	// row, so this is the first moment a timing can name it. Finished at the
-	// first drawable row, or in the defer if the turn never draws one.
-	timing := newTurnTiming(started, in.SessionID, sess.AgentType)
-	defer s.finishTurnTiming(timing)
+	// The row is what names the turn. Everything before it — the read itself,
+	// and whatever authorize does next — still counts toward Authorize.
+	timing.identify(sess.ID, sess.AgentType)
 	if peer == nil {
 		if err := s.authorizeTarget(ctx, in.SessionID); err != nil {
 			return InvokeResult{}, err
@@ -1695,11 +1701,11 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 	// An orphan — the row outlived the process that served it, which is what
 	// every restart does to every open session, and what a mid-turn crash does
 	// too — resumes here. This used to be the end of the conversation.
-	// Whether the process had to be opened or was already live is part of the
-	// timing: a resume is the phase that costs seconds.
-	resumed := s.liveRuntime(ctx, sess.ID) == nil
+	// The whole resolve is one phase, including closing a dead process it
+	// replaces: whether that had to be opened or was already live is part of
+	// the timing, and a resume is the phase that costs seconds.
 	runtimeStart := time.Now()
-	rt, err := s.runtimeFor(ctx, sess)
+	rt, resumed, err := s.runtimeForTurn(ctx, sess)
 	timing.addRuntime(time.Since(runtimeStart), resumed)
 	if err != nil {
 		cp.Finish(context.WithoutCancel(ctx), TurnResult{Cancelled: true})
@@ -2476,13 +2482,23 @@ func (s *Service) Cancel(ctx context.Context, id string) error {
 	return rt.Cancel(ctx)
 }
 
-// runtimeFor returns the session's live runtime, resuming it when its process
-// is gone.
-func (s *Service) runtimeFor(ctx context.Context, sess AgentSession) (SessionRuntime, error) {
+// runtimeForTurn is runtimeFor plus whether the process had to be opened. It is
+// the only place a turn asks for a runtime, so the phase it measures (and the
+// teardown of a dead process the resolve replaces) is one interval, and where
+// that interval says live or resume comes from the same decision.
+func (s *Service) runtimeForTurn(ctx context.Context, sess AgentSession) (SessionRuntime, bool, error) {
 	if rt := s.liveRuntime(ctx, sess.ID); rt != nil {
-		return rt, nil
+		return rt, false, nil
 	}
-	return s.resumeRuntime(ctx, sess)
+	rt, err := s.resumeRuntime(ctx, sess)
+	// A resume that fails still took the resume path: the turn waited there,
+	// not on a live process.
+	return rt, true, err
+}
+
+func (s *Service) runtimeFor(ctx context.Context, sess AgentSession) (SessionRuntime, error) {
+	rt, _, err := s.runtimeForTurn(ctx, sess)
+	return rt, err
 }
 
 // SetMode changes the agent's mode without routing it through prompt.

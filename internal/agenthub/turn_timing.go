@@ -12,11 +12,13 @@ import (
 // opening the agent, or the model's own time to first token.
 //
 // Durations are not comparable to each other in general. Authorize, Claim,
-// CheckpointWait and Runtime happened one after another before the prompt, and
-// PromptSent, FirstUpdate and FirstVisible are offsets from the turn's start,
-// so Authorize+Claim+CheckpointWait+Runtime <= PromptSent <= FirstUpdate <=
-// FirstVisible. A later task (P0.2) emits these to the UI; nothing here knows
-// about a window.
+// CheckpointWait and Runtime happened one after another before the prompt, so
+// their sum is at most PromptSent; PromptSent, FirstUpdate and FirstVisible are
+// offsets from the turn's start, so PromptSent <= FirstUpdate <= FirstVisible.
+// FirstUpdate counts only updates that arrived after the prompt went out: a
+// vendor publishes its settings while the process attaches, and that is not the
+// model starting to answer. A later task (P0.2) emits these to the UI; nothing
+// here knows about a window.
 type TurnTiming struct {
 	SessionID string
 	Vendor    AgentType
@@ -35,9 +37,12 @@ type TurnTiming struct {
 	// RuntimeResume is true when the process was opened rather than reused.
 	RuntimeResume bool
 	// PromptSent is the time from the turn's start until rt.Prompt was called.
-	PromptSent time.Duration
-	// FirstUpdate is the time until the vendor's first session/update, and
-	// FirstUpdateSeen says whether one arrived at all.
+	// PromptSentSeen says whether the turn got that far, because a turn refused
+	// before it — no runtime, a busy session — would otherwise log 0 ms.
+	PromptSent     time.Duration
+	PromptSentSeen bool
+	// FirstUpdate is the time until the vendor's first session/update after
+	// the prompt, and FirstUpdateSeen says whether one arrived at all.
 	FirstUpdate     time.Duration
 	FirstUpdateSeen bool
 	// FirstVisible is the time until the first update the transcript draws as
@@ -73,17 +78,18 @@ func visibleTurnKind(kind UpdateKind) bool {
 // "Starting" ends, which is the moment worth logging), or at the turn's end if
 // the turn never drew a row.
 type turnTiming struct {
-	started   time.Time
-	sessionID string
-	vendor    AgentType
+	started time.Time
 
 	mu             sync.Mutex
+	sessionID      string
+	vendor         AgentType
 	authorize      time.Duration
 	claim          time.Duration
 	checkpointWait time.Duration
 	runtime        time.Duration
 	runtimeResume  bool
 	promptSent     time.Duration
+	promptSentOn   bool
 	firstUpdate    time.Duration
 	firstUpdateOn  bool
 	firstVisible   time.Duration
@@ -92,8 +98,19 @@ type turnTiming struct {
 	finished       bool
 }
 
-func newTurnTiming(started time.Time, sessionID string, vendor AgentType) *turnTiming {
-	return &turnTiming{started: started, sessionID: sessionID, vendor: vendor}
+// newTurnTiming starts collecting before the turn has a session row: a turn
+// that ends at the session read still says how long that took.
+func newTurnTiming(started time.Time) *turnTiming {
+	return &turnTiming{started: started}
+}
+
+// identify names the session once its row is read. Until then the timing has
+// no id and no vendor, and the line says so with "-".
+func (t *turnTiming) identify(sessionID string, vendor AgentType) {
+	t.mu.Lock()
+	t.sessionID = sessionID
+	t.vendor = vendor
+	t.mu.Unlock()
 }
 
 // elapsed is the time since the turn's start. It takes no lock: started never
@@ -128,16 +145,25 @@ func (t *turnTiming) addRuntime(d time.Duration, resumed bool) {
 func (t *turnTiming) markPromptSent() {
 	t.mu.Lock()
 	t.promptSent = t.elapsed()
+	t.promptSentOn = true
 	t.mu.Unlock()
 }
 
-// observeUpdate records the first update overall and the first of a visible
-// kind, both stamped with arrived (when the update reached the handler, before
-// it was parsed or recorded). It reports whether this update was the first
-// visible one, so the caller can finish the timing at that moment.
+// observeUpdate records the first update after the prompt and the first of a
+// visible kind, both stamped with arrived (when the update reached the handler,
+// before it was parsed or recorded). It reports whether this update was the
+// first visible one, so the caller can finish the timing at that moment.
+//
+// Before the prompt nothing counts. A runtime that publishes its settings as it
+// attaches (Claude announces its config options from SetHandlers) would
+// otherwise report a first update before the model had been asked anything,
+// which reads as a fast agent and is not one.
 func (t *turnTiming) observeUpdate(kind UpdateKind, arrived time.Duration) (firstVisible bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if !t.promptSentOn {
+		return false
+	}
 	if !t.firstUpdateOn {
 		t.firstUpdateOn = true
 		t.firstUpdate = arrived
@@ -169,6 +195,7 @@ func (t *turnTiming) finish() (TurnTiming, bool) {
 		Runtime:          t.runtime,
 		RuntimeResume:    t.runtimeResume,
 		PromptSent:       t.promptSent,
+		PromptSentSeen:   t.promptSentOn,
 		FirstUpdate:      t.firstUpdate,
 		FirstUpdateSeen:  t.firstUpdateOn,
 		FirstVisible:     t.firstVisible,
@@ -187,14 +214,14 @@ func (s *Service) finishTurnTiming(t *turnTiming) {
 		return
 	}
 	log.Printf("agenthub: turn timing session=%s vendor=%s authorize_ms=%d claim_ms=%d checkpoint_wait_ms=%d runtime_ms=%d runtime=%s prompt_ms=%d first_update_ms=%d first_visible_ms=%d first_visible_kind=%s",
-		timing.SessionID,
-		timing.Vendor,
+		timingLabel(timing.SessionID),
+		timingLabel(string(timing.Vendor)),
 		timing.Authorize.Milliseconds(),
 		timing.Claim.Milliseconds(),
 		timing.CheckpointWait.Milliseconds(),
 		timing.Runtime.Milliseconds(),
 		runtimePhaseName(timing.RuntimeResume),
-		timing.PromptSent.Milliseconds(),
+		timingMS(timing.PromptSent, timing.PromptSentSeen),
 		timingMS(timing.FirstUpdate, timing.FirstUpdateSeen),
 		timingMS(timing.FirstVisible, timing.FirstVisibleSeen),
 		visibleKindName(timing.VisibleKind),
@@ -211,6 +238,15 @@ func timingMS(d time.Duration, seen bool) int64 {
 		return -1
 	}
 	return d.Milliseconds()
+}
+
+// timingLabel is an id or a vendor for the log line, or "-" when the turn ended
+// before it knew one (a missing session, a store failure).
+func timingLabel(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
 }
 
 func runtimePhaseName(resumed bool) string {
