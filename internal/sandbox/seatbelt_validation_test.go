@@ -8,9 +8,10 @@ import (
 )
 
 type fakeProfileRunner struct {
-	err     error
-	calls   int
-	profile string
+	err      error
+	outcomes []error
+	calls    int
+	profile  string
 }
 
 func (r *fakeProfileRunner) Run(ctx context.Context, _ Policy, profile string) error {
@@ -18,6 +19,9 @@ func (r *fakeProfileRunner) Run(ctx context.Context, _ Policy, profile string) e
 	r.profile = profile
 	if _, ok := ctx.Deadline(); !ok {
 		panic("profile check must have deadline")
+	}
+	if len(r.outcomes) >= r.calls {
+		return r.outcomes[r.calls-1]
 	}
 	return r.err
 }
@@ -49,6 +53,27 @@ func TestSeatbeltProfileValidationCachesBothOutcomes(t *testing.T) {
 			}
 			if failure && !strings.Contains(gate.status(), "unavailable") {
 				t.Fatal(gate.status())
+			}
+		})
+	}
+}
+
+func TestSeatbeltProfileValidationRetriesOnlyTimeoutOnce(t *testing.T) {
+	for _, recover := range []bool{false, true} {
+		t.Run(map[bool]string{false: "repeated-timeout", true: "transient-timeout"}[recover], func(t *testing.T) {
+			runner := &fakeProfileRunner{outcomes: []error{context.DeadlineExceeded, context.DeadlineExceeded}}
+			if recover {
+				runner.outcomes[1] = nil
+			}
+			gate := unixProfileGate{runner: runner}
+			p := Policy{WorkDir: "/work", SessionTempDir: "/private/tmp/dk-12345678"}
+			result := gate.profile(p)
+			gate.profile(p)
+			if runner.calls != 2 {
+				t.Fatalf("timeout must get exactly one retry, got %d", runner.calls)
+			}
+			if strings.Contains(result, "local unix-socket") != recover {
+				t.Fatal("wrong result after timeout retry")
 			}
 		})
 	}

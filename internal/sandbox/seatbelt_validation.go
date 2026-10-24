@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"log"
 	"os/exec"
 	"runtime"
@@ -41,9 +42,16 @@ func (g *unixProfileGate) profile(p Policy) string {
 		return buildSeatbeltProfileWithUnixSockets(p, false)
 	}
 	g.once.Do(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		err := g.runner.Run(ctx, p, buildSeatbeltProfileWithUnixSockets(p, true))
+		var err error
+		for attempt := 0; attempt < 2; attempt++ {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			err = g.runner.Run(ctx, p, buildSeatbeltProfileWithUnixSockets(p, true))
+			timedOut := errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded)
+			cancel()
+			if !timedOut {
+				break
+			}
+		}
 		g.enabled.Store(err == nil)
 		g.checked.Store(true)
 		if err != nil {
