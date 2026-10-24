@@ -19,7 +19,19 @@ var ErrPermissionDenied = errors.New("permission denied")
 
 type Handler func(ctx context.Context) (any, error)
 
+// Exposure is independent of domain operation declarations. The zero value
+// preserves legacy calls until their modules migrate.
+type Exposure uint8
+
+const (
+	ExposureBoth Exposure = iota
+	ExposureUI
+	ExposureAgent
+)
+
 type CallRequest struct {
+	Operation  string
+	Exposure   Exposure
 	SubjectID  string
 	Capability string
 	Scope      string
@@ -67,6 +79,11 @@ func (g *Gateway) Call(ctx context.Context, request CallRequest) (any, error) {
 		Capability: request.Capability,
 		Scope:      request.Scope,
 	})
+	caller, _ := identity.FromContext(ctx)
+	if (request.Exposure == ExposureUI && caller.Kind != identity.KindUI) ||
+		(request.Exposure == ExposureAgent && caller.Kind == identity.KindUI) {
+		decision = permissions.Decision{Allowed: false, Reason: fmt.Sprintf("not exposed to %s", caller.Kind)}
+	}
 	outcome := audit.OutcomeDenied
 	if decision.Allowed {
 		outcome = audit.OutcomeAllowed
