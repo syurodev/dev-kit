@@ -194,6 +194,18 @@ as production-verified against a real Claude Code session in cloud CI.
   they prompt on every call when the profile's env requires confirmation, and pass otherwise.
 
 ### Agent Hub (`internal/agenthub` + `internal/acp`)
+
+- Team foundations are tracked in `docs/superpowers/plans/2026-10-25-team-foundations.md`.
+  `internal/agentwork` is a stdlib-only orchestration leaf with injected operations: task-to-child
+  handoff is shared there, while MCP keeps capability checks, caller identity and model gates.
+  Failed assignment/branch recording closes only the newly created child using bounded cleanup
+  independent of the cancelled request; failed brief delivery keeps the assigned child available.
+- Claude ACP prompt-result metadata can contain a typed failure even when JSON-RPC succeeded.
+  The Claude adapter's `PromptFailure` hook classifies it; do not add vendor branches to the generic
+  runtime. `_meta.quota.token_count` counters distinguish input, cache read, cache write and output;
+  unknown counters remain unknown, and a refused turn still retains usage/raw metadata. Fixture
+  tests verify accounting and refusal handling, not a measured reduction in real vendor quota.
+
 **Partial** v1 surface on this branch: ACP codec/conn, mock + Claude adapters,
 session service (SQLite migration 13), bridge/UI multi-tab, MCP `agenthub.*`.
 Claude vendor spawn uses `sandbox.DefaultRunner().StartPiped` (fail-closed).

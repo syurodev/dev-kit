@@ -11,11 +11,11 @@ Started 2026-10-25 at the person's request. Implementation uses Codex Luna subag
 | Durable peer outbox | B5 / OPT-040960 | codex/peer-outbox-b5 | Luna; parent review |
 | Interrupted pending permission/question metadata | B6 / OPT-e67e8f | codex/pending-recovery-b6 | Luna; parent review |
 | Conversation-centred shell | C1 / OPT-484f67 | design deliverable | Concrete spec; no C3–C6 implementation implied |
-| Unattended policy | D1 / OPT-0a45f5 | design deliverable | Concrete spec for review before policy code |
+| Unattended policy | D1 / OPT-0a45f5 | codex/scoped-approvals-d1 | Scope explicitly approved by the person on 2026-10-25; Luna implementing |
 
 The active comment-paging, sandbox and conformance-follow-up tasks in other DevKit sessions remain with their current owners. External Codex subagents are not DevKit Agent Hub sessions: this MCP caller cannot claim tasks as an agent. Branch/status records are used without fabricating a session identity.
 
-Each implementation worktree starts at main 0601c248. Integration branch: codex/team-foundations. Main checkout contains the earlier draft spec and reference images; preserve them. Do not push, merge to main, close task gates or publish without the person's authorization.
+The initial implementation worktrees start at main 0601c248; D1 starts at integration f2bfc440 after explicit scope approval. Integration branch: codex/team-foundations. Main checkout contains the earlier draft spec and reference images; preserve them. Do not push, merge to main, close task gates or publish without the person's authorization.
 
 ## Required review
 
@@ -29,5 +29,9 @@ Each implementation worktree starts at main 0601c248. Integration branch: codex/
 ## Validation record
 
 - Baseline: `go test ./internal/arch/` passed on the main checkout.
-- Targeted implementations and integration validation: record outcomes here after review.
+- Integrated B7 (`7d13ef73`) and Claude quota/failure accounting (`f2bfc440`): `TMPDIR=/tmp go test ./internal/agentwork ./internal/agenthub ./internal/storage ./internal/arch -count=1` passed.
+- Broader and final integration validation: record outcomes here after review.
+- Broad `TMPDIR=/tmp go test ./internal/... ./cmd/... -count=1` passed all packages except Git/MCP path-alias assertions and sandbox process-info. Retest with canonical `TMPDIR=/private/tmp go test ./internal/git ./internal/mcp -count=1` passed both: `/tmp` is a macOS symlink, so the first Git failures are not a guard regression.
+- `TestSmokeSeatbeltDeveloperTools/cgo-process-info` also fails on the unchanged main baseline (`PROBE count=136 errno=0`, probe code 10). The remote PR316 sandbox follow-up is outside this branch's 0601c248 baseline; do not report this broad run as entirely green.
+- `go vet ./internal/agentwork ./internal/agenthub ./internal/mcp ./internal/storage` passed after phase0/B7 integration.
 - No runtime quota exhaustion experiment is needed; sanitized fixture shapes and ACP pipes cover refusals.
