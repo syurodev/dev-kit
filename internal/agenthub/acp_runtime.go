@@ -95,7 +95,8 @@ type acpRuntime struct {
 	// is in now rather than the one it started in. steering and goal are read from the same answer:
 	// both are extensions the agent advertises in initialize's top-level _meta,
 	// and calling either without that is a method the agent would refuse.
-	modes *acp.SessionModeState
+	modes        *acp.SessionModeState
+	modeRevision uint64 // own mode notifications observed, guarded by mu
 	// configOptions is what session/new said the agent's settings are, as the
 	// agent wrote it. ConfigCatalog reads it for the effort levels it starts
 	// from; options (below) is the live copy.
@@ -180,6 +181,7 @@ func (r *acpRuntime) Modes() *acp.SessionModeState {
 func (r *acpRuntime) SetMode(ctx context.Context, modeID string) error {
 	r.mu.Lock()
 	conn, sid, closed := r.conn, r.acpSessionID, r.closed
+	revision := r.modeRevision
 	r.mu.Unlock()
 	if closed {
 		return ErrSessionNotFound
@@ -188,13 +190,7 @@ func (r *acpRuntime) SetMode(ctx context.Context, modeID string) error {
 	if err := conn.Call(ctx, "session/set_mode", acp.SessionSetModeRequest{SessionID: sid, ModeID: modeID}, &result); err != nil {
 		return fmt.Errorf("%w: session/set_mode: %v", ErrProcessFailed, err)
 	}
-	r.mu.Lock()
-	if r.modes != nil {
-		next := *r.modes
-		next.CurrentModeID = modeID
-		r.modes = &next
-	}
-	r.mu.Unlock()
+	r.recordSetMode(modeID, revision)
 	return nil
 }
 
@@ -653,6 +649,9 @@ func (h *acpConnHandler) SessionUpdate(ctx context.Context, params json.RawMessa
 		return nil
 	}
 	update := p.Update
+	if (p.SessionID == "" || p.SessionID == h.rt.acpSessionID) && !h.rt.observeModeUpdate(update) {
+		return nil
+	}
 	h.rt.noteRetry(update)
 	// Handlers are only installed after open() has set acpSessionID, so reading
 	// it here — after the non-nil snapshot above — is ordered behind that write.

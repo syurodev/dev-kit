@@ -9,14 +9,14 @@ import (
 	"devkit/internal/acp"
 )
 
-// A session an agent creates starts in its parent's permission mode, never a
-// more permissive one. Model and effort are inherited the same way
-// (model_choice.go); a mode used to be left out, so a child opened in its
-// vendor's default (Auto) whatever the parent was in — an Ask parent could
+// A session an agent creates starts in its parent's permission mode (with the
+// explicit cross-vendor acceptEdits → auto mapping below). Model and effort
+// are inherited the same way (model_choice.go). Previously a child opened
+// in its vendor's default (Auto) whatever the parent was in — an Ask parent could
 // spawn an Auto child, and a Full auto parent got an Auto one.
 //
-// The mode comes only from the parent's recorded state, read here in Go. The
-// create tool has no mode input and an agent cannot name one.
+// The mode comes only from the parent's live or recorded state, read here
+// in Go. The create tool has no mode input and an agent cannot name one.
 
 // Mode ids, ordered by how much each lets the agent do without asking. Claude
 // and Codex share ids where they mean the same thing (auto, bypassPermissions);
@@ -36,6 +36,9 @@ var modeRanks = map[string]int{
 	"default":     modeRankAsk,
 	codexModeAsk:  modeRankAsk,
 	"acceptEdits": modeRankEdits,
+	// Claude ACP parses dontAsk but does not advertise it. It refuses anything
+	// outside pre-approved permissions; map conservatively to ask across vendors.
+	"dontAsk":     modeRankAsk,
 	"auto":        modeRankAuto,
 	codexModeFull: modeRankFull, // "bypassPermissions", Claude's id too
 }
@@ -56,10 +59,17 @@ type parentMode struct {
 	ID     string
 }
 
-// currentMode reads the mode a session's agent last announced (the stored
-// current_mode_update row, seeded from the handshake and moved by every mode
-// change). False when the session has none — a vendor without modes.
+// currentMode prefers the live runtime, whose mode may be newer than the
+// transcript. Without one, use the last recorded current_mode_update (also
+// seeded from the handshake). False for a vendor without modes.
 func (s *Service) currentMode(ctx context.Context, sess AgentSession) (parentMode, bool) {
+	if rt := s.liveRuntime(ctx, sess.ID); rt != nil {
+		if withModes, ok := rt.(RuntimeModes); ok {
+			if modes := withModes.Modes(); modes != nil && modes.CurrentModeID != "" {
+				return parentMode{Vendor: sess.AgentType, ID: modes.CurrentModeID}, true
+			}
+		}
+	}
 	// The newest announcement may still be in the recorder's buffer.
 	_ = s.recorder.Flush(ctx, sess.ID)
 	entry, found, err := s.store.FindTranscriptKind(ctx, sess.ID, UpdateCurrentMode)
@@ -70,12 +80,11 @@ func (s *Service) currentMode(ctx context.Context, sess AgentSession) (parentMod
 	return parentMode{Vendor: sess.AgentType, ID: id}, id != ""
 }
 
-// inheritedModeID picks the child's mode for a parent's. A same-vendor child
-// takes the parent's id. Another vendor takes the same id when it advertises
-// it, else the equivalent name (Claude default ↔ Codex ask); a parent stricter
-// than that vendor's default (Claude plan or acceptEdits, which Codex has no
-// match for) gets the child's asking mode rather than its more permissive
-// default. "" with a reason when nothing fits.
+// inheritedModeID preserves a same-vendor id. Across vendors, Claude plan /
+// default → ask, acceptEdits / auto → auto, bypassPermissions → itself; the
+// reverse maps ask → default and auto → auto (acceptEdits on older Claude).
+// acceptEdits → auto is an explicit product choice despite the higher rank:
+// Codex and opencode have no edits-only mode. Unknown ids remain unranked.
 func inheritedModeID(parent parentMode, child AgentType, advertised []acp.SessionMode) (id, why string) {
 	if parent.Vendor == child {
 		return parent.ID, ""
@@ -87,6 +96,13 @@ func inheritedModeID(parent parentMode, child AgentType, advertised []acp.Sessio
 			}
 		}
 		return false
+	}
+	if parent.Vendor == AgentTypeClaude && parent.ID == "acceptEdits" && has("auto") {
+		return "auto", ""
+	}
+	if child == AgentTypeClaude && parent.ID == "auto" && !has("auto") && has("acceptEdits") {
+		log.Printf("agenthub: Claude child does not advertise auto; inheriting acceptEdits instead")
+		return "acceptEdits", ""
 	}
 	if has(parent.ID) {
 		return parent.ID, ""
