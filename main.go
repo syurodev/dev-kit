@@ -1162,6 +1162,9 @@ func main() {
 	// logged here and surfaces as ErrProxyNotFound on CreateSession.
 	agentsDir := mcp.AgentsDir(sockPath)
 	mcp.SweepStaleSockets(agentsDir)
+	if err := agenthub.SweepSessionTemps(); err != nil {
+		log.Printf("agenthub: temp sweep: %v", err)
+	}
 	proxyPath, err := install.ResolveCommand()
 	if err != nil {
 		log.Printf("agenthub: devkit-mcp proxy not found; agent sessions will fail to open until it is built (task mcp:install, or go build -o bin/devkit-mcp ./cmd/devkit-mcp): %v", err)

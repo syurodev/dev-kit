@@ -93,6 +93,9 @@ func (s *Service) accountProbeSpec(acct AccountRecord) OpenSpec {
 		spec.PrivateHome = &shared
 		spec.ReadOnlyPaths = append(spec.ReadOnlyPaths, developmentToolRoots()...)
 	}
+	if s.SandboxExtras != nil && s.SandboxExtras().DeveloperToolchainsAllowed() {
+		spec.ReadOnlyPaths = append(spec.ReadOnlyPaths, developerToolchainRoots()...)
+	}
 	return spec
 }
 

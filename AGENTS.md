@@ -2228,3 +2228,16 @@ time, not bundled, and are not listed.
 - `wails3 generate bindings` is slow (~15s, scans all packages) and regenerates
   `frontend/bindings/`; re-run it after changing any bridge (`AppService`) method signature,
   then `bun run build`.
+
+### Agent sandbox
+Agent Hub gives macOS sessions a private, short `/private/tmp/dk-<session-prefix>`
+(0700), with `TMPDIR` and `GOTMPDIR` set after environment inheritance. Unix
+listeners are limited to that directory; PTYs and process signals/info are
+limited to the session. Settings → Agents → Safety → **Allow developer
+toolchains** (default on) adds read-only Command Line Tools and Xcode paths.
+Existing credential and data-directory denies still apply. Changes take effect
+on the next spawn/resume. Temp directories are removed on close and swept at
+startup. Nested Seatbelt cannot run inside an agent session: run
+`go test ./internal/sandbox -run Smoke -v` from a host terminal to verify native
+cgo, Unix sockets (including the SBPL Unix address filter), PTYs, child signals
+and user lookup. A passing profile-string test alone does not verify macOS enforcement.

@@ -107,6 +107,7 @@ func cleanExtraReadWritePaths(paths []string) []string {
 // it was checked against, and re-checking costs nothing.
 func sessionOpenSpec(sess AgentSession) OpenSpec {
 	return OpenSpec{
+		SessionID:           sess.ID,
 		Cwd:                 sess.ProjectPath,
 		WorkspaceID:         sess.WorkspaceID,
 		ExtraReadWritePaths: cleanExtraReadWritePaths(sess.ExtraReadWritePaths),
@@ -133,6 +134,9 @@ func (s *Service) applySandboxExtras(spec *OpenSpec) {
 		return
 	}
 	extras := s.SandboxExtras()
+	if extras.DeveloperToolchainsAllowed() {
+		spec.ReadOnlyPaths = append(spec.ReadOnlyPaths, developerToolchainRoots()...)
+	}
 	spec.Customizations = extras.Normalized().Customizations
 	if extras.DockerAllowed() {
 		s.applyDocker(spec, extras.DockerSocketPath)
@@ -691,7 +695,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 	}
 
 	id := uuid.NewString()
-	spec := OpenSpec{Cwd: cwd, WorkspaceID: workspaceID}
+	spec := OpenSpec{SessionID: id, Cwd: cwd, WorkspaceID: workspaceID}
 	// Belt: the MCP tool handler's own input struct has no field to carry
 	// paths, so an agent caller cannot reach it in practice. Suspenders: an
 	// agent caller's own list is ignored here too, so the guarantee holds even
@@ -719,6 +723,16 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 	s.applySandboxExtras(&spec)
 	s.applySubagents(&spec, in.AgentType)
 
+	if err := prepareSessionTemp(&spec); err != nil {
+		closeEndpoint()
+		return AgentSession{}, err
+	}
+	keepTemp := false
+	defer func() {
+		if !keepTemp {
+			removeSessionTemp(id)
+		}
+	}()
 	rt, err := adapter.Open(ctx, spec)
 	if err != nil {
 		// The bridge redacts this to one sentence; the log keeps the cause.
@@ -784,6 +798,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 		closeEndpoint()
 		return AgentSession{}, err
 	}
+	keepTemp = true
 	// After the insert: a row recorded for a session the store does not have
 	// yet would have nowhere to belong.
 	s.attachUpdates(sess.ID, rt)
@@ -1388,6 +1403,7 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	if closeEndpoint != nil {
 		closeEndpoint()
 	}
+	removeSessionTemp(id)
 	// With the runtime gone nothing records for this session any more; land
 	// whatever arrived during the close and drop its write state. State that
 	// did not write is kept for a later flush; the close goes on either way.
@@ -2348,6 +2364,10 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 	s.recordSessionAccount(sess.ID, s.fillAccountSpec(ctx, &spec, sess))
 	s.applySubagents(&spec, sess.AgentType)
 
+	if err := prepareSessionTemp(&spec); err != nil {
+		closeEndpoint()
+		return nil, err
+	}
 	if fresh {
 		rt, err = adapter.Open(ctx, spec)
 	} else {

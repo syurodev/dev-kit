@@ -207,6 +207,7 @@ func codexEnv(l launch, spec OpenSpec, home string) map[string]string {
 		env[key] = value
 	}
 	completeToolPath(env, spec)
+	applySessionTempEnv(env, spec)
 	env["CODEX_HOME"] = home
 	return env
 }
@@ -292,6 +293,7 @@ func (a *CodexAdapter) jail(workDir string, l launch, spec OpenSpec, store strin
 	denyWrite = append(denyWrite, subagentDeny...)
 
 	pol := sandbox.Policy{
+		SessionTempDir:         spec.SessionTempDir,
 		WorkDir:                workDir,
 		Network:                sandbox.NetworkHost,
 		AllowLoopbackListeners: true,

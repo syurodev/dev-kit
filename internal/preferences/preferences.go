@@ -172,7 +172,10 @@ func clamp(value, low, high int) int {
 // does not exist yet (a Docker socket before the daemon starts) is not a
 // typo, and sandbox.Policy already skips binds for paths that are not there.
 type AgentSandboxSettings struct {
-	Customizations map[string]AgentCustomization `json:"customizations,omitempty"`
+	Revision int64 `json:"revision"`
+	// AllowDeveloperToolchains grants read-only macOS developer tools. Nil means on.
+	AllowDeveloperToolchains *bool                         `json:"allowDeveloperToolchains,omitempty"`
+	Customizations           map[string]AgentCustomization `json:"customizations,omitempty"`
 	// ShareHome lets a session see the real $HOME, read-write, instead of an
 	// empty tmpfs (sandbox.Policy.PrivateHome). Nil means on. Off, a session
 	// sees the project, the agent's own credentials and what is listed below,
@@ -202,6 +205,12 @@ func (s AgentSandboxSettings) HomeShared() bool { return s.ShareHome == nil || *
 // DockerAllowed reports AllowDocker with its default applied.
 func (s AgentSandboxSettings) DockerAllowed() bool { return s.AllowDocker == nil || *s.AllowDocker }
 
+func (s AgentSandboxSettings) DeveloperToolchainsAllowed() bool {
+	return s.AllowDeveloperToolchains == nil || *s.AllowDeveloperToolchains
+}
+
+var ErrSandboxConflict = errors.New("sandbox settings changed; reload Settings and try again")
+
 const maxSandboxExtraReadOnlyPaths = 32
 
 // DefaultAgentSandbox is the zero value: the real $HOME, and Docker found on
@@ -216,7 +225,7 @@ func DefaultAgentSandbox() AgentSandboxSettings {
 // to parse must not come back as its opposite.
 func StrictAgentSandbox() AgentSandboxSettings {
 	off := false
-	return AgentSandboxSettings{ShareHome: &off, AllowDocker: &off}
+	return AgentSandboxSettings{ShareHome: &off, AllowDocker: &off, AllowDeveloperToolchains: &off}
 }
 
 // Normalized trims and dedupes paths, and drops anything blank. Applied on the
@@ -429,6 +438,10 @@ func (s *Service) SetAgentSandbox(settings AgentSandboxSettings) error {
 	if err != nil {
 		return err
 	}
+	if settings.Revision != current.Revision {
+		return ErrSandboxConflict
+	}
+	settings.Revision = current.Revision + 1
 	settings.Customizations = current.Customizations
 	return s.repo.SetAgentSandbox(settings.Normalized())
 }
