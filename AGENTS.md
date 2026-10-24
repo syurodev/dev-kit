@@ -209,6 +209,8 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   sets `acpRuntimeHooks{Type, PermissionBefore, PermissionAfter}`; the zero value is Claude. Anything a vendor alone
   needs belongs in its adapter, not here and not behind a new `if` in the runtime.
 
+- **Adapter conformance** (`internal/agenthub/conformance_test.go`) runs shared lifecycle and turn cases against the mock and scripted vendor wires. When adding a vendor, reuse its adapter fake, add a `VendorQuirks` entry and `TestConformance_<Vendor>` wrapper, then run `CGO_ENABLED=0 GOFLAGS='-buildvcs=false -tags=server' go test ./internal/agenthub/ -run Conformance -count=2`. Capability flags must name vendor limitations with a concrete reason; do not disable a case because its harness is incomplete. Codex and opencode live checks are opt-in with `DEVKIT_CODEX_COMMAND` and `DEVKIT_OPENCODE_COMMAND`.
+
 - **The rail is collapsible groups of cards, and a child session draws under its parent**
   (`frontend/src/modules/agenthub/sidebar/`; `AgentHubSidebar` is the container, `AgentSessionSidebar` the presentation). Groups keep the old membership (`sidebar/grouping.ts`: scratch → workspace id → folder; a
   child stays in its parent's group, whatever folder it was opened in). Inside a group the sessions are a **forest**

@@ -1132,23 +1132,50 @@ func TestOpenAsksForTheFileChangeReportOnlyWhenCheckpointsAreOn(t *testing.T) {
 // sequential, so the second call is never sent if the first is never answered.
 // This one replies per method, which is what lets a test watch a whole sequence
 // rather than its opening move.
-type scriptedVendor struct{ capture string }
+type scriptedVendor struct {
+	capture  string
+	scenario string
+}
 
 func (v scriptedVendor) StartPiped(context.Context, sandbox.Policy, sandbox.Cmd) (*sandbox.Proc, error) {
 	script := `
+prompt_id=
+refused=0
 while IFS= read -r line; do
   printf '%s\n' "$line" >> "$0"
+  case "$line" in
+    *'"method":"session/cancel"'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"cancelled"}}\n' "$prompt_id"
+      exit 0
+      ;;
+  esac
   id=$(printf '%s' "$line" | sed -n 's/^{"jsonrpc":"2.0","id":\([0-9]*\).*/\1/p')
   [ -z "$id" ] && continue
   case "$line" in
     *'"method":"initialize"'*)   printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":1}}\n' "$id" ;;
     *'"method":"session/fork"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"forked-1"}}\n' "$id" ;;
-    *'"method":"session/load"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"forked-1"}}\n' "$id" ;;
-    *'"method":"session/new"'*)  printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"fresh-1"}}\n' "$id" ;;
-    *)                           printf '{"jsonrpc":"2.0","id":%s,"result":{}}\n' "$id" ;;
+    *'"method":"session/load"'*) sid=$(printf '%s' "$line" | sed -n 's/.*"sessionId":"\([^"]*\)".*/\1/p'); printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"%s","modes":{"currentModeId":"ask","availableModes":[{"id":"ask","name":"Ask"},{"id":"auto","name":"Auto"},{"id":"bypassPermissions","name":"Bypass permissions"}]},"configOptions":[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"model-a","options":[{"value":"model-a","name":"Model A"}]},{"id":"effort","name":"Effort","category":"thought_level","type":"select","currentValue":"low","options":[{"value":"low","name":"Low"}]}]}}\n' "$id" "$sid" ;;
+    *'"method":"session/new"'*)  printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"fresh-1","modes":{"currentModeId":"ask","availableModes":[{"id":"ask","name":"Ask"},{"id":"auto","name":"Auto"},{"id":"bypassPermissions","name":"Bypass permissions"}]},"configOptions":[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"model-a","options":[{"value":"model-a","name":"Model A"}]},{"id":"effort","name":"Effort","category":"thought_level","type":"select","currentValue":"low","options":[{"value":"low","name":"Low"}]}]}}\n' "$id" ;;
+    *'"method":"session/prompt"'*) prompt_id=$id; @@PROMPT_ACTION@@ ;;
+    *'"method":"session/set_config_option"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"configOptions":[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"test-value","options":[{"value":"test-value","name":"Test"}]}]}}\n' "$id" ;;
+    *) if [ -n "$prompt_id" ]; then printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn","_meta":{"claudeCode":{"inputTokens":12,"outputTokens":4}}}}\n' "$prompt_id"; prompt_id=; else printf '{"jsonrpc":"2.0","id":%s,"result":{}}\n' "$id"; fi ;;
   esac
 done
 `
+	promptAction := `printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fresh-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ok"}}}}\n'; printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn","_meta":{"claudeCode":{"inputTokens":12,"outputTokens":4}}}}\n' "$id"`
+	switch v.scenario {
+	case "permission":
+		promptAction = `printf '{"jsonrpc":"2.0","id":17,"method":"session/request_permission","params":{"sessionId":"fresh-1","toolCall":{"toolCallId":"tool-1","title":"Run command"},"options":[{"optionId":"allow","name":"Allow once","kind":"allow_once"},{"optionId":"reject","name":"Reject","kind":"reject_once"}]}}\n'`
+	case "elicitation":
+		promptAction = `printf '{"jsonrpc":"2.0","id":18,"method":"elicitation/create","params":{"mode":"form","sessionId":"fresh-1","message":"Question?","requestedSchema":{"type":"object","properties":{}}}}\n'`
+	case "cancel":
+		promptAction = `printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fresh-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"working"}}}}\n'`
+	case "die":
+		promptAction = `exit 3`
+	case "refusal":
+		promptAction = `if [ "$refused" = 0 ]; then printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32603,"message":"The provider is unavailable: 503"}}\n' "$id"; refused=1; else printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fresh-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"recovered"}}}}\n'; printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$id"; fi; prompt_id=`
+	}
+	script = strings.Replace(script, "@@PROMPT_ACTION@@", promptAction, 1)
 	cmd := exec.Command("sh", "-c", script, v.capture)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

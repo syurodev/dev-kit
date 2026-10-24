@@ -91,6 +91,10 @@ func runFakeCodex(scenario, logPath string) {
 		case "usageLimit":
 			notify("turn/completed", map[string]any{"threadId": thread, "turn": map[string]any{"id": turn, "status": "failed",
 				"error": map[string]any{"message": "You've hit your usage limit. Try again at 3:10 PM.", "codexErrorInfo": "usageLimitExceeded", "additionalDetails": nil}}})
+		case "refusal":
+			notify("turn/completed", map[string]any{"threadId": thread, "turn": map[string]any{"id": turn, "status": "failed",
+				"error": map[string]any{"message": "The provider is unavailable: 503", "codexErrorInfo": "internalServerError", "additionalDetails": nil}}})
+			scenario = "refusedOnce"
 		case "errorOnly":
 			notify("item/started", map[string]any{"threadId": thread, "turnId": turn, "item": cmdItem})
 			notify("error", map[string]any{"threadId": thread, "turnId": turn, "willRetry": true,

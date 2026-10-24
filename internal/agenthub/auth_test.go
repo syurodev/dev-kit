@@ -125,6 +125,7 @@ func TestResolveAuthMethodsWithoutMetaUsesArgs(t *testing.T) {
 type scriptedAgentRunner struct {
 	replies []string
 	starts  *int
+	log     string
 }
 
 func (r scriptedAgentRunner) StartPiped(context.Context, sandbox.Policy, sandbox.Cmd) (*sandbox.Proc, error) {
@@ -133,7 +134,25 @@ func (r scriptedAgentRunner) StartPiped(context.Context, sandbox.Policy, sandbox
 	}
 	var script strings.Builder
 	for _, reply := range r.replies {
-		fmt.Fprintf(&script, "read line; printf '%%s\\n' '%s'; ", reply)
+		if reply == "__hold_until_cancel__" {
+			script.WriteString("read line; ")
+			if r.log != "" {
+				fmt.Fprintf(&script, "printf '%%s\\n' \"$line\" >> '%s'; ", r.log)
+			}
+			script.WriteString("prompt_id=$(printf '%s' \"$line\" | sed -n 's/.*\\\"id\\\":\\([0-9][0-9]*\\).*/\\1/p'); ")
+			script.WriteString("printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"ses_conformance\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"working\"}}}}'; ")
+			script.WriteString("IFS= read -r cancel_line; ")
+			if r.log != "" {
+				fmt.Fprintf(&script, "printf '%%s\\n' \"$cancel_line\" >> '%s'; ", r.log)
+			}
+			script.WriteString("case \"$cancel_line\" in *'\"method\":\"session/cancel\"'*) printf '{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"stopReason\":\"cancelled\"}}\\n' \"$prompt_id\" ;; *) exit 2 ;; esac; exit 0; ")
+			continue
+		}
+		script.WriteString("read line; ")
+		if r.log != "" {
+			fmt.Fprintf(&script, "printf '%%s\\n' \"$line\" >> '%s'; ", r.log)
+		}
+		fmt.Fprintf(&script, "printf '%%s\\n' '%s'; ", reply)
 	}
 	script.WriteString("cat >/dev/null")
 	cmd := exec.Command("sh", "-c", script.String())

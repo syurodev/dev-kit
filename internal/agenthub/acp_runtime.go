@@ -383,15 +383,34 @@ func (r *acpRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, meta
 	r.lastRetry = nil
 	r.retryMu.Unlock()
 	var res acp.PromptResult
-	err := conn.Call(ctx, "session/prompt", acp.PromptRequest{
+	callCtx, cancelCall := context.WithCancel(ctx)
+	watchDone := make(chan struct{})
+	go func() {
+		defer close(watchDone)
+		select {
+		case <-r.serveDone:
+			cancelCall()
+		case <-callCtx.Done():
+		}
+	}()
+	err := conn.Call(callCtx, "session/prompt", acp.PromptRequest{
 		SessionID: sid,
 		Prompt:    prompt,
 		Meta:      meta,
 	}, &res)
+	cancelCall()
+	<-watchDone
 	if err == nil {
 		log.Printf("agenthub: %s session/prompt returned (session %s, stop %q)", r.vendorType(), sid, res.StopReason)
 	}
 	if err != nil {
+		select {
+		case <-r.serveDone:
+			if ctx.Err() == nil {
+				return PromptOutcome{}, fmt.Errorf("%w: agent exited during session/prompt", ErrProcessFailed)
+			}
+		default:
+		}
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return PromptOutcome{}, ErrCancelled
 		}
