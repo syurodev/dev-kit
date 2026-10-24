@@ -183,9 +183,9 @@ func valueOfConfigOption(rt SessionRuntime, id string) string {
 		opts = append(opts, r.options...)
 		r.mu.Unlock()
 	case *openCodeRuntime:
-		r.acpRuntime.mu.Lock()
-		opts = append(opts, r.acpRuntime.options...)
-		r.acpRuntime.mu.Unlock()
+		r.mu.Lock()
+		opts = append(opts, r.options...)
+		r.mu.Unlock()
 	case *mockRuntime:
 		r.mu.Lock()
 		defer r.mu.Unlock()
