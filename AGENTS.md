@@ -197,6 +197,12 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
 `docs/superpowers/HANDOFF-codex.md`. Gemini is **not** shipped. Product design + status:
 `syurodev/base` → `/dev-kit/agent-hub`, `/dev-kit/implementation-status`.
 
+- **The ACP runtime is generic; the vendor is a hook** (`internal/agenthub/acp_runtime.go`). `acpRuntime` +
+  `acpConnHandler` (ACP over stdio, turn bookkeeping, usage, steering, resume) serve both Claude and opencode, and
+  `adapter_claude.go` holds only what Claude adds (jail and `_meta`, `_claude/*`, customization). A vendor adapter
+  sets `acpRuntimeHooks{Type, PermissionBefore, PermissionAfter}`; the zero value is Claude. Anything a vendor alone
+  needs belongs in its adapter, not here and not behind a new `if` in the runtime.
+
 - **The rail is collapsible groups of cards, and a child session draws under its parent**
   (`frontend/src/modules/agenthub/sidebar/`; `AgentHubSidebar` is the container, `AgentSessionSidebar` the presentation). Groups keep the old membership (`sidebar/grouping.ts`: scratch → workspace id → folder; a
   child stays in its parent's group, whatever folder it was opened in). Inside a group the sessions are a **forest**
@@ -507,7 +513,7 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   a short-lived agent in a scratch folder, no prompt. Claude only lists the effort levels of the
   model it is on, so the catalog switches to each model and reads them back from
   `session/set_config_option`. The draft picker calls effort `reasoning_effort` for every vendor;
-  `claudeRuntime.SetConfigOption` maps it to Claude's own `effort`.
+  `acpRuntime.SetConfigOption` maps it to Claude's own `effort`.
 - **Codex signs in inside DevKit, UI only.** Bridge `AgentHubSignInStatus` /
   `AgentHubStart{Browser,Device}SignIn` / `AgentHubCancelSignIn` / `AgentHubSignOut`
   (`auth:codex`), event `agenthub:signInCompleted`. There is no MCP tool for it
@@ -534,7 +540,7 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   "Models unavailable". Tests of the resume path must say the session was prompted (`markPrompted`).
 - **A fresh Claude session carries its model list from the handshake.** claude-agent-acp sends the settings once,
   in the answer to `session/new` / `session/load`, and never a `config_option_update` until one changes — and
-  DevKit used to drop that answer (only the catalog read it). `claudeRuntime` now keeps it (`options`), folds
+  DevKit used to drop that answer (only the catalog read it). `acpRuntime` now keeps it (`options`), folds
   every `set_config_option` answer into it, announces it to the first update handler (as `codexRuntime` does)
   and re-publishes it on `PrepareSession`. A refused model list reaches the picker as
   `agenthub.modelsUnavailable` ("Codex didn't report which models it offers…"), not "Agent process failed.".
@@ -729,7 +735,8 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   - **`opencode acp`, one process per session.** opencode registers a session's MCP servers per *directory* on its private
     server, so sessions sharing a process (or a directory) see each other's tools (upstream #40978). The process serves a private
     HTTP API on loopback (`AllowLoopbackListeners`) and ends when stdin closes. It reuses the generic ACP runtime
-    (`claudeRuntime`, now carrying `vendor`) and wraps it in `openCodeRuntime`.
+    (`acp_runtime.go`, `acpRuntime`) and wraps it in `openCodeRuntime`; what it needs that Claude does not is a hook
+    (`acpRuntimeHooks`: `Type`, `PermissionBefore`, `PermissionAfter`), not a second runtime.
   - **Its home is DevKit's, like Codex's**: `<data>/agent-homes/opencode`, handed over as `XDG_{CONFIG,DATA,STATE,CACHE}_HOME`
     (opencode has no variable of its own). The user's `~/.config/opencode` and sign-in are never read. `config/opencode/` is not
     reset (a person may add providers there) but is read-only to the jail, as is `prompts/`. DevKit's settings ride on
@@ -781,7 +788,7 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     second line (`providerRetries` in the store, fed by `AgentSessionsSubscriber`; an ask wins). The vendor does not say how
     many attempts it will make, so the UI never says "of N" (2.0.32 stopped after attempt 11). A new prompt does not clear it (its row sits above that prompt on
     a reload); a notice whose time passed 30 s ago is ignored (app quit mid-outage).
-  - **A JSON-RPC error from a live process is a turn failure, not a crash** (`claudeRuntime.Prompt`, shared with Claude).
+  - **A JSON-RPC error from a live process is a turn failure, not a crash** (`acpRuntime.Prompt`, shared with Claude).
     `refusedByLiveAgent`: the call returned an `*acp.RPCError` and the serve loop has not ended → `ErrTurnFailed` carrying the
     agent's sentence (`rpcSentence`: the message, or `data.details|message|error` when the message is the generic "Internal
     error", else the provider's own words from the last retry notice), the session stays idle with a "retry" banner

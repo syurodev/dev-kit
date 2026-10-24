@@ -14,12 +14,12 @@ import (
 
 // promptAgent runs a runtime against an agent that reads one session/prompt
 // and answers with reply (nil = never answers).
-func promptAgent(t *testing.T, prepare func(rt *claudeRuntime), reply func(id any) *acp.Response) (error, []json.RawMessage) {
+func promptAgent(t *testing.T, prepare func(rt *acpRuntime), reply func(id any) *acp.Response) ([]json.RawMessage, error) {
 	t.Helper()
 	client, agent := net.Pipe()
 	t.Cleanup(func() { client.Close(); agent.Close() })
 
-	rt := &claudeRuntime{vendor: AgentTypeOpenCode, acpSessionID: "acp-1", serveDone: make(chan struct{})}
+	rt := &acpRuntime{hooks: acpRuntimeHooks{Type: AgentTypeOpenCode}, acpSessionID: "acp-1", serveDone: make(chan struct{})}
 	var (
 		mu      sync.Mutex
 		updates []json.RawMessage
@@ -52,7 +52,7 @@ func promptAgent(t *testing.T, prepare func(rt *claudeRuntime), reply func(id an
 	_, err := rt.Prompt(ctx, []acp.ContentBlock{{Type: "text", Text: "go"}}, nil)
 	mu.Lock()
 	defer mu.Unlock()
-	return err, append([]json.RawMessage(nil), updates...)
+	return append([]json.RawMessage(nil), updates...), err
 }
 
 func rpcFailure(code int, message, data string) func(any) *acp.Response {
@@ -69,7 +69,7 @@ func rpcFailure(code int, message, data string) func(any) *acp.Response {
 // process is fine: that is a turn it ended, not a crash, and the sentence is
 // the vendor's.
 func TestPromptRefusedByALiveAgentIsATurnFailureWithItsSentence(t *testing.T) {
-	err, updates := promptAgent(t, nil, rpcFailure(-32603, "Upstream request failed: Endpoint is unavailable.", ""))
+	updates, err := promptAgent(t, nil, rpcFailure(-32603, "Upstream request failed: Endpoint is unavailable.", ""))
 	if !errors.Is(err, ErrTurnFailed) || errors.Is(err, ErrProcessFailed) {
 		t.Fatalf("err = %v, want ErrTurnFailed and not ErrProcessFailed", err)
 	}
@@ -99,8 +99,8 @@ func TestPromptFailureUsesWhatTheProviderSaidWhileRetrying(t *testing.T) {
 	// connection's update handler.
 	client, agent := net.Pipe()
 	t.Cleanup(func() { client.Close(); agent.Close() })
-	rt := &claudeRuntime{vendor: AgentTypeOpenCode, acpSessionID: "acp-1", serveDone: make(chan struct{})}
-	rt.conn = acp.NewConn(client, &claudeConnHandler{rt: rt})
+	rt := &acpRuntime{hooks: acpRuntimeHooks{Type: AgentTypeOpenCode}, acpSessionID: "acp-1", serveDone: make(chan struct{})}
+	rt.conn = acp.NewConn(client, &acpConnHandler{rt: rt})
 	rt.handlers.OnUpdate = func(json.RawMessage, json.RawMessage) {}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	t.Cleanup(cancel)
@@ -129,7 +129,7 @@ func TestPromptFailureUsesWhatTheProviderSaidWhileRetrying(t *testing.T) {
 // The error opencode 2.0.32 answered when its provider kept returning 503 and
 // its eleven attempts were spent (recorded against the real binary).
 func TestPromptFailureOfOpenCodeAfterItsRetries(t *testing.T) {
-	err, _ := promptAgent(t, nil, rpcFailure(-32603, "Internal error: Upstream request failed: Endpoint is unavailable.", `{"service":"session","errorName":"provider.internal"}`))
+	_, err := promptAgent(t, nil, rpcFailure(-32603, "Internal error: Upstream request failed: Endpoint is unavailable.", `{"service":"session","errorName":"provider.internal"}`))
 	if !errors.Is(err, ErrTurnFailed) || errors.Is(err, ErrProcessFailed) {
 		t.Fatalf("err = %v", err)
 	}
@@ -139,13 +139,13 @@ func TestPromptFailureOfOpenCodeAfterItsRetries(t *testing.T) {
 }
 
 func TestPromptFailureReadsTheReasonFromData(t *testing.T) {
-	err, _ := promptAgent(t, nil, rpcFailure(-32603, "Internal error", `{"details":"The context window is full."}`))
+	_, err := promptAgent(t, nil, rpcFailure(-32603, "Internal error", `{"details":"The context window is full."}`))
 	if !errors.Is(err, ErrTurnFailed) || ErrorVendorMessage(err) != "The context window is full." {
 		t.Fatalf("err = %v (%q)", err, ErrorVendorMessage(err))
 	}
 	// Nothing more specific than "Internal error": a turn failure without a
 	// sentence, so the preview names the kind rather than echoing it.
-	err, _ = promptAgent(t, nil, rpcFailure(-32603, "Internal error", ""))
+	_, err = promptAgent(t, nil, rpcFailure(-32603, "Internal error", ""))
 	if !errors.Is(err, ErrTurnFailed) || ErrorVendorMessage(err) != "" {
 		t.Fatalf("err = %v (%q)", err, ErrorVendorMessage(err))
 	}
@@ -158,7 +158,7 @@ func TestPromptFailureReadsTheReasonFromData(t *testing.T) {
 // error response that arrives after the serve loop has ended.
 func TestPromptOnAProcessThatLeftIsStillAProcessFailure(t *testing.T) {
 	// The pipe to the process is gone: the request cannot even be written.
-	err, updates := promptAgent(t, func(rt *claudeRuntime) {
+	updates, err := promptAgent(t, func(rt *acpRuntime) {
 		rt.conn.Close()
 	}, func(any) *acp.Response { return nil })
 	if !errors.Is(err, ErrProcessFailed) || errors.Is(err, ErrTurnFailed) {
@@ -168,7 +168,7 @@ func TestPromptOnAProcessThatLeftIsStillAProcessFailure(t *testing.T) {
 		t.Fatalf("a crash is not a vendor failure banner: %v", updates)
 	}
 
-	err, _ = promptAgent(t, func(rt *claudeRuntime) { close(rt.serveDone) }, rpcFailure(-32603, "Internal error", ""))
+	_, err = promptAgent(t, func(rt *acpRuntime) { close(rt.serveDone) }, rpcFailure(-32603, "Internal error", ""))
 	if !errors.Is(err, ErrProcessFailed) || errors.Is(err, ErrTurnFailed) {
 		t.Fatalf("serve loop ended: err = %v, want ErrProcessFailed", err)
 	}
@@ -176,7 +176,7 @@ func TestPromptOnAProcessThatLeftIsStillAProcessFailure(t *testing.T) {
 
 // Claude's expired login arrives the same way and stays a sign-in.
 func TestPromptAuthFailureIsStillASignIn(t *testing.T) {
-	err, _ := promptAgent(t, nil, rpcFailure(-32603, "Internal error", `{"errorKind":"authentication_failed"}`))
+	_, err := promptAgent(t, nil, rpcFailure(-32603, "Internal error", `{"errorKind":"authentication_failed"}`))
 	if !errors.Is(err, ErrAgentAuthRequired) || errors.Is(err, ErrTurnFailed) {
 		t.Fatalf("err = %v, want ErrAgentAuthRequired", err)
 	}

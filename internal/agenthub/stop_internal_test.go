@@ -57,8 +57,8 @@ func TestRecoveryRecordsTheInterruptionAsAStop(t *testing.T) {
 func TestOpenCodeProviderOutageBecomesAProviderUnavailableStop(t *testing.T) {
 	client, agent := net.Pipe()
 	t.Cleanup(func() { client.Close(); agent.Close() })
-	rt := &claudeRuntime{vendor: AgentTypeOpenCode, acpSessionID: "acp-1", serveDone: make(chan struct{})}
-	rt.conn = acp.NewConn(client, &claudeConnHandler{rt: rt})
+	rt := &acpRuntime{hooks: acpRuntimeHooks{Type: AgentTypeOpenCode}, acpSessionID: "acp-1", serveDone: make(chan struct{})}
+	rt.conn = acp.NewConn(client, &acpConnHandler{rt: rt})
 	rt.handlers.OnUpdate = func(json.RawMessage, json.RawMessage) {}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	t.Cleanup(cancel)
