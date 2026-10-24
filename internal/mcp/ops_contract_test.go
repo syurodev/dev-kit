@@ -22,14 +22,14 @@ func TestMCPSurfaceMatchesRegistry(t *testing.T) {
 	for _, name := range legacy {
 		allowed[name] = true
 	}
-	actual := map[string]bool{}
+	actual := map[string]*sdk.Tool{}
 	for _, tool := range listAllTools(t) {
-		actual[tool.Name] = true
+		actual[tool.Name] = tool
 	}
 	for _, op := range ops.All() {
 		d := op.Descriptor()
 		if d.Exposure == ops.UI {
-			if actual[d.Name] {
+			if actual[d.Name] != nil {
 				t.Errorf("UI tool %s exposed", d.Name)
 			}
 			continue
@@ -38,8 +38,11 @@ func TestMCPSurfaceMatchesRegistry(t *testing.T) {
 			t.Errorf("remove migrated %s from legacy", d.Name)
 		}
 		allowed[d.Name] = true
-		if !actual[d.Name] {
+		tool := actual[d.Name]
+		if tool == nil {
 			t.Errorf("missing %s", d.Name)
+		} else if tool.Description != d.Agent.Description {
+			t.Errorf("%s description differs from its exposure declaration", d.Name)
 		}
 	}
 	for name := range actual {
@@ -48,7 +51,7 @@ func TestMCPSurfaceMatchesRegistry(t *testing.T) {
 		}
 	}
 	for _, name := range legacy {
-		if !actual[name] {
+		if actual[name] == nil {
 			t.Errorf("remove missing legacy %s", name)
 		}
 	}

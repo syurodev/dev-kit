@@ -61,6 +61,7 @@ func TestGateOwnedToolsStillSayTheyAsk(t *testing.T) {
 		if !gated[tool.Name] {
 			continue
 		}
+		delete(gated, tool.Name)
 		d := strings.ToLower(tool.Description)
 		says := false
 		for _, word := range []string{"user", "person", "gated", "confirmation"} {
@@ -69,6 +70,9 @@ func TestGateOwnedToolsStillSayTheyAsk(t *testing.T) {
 		if !says {
 			t.Errorf("%s asks first but its description does not say so: %q", tool.Name, tool.Description)
 		}
+	}
+	for name := range gated {
+		t.Errorf("gate-owned tool %s is missing from the registered MCP surface", name)
 	}
 	for _, name := range []string{"api.sendAdhoc", "api.saveRequest", "agenthub.createAgentSession", "tasks.board.create"} {
 		for _, tool := range listAllTools(t) {
