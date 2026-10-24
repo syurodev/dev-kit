@@ -504,7 +504,7 @@ func TestOpenCodeModesDecideWhoAnswers(t *testing.T) {
 		{openCodeModeFull, "edit", true},
 		{openCodeModeFull, "other", true},
 	} {
-		rt := &openCodeRuntime{claudeRuntime: &claudeRuntime{}, mode: tc.mode}
+		rt := &openCodeRuntime{acpRuntime: &acpRuntime{}, mode: tc.mode}
 		rewritten, answer := rt.permissionBeforeAsk(context.Background(), permissionRequest(tc.kind))
 		if tc.auto {
 			if answer == nil || answeredOption(t, answer) != "once" {
@@ -536,7 +536,7 @@ func TestOpenCodeNeverKeepsARuleForTheProject(t *testing.T) {
 }
 
 func TestOpenCodeSetModeTellsTheWindowAndRefusesUnknown(t *testing.T) {
-	rt := &openCodeRuntime{claudeRuntime: &claudeRuntime{}, mode: openCodeModeAsk}
+	rt := &openCodeRuntime{acpRuntime: &acpRuntime{}, mode: openCodeModeAsk}
 	var mu sync.Mutex
 	var updates []string
 	rt.SetHandlers(RuntimeHandlers{OnUpdate: func(u json.RawMessage, _ json.RawMessage) {
@@ -561,14 +561,14 @@ func TestOpenCodeSetModeTellsTheWindowAndRefusesUnknown(t *testing.T) {
 }
 
 func TestOpenCodeSetModeOnAClosedRuntime(t *testing.T) {
-	rt := &openCodeRuntime{claudeRuntime: &claudeRuntime{closed: true}, mode: openCodeModeAsk}
+	rt := &openCodeRuntime{acpRuntime: &acpRuntime{closed: true}, mode: openCodeModeAsk}
 	if err := rt.SetMode(context.Background(), openCodeModeAuto); !errors.Is(err, ErrSessionNotFound) {
 		t.Fatalf("err = %v, want ErrSessionNotFound", err)
 	}
 }
 
 func TestOpenCodeFirstPromptWaitsForMCPAndHonoursCancel(t *testing.T) {
-	rt := &openCodeRuntime{claudeRuntime: &claudeRuntime{closed: true}, mode: openCodeModeAsk, readyAt: time.Now().Add(time.Hour)}
+	rt := &openCodeRuntime{acpRuntime: &acpRuntime{closed: true}, mode: openCodeModeAsk, readyAt: time.Now().Add(time.Hour)}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	start := time.Now()

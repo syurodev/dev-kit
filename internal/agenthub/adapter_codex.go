@@ -880,7 +880,7 @@ func (r *codexRuntime) noteServeExit(serveErr error) {
 }
 
 // Dead reports a process that went away without Close asking it to, so
-// Service resumes the session on a fresh one (see claudeRuntime.Dead).
+// Service resumes the session on a fresh one (see acpRuntime.Dead).
 func (r *codexRuntime) Dead() (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -28,7 +28,7 @@ import (
 // test in adapter_opencode_live_test.go):
 //
 //   - It is ACP over stdio, like Claude, and reuses the generic ACP runtime
-//     (claudeRuntime): handshake, prompt, cancel, config options, session
+//     (acpRuntime): handshake, prompt, cancel, config options, session
 //     delete, steering and goal when — and only when — the agent advertises them.
 //   - It has no version pin. DevKit installs npm's latest and works out what
 //     the agent can do from what it says (initialize, the config options it
@@ -417,7 +417,7 @@ func (a *OpenCodeAdapter) buildSandbox(spec OpenSpec) (sandbox.Policy, sandbox.C
 //
 //   - auth.terminal: sign-in runs `opencode acp --login` in a terminal tab.
 //   - elicitation.form: opencode's question tool becomes elicitation/create,
-//     answered by claudeConnHandler.Elicit. Without it the model is told no
+//     answered by acpConnHandler.Elicit. Without it the model is told no
 //     one can answer.
 //   - the child-session extension: a subagent's tool calls arrive tagged on the
 //     parent's session instead of vanishing into its result.
@@ -514,17 +514,17 @@ func (a *OpenCodeAdapter) open(ctx context.Context, spec OpenSpec, resume string
 		return nil, fmt.Errorf("%w: StartPiped missing stdio pipes", ErrProcessFailed)
 	}
 
-	base := &claudeRuntime{
-		vendor:      AgentTypeOpenCode,
+	base := &acpRuntime{
+		hooks:       acpRuntimeHooks{Type: AgentTypeOpenCode},
 		environment: captureEnvironment(AgentTypeOpenCode, spec, pol.Env, cmd.Path, a.opts.Home),
 		proc:        proc,
 		cwd:         pol.WorkDir,
 		killer:      &procKiller{proc: proc},
 	}
-	rt := &openCodeRuntime{claudeRuntime: base, mode: openCodeModeAsk}
-	base.permissionBefore = rt.permissionBeforeAsk
-	base.permissionAfter = openCodeNeverAlways
-	conn := acp.NewConn(&stdioPipe{r: stdout, w: stdin}, &claudeConnHandler{rt: base, onUnknownMethod: a.opts.OnUnknownMethod})
+	rt := &openCodeRuntime{acpRuntime: base, mode: openCodeModeAsk}
+	base.hooks.PermissionBefore = rt.permissionBeforeAsk
+	base.hooks.PermissionAfter = openCodeNeverAlways
+	conn := acp.NewConn(&stdioPipe{r: stdout, w: stdin}, &acpConnHandler{rt: base, onUnknownMethod: a.opts.OnUnknownMethod})
 	base.conn = conn
 
 	serveCtx, cancelServe := context.WithCancel(context.Background())
@@ -690,7 +690,7 @@ func openCodeOptionsJSON(raw json.RawMessage) json.RawMessage {
 // DevKit's permission modes, a first-prompt wait for MCP, and a cancel that
 // does not kill the process.
 type openCodeRuntime struct {
-	*claudeRuntime
+	*acpRuntime
 
 	pmu     sync.Mutex
 	mode    string
@@ -737,7 +737,7 @@ func (r *openCodeRuntime) SetMode(_ context.Context, modeID string) error {
 // SetConfigOption is the generic one, then drops opencode's "mode" option again:
 // every answer lists the settings after the change, mode included.
 func (r *openCodeRuntime) SetConfigOption(ctx context.Context, optionID, value string) error {
-	if err := r.claudeRuntime.SetConfigOption(ctx, optionID, value); err != nil {
+	if err := r.acpRuntime.SetConfigOption(ctx, optionID, value); err != nil {
 		return err
 	}
 	r.mu.Lock()
@@ -859,14 +859,14 @@ func (r *openCodeRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock,
 		r.pmu.Unlock()
 		close(done)
 	}()
-	return r.claudeRuntime.Prompt(ctx, prompt, meta)
+	return r.acpRuntime.Prompt(ctx, prompt, meta)
 }
 
 // Cancel asks opencode to stop the turn and gives it openCodeCancelGrace to do
 // so. Only a turn that does not end is stopped with the process ladder; the
 // session then resumes on a fresh process like any dead runtime.
 func (r *openCodeRuntime) Cancel(_ context.Context) error {
-	base := r.claudeRuntime
+	base := r.acpRuntime
 	base.mu.Lock()
 	conn, sid, killer, closed := base.conn, base.acpSessionID, base.killer, base.closed
 	base.mu.Unlock()
@@ -938,7 +938,7 @@ func (a *OpenCodeAdapter) initialize(ctx context.Context, l launch) (acp.Initial
 		_ = proc.Wait()
 		return acp.InitializeResult{}, fmt.Errorf("%w: StartPiped missing stdio pipes", ErrProcessFailed)
 	}
-	conn := acp.NewConn(&stdioPipe{r: stdout, w: stdin}, &claudeConnHandler{rt: &claudeRuntime{vendor: AgentTypeOpenCode}})
+	conn := acp.NewConn(&stdioPipe{r: stdout, w: stdin}, &acpConnHandler{rt: &acpRuntime{hooks: acpRuntimeHooks{Type: AgentTypeOpenCode}}})
 	serveCtx, cancelServe := context.WithCancel(context.Background())
 	serveDone := make(chan struct{})
 	go func() {

@@ -594,7 +594,7 @@ func TestUnknownMethodIsRefusedAndReportedOnce(t *testing.T) {
 	unknownMethodSeen.Clear()
 	t.Cleanup(unknownMethodSeen.Clear)
 	var got []string
-	h := &claudeConnHandler{onUnknownMethod: func(method string, _ json.RawMessage) {
+	h := &acpConnHandler{onUnknownMethod: func(method string, _ json.RawMessage) {
 		got = append(got, method)
 	}}
 
@@ -621,7 +621,7 @@ func TestAuthStatusNotificationsAreNotReportedAsUnknown(t *testing.T) {
 	unknownMethodSeen.Clear()
 	t.Cleanup(unknownMethodSeen.Clear)
 	var got []string
-	h := &claudeConnHandler{onUnknownMethod: func(method string, _ json.RawMessage) {
+	h := &acpConnHandler{onUnknownMethod: func(method string, _ json.RawMessage) {
 		got = append(got, method)
 	}}
 	_, _ = h.UnknownMethod(context.Background(), "_auth/status_update", json.RawMessage(`{"authStatus":{}}`))
@@ -706,7 +706,7 @@ func TestClientCapabilitiesDeclareOnlyWhatDevKitServes(t *testing.T) {
 // and retrying hit the same corpse.
 func TestRuntimeIsDeadWhenTheProcessLeavesOnItsOwn(t *testing.T) {
 	t.Run("clean EOF still means the process is gone", func(t *testing.T) {
-		rt := &claudeRuntime{}
+		rt := &acpRuntime{}
 		if dead, _ := rt.Dead(); dead {
 			t.Fatal("a runtime whose serve loop is still running is not dead")
 		}
@@ -723,7 +723,7 @@ func TestRuntimeIsDeadWhenTheProcessLeavesOnItsOwn(t *testing.T) {
 	})
 
 	t.Run("an exit we asked for is not a death", func(t *testing.T) {
-		rt := &claudeRuntime{serveDone: closedChan()}
+		rt := &acpRuntime{serveDone: closedChan()}
 		_ = rt.Close(context.Background())
 		rt.noteServeExit(context.Canceled)
 
@@ -733,7 +733,7 @@ func TestRuntimeIsDeadWhenTheProcessLeavesOnItsOwn(t *testing.T) {
 	})
 
 	t.Run("a crash keeps its reason", func(t *testing.T) {
-		rt := &claudeRuntime{}
+		rt := &acpRuntime{}
 		boom := errors.New("read |0: file already closed")
 		rt.noteServeExit(boom)
 
@@ -802,12 +802,12 @@ func (silentHandler) UnknownMethod(context.Context, string, json.RawMessage) (js
 // the picker moved on click, the call was refused, and the optimistic update
 // put the old value back before anyone could read the error.
 func TestSessionSettingsUseTheFieldNamesTheAgentReads(t *testing.T) {
-	call := func(t *testing.T, invoke func(rt *claudeRuntime) error) *wireProbe {
+	call := func(t *testing.T, invoke func(rt *acpRuntime) error) *wireProbe {
 		t.Helper()
 		client, agent := net.Pipe()
 		t.Cleanup(func() { client.Close(); agent.Close() })
 
-		rt := &claudeRuntime{acpSessionID: "acp-1"}
+		rt := &acpRuntime{acpSessionID: "acp-1"}
 		rt.conn = acp.NewConn(client, silentHandler{})
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		t.Cleanup(cancel)
@@ -827,7 +827,7 @@ func TestSessionSettingsUseTheFieldNamesTheAgentReads(t *testing.T) {
 	}
 
 	t.Run("set_config_option says configId", func(t *testing.T) {
-		probe := call(t, func(rt *claudeRuntime) error {
+		probe := call(t, func(rt *acpRuntime) error {
 			return rt.SetConfigOption(context.Background(), "model", "opus")
 		})
 
@@ -848,7 +848,7 @@ func TestSessionSettingsUseTheFieldNamesTheAgentReads(t *testing.T) {
 	t.Run("set_mode says modeId", func(t *testing.T) {
 		handshake := &acp.SessionModeState{CurrentModeID: "auto", AvailableModes: []acp.SessionMode{{ID: "auto"}, {ID: "plan"}}}
 		var after *acp.SessionModeState
-		probe := call(t, func(rt *claudeRuntime) error {
+		probe := call(t, func(rt *acpRuntime) error {
 			rt.modes = handshake
 			err := rt.SetMode(context.Background(), "plan")
 			after = rt.Modes()
@@ -868,7 +868,7 @@ func TestSessionSettingsUseTheFieldNamesTheAgentReads(t *testing.T) {
 
 // TestElicitationAnswerUsesTheShapeTheAgentReads pins the response DevKit writes
 // to elicitation/create, end to end through the real transport: acp.Conn,
-// claudeConnHandler, the runtime's OnElicit, and the normalisation in between.
+// acpConnHandler, the runtime's OnElicit, and the normalisation in between.
 //
 // Every assertion is a fact that is invisible when wrong. The agent does not
 // reject a malformed answer — it reads it as no answer — so a mistake here shows
@@ -880,9 +880,9 @@ func TestElicitationAnswerUsesTheShapeTheAgentReads(t *testing.T) {
 		t.Cleanup(func() { client.Close(); agent.Close() })
 
 		svc := &Service{ResolveElicitation: resolver}
-		rt := &claudeRuntime{}
+		rt := &acpRuntime{}
 		rt.SetHandlers(RuntimeHandlers{OnElicit: svc.elicitHandler("sess-1")})
-		conn := acp.NewConn(client, &claudeConnHandler{rt: rt})
+		conn := acp.NewConn(client, &acpConnHandler{rt: rt})
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		t.Cleanup(cancel)
 		go conn.Serve(ctx)
@@ -981,12 +981,12 @@ func TestSubagentUpdatesCarryTheirOrigin(t *testing.T) {
 	// Measured on claude-agent-acp 0.78: a subagent's messages arrive on the
 	// parent's connection under the subagent's sessionId, with message ids of
 	// their own. Recorded untagged, a rewind could pick one as a fork point.
-	rt := &claudeRuntime{acpSessionID: "parent"}
+	rt := &acpRuntime{acpSessionID: "parent"}
 	var got []json.RawMessage
 	rt.SetHandlers(RuntimeHandlers{OnUpdate: func(update json.RawMessage, _ json.RawMessage) {
 		got = append(got, update)
 	}})
-	h := &claudeConnHandler{rt: rt}
+	h := &acpConnHandler{rt: rt}
 
 	chunk := `{"sessionUpdate":"agent_message_chunk","messageId":"msg_%s","content":{"type":"text","text":"hi"}}`
 	for _, sid := range []string{"parent", "a0549d5cb1bae7c3b"} {

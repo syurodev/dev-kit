@@ -33,7 +33,7 @@ func (a *ClaudeAdapter) ConfigCatalog(ctx context.Context, spec OpenSpec) ([]Con
 	if err != nil {
 		return nil, err
 	}
-	rt, ok := opened.(*claudeRuntime)
+	rt, ok := opened.(*acpRuntime)
 	if !ok {
 		_ = opened.Close(ctx)
 		return nil, fmt.Errorf("%w: unexpected runtime %T", ErrProcessFailed, opened)
@@ -45,7 +45,7 @@ func (a *ClaudeAdapter) ConfigCatalog(ctx context.Context, spec OpenSpec) ([]Con
 	return rt.configCatalog(callCtx)
 }
 
-func (r *claudeRuntime) configCatalog(ctx context.Context) ([]ConfigOption, error) {
+func (r *acpRuntime) configCatalog(ctx context.Context) ([]ConfigOption, error) {
 	initial := parseConfigOptions(r.configOptions)
 	model, effort := findConfigOption(initial, claudeModelOption), findConfigOption(initial, claudeEffortOption)
 	if model == nil || len(model.Options) == 0 {

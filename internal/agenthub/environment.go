@@ -135,7 +135,7 @@ func missingEnvironment(vendor AgentType) EnvironmentReport {
 	}}
 }
 
-func (r *claudeRuntime) reportEnvironment(ctx context.Context) (EnvironmentReport, error) {
+func (r *acpRuntime) reportEnvironment(ctx context.Context) (EnvironmentReport, error) {
 	r.mu.Lock()
 	snapshot, closed := r.environment, r.closed
 	r.mu.Unlock()

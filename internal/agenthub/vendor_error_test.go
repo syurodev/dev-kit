@@ -17,7 +17,7 @@ func TestVendorErrorsNameTheirAgent(t *testing.T) {
 		return agentruntime.Resolved{}, agentruntime.ErrNotInstalled
 	}
 	_, _, claudeNone := NewClaudeAdapter(ClaudeOptions{}).buildSandbox(OpenSpec{Cwd: t.TempDir()})
-	_, _, claudeRuntime := NewClaudeAdapter(ClaudeOptions{Runtime: notInstalled}).buildSandbox(OpenSpec{Cwd: t.TempDir()})
+	_, _, claudeRt := NewClaudeAdapter(ClaudeOptions{Runtime: notInstalled}).buildSandbox(OpenSpec{Cwd: t.TempDir()})
 	_, codexNone := NewCodexAdapter(CodexOptions{}).resolveCommand()
 	_, codexRuntime := NewCodexAdapter(CodexOptions{Runtime: notInstalled}).resolveCommand()
 	_, codexKey := NewCodexAdapter(CodexOptions{APIKey: func(context.Context) (string, error) {
@@ -39,7 +39,7 @@ func TestVendorErrorsNameTheirAgent(t *testing.T) {
 		agent    AgentType
 	}{
 		{"claude, nothing to run", claudeNone, ErrAgentNotInstalled, AgentTypeClaude},
-		{"claude, runtime not installed", claudeRuntime, ErrAgentNotInstalled, AgentTypeClaude},
+		{"claude, runtime not installed", claudeRt, ErrAgentNotInstalled, AgentTypeClaude},
 		{"claude, signed out", claudeAuth, ErrAgentAuthRequired, AgentTypeClaude},
 		{"codex, nothing to run", codexNone, ErrAgentNotInstalled, AgentTypeCodex},
 		{"codex, runtime not installed", codexRuntime, ErrAgentNotInstalled, AgentTypeCodex},

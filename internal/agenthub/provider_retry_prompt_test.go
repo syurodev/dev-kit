@@ -14,12 +14,12 @@ import (
 
 // promptAgent runs a runtime against an agent that reads one session/prompt
 // and answers with reply (nil = never answers).
-func promptAgent(t *testing.T, prepare func(rt *claudeRuntime), reply func(id any) *acp.Response) (error, []json.RawMessage) {
+func promptAgent(t *testing.T, prepare func(rt *acpRuntime), reply func(id any) *acp.Response) (error, []json.RawMessage) {
 	t.Helper()
 	client, agent := net.Pipe()
 	t.Cleanup(func() { client.Close(); agent.Close() })
 
-	rt := &claudeRuntime{vendor: AgentTypeOpenCode, acpSessionID: "acp-1", serveDone: make(chan struct{})}
+	rt := &acpRuntime{hooks: acpRuntimeHooks{Type: AgentTypeOpenCode}, acpSessionID: "acp-1", serveDone: make(chan struct{})}
 	var (
 		mu      sync.Mutex
 		updates []json.RawMessage
@@ -99,8 +99,8 @@ func TestPromptFailureUsesWhatTheProviderSaidWhileRetrying(t *testing.T) {
 	// connection's update handler.
 	client, agent := net.Pipe()
 	t.Cleanup(func() { client.Close(); agent.Close() })
-	rt := &claudeRuntime{vendor: AgentTypeOpenCode, acpSessionID: "acp-1", serveDone: make(chan struct{})}
-	rt.conn = acp.NewConn(client, &claudeConnHandler{rt: rt})
+	rt := &acpRuntime{hooks: acpRuntimeHooks{Type: AgentTypeOpenCode}, acpSessionID: "acp-1", serveDone: make(chan struct{})}
+	rt.conn = acp.NewConn(client, &acpConnHandler{rt: rt})
 	rt.handlers.OnUpdate = func(json.RawMessage, json.RawMessage) {}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	t.Cleanup(cancel)
@@ -158,7 +158,7 @@ func TestPromptFailureReadsTheReasonFromData(t *testing.T) {
 // error response that arrives after the serve loop has ended.
 func TestPromptOnAProcessThatLeftIsStillAProcessFailure(t *testing.T) {
 	// The pipe to the process is gone: the request cannot even be written.
-	err, updates := promptAgent(t, func(rt *claudeRuntime) {
+	err, updates := promptAgent(t, func(rt *acpRuntime) {
 		rt.conn.Close()
 	}, func(any) *acp.Response { return nil })
 	if !errors.Is(err, ErrProcessFailed) || errors.Is(err, ErrTurnFailed) {
@@ -168,7 +168,7 @@ func TestPromptOnAProcessThatLeftIsStillAProcessFailure(t *testing.T) {
 		t.Fatalf("a crash is not a vendor failure banner: %v", updates)
 	}
 
-	err, _ = promptAgent(t, func(rt *claudeRuntime) { close(rt.serveDone) }, rpcFailure(-32603, "Internal error", ""))
+	err, _ = promptAgent(t, func(rt *acpRuntime) { close(rt.serveDone) }, rpcFailure(-32603, "Internal error", ""))
 	if !errors.Is(err, ErrProcessFailed) || errors.Is(err, ErrTurnFailed) {
 		t.Fatalf("serve loop ended: err = %v, want ErrProcessFailed", err)
 	}
