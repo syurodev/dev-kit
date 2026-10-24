@@ -2,7 +2,6 @@ package sandbox
 
 import (
 	"errors"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -132,18 +131,13 @@ func TestSeatbeltProfileNetworkHostCanCheckCertificates(t *testing.T) {
 func TestSeatbeltProfileAllowUnixSocketsIsResolvedAndAfterNetworkDeny(t *testing.T) {
 	// /tmp resolves to /private/tmp on macOS; Seatbelt matches the resolved
 	// path, so the emitted literal must be the resolved one.
-	dir, err := os.MkdirTemp("/tmp", "sb")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
+	dir := t.TempDir()
 	sock := filepath.Join(dir, "s.sock")
-	ln, err := net.Listen("unix", sock)
-	if err != nil {
+	// Profile generation only needs a resolvable path, not a live socket.
+	if err := os.WriteFile(sock, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
-	resolved, _ := filepath.EvalSymlinks(sock)
+	resolved := resolveDenyPath(sock)
 
 	prof := buildSeatbeltProfile(Policy{WorkDir: "/tmp/proj", Network: NetworkNone, AllowUnixSockets: []string{sock}}.withDefaults())
 	want := `(allow network-outbound (literal "` + resolved + `"))`

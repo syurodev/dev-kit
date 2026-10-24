@@ -265,6 +265,7 @@ func openCodeEnv(l launch, spec OpenSpec, roots openCodeRoots, config string) ma
 		env[key] = value
 	}
 	completeToolPath(env, spec)
+	applySessionTempEnv(env, spec)
 	// Pointing XDG_CONFIG_HOME away from the real one also moves where gh and
 	// glab look for their login, which the agent's shell would then not find.
 	// With the real home shared, say where they are.
@@ -377,8 +378,9 @@ func (a *OpenCodeAdapter) jail(workDir string, l launch, spec OpenSpec) (sandbox
 	// home inside it is carved back out for this vendor's sessions only.
 	denyRead := carveOut(spec.DenyReadPaths, roots.home)
 	pol := sandbox.Policy{
-		WorkDir: workDir,
-		Network: sandbox.NetworkHost,
+		SessionTempDir: spec.SessionTempDir,
+		WorkDir:        workDir,
+		Network:        sandbox.NetworkHost,
 		// `opencode acp` serves its own private HTTP API on a loopback port and
 		// talks to it; the session's dev servers need the same.
 		AllowLoopbackListeners: true,

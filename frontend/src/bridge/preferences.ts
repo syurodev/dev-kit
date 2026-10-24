@@ -137,3 +137,7 @@ export function getAgentCheckpointAvailability(): Promise<CheckpointAvailability
     return status as CheckpointAvailability;
   });
 }
+
+export function getAgentSandboxStatus(): Promise<string> {
+  return callBridge(() => AppService.PreferencesAgentSandboxStatus() as Promise<string>);
+}

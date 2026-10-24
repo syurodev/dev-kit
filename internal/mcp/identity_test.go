@@ -110,14 +110,21 @@ func TestSessionHostWithoutProxyFailsClosed(t *testing.T) {
 }
 
 func TestSweepStaleSocketsRemovesDeadOnes(t *testing.T) {
-	dir, _ := os.MkdirTemp("/tmp", "agents")
-	defer os.RemoveAll(dir)
+	dir := t.TempDir()
 	dead := filepath.Join(dir, "dead.sock")
-	ln, _ := net.Listen("unix", dead)
+	ln, err := net.Listen("unix", dead)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ln.Close() // Close removes the file on Go; recreate a stale inode
-	_ = os.WriteFile(dead, nil, 0o600)
+	if err := os.WriteFile(dead, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	live := filepath.Join(dir, "live.sock")
-	lln, _ := net.Listen("unix", live)
+	lln, err := net.Listen("unix", live)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer lln.Close()
 	go func() {
 		for {

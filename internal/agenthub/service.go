@@ -107,6 +107,7 @@ func cleanExtraReadWritePaths(paths []string) []string {
 // it was checked against, and re-checking costs nothing.
 func sessionOpenSpec(sess AgentSession) OpenSpec {
 	return OpenSpec{
+		SessionID:           sess.ID,
 		Cwd:                 sess.ProjectPath,
 		WorkspaceID:         sess.WorkspaceID,
 		ExtraReadWritePaths: cleanExtraReadWritePaths(sess.ExtraReadWritePaths),
@@ -120,6 +121,7 @@ func sessionOpenSpec(sess AgentSession) OpenSpec {
 // resumed or forked session runs under the same jail an open would give it,
 // not a narrower one that happens to be easier to reach from that call site.
 func (s *Service) applySandboxExtras(spec *OpenSpec) {
+	spec.TempOwner = s.SessionTempOwner
 	// Not a sandbox setting, but it needs exactly this function's guarantee —
 	// every path that builds an OpenSpec — or a resumed session would come
 	// back without knowing where it is.
@@ -133,6 +135,9 @@ func (s *Service) applySandboxExtras(spec *OpenSpec) {
 		return
 	}
 	extras := s.SandboxExtras()
+	if extras.DeveloperToolchainsAllowed() {
+		spec.ReadOnlyPaths = append(spec.ReadOnlyPaths, developerToolchainRoots()...)
+	}
 	spec.Customizations = extras.Normalized().Customizations
 	if extras.DockerAllowed() {
 		s.applyDocker(spec, extras.DockerSocketPath)
@@ -272,10 +277,12 @@ type MCPEndpoints interface {
 
 // Service orchestrates vendor adapters, session persistence, and live runtimes.
 type Service struct {
-	reg         *Registry
-	store       Store
-	recorder    *Recorder
-	unknownSeen map[string]struct{}
+	// SessionTempOwner identifies this database for conservative scratch cleanup.
+	SessionTempOwner string
+	reg              *Registry
+	store            Store
+	recorder         *Recorder
+	unknownSeen      map[string]struct{}
 	// retrying holds the sessions whose agent has an unanswered provider-retry
 	// notice on screen, so the turn that ends can clear it (see endProviderRetry).
 	retrying  map[string]struct{}
@@ -691,7 +698,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 	}
 
 	id := uuid.NewString()
-	spec := OpenSpec{Cwd: cwd, WorkspaceID: workspaceID}
+	spec := OpenSpec{SessionID: id, Cwd: cwd, WorkspaceID: workspaceID}
 	// Belt: the MCP tool handler's own input struct has no field to carry
 	// paths, so an agent caller cannot reach it in practice. Suspenders: an
 	// agent caller's own list is ignored here too, so the guarantee holds even
@@ -719,6 +726,16 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 	s.applySandboxExtras(&spec)
 	s.applySubagents(&spec, in.AgentType)
 
+	if err := prepareSessionTemp(&spec, true); err != nil {
+		closeEndpoint()
+		return AgentSession{}, err
+	}
+	keepTemp := false
+	defer func() {
+		if !keepTemp {
+			removeSessionTemp(id)
+		}
+	}()
 	rt, err := adapter.Open(ctx, spec)
 	if err != nil {
 		// The bridge redacts this to one sentence; the log keeps the cause.
@@ -784,6 +801,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 		closeEndpoint()
 		return AgentSession{}, err
 	}
+	keepTemp = true
 	// After the insert: a row recorded for a session the store does not have
 	// yet would have nowhere to belong.
 	s.attachUpdates(sess.ID, rt)
@@ -1388,6 +1406,7 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	if closeEndpoint != nil {
 		closeEndpoint()
 	}
+	removeSessionTemp(id)
 	// With the runtime gone nothing records for this session any more; land
 	// whatever arrived during the close and drop its write state. State that
 	// did not write is kept for a later flush; the close goes on either way.
@@ -2356,6 +2375,10 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 	s.recordSessionAccount(sess.ID, s.fillAccountSpec(ctx, &spec, sess))
 	s.applySubagents(&spec, sess.AgentType)
 
+	if err := prepareSessionTemp(&spec, false); err != nil {
+		closeEndpoint()
+		return nil, err
+	}
 	if fresh {
 		rt, err = adapter.Open(ctx, spec)
 	} else {

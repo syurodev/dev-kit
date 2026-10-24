@@ -140,6 +140,12 @@ export interface AgentModelProfile {
  * typo, and sandbox.Policy already skips binds for paths that are not there.
  */
 export interface AgentSandboxSettings {
+    "revision": number;
+
+    /**
+     * AllowDeveloperToolchains grants read-only macOS developer tools. Nil means on.
+     */
+    "allowDeveloperToolchains"?: boolean | null;
     "customizations"?: { [_ in string]?: AgentCustomization } | null;
 
     /**

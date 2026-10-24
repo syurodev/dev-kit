@@ -251,6 +251,9 @@ func publicError(subject string, err error) *apperrors.AppError {
 	if errors.Is(err, preferences.ErrCustomizationConflict) {
 		return apperrors.New(codeValidationFailed, "Agent configuration changed. Refresh and apply your changes again.", true)
 	}
+	if errors.Is(err, preferences.ErrSandboxConflict) {
+		return apperrors.New(codeValidationFailed, "Sandbox settings changed. Refresh and apply your change again.", true)
+	}
 	if errors.Is(err, preferences.ErrModelProfilesConflict) {
 		return apperrors.New(codeValidationFailed, "The model profiles changed. Refresh and apply your changes again.", true)
 	}

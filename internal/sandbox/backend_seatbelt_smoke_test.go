@@ -18,6 +18,7 @@ func TestSmokeSeatbeltNetworkHost(t *testing.T) {
 	if os.Getenv("DEVKIT_SANDBOX_SMOKE") != "1" {
 		t.Skip("set DEVKIT_SANDBOX_SMOKE=1 to run the live sandbox network smoke test")
 	}
+	requireHostSeatbelt(t)
 	runner := DefaultRunner()
 	if err := runner.Available(context.Background()); err != nil {
 		t.Skipf("sandbox backend unavailable: %v", err)

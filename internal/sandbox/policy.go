@@ -21,6 +21,10 @@ var defaultSensitiveDenyPaths = []string{
 }
 
 type Policy struct {
+	// SessionTempDir is a private, short macOS session scratch directory.
+	// Only this directory may host the session's Unix listeners. Local IPC
+	// is independent of NetworkMode, including NetworkNone.
+	SessionTempDir string
 	WorkDir        string
 	ReadOnlyPaths  []string
 	ReadWritePaths []string // extra RW beyond WorkDir
@@ -93,6 +97,9 @@ type Cmd struct {
 }
 
 func (p Policy) Validate() error {
+	if p.SessionTempDir != "" && (!filepath.IsAbs(p.SessionTempDir) || filepath.Clean(p.SessionTempDir) != p.SessionTempDir || filepath.Dir(p.SessionTempDir) != "/private/tmp" || !strings.HasPrefix(filepath.Base(p.SessionTempDir), "dk-")) {
+		return ErrInvalidPolicy
+	}
 	if p.WorkDir == "" {
 		return ErrInvalidPolicy
 	}
@@ -117,6 +124,11 @@ func (p Policy) Validate() error {
 	}
 	if err := p.validateDenyWritePaths(); err != nil {
 		return err
+	}
+	if p.SessionTempDir != "" {
+		if err := validateBindPath(p.SessionTempDir, p.resolvedEffectiveDenyRead()); err != nil {
+			return err
+		}
 	}
 	if err := p.validateBindPaths(); err != nil {
 		return err

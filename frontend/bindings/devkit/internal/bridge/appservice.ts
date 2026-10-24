@@ -2177,6 +2177,13 @@ export function NotesUpdate(id: string, title: string, body: string): $Cancellab
 }
 
 /**
+ * PreferencesAgentSandboxStatus reads the cached host profile check; no probe.
+ */
+export function PreferencesAgentSandboxStatus(): $CancellablePromise<string> {
+    return $Call.ByID(744341346);
+}
+
+/**
  * PreferencesGetAgentCheckpoints reads how Agent Hub snapshots a project's
  * files around each turn.
  */

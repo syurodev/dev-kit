@@ -178,6 +178,7 @@ func sandboxFor(workDir string, l launch, spec OpenSpec) (sandbox.Policy, sandbo
 		env[key] = value
 	}
 	completeToolPath(env, spec)
+	applySessionTempEnv(env, spec)
 	var readWrite, denyRead []string
 	if spec.AccountHome != "" {
 		// An added account is a config directory of its own. The machine's own
@@ -192,6 +193,7 @@ func sandboxFor(workDir string, l launch, spec OpenSpec) (sandbox.Policy, sandbo
 		denyRead = append([]string(nil), spec.DenyReadPaths...)
 	}
 	pol := sandbox.Policy{
+		SessionTempDir:         spec.SessionTempDir,
 		WorkDir:                workDir,
 		Network:                sandbox.NetworkHost,
 		AllowLoopbackListeners: true,

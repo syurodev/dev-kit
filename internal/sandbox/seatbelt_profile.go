@@ -57,6 +57,10 @@ var seatbeltNetworkMachServices = []string{
 
 // buildSeatbeltProfile returns an SBPL profile string for sandbox-exec.
 func buildSeatbeltProfile(p Policy) string {
+	return buildSeatbeltProfileWithUnixSockets(p, true)
+}
+
+func buildSeatbeltProfileWithUnixSockets(p Policy, unixSockets bool) string {
 	p = p.withDefaults()
 
 	var b strings.Builder
@@ -125,6 +129,13 @@ func buildSeatbeltProfile(p Policy) string {
 
 	b.WriteString("(allow process-exec)\n")
 	b.WriteString("(allow process-fork)\n")
+	b.WriteString(`(allow signal (target same-sandbox))
+(allow process-info* (target same-sandbox))
+(allow mach-lookup (global-name "com.apple.system.opendirectoryd.libinfo"))
+(allow pseudo-tty)
+(allow file-read* file-write* file-ioctl (literal "/dev/ptmx"))
+(allow file-read* file-write* file-ioctl (require-all (regex #"^/dev/ttys[0-9]+$") (extension "com.apple.sandbox.pty")))
+`)
 	b.WriteString("(allow sysctl-read)\n")
 
 	if len(p.ReadPreferenceDomains) > 0 {
@@ -184,6 +195,18 @@ func buildSeatbeltProfile(p Policy) string {
 		addr := "localhost:" + strconv.Itoa(port)
 		b.WriteString("(allow network-bind (local ip \"" + addr + "\"))\n")
 		b.WriteString("(allow network-inbound (local ip \"" + addr + "\"))\n")
+	}
+
+	// Other sessions' scratch directories stay hidden even under /tmp's
+	// existing broad grant. Only the session's directory is carved back out.
+	// Credential/data denies below remain last and take precedence.
+	b.WriteString(`(deny file-read* file-write* (regex #"^/private/tmp/dk-"))
+`)
+	if p.SessionTempDir != "" {
+		b.WriteString("(allow file-read* file-write* (subpath \"" + escapeSBPL(p.SessionTempDir) + "\"))\n")
+		if unixSockets {
+			writeSessionUnixSockets(&b, p.SessionTempDir)
+		}
 	}
 
 	// Deny-write after every allow: SBPL's later matching rule wins, so these
@@ -347,4 +370,12 @@ func writeSBPLSubpath(b *strings.Builder, path string) {
 func escapeSBPL(path string) string {
 	path = strings.ReplaceAll(path, "\\", "\\\\")
 	return strings.ReplaceAll(path, "\"", "\\\"")
+}
+
+// Keep the Unix address filter here: the exact SBPL spelling must be verified
+// by TestSmokeSeatbeltDeveloperTools on a host (nested Seatbelt is forbidden).
+func writeSessionUnixSockets(b *strings.Builder, dir string) {
+	filter := `(subpath "` + escapeSBPL(dir) + `")`
+	b.WriteString("(allow network-bind network-inbound (local unix-socket " + filter + "))\n")
+	b.WriteString("(allow network-outbound (remote unix-socket " + filter + "))\n")
 }

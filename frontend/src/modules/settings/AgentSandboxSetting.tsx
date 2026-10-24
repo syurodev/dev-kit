@@ -5,12 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { agentHubChooseDirectory } from "../../bridge/agenthub";
 import { errorMessage } from "../../bridge/errors";
-import { getAgentSandbox, saveAgentSandbox } from "../../bridge/preferences";
+import { getAgentSandbox, getAgentSandboxStatus, saveAgentSandbox } from "../../bridge/preferences";
 import type { AgentSandboxSettings } from "../../../bindings/devkit/internal/preferences/models";
 
 const QUERY_KEY = ["preferences", "agent-sandbox"] as const;
 
-/** The two switches are on unless stored as false — unset is on. */
+/** The switches are on unless stored as false — unset is on. */
 function on(value: boolean | null | undefined): boolean {
   return value !== false;
 }
@@ -39,6 +39,12 @@ export function AgentSandboxSetting() {
     queryFn: getAgentSandbox,
   });
 
+  const { data: sandboxStatus } = useQuery({
+    queryKey: ["preferences", "agent-sandbox-status"],
+    queryFn: getAgentSandboxStatus,
+    refetchInterval: 5000,
+  });
+
   // A value loading in from the backend replaces an untouched draft; once
   // the person has typed something, their edit wins until saved.
   useEffect(() => {
@@ -47,13 +53,16 @@ export function AgentSandboxSetting() {
 
   const save = useMutation({
     mutationFn: saveAgentSandbox,
-    onSuccess: (_, settings) => {
+    onSuccess: async (_, settings) => {
       setFailed("");
-      client.setQueryData(QUERY_KEY, settings);
+      await client.invalidateQueries({ queryKey: QUERY_KEY });
       // The backend trims/dedupes (Normalized); reload what got stored.
       setSocketDraft(settings.dockerSocketPath ?? "");
     },
-    onError: (cause) => setFailed(errorMessage(cause)),
+    onError: (cause) => {
+      setFailed(errorMessage(cause));
+      void client.invalidateQueries({ queryKey: QUERY_KEY });
+    },
   });
 
   // Guards every write: before the initial load resolves there is nothing
@@ -95,6 +104,19 @@ export function AgentSandboxSetting() {
           sees only the project, the agent's own login and the paths below.{" "}
           <code>~/.ssh</code>, <code>~/.gnupg</code>, <code>~/.aws</code>,{" "}
           <code>~/.config/gcloud</code> and DevKit's own data stay hidden either way.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <SwitchRow
+          label="Allow developer toolchains"
+          checked={on(data?.allowDeveloperToolchains)}
+          disabled={disabled}
+          onChange={(checked) => commit({ allowDeveloperToolchains: checked })}
+        />
+        <p className="text-body-12 text-text-tertiary">
+          Read-only access to macOS Command Line Tools and Xcode for native builds,
+          cgo, git and xcrun. Applies when a session next starts or resumes.
         </p>
       </div>
 
@@ -177,6 +199,8 @@ export function AgentSandboxSetting() {
           <code>/opt</code>, say. Anything under a shared home is readable already.
         </p>
       </div>
+
+      {sandboxStatus ? <p role="status" className="text-body-12 text-text-tertiary">{sandboxStatus}</p> : null}
 
       {message ? <p className="text-body-12 text-status-danger">{message}</p> : null}
     </div>

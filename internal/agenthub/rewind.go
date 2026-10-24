@@ -467,6 +467,11 @@ func (r *rewindRun) openForked(ctx context.Context) error {
 		spec.PreApprovedMCP = map[string][]string{ep.Server.Name: ep.PreApprovedTools}
 		spec.ReadOnlyPaths = []string{ep.Server.Command}
 	}
+	spec.TempOwner = s.SessionTempOwner
+	if err := prepareSessionTemp(&spec, false); err != nil {
+		r.closeNew()
+		return err
+	}
 	s.applySandboxExtras(&spec)
 	s.recordSessionAccount(r.session.ID, s.fillAccountSpec(ctx, &spec, r.session))
 	s.applySubagents(&spec, r.session.AgentType)

@@ -606,6 +606,7 @@ func main() {
 			"parsed":    agenthub.ParseSessionUpdate(update),
 		})
 	})
+	agentSvc.SessionTempOwner = filepath.Join(dataDir, "devkit.db")
 	agentSvc.Documents = agentDocuments
 	agentSvc.ResolvePermission = agentWaiter.Resolve
 	agentSvc.ResolveGatePermission = agentWaiter.ResolveGate
@@ -1171,6 +1172,22 @@ func main() {
 	// logged here and surfaces as ErrProxyNotFound on CreateSession.
 	agentsDir := mcp.AgentsDir(sockPath)
 	mcp.SweepStaleSockets(agentsDir)
+	if !application.System.IsServer() {
+		sessions, err := agentStore.ListSessions(context.Background())
+		if err != nil {
+			log.Printf("agenthub: temp sweep skipped: %v", err)
+		} else {
+			live := map[string]bool{}
+			for _, session := range sessions {
+				if session.Status != agenthub.SessionStatusClosed {
+					live[session.ID] = true
+				}
+			}
+			if err := agenthub.SweepSessionTemps(agentSvc.SessionTempOwner, live); err != nil {
+				log.Printf("agenthub: temp sweep: %v", err)
+			}
+		}
+	}
 	proxyPath, err := install.ResolveCommand()
 	if err != nil {
 		log.Printf("agenthub: devkit-mcp proxy not found; agent sessions will fail to open until it is built (task mcp:install, or go build -o bin/devkit-mcp ./cmd/devkit-mcp): %v", err)

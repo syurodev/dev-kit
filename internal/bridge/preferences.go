@@ -7,6 +7,7 @@ import (
 	"devkit/internal/agenthub"
 	"devkit/internal/app"
 	"devkit/internal/preferences"
+	"devkit/internal/sandbox"
 )
 
 var errPreferencesUnavailable = errors.New("preferences are not available")
@@ -289,4 +290,15 @@ func (s *AppService) PreferencesSetThemeFamily(family preferences.ThemeFamily) e
 		return nil, s.container.Preferences.SetThemeFamily(family)
 	})
 	return err
+}
+
+// PreferencesAgentSandboxStatus reads the cached host profile check; no probe.
+// Kept with the legacy preferences bridge methods until that module migrates
+// to the operation registry (testdata/legacy_ops_methods.json).
+func (s *AppService) PreferencesAgentSandboxStatus() (string, error) {
+	result, err := s.call(context.Background(), "builtin.settings", "preferences:read", "agent_sandbox", map[string]any{"action": "sandbox_status"}, func(context.Context) (any, error) { return sandbox.SessionUnixSocketStatus(), nil })
+	if err != nil {
+		return "", err
+	}
+	return result.(string), nil
 }
