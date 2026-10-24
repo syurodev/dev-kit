@@ -1,4 +1,4 @@
-import type { PendingPermission } from "@/bridge/agenthub";
+import type { PendingElicitation, PendingPermission } from "@/bridge/agenthub";
 
 /** Pick the oldest permission that is not already answerable on screen. */
 export function selectToastPermission(
@@ -17,10 +17,25 @@ export function selectToastPermission(
     })[0] ?? null;
 }
 
-/** A corner card would cover the action row of an inline permission card. */
-export function shouldCollapseToastPermission(
-  queue: PendingPermission[],
+/** Any inline approval surface occupies the composer corner, regardless of kind. */
+export function shouldCollapseToast(
+  permissions: PendingPermission[],
+  questions: PendingElicitation[],
   isAskedInline: (sessionId: string) => boolean,
 ) {
-  return queue.some((item) => isAskedInline(item.sessionId));
+  return permissions.some((item) => isAskedInline(item.sessionId)) ||
+    questions.some((item) => isAskedInline(item.sessionId));
+}
+
+export function heldToastIsLive(
+  held: PendingPermission | PendingElicitation,
+  permissions: PendingPermission[],
+  questions: PendingElicitation[],
+  isAskedInline: (sessionId: string) => boolean,
+) {
+  if (isAskedInline(held.sessionId)) return false;
+  if ("expiresAt" in held) {
+    return permissions.some((item) => item.id === held.id);
+  }
+  return questions.some((item) => item.id === held.id);
 }

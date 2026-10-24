@@ -18,7 +18,7 @@ import {
 import { useAgentPaneSessionIds } from "./AgentPaneTabs";
 import { useAgentSessionList, useAgentSessionsStore } from "@/stores/agentSessions";
 import { SHELL_FLOAT_ATTR } from "@/lib/shellFloat";
-import { selectToastPermission, shouldCollapseToastPermission } from "./permissionToastModel";
+import { heldToastIsLive, selectToastPermission, shouldCollapseToast } from "./permissionToastModel";
 import { Button } from "@/components/ui/button";
 
 /**
@@ -43,6 +43,8 @@ export type AgentPermissionToastHostProps = {
   pending?: PendingPermission | null;
   session?: AgentSession | null;
   chatOpen?: boolean;
+  /** Visible conversation id override for embedded surfaces such as the gallery. */
+  visibleSessionId?: string | null;
 };
 
 type Shown =
@@ -54,6 +56,7 @@ export function AgentPermissionToastHost({
   pending: propPending,
   session: propSession,
   chatOpen: propChatOpen,
+  visibleSessionId,
 }: AgentPermissionToastHostProps = {}) {
   const storePending = useAgentSessionsStore((s) => s.pending);
   const storePermissionQueue = useAgentSessionsStore((s) => s.pendingQueue);
@@ -95,7 +98,9 @@ export function AgentPermissionToastHost({
   const shownSessionId = agentPanelSessionId(panelTabIds, activeSessionId) || null;
   const hubSessionId = isSSR ? activeAgentHubSessionId(useWorkbenchTabsStore.getState()) : storeHubSessionId;
   const askedInline = (sessionId: string) =>
-    activeModuleId === AGENTHUB_MODULE ? hubSessionId === sessionId : chatOpen && shownSessionId === sessionId;
+    activeModuleId === AGENTHUB_MODULE
+      ? (visibleSessionId ?? hubSessionId) === sessionId
+      : chatOpen && shownSessionId === sessionId;
 
   const toastPermission = selectToastPermission(permissionQueue, pending, askedInline);
   const permissionShowing = toastPermission != null;
@@ -130,12 +135,17 @@ export function AgentPermissionToastHost({
 
   // Nothing rendered until a request has actually been shown, so a window with
   // nothing pending still renders nothing at all.
-  const card = current ?? held;
-  if (!card) return null;
-
-  const session = propSession ?? sessions.find((s) => s.id === card.item.sessionId) ?? null;
-  const collapsePermission = card.kind === "permission" &&
-    shouldCollapseToastPermission(permissionQueue, askedInline);
+  const collapsePermission = shouldCollapseToast(permissionQueue, questions, askedInline);
+  const heldIsLive = held == null || heldToastIsLive(held.item, permissionQueue, questions, askedInline);
+  const visibleCard = current ?? (heldIsLive ? held : null);
+  if (!visibleCard) return null;
+  const session = propSession ?? sessions.find((s) => s.id === visibleCard.item.sessionId) ?? null;
+  const waitingCount = Math.max(
+    1,
+    permissionQueue.filter((item) => item.sessionId === visibleCard.item.sessionId).length +
+      questions.filter((item) => item.sessionId === visibleCard.item.sessionId).length,
+  );
+  const waitingLabel = `${waitingCount} ${waitingCount === 1 ? "request" : "requests"} waiting in ${session?.title ?? "another session"}`;
 
   function openRailOn(sessionId: string) {
     showAgentSession(sessionId);
@@ -157,16 +167,18 @@ export function AgentPermissionToastHost({
         ? "pointer-events-none fixed right-4 top-4 z-60"
         : "pointer-events-none fixed right-4 bottom-4 z-60"}
     >
-      {collapsePermission && card.kind === "permission" ? (
+      {collapsePermission ? (
+        <div key={visibleCard.item.id} role="status" aria-live="polite">
         <Button
           type="button"
           variant="outline"
           data-testid="agent-permission-waiting-pill"
           className="pointer-events-auto glass-float"
-          onClick={() => openRailOn(card.item.sessionId)}
+          onClick={() => openRailOn(visibleCard.item.sessionId)}
         >
-          1 request waiting in {session?.title ?? "another session"}
+          {waitingLabel}
         </Button>
+        </div>
       ) : (
       <PermissionPresence
         pendingId={current ? current.item.id : null}
@@ -174,12 +186,12 @@ export function AgentPermissionToastHost({
         className="pointer-events-auto"
         onExitComplete={() => setHeld(null)}
       >
-        {card.kind === "permission" ? (
+        {visibleCard.kind === "permission" ? (
           <AgentPermissionToast
-            pending={card.item}
+            pending={visibleCard.item}
             session={session}
             onResolve={resolve}
-            onOpenRail={() => openRailOn(card.item.sessionId)}
+            onOpenRail={() => openRailOn(visibleCard.item.sessionId)}
             busy={busy}
             error={permissionError}
             // pendingQueue holds the request on screen too; the pill counts the rest.
@@ -187,10 +199,10 @@ export function AgentPermissionToastHost({
           />
         ) : (
           <AgentQuestionToast
-            pending={card.item}
+            pending={visibleCard.item}
             session={session}
             onRespond={respond}
-            onAnswer={() => openRailOn(card.item.sessionId)}
+            onAnswer={() => openRailOn(visibleCard.item.sessionId)}
             busy={questionBusy}
             queued={Math.max(0, questions.length - 1)}
           />

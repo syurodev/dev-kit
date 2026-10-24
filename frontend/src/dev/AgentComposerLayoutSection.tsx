@@ -9,6 +9,7 @@ import { useComposerImagesStore } from "@/stores/composerImages";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
 import type { SessionFailure, TranscriptItem } from "@/modules/agenthub/types";
+import { AgentPermissionToastHost } from "@/workbench/AgentPermissionToastHost";
 
 /**
  * The real conversation (AgentHubContent) and rail (AgentRail) with the
@@ -259,7 +260,7 @@ export function AgentComposerLayoutSection() {
           ? [PERMISSION_MESSAGE]
           : [];
     const questions = scenario === "questions" ? [question("q-1", 4), question("q-2", 2)] : [];
-    useAgentSessionsStore.setState({ pendingQueue: permissions, elicitationQueue: questions });
+    useAgentSessionsStore.setState({ pending: permissions[0] ?? null, pendingQueue: permissions, elicitationQueue: questions });
     return () => useAgentSessionsStore.setState({ pendingQueue: [], elicitationQueue: [] });
   }, [scenario]);
 
@@ -379,11 +380,6 @@ export function AgentComposerLayoutSection() {
             style={{ width, height }}
             className="relative overflow-hidden rounded-control border border-border-subtle bg-surface-base"
           >
-            {scenario === "permission-other" ? (
-              <div className="absolute right-3 top-3 z-10 rounded-full border border-border-subtle bg-surface-overlay px-3 py-1.5 text-caption-11-medium text-text-secondary shadow-sm" data-testid="layout-other-permission-pill">
-                1 request waiting in Other session
-              </div>
-            ) : null}
             <AgentHubContent
               {...common}
               session={scenario === "draft" ? null : session}
@@ -418,6 +414,14 @@ export function AgentComposerLayoutSection() {
           </div>
         </div>
       </TrayStatusOverride.Provider>
+      {scenario === "permission-other" ? (
+        <AgentPermissionToastHost
+          activeModuleId="agenthub"
+          visibleSessionId={SESSION.id}
+          pending={PERMISSION}
+          session={{ ...SESSION, id: "sess-other", title: "Other session" }}
+        />
+      ) : null}
     </section>
   );
 }

@@ -196,7 +196,9 @@ describe("Phase 4 Shell Integration", () => {
         <AgentPermissionToastHost activeModuleId="agenthub" session={{ id: "sess-2", title: "older" } as AgentSession} />,
       );
       expect(html).toContain('data-testid="agent-permission-waiting-pill"');
-      expect(html).toContain("1 request waiting in <!-- -->older");
+      expect(html).toContain('role="status"');
+      expect(html).toContain('aria-live="polite"');
+      expect(html).toContain("1 request waiting in older");
       expect(html).not.toContain('data-testid="agent-permission-toast"');
       expect(html).toContain("top-4");
     });
@@ -281,7 +283,8 @@ describe("Phase 4 Shell Integration", () => {
         elicitationQueue: [question("q-here", "sess-1"), question("q-there", "sess-2")],
       });
       const html = renderToString(<AgentPermissionToastHost activeModuleId="agenthub" />);
-      expect(html).toContain('data-testid="agent-question-toast"');
+      expect(html).toContain('data-testid="agent-permission-waiting-pill"');
+      expect(html).toContain('role="status"');
     });
 
     it("floats over Agent Hub when its tab on screen is another session, whatever the panel follows", () => {
