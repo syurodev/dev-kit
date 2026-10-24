@@ -1,0 +1,116 @@
+{
+  "NotesQueryIn": [
+    {
+      "name": "Query",
+      "type": "string",
+      "tag": "json:\"query\""
+    }
+  ],
+  "NotesIDIn": [
+    {
+      "name": "ID",
+      "type": "string",
+      "tag": "json:\"id\""
+    }
+  ],
+  "NotesCreateIn": [
+    {
+      "name": "Title",
+      "type": "string",
+      "tag": "json:\"title\""
+    },
+    {
+      "name": "Body",
+      "type": "string",
+      "tag": "json:\"body\""
+    },
+    {
+      "name": "FolderID",
+      "type": "string",
+      "tag": "json:\"folder_id\""
+    },
+    {
+      "name": "Tags",
+      "type": "[]string",
+      "tag": "json:\"tags\""
+    }
+  ],
+  "NotesUpdateIn": [
+    {
+      "name": "ID",
+      "type": "string",
+      "tag": "json:\"id\""
+    },
+    {
+      "name": "Title",
+      "type": "string",
+      "tag": "json:\"title\""
+    },
+    {
+      "name": "Body",
+      "type": "string",
+      "tag": "json:\"body\""
+    }
+  ],
+  "NotesSetOrganizationIn": [
+    {
+      "name": "ID",
+      "type": "string",
+      "tag": "json:\"id\""
+    },
+    {
+      "name": "FolderID",
+      "type": "string",
+      "tag": "json:\"folder_id,omitempty\""
+    },
+    {
+      "name": "Tags",
+      "type": "[]string",
+      "tag": "json:\"tags,omitempty\""
+    },
+    {
+      "name": "Color",
+      "type": "string",
+      "tag": "json:\"color,omitempty\" jsonschema:\"optional; a hex color (#rrggbb or #rgb) or a preset: red, orange, yellow, green, teal, blue, violet, pink, gray; empty inherits the folder color\""
+    }
+  ],
+  "NotesFolderCreateIn": [
+    {
+      "name": "Name",
+      "type": "string",
+      "tag": "json:\"name\""
+    },
+    {
+      "name": "Color",
+      "type": "string",
+      "tag": "json:\"color\" jsonschema:\"a hex color (#rrggbb or #rgb) or a preset: red, orange, yellow, green, teal, blue, violet, pink, gray\""
+    },
+    {
+      "name": "Tags",
+      "type": "[]string",
+      "tag": "json:\"tags\""
+    }
+  ],
+  "NotesFolderUpdateIn": [
+    {
+      "name": "ID",
+      "type": "string",
+      "tag": "json:\"id\""
+    },
+    {
+      "name": "Name",
+      "type": "string",
+      "tag": "json:\"name\""
+    },
+    {
+      "name": "Color",
+      "type": "string",
+      "tag": "json:\"color\" jsonschema:\"a hex color (#rrggbb or #rgb) or a preset: red, orange, yellow, green, teal, blue, violet, pink, gray\""
+    },
+    {
+      "name": "Tags",
+      "type": "[]string",
+      "tag": "json:\"tags\""
+    }
+  ]
+}

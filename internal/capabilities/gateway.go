@@ -19,7 +19,22 @@ var ErrPermissionDenied = errors.New("permission denied")
 
 type Handler func(ctx context.Context) (any, error)
 
+// Exposure is independent of domain operation declarations. The zero value
+// preserves legacy calls until their modules migrate.
+type Exposure uint8
+
+const (
+	ExposureBoth Exposure = iota
+	ExposureUI
+	ExposureAgent
+)
+
 type CallRequest struct {
+	// Refusal carries a denial determined before scope resolution (desktop-only).
+	// It can only refuse a call: the gateway audits it and never runs Handler.
+	Refusal    error
+	Operation  string
+	Exposure   Exposure
 	SubjectID  string
 	Capability string
 	Scope      string
@@ -58,7 +73,7 @@ func isNilSink(sink audit.Sink) bool {
 }
 
 func (g *Gateway) Call(ctx context.Context, request CallRequest) (any, error) {
-	if request.Handler == nil {
+	if request.Handler == nil && request.Refusal == nil {
 		return nil, fmt.Errorf("capability handler is required")
 	}
 
@@ -67,6 +82,26 @@ func (g *Gateway) Call(ctx context.Context, request CallRequest) (any, error) {
 		Capability: request.Capability,
 		Scope:      request.Scope,
 	})
+	caller, _ := identity.FromContext(ctx)
+	exposed := false
+	switch request.Exposure {
+	case ExposureBoth:
+		// Legacy calls preserve their zero-value exposure until migrated.
+		exposed = true
+	case ExposureUI:
+		exposed = caller.Kind == identity.KindUI
+	case ExposureAgent:
+		switch caller.Kind {
+		case identity.KindAgent, identity.KindUserTerminal:
+			exposed = true
+		}
+	}
+	if !exposed {
+		decision = permissions.Decision{Allowed: false, Reason: fmt.Sprintf("not exposed to %s", caller.Kind)}
+	}
+	if request.Refusal != nil {
+		decision.Allowed = false
+	}
 	outcome := audit.OutcomeDenied
 	if decision.Allowed {
 		outcome = audit.OutcomeAllowed
@@ -80,6 +115,9 @@ func (g *Gateway) Call(ctx context.Context, request CallRequest) (any, error) {
 		Outcome:    outcome,
 		Metadata:   audit.RedactMap(request.Metadata),
 	})
+	if request.Refusal != nil {
+		return nil, request.Refusal
+	}
 	if !decision.Allowed {
 		// The sentinel lets the bridge classify authorization failures without
 		// matching on message text. The reason and what was asked for ride after

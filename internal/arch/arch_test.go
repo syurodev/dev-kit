@@ -43,6 +43,8 @@ func TestLayering(t *testing.T) {
 	graph := importGraph(t)
 
 	bans := map[string][]string{
+		pkg("ops"):          {pkg("storage"), pkg("syncstore"), pkg("sync"), pkg("crypto"), pkg("app"), pkg("bridge"), pkg("mcp")},
+		pkg("capabilities"): {pkg("ops")},
 		// The bridge is the Wails boundary: it goes through app + services and
 		// must never reach the storage, sync, or crypto layers directly.
 		pkg("bridge"): {pkg("storage"), pkg("syncstore"), pkg("sync"), pkg("crypto")},
@@ -230,6 +232,10 @@ func TestLayering(t *testing.T) {
 	// may import app. main is the module-root package "devkit".
 	for from, imports := range graph {
 		for _, imp := range imports {
+			// app derives default grants at the composition root.
+			if imp == pkg("ops") && from != "devkit" && from != pkg("bridge") && from != pkg("mcp") && from != pkg("app") {
+				t.Errorf("layering violation: %s must not import ops", short(from))
+			}
 			if imp == pkg("bridge") && from != "devkit" {
 				t.Errorf("layering violation: %s must not import bridge (top boundary)", short(from))
 			}

@@ -11,8 +11,10 @@ import (
 	"devkit/internal/environments"
 	"devkit/internal/identity"
 	"devkit/internal/notes"
+	"devkit/internal/ops"
 	"devkit/internal/tools"
 	"devkit/internal/vault"
+	"encoding/json"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -126,7 +128,7 @@ func TestNotesListTool(t *testing.T) {
 	want := []notes.Summary{{ID: "abc", Title: "hello", UpdatedAt: time.Unix(1, 0).UTC()}}
 	srv := NewServer(testDeps(caller, &fakeNotes{list: want}))
 
-	res, v, err := srv.toolNotesList(context.Background(), &sdk.CallToolRequest{}, struct{}{})
+	res, v, err := invokeNoteOp(srv, context.Background(), ops.NotesList, ops.NotesEmptyIn{})
 	if err != nil {
 		t.Fatalf("toolNotesList: %v", err)
 	}
@@ -154,7 +156,7 @@ func TestNotesDeleteDestructivePath(t *testing.T) {
 	srv := NewServer(testDeps(caller, &fakeNotes{}))
 	id := "0123456789abcdef01234567"
 
-	_, _, err := srv.toolNotesDelete(context.Background(), &sdk.CallToolRequest{}, notesIDInput{ID: id})
+	_, _, err := invokeNoteOp(srv, context.Background(), ops.NotesDelete, ops.NotesIDIn{ID: id})
 	if err != nil {
 		t.Fatalf("toolNotesDelete: %v", err)
 	}
@@ -234,7 +236,7 @@ func TestToolsHashAndEnvListTags(t *testing.T) {
 func TestNotesFolderCreateTool(t *testing.T) {
 	caller := &fakeCaller{}
 	srv := NewServer(testDeps(caller, &fakeNotes{}))
-	_, v, err := srv.toolNotesFolderCreate(context.Background(), &sdk.CallToolRequest{}, notesFolderCreateInput{
+	_, v, err := invokeNoteOp(srv, context.Background(), ops.NotesFolderCreate, ops.NotesFolderCreateIn{
 		Name: "Work", Color: "blue", Tags: []string{"work"},
 	})
 	if err != nil {
@@ -253,7 +255,7 @@ func TestNotesSetOrganizationTool(t *testing.T) {
 	caller := &fakeCaller{}
 	srv := NewServer(testDeps(caller, &fakeNotes{}))
 	id := "0123456789abcdef01234567"
-	_, _, err := srv.toolNotesSetOrganization(context.Background(), &sdk.CallToolRequest{}, notesSetOrganizationInput{
+	_, _, err := invokeNoteOp(srv, context.Background(), ops.NotesSetOrganization, ops.NotesSetOrganizationIn{
 		ID: id, FolderID: "", Tags: []string{"solo"}, Color: "red",
 	})
 	if err != nil {
@@ -270,3 +272,21 @@ func TestMetaMergesExtra(t *testing.T) {
 		t.Fatalf("meta = %v", m)
 	}
 }
+
+func (f *fakeCaller) CallOperation(ctx context.Context, r capabilities.CallRequest) (any, error) {
+	return f.Call(ctx, r.SubjectID, r.Capability, r.Scope, r.Metadata, r.Handler)
+}
+func invokeNoteOp[I, O any](s *Server, ctx context.Context, op ops.Op[I, O], in I) (*sdk.CallToolResult, any, error) {
+	ctx = identity.WithCaller(ctx, identity.UserTerminal())
+	raw, err := json.Marshal(in)
+	if err != nil {
+		return nil, nil, err
+	}
+	v, err := op.InvokeJSON(ctx, ops.Runtime{Deps: ops.Deps{Notes: s.deps.Notes}, Caller: s.deps.Caller, Origin: "mcp"}, raw)
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+func (f *fakeCaller) PublishError(_ context.Context, _ string, err error) error { return err }

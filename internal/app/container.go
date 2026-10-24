@@ -24,6 +24,7 @@ import (
 	"devkit/internal/modules"
 	"devkit/internal/notes"
 	"devkit/internal/notify"
+	"devkit/internal/ops"
 	"devkit/internal/permissions"
 	"devkit/internal/preferences"
 	"devkit/internal/prwatch"
@@ -248,19 +249,11 @@ func NewContainerWithStores(
 		})
 	}
 
-	permissionPolicy := permissions.NewPolicy(append(toolGrants, []permissions.Grant{
+	permissionPolicy := permissions.NewPolicy(append(append(toolGrants, ops.Grants(ops.All()...)...), []permissions.Grant{
 		// Tools grants come from tools.Commands so a new command cannot be
 		// registered without one — the failure that leaves a command runnable
 		// with no matching grant, or granted and never wired.
-		{SubjectID: "builtin.notes", Capability: "notes:write", Scope: "note:new"},
-		{SubjectID: "builtin.notes", Capability: "notes:write", Scope: "note:*"},
-		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note:list"},
-		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note:search"},
-		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note:*"},
-		{SubjectID: "builtin.notes", Capability: "notes:write", Scope: "note-folder:new"},
-		{SubjectID: "builtin.notes", Capability: "notes:write", Scope: "note-folder:*"},
-		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note-folder:list"},
-		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note-folder:*"},
+
 		{SubjectID: "builtin.environments", Capability: "env:read", Scope: "tag:list"},
 		{SubjectID: "builtin.environments", Capability: "env:write", Scope: "tag:new"},
 		{SubjectID: "builtin.environments", Capability: "env:write", Scope: "tag:*"},

@@ -13,7 +13,7 @@ import (
 	"devkit/internal/identity"
 	"devkit/internal/interaction"
 	"devkit/internal/kafka"
-	"devkit/internal/notes"
+	"devkit/internal/ops"
 	sshservice "devkit/internal/ssh"
 	"devkit/internal/tools"
 	"devkit/internal/vault"
@@ -24,6 +24,7 @@ import (
 // Caller is the narrow capability-gateway surface MCP tools use.
 // Same shape as bridge.Caller; defined locally so mcp never imports bridge.
 type Caller interface {
+	ops.Caller
 	Call(
 		ctx context.Context,
 		subject, capability, scope string,
@@ -39,19 +40,7 @@ type CodexHookAPI interface {
 }
 
 // NotesAPI is the notes domain surface MCP tools invoke (duck-typed).
-type NotesAPI interface {
-	List() ([]notes.Summary, error)
-	Search(query string) ([]notes.Summary, error)
-	Get(id string) (notes.Note, error)
-	Create(title, body, folderID string, tags []string) (notes.Summary, error)
-	Update(id, title, body string) (notes.Note, error)
-	Delete(id string) error
-	SetOrganization(id, folderID string, tags []string, color string) (notes.Summary, error)
-	ListFolders() ([]notes.Folder, error)
-	CreateFolder(name, color string, tags []string) (notes.Folder, error)
-	UpdateFolder(id, name, color string, tags []string) (notes.Folder, error)
-	DeleteFolder(id string) error
-}
+type NotesAPI = ops.NotesAPI
 
 // VaultAPI reports vault lock/setup state.
 type VaultAPI interface {
@@ -298,7 +287,7 @@ func (s *Server) sdkServerFor(caller identity.Caller) *sdk.Server {
 	ms.AddReceivingMiddleware(withCaller(caller))
 	ms.AddReceivingMiddleware(withResultBudget(ResultBudget))
 	s.registerVault(ms)
-	s.registerNotes(ms)
+	RegisterOps(ms, ops.Runtime{Deps: ops.Deps{Notes: s.deps.Notes}, Caller: s.deps.Caller, Origin: "mcp"}, ops.Notes()...)
 	s.registerTools(ms)
 	s.registerEnv(ms)
 	s.registerSSH(ms)

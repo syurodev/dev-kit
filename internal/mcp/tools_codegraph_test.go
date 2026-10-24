@@ -476,3 +476,9 @@ func TestToolCodeGraphFindTableUsage(t *testing.T) {
 		t.Fatalf("unexpected result: %#v", v)
 	}
 }
+
+func (s stampingCaller) CallOperation(ctx context.Context, r capabilities.CallRequest) (any, error) {
+	return s.Call(ctx, r.SubjectID, r.Capability, r.Scope, r.Metadata, r.Handler)
+}
+
+func (s stampingCaller) PublishError(_ context.Context, _ string, err error) error { return err }

@@ -1,0 +1,23 @@
+{
+  "NotesList": "func (s *AppService) NotesList() ([]notes.Summary, error)",
+  "NotesSearch": "func (s *AppService) NotesSearch(query string) ([]notes.Summary, error)",
+  "NotesCreate": "func (s *AppService) NotesCreate(title string, body string, folderID string, tags []string) (notes.Summary, error)",
+  "NotesSetOrganization": "func (s *AppService) NotesSetOrganization(id, folderID string, tags []string, color string) (notes.Summary, error)",
+  "NotesFolderList": "func (s *AppService) NotesFolderList() ([]notes.Folder, error)",
+  "NotesFolderCreate": "func (s *AppService) NotesFolderCreate(name, color string, tags []string) (notes.Folder, error)",
+  "NotesFolderUpdate": "func (s *AppService) NotesFolderUpdate(id, name, color string, tags []string) (notes.Folder, error)",
+  "NotesFolderDelete": "func (s *AppService) NotesFolderDelete(id string) error",
+  "NotesUpdate": "func (s *AppService) NotesUpdate(id string, title string, body string) (notes.Note, error)",
+  "NotesGet": "func (s *AppService) NotesGet(id string) (notes.Note, error)",
+  "NotesListBacklinks": "func (s *AppService) NotesListBacklinks(id string) ([]notes.Summary, error)",
+  "NotesResolveLinks": "func (s *AppService) NotesResolveLinks(ids []string) ([]notes.LinkTarget, error)",
+  "NotesCheckpoint": "func (s *AppService) NotesCheckpoint(id string) (notes.Version, error)",
+  "NotesListVersions": "func (s *AppService) NotesListVersions(id string) ([]notes.Version, error)",
+  "NotesGetVersion": "func (s *AppService) NotesGetVersion(versionID string) (map[string]string, error)",
+  "NotesRestoreVersion": "func (s *AppService) NotesRestoreVersion(id, versionID string) (notes.Note, error)",
+  "NotesListTrash": "func (s *AppService) NotesListTrash() ([]notes.TrashedNote, error)",
+  "NotesRestore": "func (s *AppService) NotesRestore(id string) error",
+  "NotesPurge": "func (s *AppService) NotesPurge(id string) error",
+  "NotesEmptyTrash": "func (s *AppService) NotesEmptyTrash() (int, error)",
+  "NotesDelete": "func (s *AppService) NotesDelete(id string) error"
+}
