@@ -21,6 +21,16 @@ func TestSeatbeltProfileAllowsWorkDir(t *testing.T) {
 	}
 }
 
+func TestSeatbeltProfileAllowsOnlyMetadataOnPrivateParent(t *testing.T) {
+	prof := buildSeatbeltProfile(Policy{WorkDir: "/tmp/proj", Network: NetworkNone}.withDefaults())
+	if !strings.Contains(prof, `(allow file-read-metadata (literal "/private"))`) {
+		t.Fatal("profile must allow metadata lookup of /private")
+	}
+	if strings.Contains(prof, `(allow file-read-data (literal "/private"))`) || strings.Contains(prof, `(subpath "/private")`) {
+		t.Fatal("/private must not grant directory contents")
+	}
+}
+
 func TestSeatbeltProfileDenyReadPaths(t *testing.T) {
 	prof := buildSeatbeltProfile(Policy{
 		WorkDir:       "/tmp/proj",

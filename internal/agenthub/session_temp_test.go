@@ -70,6 +70,22 @@ func TestSessionTempLifecycle(t *testing.T) {
 	}
 }
 
+func TestSessionTempRootCanBeInjected(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("bwrap owns Linux temp isolation")
+	}
+	root := t.TempDir()
+	id := uuid.NewString()
+	spec := OpenSpec{SessionID: id, SessionTempRoot: root}
+	t.Cleanup(func() { removeSessionTempAt(id, root) })
+	if err := prepareSessionTemp(&spec, true); err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(spec.SessionTempDir) != root {
+		t.Fatalf("temp dir = %q, want root %q", spec.SessionTempDir, root)
+	}
+}
+
 func TestSessionTempReachesEveryVendorAfterOverrides(t *testing.T) {
 	hostTemp, hostGoTemp := t.TempDir(), t.TempDir()
 	t.Setenv("TMPDIR", hostTemp)
