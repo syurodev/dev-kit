@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"devkit/internal/acp"
@@ -116,16 +115,13 @@ func OpenCodeQuirks() VendorQuirks {
 		Name:     "opencode",
 		Supports: CapabilitySet{LoadResume: true, Elicitation: true, ProcessDeath: false, SetMode: true, SetConfigOption: true, StreamingUpdates: true, Permission: true, VendorRefusal: true, Cancel: true, UsageUpdate: true},
 		Open: func(t *testing.T, script []string) (SessionRuntime, error) {
-			turnReply := openCodeConformanceTurn(script)
+			scenario := "turn"
+			if len(script) > 0 {
+				scenario = script[0]
+			}
 			logFile := filepath.Join(t.TempDir(), "requests.jsonl")
 			wireLog = logFile
-			replies := []string{
-				openCodeInit,
-				`{"jsonrpc":"2.0","id":2,"result":{"sessionId":"ses_conformance","configOptions":` + openCodeOptionsWire + `}}`,
-				turnReply,
-				`{"jsonrpc":"2.0","id":3,"result":{}}`,
-			}
-			a, _ := newOpenCodeTestAdapter(t, scriptedAgentRunner{replies: replies, log: logFile})
+			a, _ := newOpenCodeTestAdapter(t, openCodeConformanceRunner{scenario: scenario, log: logFile})
 			sharedHome := false
 			rt, err := a.Open(context.Background(), OpenSpec{Cwd: t.TempDir(), PrivateHome: &sharedHome})
 			if err != nil {
@@ -135,13 +131,9 @@ func OpenCodeQuirks() VendorQuirks {
 			return rt, nil
 		},
 		Load: func(t *testing.T, acpSessionID string) (SessionRuntime, error) {
-			noResume := strings.Replace(openCodeInit, `,"resume":{}`, "", 1)
 			logFile := filepath.Join(t.TempDir(), "requests.jsonl")
-			a, _ := newOpenCodeTestAdapter(t, scriptedAgentRunner{log: logFile, replies: []string{
-				noResume,
-				`{"jsonrpc":"2.0","id":2,"result":{"sessionId":"` + acpSessionID + `","configOptions":` + openCodeOptionsWire + `}}`,
-				`{"jsonrpc":"2.0","id":3,"result":{}}`,
-			}})
+			wireLog = logFile
+			a, _ := newOpenCodeTestAdapter(t, openCodeConformanceRunner{scenario: "turn", log: logFile})
 			sharedHome := false
 			rt, err := a.Load(context.Background(), OpenSpec{Cwd: t.TempDir(), PrivateHome: &sharedHome}, acpSessionID)
 			if err != nil {
@@ -158,31 +150,6 @@ func OpenCodeQuirks() VendorQuirks {
 		SetModeIDs:         []string{"ask", "auto", "bypassPermissions"},
 		SetConfigOptionIDs: []string{"model", "effort"},
 		wireLogPath:        func() string { return wireLog },
-	}
-}
-
-func openCodeConformanceTurn(script []string) string {
-	if len(script) == 0 {
-		return `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"ses_conformance","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ok"}}}}` + "\n" +
-			`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"ses_conformance","update":{"sessionUpdate":"usage_update","size":100,"used":10}}}` + "\n" +
-			`{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}`
-	}
-	switch script[0] {
-	case "die":
-		return "__exit__"
-	case "HOLD_AFTER":
-		return "__hold_until_cancel__"
-	case "SET_CONFIG_OPTION":
-		return `{"jsonrpc":"2.0","id":3,"result":{"configOptions":[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"test-value","options":[{"value":"test-value","name":"Test"}]},{"id":"effort","name":"Effort","category":"thought_level","type":"select","currentValue":"low","options":[{"value":"low","name":"Low"}]}]}}`
-	case "FAIL_PROVIDER_503":
-		return "__refuse_once__"
-	case "NEED_PERMISSION":
-		return `{"jsonrpc":"2.0","id":77,"method":"session/request_permission","params":{"sessionId":"ses_conformance","toolCall":{"toolCallId":"call","kind":"execute"},"options":[{"optionId":"allow","kind":"allow_once","name":"Allow once"},{"optionId":"reject","kind":"reject_once","name":"Reject"}]}}`
-	case "ELICITATION":
-		return `{"jsonrpc":"2.0","id":78,"method":"elicitation/create","params":{"mode":"form","sessionId":"ses_conformance","message":"Question?","requestedSchema":{"type":"object","properties":{}}}}`
-	default:
-		return `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"ses_conformance","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ok"}}}}` + "\n" +
-			`{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}`
 	}
 }
 

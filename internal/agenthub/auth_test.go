@@ -134,19 +134,6 @@ func (r scriptedAgentRunner) StartPiped(context.Context, sandbox.Policy, sandbox
 	}
 	var script strings.Builder
 	for _, reply := range r.replies {
-		if reply == "__refuse_once__" {
-			script.WriteString("read line; ")
-			if r.log != "" {
-				fmt.Fprintf(&script, "printf '%%s\\n' \"$line\" >> '%s'; ", r.log)
-			}
-			script.WriteString("id=$(printf '%s' \"$line\" | sed -n 's/.*\\\"id\\\":\\([0-9][0-9]*\\).*/\\1/p'); printf '{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"id\\\":%s,\\\"error\\\":{\\\"code\\\":-32603,\\\"message\\\":\\\"The provider is unavailable: 503\\\"}}\\n' \"$id\"; ")
-			script.WriteString("read line; ")
-			if r.log != "" {
-				fmt.Fprintf(&script, "printf '%%s\\n' \"$line\" >> '%s'; ", r.log)
-			}
-			script.WriteString("id=$(printf '%s' \"$line\" | sed -n 's/.*\\\"id\\\":\\([0-9][0-9]*\\).*/\\1/p'); printf '{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"method\\\":\\\"session/update\\\",\\\"params\\\":{\\\"sessionId\\\":\\\"ses_conformance\\\",\\\"update\\\":{\\\"sessionUpdate\\\":\\\"agent_message_chunk\\\",\\\"content\\\":{\\\"type\\\":\\\"text\\\",\\\"text\\\":\\\"recovered\\\"}}}}\\n'; printf '{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"id\\\":%s,\\\"result\\\":{\\\"stopReason\\\":\\\"end_turn\\\"}}\\n' \"$id\"; cat >/dev/null; ")
-			continue
-		}
 		if reply == "__hold_until_cancel__" {
 			script.WriteString("read line; ")
 			if r.log != "" {
