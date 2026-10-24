@@ -126,6 +126,10 @@ func buildSeatbeltProfileWithUnixSockets(p Policy, unixSockets bool) string {
 			b.WriteString("(allow file-read-data (literal \"" + escapeSBPL(dir) + "\"))\n")
 		}
 	}
+	// /private is the symlink parent of /tmp on macOS. A path walk into the
+	// granted /private/tmp tree (including SQLite's file setup) needs to stat
+	// that directory, but must not read its contents.
+	b.WriteString("(allow file-read-metadata (literal \"/private\"))\n")
 
 	b.WriteString("(allow process-exec)\n")
 	b.WriteString("(allow process-fork)\n")

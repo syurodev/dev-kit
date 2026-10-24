@@ -4,6 +4,7 @@ package sandbox
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net"
@@ -16,6 +17,7 @@ import (
 	"syscall"
 
 	"github.com/creack/pty"
+	_ "modernc.org/sqlite"
 	"testing"
 	"time"
 )
@@ -55,6 +57,15 @@ func TestSmokeSeatbeltDeveloperTools(t *testing.T) {
 			}
 			c.Close()
 			if err := <-accepted; err != nil {
+				t.Fatal(err)
+			}
+		case "sqlite":
+			db, err := sql.Open("sqlite", filepath.Join(os.TempDir(), "modernc-smoke.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			if _, err := db.Exec(`CREATE TABLE smoke (id INTEGER PRIMARY KEY); INSERT INTO smoke DEFAULT VALUES`); err != nil {
 				t.Fatal(err)
 			}
 		case "isolation":
@@ -167,7 +178,7 @@ func TestSmokeSeatbeltDeveloperTools(t *testing.T) {
 	env["DEVKIT_HOST_PID"] = strconv.Itoa(os.Getpid())
 	env["DEVKIT_HOST_TTY"] = slave.Name()
 	env["DEVKIT_OUTSIDE_SOCKET"] = filepath.Join(outside, "outside.sock")
-	for _, name := range []string{"unix", "isolation", "signal", "user"} {
+	for _, name := range []string{"unix", "isolation", "signal", "user", "sqlite"} {
 		t.Run(name, func(t *testing.T) {
 			env["DEVKIT_DEVELOPER_SMOKE_CHILD"] = "1"
 			env["DEVKIT_DEVELOPER_SMOKE_CASE"] = name
