@@ -3,6 +3,7 @@ import { renderToString } from "react-dom/server";
 import { useWorkbenchTabsStore } from "../stores/workbenchTabs";
 import { useAgentSessionsStore } from "../stores/agentSessions";
 import { AgentPermissionToastHost } from "./AgentPermissionToastHost";
+import type { AgentSession } from "../bridge/agenthub";
 
 // No ui_state writes: the debounced bridge call would reject after this file ends.
 useWorkbenchTabsStore.persist.setOptions({
@@ -177,6 +178,31 @@ describe("Phase 4 Shell Integration", () => {
       expect(renderToString(<AgentPermissionToastHost activeModuleId="agenthub" />)).toBe("");
     });
 
+    it("uses a corner pill for another request while the visible session has its own inline request", () => {
+      showHubSession("sess-1");
+      const item = (id: string, sessionId: string, createdAt: string) => ({
+        id, sessionId, caller: "agent:claude", createdAt, expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        title: id, depth: 0, params: {},
+      });
+      useAgentSessionsStore.setState({
+        pending: item("inline", "sess-1", "2026-10-25T10:00:00Z"),
+        pendingQueue: [
+          item("inline", "sess-1", "2026-10-25T10:00:00Z"),
+          item("newer", "sess-3", "2026-10-25T10:02:00Z"),
+          item("older", "sess-2", "2026-10-25T10:01:00Z"),
+        ],
+      });
+      const html = renderToString(
+        <AgentPermissionToastHost activeModuleId="agenthub" session={{ id: "sess-2", title: "older" } as AgentSession} />,
+      );
+      expect(html).toContain('data-testid="agent-permission-waiting-pill"');
+      expect(html).toContain('role="status"');
+      expect(html).toContain('aria-live="polite"');
+      expect(html).toContain("1 request waiting in older");
+      expect(html).not.toContain('data-testid="agent-permission-toast"');
+      expect(html).toContain("top-4");
+    });
+
     it("sits above the z-50 modal tier, marked so a dialog does not dismiss on its clicks", () => {
       const pending = (id: string) => ({
         id,
@@ -257,7 +283,8 @@ describe("Phase 4 Shell Integration", () => {
         elicitationQueue: [question("q-here", "sess-1"), question("q-there", "sess-2")],
       });
       const html = renderToString(<AgentPermissionToastHost activeModuleId="agenthub" />);
-      expect(html).toContain('data-testid="agent-question-toast"');
+      expect(html).toContain('data-testid="agent-permission-waiting-pill"');
+      expect(html).toContain('role="status"');
     });
 
     it("floats over Agent Hub when its tab on screen is another session, whatever the panel follows", () => {

@@ -9,6 +9,7 @@ import { useComposerImagesStore } from "@/stores/composerImages";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
 import type { SessionFailure, TranscriptItem } from "@/modules/agenthub/types";
+import { AgentPermissionToastHost } from "@/workbench/AgentPermissionToastHost";
 
 /**
  * The real conversation (AgentHubContent) and rail (AgentRail) with the
@@ -225,8 +226,8 @@ const COMMANDS = [
   { name: "init", description: "" },
 ];
 
-type Scenario = "idle" | "streaming" | "permission" | "permissionmessage" | "questions" | "failure" | "error" | "queue" | "attachments" | "longprompt" | "draft";
-const SCENARIOS: Scenario[] = ["idle", "streaming", "permission", "permissionmessage", "questions", "failure", "error", "queue", "attachments", "longprompt", "draft"];
+type Scenario = "idle" | "streaming" | "permission" | "permissionmessage" | "permission-other" | "questions" | "failure" | "error" | "queue" | "attachments" | "longprompt" | "draft";
+const SCENARIOS: Scenario[] = ["idle", "streaming", "permission", "permissionmessage", "permission-other", "questions", "failure", "error", "queue", "attachments", "longprompt", "draft"];
 const LONG_PROMPT = Array.from({ length: 30 }, (_, i) => `line ${i + 1} of a long prompt`).join("\n");
 
 export function AgentComposerLayoutSection() {
@@ -243,7 +244,7 @@ export function AgentComposerLayoutSection() {
   const [model, setModel] = useState("sonnet");
 
   const session = useMemo<AgentSession>(
-    () => ({ ...SESSION, status: scenario === "error" ? "error" : scenario === "streaming" ? "running" : scenario === "permission" || scenario === "permissionmessage" ? "awaiting_permission" : "idle" }),
+    () => ({ ...SESSION, status: scenario === "error" ? "error" : scenario === "streaming" ? "running" : scenario === "permission" || scenario === "permissionmessage" || scenario === "permission-other" ? "awaiting_permission" : "idle" }),
     [scenario],
   );
   const items = useMemo(() => transcript(turns), [turns]);
@@ -253,11 +254,13 @@ export function AgentComposerLayoutSection() {
     const permissions =
       scenario === "permission"
         ? [PERMISSION, { ...PERMISSION, id: "perm-2" }, { ...PERMISSION, id: "perm-3" }]
+        : scenario === "permission-other"
+          ? [PERMISSION, { ...PERMISSION, id: "perm-other", sessionId: "sess-other", title: "Other session" }]
         : scenario === "permissionmessage"
           ? [PERMISSION_MESSAGE]
           : [];
     const questions = scenario === "questions" ? [question("q-1", 4), question("q-2", 2)] : [];
-    useAgentSessionsStore.setState({ pendingQueue: permissions, elicitationQueue: questions });
+    useAgentSessionsStore.setState({ pending: permissions[0] ?? null, pendingQueue: permissions, elicitationQueue: questions });
     return () => useAgentSessionsStore.setState({ pendingQueue: [], elicitationQueue: [] });
   }, [scenario]);
 
@@ -314,7 +317,7 @@ export function AgentComposerLayoutSection() {
     onCompact: () => {},
   };
 
-  const pendingPermission = scenario === "permission" ? PERMISSION : scenario === "permissionmessage" ? PERMISSION_MESSAGE : null;
+  const pendingPermission = scenario === "permission" || scenario === "permission-other" ? PERMISSION : scenario === "permissionmessage" ? PERMISSION_MESSAGE : null;
   const pendingElicitation = scenario === "questions" ? question("q-1", 4) : null;
 
   return (
@@ -334,7 +337,7 @@ export function AgentComposerLayoutSection() {
             }}
             className="rounded-md border border-border-subtle px-2 py-1 aria-pressed:bg-state-soft aria-pressed:text-text-primary"
           >
-            {name}
+            {name === "permission-other" ? "own + other" : name}
           </button>
         ))}
         <span className="mx-2">|</span>
@@ -375,7 +378,7 @@ export function AgentComposerLayoutSection() {
           <div
             data-testid="layout-hub"
             style={{ width, height }}
-            className="overflow-hidden rounded-control border border-border-subtle bg-surface-base"
+            className="relative overflow-hidden rounded-control border border-border-subtle bg-surface-base"
           >
             <AgentHubContent
               {...common}
@@ -411,6 +414,14 @@ export function AgentComposerLayoutSection() {
           </div>
         </div>
       </TrayStatusOverride.Provider>
+      {scenario === "permission-other" ? (
+        <AgentPermissionToastHost
+          activeModuleId="agenthub"
+          visibleSessionId={SESSION.id}
+          pending={PERMISSION}
+          session={{ ...SESSION, id: "sess-other", title: "Other session" }}
+        />
+      ) : null}
     </section>
   );
 }
