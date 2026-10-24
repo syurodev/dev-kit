@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
@@ -139,5 +140,54 @@ func TestPermissionWaiterAnnouncesAnswerAndStopOnce(t *testing.T) {
 	case extra := <-closed:
 		t.Fatalf("closed fired again: %+v", extra)
 	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// CancelSession while notify is still publishing the open: the window must see
+// the open first, then the close, never the reverse.
+func TestPermissionClosedNeverOvertakesItsOpen(t *testing.T) {
+	var mu sync.Mutex
+	var order []string
+	inNotify := make(chan struct{})
+	release := make(chan struct{})
+	w := NewPermissionWaiter(func(p PendingPermission) {
+		close(inNotify)
+		<-release
+		mu.Lock()
+		order = append(order, "open")
+		mu.Unlock()
+	})
+	w.OnClosed = func(PermissionClosed) {
+		mu.Lock()
+		order = append(order, "closed")
+		mu.Unlock()
+	}
+	done := make(chan struct{})
+	go func() {
+		_, _ = w.Wait(context.Background(), "s1", json.RawMessage(`{}`))
+		close(done)
+	}()
+	<-inNotify
+	if n := w.CancelSession("s1"); n != 1 {
+		t.Fatalf("CancelSession = %d, want 1", n)
+	}
+	time.Sleep(30 * time.Millisecond) // a close that overtakes would land here
+	close(release)
+	<-done
+	deadline := time.Now().Add(time.Second)
+	for {
+		mu.Lock()
+		got := append([]string(nil), order...)
+		mu.Unlock()
+		if len(got) == 2 {
+			if got[0] != "open" || got[1] != "closed" {
+				t.Fatalf("order = %v, want [open closed]", got)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("order = %v, want [open closed]", got)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }

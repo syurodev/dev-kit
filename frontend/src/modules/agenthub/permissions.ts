@@ -40,9 +40,30 @@ export async function refreshSessionAfterPermission(sessionId: string): Promise<
   }
 }
 
+/**
+ * Tells the backend the person's answer and settles the card. Returns the
+ * message to show on the card when the answer failed, "" otherwise. A request
+ * Go no longer waits for is not a failure: its card is stale, so it comes down.
+ */
+export async function answerPermission(pending: PendingPermission, optionId: string | null): Promise<string> {
+  const store = useAgentSessionsStore.getState();
+  try {
+    await agentHubResolvePermission(
+      pending.id,
+      optionId === null ? cancelledPermissionOutcome() : selectedPermissionOutcome(optionId),
+    );
+  } catch (e) {
+    if (!isPermissionNotWaiting(e)) return errorMessage(e);
+    // Go withdrew the request before this answer. Take the card down and show
+    // the session as it really is.
+  }
+  store.dequeuePending(pending.id);
+  // Losing the refreshed row must not look like a failed permission.
+  await refreshSessionAfterPermission(pending.sessionId);
+  return "";
+}
+
 export function useResolvePermission(pending: PendingPermission | null) {
-  const dequeuePending = useAgentSessionsStore((s) => s.dequeuePending);
-  const upsertSession = useAgentSessionsStore((s) => s.upsertSession);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -52,35 +73,12 @@ export function useResolvePermission(pending: PendingPermission | null) {
       setBusy(true);
       setError("");
       try {
-        await agentHubResolvePermission(
-          pending.id,
-          optionId === null ? cancelledPermissionOutcome() : selectedPermissionOutcome(optionId),
-        );
-        dequeuePending(pending.id);
-        try {
-          const fresh = await agentHubGetStatus(pending.sessionId);
-          const stillWaiting = useAgentSessionsStore
-            .getState()
-            .pendingQueue.some((p) => p.sessionId === pending.sessionId);
-          upsertSession(statusAfterAnswer(fresh, stillWaiting));
-        } catch {
-          // The answer landed; the session may be gone or the hub away. Losing
-          // the refreshed row must not look like a failed permission.
-        }
-      } catch (e) {
-        if (isPermissionNotWaiting(e)) {
-          // Go withdrew the request before this answer: the card is stale, not
-          // failed. Take it down and show the session as it really is.
-          dequeuePending(pending.id);
-          await refreshSessionAfterPermission(pending.sessionId);
-        } else {
-          setError(errorMessage(e));
-        }
+        setError(await answerPermission(pending, optionId));
       } finally {
         setBusy(false);
       }
     },
-    [pending, dequeuePending, upsertSession],
+    [pending],
   );
 
   return { busy, error, resolve };
@@ -97,6 +95,11 @@ export function useResolvePermission(pending: PendingPermission | null) {
  * already arrived, it is running.
  */
 export function statusAfterAnswer(fresh: AgentSession, stillWaiting: boolean): AgentSession {
+  // The queue is the truth about what is waiting: a read that began before a
+  // newer request arrived says running, and must not overwrite that request.
+  if (stillWaiting && (fresh.status === "running" || fresh.status === "awaiting_permission")) {
+    return { ...fresh, status: "awaiting_permission" };
+  }
   if (fresh.status === "awaiting_permission" && !stillWaiting) return { ...fresh, status: "running" };
   return fresh;
 }

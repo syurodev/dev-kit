@@ -18,6 +18,7 @@ import {
   onAgentHubTurnStarted,
   type AgentSession,
   type AgentTurnFinishedEvent,
+  type PermissionClosedEvent,
   type SessionUpdateEvent,
 } from "../bridge/agenthub";
 import { useAgentPinsStore } from "../stores/agentPins";
@@ -491,16 +492,7 @@ export function AgentSessionsSubscriber() {
   useEffect(() => onAgentHubElicitation(enqueueElicitation), [enqueueElicitation]);
   // Go stopped waiting for a permission (the agent took it back, the turn ended,
   // it expired). Without this the card stayed and its buttons answered nothing.
-  useEffect(
-    () =>
-      onAgentHubPermissionClosed((event) => {
-        const state = useAgentSessionsStore.getState();
-        const wasShown = state.pendingQueue.some((p) => p.id === event.id);
-        state.dequeuePending(event.id);
-        if (wasShown && event.reason !== "answered") void refreshSessionAfterPermission(event.sessionId);
-      }),
-    [],
-  );
+  useEffect(() => onAgentHubPermissionClosed(handlePermissionClosed), []);
   useEffect(() => onAgentHubElicitationClosed((event) => dequeueElicitation(event.id)), [dequeueElicitation]);
 
   return (
@@ -508,4 +500,12 @@ export function AgentSessionsSubscriber() {
       {announcement}
     </div>
   );
+}
+
+/** Go stopped waiting for a permission: the card goes, and the session is read again. */
+export function handlePermissionClosed(event: PermissionClosedEvent): void {
+  const state = useAgentSessionsStore.getState();
+  const wasShown = state.pendingQueue.some((p) => p.id === event.id);
+  state.dequeuePending(event.id);
+  if (wasShown && event.reason !== "answered") void refreshSessionAfterPermission(event.sessionId);
 }

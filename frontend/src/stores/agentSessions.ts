@@ -318,6 +318,8 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
     }),
   enqueuePending: (pending) =>
     set((state) => {
+      // A request already closed is not reopened by a late announcement of it.
+      if (closedPermissionIds.has(pending.id)) return {};
       if (state.pendingQueue.some((p) => p.id === pending.id)) {
         return {};
       }
@@ -326,6 +328,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
     }),
   dequeuePending: (id) =>
     set((state) => {
+      rememberClosedPermission(id);
       const pendingQueue = state.pendingQueue.filter((p) => p.id !== id);
       return { pendingQueue, pending: pendingQueue[0] ?? null };
     }),
@@ -337,6 +340,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
     set((state) => {
       const pendingQueue = state.pendingQueue.filter((p) => p.sessionId !== sessionId);
       if (pendingQueue.length === state.pendingQueue.length) return state;
+      for (const p of state.pendingQueue) if (p.sessionId === sessionId) rememberClosedPermission(p.id);
       return { pendingQueue, pending: pendingQueue[0] ?? null };
     }),
   enqueueElicitation: (pending) =>
@@ -485,4 +489,22 @@ export function useAgentSessionList(): AgentSession[] {
   return useAgentSessionsStore(
     useShallow((state) => state.sessionIds.map((id) => state.sessionsById[id])),
   );
+}
+
+// Ids of permission requests that were taken down, so an open announced late
+// (its payload was still being built when the close went out) cannot bring a
+// dead card back. Bounded: ids are random and a late open is seconds late.
+const CLOSED_PERMISSIONS_KEPT = 200;
+const closedPermissionIds = new Set<string>();
+function rememberClosedPermission(id: string) {
+  closedPermissionIds.delete(id);
+  closedPermissionIds.add(id);
+  if (closedPermissionIds.size > CLOSED_PERMISSIONS_KEPT) {
+    closedPermissionIds.delete(closedPermissionIds.values().next().value as string);
+  }
+}
+
+/** For tests: forget which permission requests were closed. */
+export function resetClosedPermissions() {
+  closedPermissionIds.clear();
 }
