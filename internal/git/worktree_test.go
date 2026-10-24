@@ -41,10 +41,8 @@ func TestWorktreeAddAttachesExistingBranch(t *testing.T) {
 	svc, _ := newRepo(t)
 	ctx := context.Background()
 
-	// Create a branch first.
-	if _, err := svc.CreateBranch(ctx, "existing-branch", ""); err != nil {
-		t.Fatal(err)
-	}
+	// Create a branch without checking it out in the main worktree.
+	runGit(t, svc, svc.Project(), "branch", "existing-branch")
 
 	// Now add a worktree for that existing branch.
 	wt, err := svc.WorktreeAdd(ctx, WorktreeAddInput{Branch: "existing-branch"})
