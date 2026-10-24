@@ -45,6 +45,16 @@ type GitAPI interface {
 	Revert(ctx context.Context, in gitservice.PickInput) (gitservice.HistoryResult, error)
 	Fetch(ctx context.Context, remote string) error
 	Pull(ctx context.Context, remote string) error
+	WorktreeAdd(ctx context.Context, in gitservice.WorktreeAddInput) (gitservice.Worktree, error)
+	Worktrees(ctx context.Context) ([]gitservice.Worktree, error)
+	WorktreeRemove(ctx context.Context, name string) error
+	WorktreePrune(ctx context.Context) ([]string, error)
+}
+
+// GitWorktreeGrants are checked against the real default policy as well as
+// used by the worktree handlers, so a test fake cannot hide a missing grant.
+func GitWorktreeGrants() [][3]string {
+	return [][3]string{{"builtin.git", "git:read", "repo:worktree"}, {"builtin.git", "git:write", "repo:worktree"}}
 }
 
 // TaskBranches reports the branches recorded on tasks a session holds. It is
@@ -56,7 +66,7 @@ type TaskBranches interface {
 
 // gitRepoInput is the argument every git tool shares: which repository.
 type gitRepoInput struct {
-	Repo string `json:"repo,omitempty" jsonschema:"optional; which repository: a folder name from workspace.list or git.repos (e.g. kong-plugin) or an absolute path. Defaults to your session's working directory — from a terminal, to the repository open in DevKit"`
+	Repo string `json:"repo,omitempty" jsonschema:"optional; workspace folder name or path; defaults to your session repository"`
 }
 
 // gitStatusResult is git.status's answer, naming the repository it read so an
@@ -288,6 +298,25 @@ func (s *Server) registerGit(ms *sdk.Server) {
 	// work that the history cannot give back, and `git merge --abort` is left
 	// out for the same reason — discarding everyone's in-flight merge is a
 	// person's decision.
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name:        "git.worktree.add",
+		Description: "Create or attach a branch worktree under `.superpowers/.worktrees/`; guarded branches ask the person.",
+		Annotations: &sdk.ToolAnnotations{DestructiveHint: boolPtr(false)},
+	}, s.toolGitWorktreeAdd)
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name:        "git.worktree.list",
+		Description: "List worktree paths, branches, heads and locked, prunable, and dirty states.",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolGitWorktreeList)
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name:        "git.worktree.remove",
+		Description: "Remove a clean worktree by branch or path. Keeps the branch.",
+		Annotations: &sdk.ToolAnnotations{DestructiveHint: boolPtr(false)},
+	}, s.toolGitWorktreeRemove)
+
 }
 
 func (s *Server) toolGitStatus(ctx context.Context, _ *sdk.CallToolRequest, in gitRepoInput) (*sdk.CallToolResult, any, error) {
@@ -784,4 +813,63 @@ func (s *Server) gitSync(ctx context.Context, in gitRemoteInput, op string, run 
 		return nil, nil, err
 	}
 	return nil, structured(v), nil
+}
+
+// Worktree tools
+
+type gitWorktreeAddInput struct {
+	gitRepoInput
+	Branch string `json:"branch"`
+	Base   string `json:"base,omitempty"`
+}
+
+func (s *Server) toolGitWorktreeAdd(ctx context.Context, _ *sdk.CallToolRequest, in gitWorktreeAddInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:write", "repo:worktree", meta("worktree_add", repoMeta(in.Repo, nil)), func(ctx context.Context) (any, error) {
+		git, _, err := s.gitFor(ctx, in.Repo, true)
+		if err != nil {
+			return nil, err
+		}
+		return git.WorktreeAdd(ctx, gitservice.WorktreeAddInput{Branch: in.Branch, Base: in.Base})
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+type gitWorktreeListInput struct {
+	gitRepoInput
+}
+
+func (s *Server) toolGitWorktreeList(ctx context.Context, _ *sdk.CallToolRequest, in gitWorktreeListInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:read", "repo:worktree", meta("worktree_list", repoMeta(in.Repo, nil)), func(ctx context.Context) (any, error) {
+		git, _, err := s.gitFor(ctx, in.Repo, false)
+		if err != nil {
+			return nil, err
+		}
+		return git.Worktrees(ctx)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+type gitWorktreeRemoveInput struct {
+	gitRepoInput
+	Name string `json:"name"`
+}
+
+func (s *Server) toolGitWorktreeRemove(ctx context.Context, _ *sdk.CallToolRequest, in gitWorktreeRemoveInput) (*sdk.CallToolResult, any, error) {
+	_, err := s.deps.Caller.Call(ctx, "builtin.git", "git:write", "repo:worktree", meta("worktree_remove", repoMeta(in.Repo, nil)), func(ctx context.Context) (any, error) {
+		git, _, err := s.gitFor(ctx, in.Repo, true)
+		if err != nil {
+			return nil, err
+		}
+		return nil, git.WorktreeRemove(ctx, in.Name)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(map[string]any{"removed": in.Name}), nil
 }

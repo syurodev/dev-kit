@@ -208,6 +208,26 @@ func TestAgentHubCreateAgentSessionTool(t *testing.T) {
 	}
 }
 
+func TestAgentHubChildWorktreeStartsInSeparateCheckout(t *testing.T) {
+	parent := agenthub.AgentSession{ID: gitSession, ProjectPath: auth}
+	srv, _, repos := gitServer(parent)
+	hub := &fakeAgentHub{status: parent, created: agenthub.AgentSession{ID: "child-worktree", AgentType: agenthub.AgentTypeMock}}
+	srv.deps.AgentHub = hub
+	_, _, err := srv.toolAgentHubCreateAgentSession(agentCtx(), &sdk.CallToolRequest{}, agentHubCreateInput{
+		AgentType: "mock", CallerSessionID: gitSession, Worktree: "feature/child-worktree",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "/repo/.superpowers/.worktrees/feature/child-worktree"
+	if hub.createIn.Cwd != want {
+		t.Fatalf("child cwd = %q, want %q", hub.createIn.Cwd, want)
+	}
+	if repos[auth].worktreeInput.Branch != "feature/child-worktree" {
+		t.Fatalf("worktree branch = %+v", repos[auth].worktreeInput)
+	}
+}
+
 func TestAgentHubInvokeAgentTool(t *testing.T) {
 	caller := &fakeCaller{}
 	sessionID := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"

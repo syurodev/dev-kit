@@ -16,9 +16,12 @@ import (
 
 // fakeGit is one repository; it says which by its branch name.
 type fakeGit struct {
-	name   string
-	staged []string
-	synced []string
+	name          string
+	staged        []string
+	synced        []string
+	worktreeInput gitservice.WorktreeAddInput
+	worktrees     []gitservice.Worktree
+	removed       string
 }
 
 func (f *fakeGit) Status(context.Context) (gitservice.Status, error) {
@@ -72,6 +75,13 @@ func (f *fakeGit) Pull(_ context.Context, remote string) error {
 	f.synced = append(f.synced, "pull "+remote)
 	return nil
 }
+func (f *fakeGit) WorktreeAdd(_ context.Context, in gitservice.WorktreeAddInput) (gitservice.Worktree, error) {
+	f.worktreeInput = in
+	return gitservice.Worktree{Branch: in.Branch, Path: "/repo/.superpowers/.worktrees/" + in.Branch, Head: "abc"}, nil
+}
+func (f *fakeGit) Worktrees(context.Context) ([]gitservice.Worktree, error) { return f.worktrees, nil }
+func (f *fakeGit) WorktreeRemove(_ context.Context, name string) error      { f.removed = name; return nil }
+func (f *fakeGit) WorktreePrune(context.Context) ([]string, error)          { return nil, nil }
 
 // fakeRepos holds a repository per workspace folder; anything else is not one.
 type fakeRepos map[string]*fakeGit
@@ -172,6 +182,32 @@ func TestGitToolsReadAnyWorkspaceFolderAndWriteOnlyGrantedOnes(t *testing.T) {
 	}
 	if _, _, err := srv.toolGitStatus(agentCtx(), &sdk.CallToolRequest{}, gitRepoInput{Repo: "billing-service"}); err == nil {
 		t.Fatal("a folder of another workspace resolved by name")
+	}
+}
+
+func TestGitWorktreeToolsUseRepositoryAndWriteGrants(t *testing.T) {
+	srv, _, repos := gitServer(agenthub.AgentSession{ID: gitSession, ProjectPath: kong, ExtraReadWritePaths: []string{auth}})
+	repos[auth].worktrees = []gitservice.Worktree{{Path: auth + "/.superpowers/.worktrees/feature", Branch: "feature", Head: "abc", Dirty: true}}
+	_, result, err := srv.toolGitWorktreeAdd(agentCtx(), &sdk.CallToolRequest{}, gitWorktreeAddInput{gitRepoInput: gitRepoInput{Repo: auth}, Branch: "feature", Base: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repos[auth].worktreeInput.Branch != "feature" || repos[auth].worktreeInput.Base != "main" {
+		t.Fatalf("add input = %+v", repos[auth].worktreeInput)
+	}
+	if got := unwrap(result).(gitservice.Worktree); got.Branch != "feature" {
+		t.Fatalf("add result = %+v", got)
+	}
+	_, result, err = srv.toolGitWorktreeList(agentCtx(), &sdk.CallToolRequest{}, gitWorktreeListInput{gitRepoInput: gitRepoInput{Repo: auth}})
+	if err != nil || len(unwrap(result).([]gitservice.Worktree)) != 1 {
+		t.Fatalf("list = %v, %v", result, err)
+	}
+	_, _, err = srv.toolGitWorktreeRemove(agentCtx(), &sdk.CallToolRequest{}, gitWorktreeRemoveInput{gitRepoInput: gitRepoInput{Repo: auth}, Name: "feature"})
+	if err != nil || repos[auth].removed != "feature" {
+		t.Fatalf("remove = %v, name %q", err, repos[auth].removed)
+	}
+	if _, _, err := srv.toolGitWorktreeAdd(agentCtx(), &sdk.CallToolRequest{}, gitWorktreeAddInput{gitRepoInput: gitRepoInput{Repo: config}, Branch: "forbidden"}); appCode(err) != "git.repoNotGranted" {
+		t.Fatalf("write to ungranted folder = %v", err)
 	}
 }
 
