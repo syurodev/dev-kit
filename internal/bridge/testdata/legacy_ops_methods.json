@@ -275,6 +275,7 @@
   "McpInstall",
   "McpListAgents",
   "McpUninstall",
+  "PreferencesAgentSandboxStatus",
   "PreferencesGetAgentCheckpoints",
   "PreferencesGetAgentNotifications",
   "PreferencesGetAgentSandbox",
