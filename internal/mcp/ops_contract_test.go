@@ -3,7 +3,9 @@ package mcp
 import (
 	"devkit/internal/ops"
 	"encoding/json"
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"os"
+	"reflect"
 	"testing"
 )
 
@@ -48,6 +50,35 @@ func TestMCPSurfaceMatchesRegistry(t *testing.T) {
 	for _, name := range legacy {
 		if !actual[name] {
 			t.Errorf("remove missing legacy %s", name)
+		}
+	}
+}
+
+// Frozen from tools_notes.go before migration, not from registry declarations.
+func TestNotesWireDescriptionsAndAnnotationsStayIdentical(t *testing.T) {
+	raw, err := os.ReadFile("testdata/notes_surface.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var baseline []struct {
+		Name, Description string
+		ReadOnly          bool
+		Destructive       *bool
+	}
+	if err := json.Unmarshal(raw, &baseline); err != nil {
+		t.Fatal(err)
+	}
+	actual := map[string]*sdk.Tool{}
+	for _, tool := range listAllTools(t) {
+		actual[tool.Name] = tool
+	}
+	for _, want := range baseline {
+		got := actual[want.Name]
+		if got == nil {
+			t.Fatal(want.Name)
+		}
+		if got.Description != want.Description || got.Annotations.ReadOnlyHint != want.ReadOnly || !reflect.DeepEqual(got.Annotations.DestructiveHint, want.Destructive) || got.Annotations.OpenWorldHint != nil {
+			t.Errorf("%s wire metadata changed: %+v", want.Name, got)
 		}
 	}
 }

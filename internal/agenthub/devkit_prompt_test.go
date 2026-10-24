@@ -1,6 +1,7 @@
 package agenthub
 
 import (
+	"devkit/internal/ops"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,6 +19,14 @@ func mcpToolNames(t *testing.T) map[string]bool {
 		t.Fatalf("glob ../mcp/tools_*.go: %v (%d files)", err, len(files))
 	}
 	names := map[string]bool{}
+	// Migrated tools are declared in ops rather than tools_*.go.
+	for _, op := range ops.All() {
+		d := op.Descriptor()
+		if d.Exposure != ops.UI {
+			names[d.Name] = true
+		}
+	}
+
 	pattern := regexp.MustCompile(`Name:\s*"([a-z][A-Za-z_.]*)"`)
 	for _, path := range files {
 		if strings.HasSuffix(path, "_test.go") {

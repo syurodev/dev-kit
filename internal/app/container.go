@@ -24,6 +24,7 @@ import (
 	"devkit/internal/modules"
 	"devkit/internal/notes"
 	"devkit/internal/notify"
+	"devkit/internal/ops"
 	"devkit/internal/permissions"
 	"devkit/internal/preferences"
 	"devkit/internal/prwatch"
@@ -248,7 +249,7 @@ func NewContainerWithStores(
 		})
 	}
 
-	permissionPolicy := permissions.NewPolicy(append(toolGrants, []permissions.Grant{
+	permissionPolicy := permissions.NewPolicy(append(append(toolGrants, ops.Grants(ops.All()...)...), []permissions.Grant{
 		// Tools grants come from tools.Commands so a new command cannot be
 		// registered without one — the failure that leaves a command runnable
 		// with no matching grant, or granted and never wired.
@@ -269,17 +270,6 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.workspace", Capability: "ws:write", Scope: "service:reindex"},
 		{SubjectID: "builtin.workspace-memory", Capability: "workspace-memory:read", Scope: "workspace:*"},
 		{SubjectID: "builtin.workspace-memory", Capability: "workspace-memory:write", Scope: "workspace:*"},
-		{SubjectID: "builtin.notes", Capability: "notes:write", Scope: "note:new"},
-		{SubjectID: "builtin.notes", Capability: "notes:write", Scope: "note:*"},
-		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note:list"},
-		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note:search"},
-		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note:*"},
-		{SubjectID: "builtin.notes", Capability: "notes:write", Scope: "note-folder:new"},
-		{SubjectID: "builtin.notes", Capability: "notes:write", Scope: "note-folder:*"},
-		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note-folder:list"},
-		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note-folder:*"},
-		// Version previews use their own record scope.
-		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note-version:*"},
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:list"},
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:new"},
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:active"},

@@ -1,0 +1,185 @@
+[
+  {
+    "bridge": "NotesList",
+    "capability": "notes:read",
+    "scope": "note:list",
+    "metadata": {
+      "action": "list"
+    }
+  },
+  {
+    "bridge": "NotesSearch",
+    "capability": "notes:read",
+    "scope": "note:search",
+    "metadata": {
+      "action": "search"
+    }
+  },
+  {
+    "bridge": "NotesCreate",
+    "capability": "notes:write",
+    "scope": "note:new",
+    "metadata": {
+      "action": "create"
+    }
+  },
+  {
+    "bridge": "NotesSetOrganization",
+    "capability": "notes:write",
+    "scope": "note:abcdef0123456789abcdef01",
+    "metadata": {
+      "action": "set_organization",
+      "note_id": "abcdef0123456789abcdef01"
+    }
+  },
+  {
+    "bridge": "NotesFolderList",
+    "capability": "notes:read",
+    "scope": "note-folder:list",
+    "metadata": {
+      "action": "list_folders"
+    }
+  },
+  {
+    "bridge": "NotesFolderCreate",
+    "capability": "notes:write",
+    "scope": "note-folder:new",
+    "metadata": {
+      "action": "create_folder"
+    }
+  },
+  {
+    "bridge": "NotesFolderUpdate",
+    "capability": "notes:write",
+    "scope": "note-folder:abcdef0123456789abcdef01",
+    "metadata": {
+      "action": "update_folder",
+      "folder_id": "abcdef0123456789abcdef01"
+    }
+  },
+  {
+    "bridge": "NotesFolderDelete",
+    "capability": "notes:write",
+    "scope": "note-folder:abcdef0123456789abcdef01",
+    "metadata": {
+      "action": "delete_folder",
+      "folder_id": "abcdef0123456789abcdef01"
+    }
+  },
+  {
+    "bridge": "NotesUpdate",
+    "capability": "notes:write",
+    "scope": "note:abcdef0123456789abcdef01",
+    "metadata": {
+      "action": "update",
+      "note_id": "abcdef0123456789abcdef01"
+    }
+  },
+  {
+    "bridge": "NotesGet",
+    "capability": "notes:read",
+    "scope": "note:abcdef0123456789abcdef01",
+    "metadata": {
+      "action": "get",
+      "note_id": "abcdef0123456789abcdef01"
+    }
+  },
+  {
+    "bridge": "NotesListBacklinks",
+    "capability": "notes:read",
+    "scope": "note:abcdef0123456789abcdef01",
+    "metadata": {
+      "action": "list_backlinks",
+      "note_id": "abcdef0123456789abcdef01"
+    }
+  },
+  {
+    "bridge": "NotesResolveLinks",
+    "capability": "notes:read",
+    "scope": "note:links",
+    "metadata": {
+      "action": "resolve_links",
+      "count": 1
+    }
+  },
+  {
+    "bridge": "NotesCheckpoint",
+    "capability": "notes:write",
+    "scope": "note:abcdef0123456789abcdef01",
+    "metadata": {
+      "action": "checkpoint",
+      "note_id": "abcdef0123456789abcdef01"
+    }
+  },
+  {
+    "bridge": "NotesListVersions",
+    "capability": "notes:read",
+    "scope": "note:abcdef0123456789abcdef01",
+    "metadata": {
+      "action": "list_versions",
+      "note_id": "abcdef0123456789abcdef01"
+    }
+  },
+  {
+    "bridge": "NotesGetVersion",
+    "capability": "notes:read",
+    "scope": "note-version:abcdef0123456789abcdef01",
+    "metadata": {
+      "action": "get_version",
+      "version_id": "abcdef0123456789abcdef01"
+    }
+  },
+  {
+    "bridge": "NotesRestoreVersion",
+    "capability": "notes:write",
+    "scope": "note:abcdef0123456789abcdef01",
+    "metadata": {
+      "action": "restore_version",
+      "note_id": "abcdef0123456789abcdef01",
+      "version_id": "abcdef0123456789abcdef01"
+    }
+  },
+  {
+    "bridge": "NotesListTrash",
+    "capability": "notes:read",
+    "scope": "note:trash",
+    "metadata": {
+      "action": "list_trash"
+    }
+  },
+  {
+    "bridge": "NotesRestore",
+    "capability": "notes:write",
+    "scope": "note:abcdef0123456789abcdef01",
+    "metadata": {
+      "action": "restore",
+      "note_id": "abcdef0123456789abcdef01"
+    }
+  },
+  {
+    "bridge": "NotesPurge",
+    "capability": "notes:write",
+    "scope": "note:abcdef0123456789abcdef01",
+    "metadata": {
+      "action": "purge",
+      "note_id": "abcdef0123456789abcdef01"
+    }
+  },
+  {
+    "bridge": "NotesEmptyTrash",
+    "capability": "notes:write",
+    "scope": "note:trash",
+    "metadata": {
+      "action": "empty_trash"
+    }
+  },
+  {
+    "bridge": "NotesDelete",
+    "capability": "notes:write",
+    "scope": "note:abcdef0123456789abcdef01",
+    "metadata": {
+      "action": "delete",
+      "note_id": "abcdef0123456789abcdef01"
+    }
+  }
+]

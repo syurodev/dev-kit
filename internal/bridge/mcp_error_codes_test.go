@@ -21,6 +21,7 @@ import (
 	"devkit/internal/forge"
 	gitservice "devkit/internal/git"
 	"devkit/internal/mcp"
+	"devkit/internal/ops"
 	"devkit/internal/prwatch"
 	"devkit/internal/workspace"
 
@@ -41,6 +42,12 @@ func mcpErrorCodes(t *testing.T) []string {
 	}
 	raised := regexp.MustCompile(`(?:apperrors\.(?:New|Wrap)|pdfError)\(\s*"([^"]+)"`)
 	seen := map[string]bool{}
+	for _, op := range ops.All() {
+		for _, code := range op.Descriptor().Errors {
+			seen[code] = true
+		}
+	}
+
 	for _, file := range files {
 		if strings.HasSuffix(file, "_test.go") {
 			continue

@@ -260,3 +260,7 @@ func contains(s string, parts ...string) bool {
 	}
 	return true
 }
+
+func (a *allowAll) CallOperation(ctx context.Context, r capabilities.CallRequest) (any, error) {
+	return a.Call(ctx, r.SubjectID, r.Capability, r.Scope, r.Metadata, r.Handler)
+}

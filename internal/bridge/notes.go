@@ -4,287 +4,102 @@ import (
 	"context"
 
 	"devkit/internal/notes"
+	"devkit/internal/ops"
 )
 
-func (s *AppService) NotesList() ([]notes.Summary, error) {
-	result, err := s.call(context.Background(), "builtin.notes", "notes:read", "note:list", map[string]any{
-		"action": "list",
-	}, func(context.Context) (any, error) {
-		return s.container.Notes.List()
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.([]notes.Summary), nil
+func (s *AppService) NotesList(ctx context.Context) ([]notes.Summary, error) {
+	return ops.Invoke(callerContext(ctx), s.notesRuntime(), ops.NotesList, ops.NotesEmptyIn{})
 }
 
-func (s *AppService) NotesSearch(query string) ([]notes.Summary, error) {
-	result, err := s.call(context.Background(), "builtin.notes", "notes:read", "note:search", map[string]any{
-		"action": "search",
-	}, func(context.Context) (any, error) {
-		return s.container.Notes.Search(query)
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.([]notes.Summary), nil
+func (s *AppService) NotesSearch(ctx context.Context, query string) ([]notes.Summary, error) {
+	return ops.Invoke(callerContext(ctx), s.notesRuntime(), ops.NotesSearch, ops.NotesQueryIn{Query: query})
 }
 
-func (s *AppService) NotesCreate(title string, body string, folderID string, tags []string) (notes.Summary, error) {
-	result, err := s.call(context.Background(), "builtin.notes", "notes:write", "note:new", map[string]any{
-		"action": "create",
-	}, func(context.Context) (any, error) {
-		return s.container.Notes.Create(title, body, folderID, tags)
-	})
-	if err != nil {
-		return notes.Summary{}, err
-	}
-	return result.(notes.Summary), nil
+func (s *AppService) NotesCreate(ctx context.Context, title string, body string, folderID string, tags []string) (notes.Summary, error) {
+	return ops.Invoke(callerContext(ctx), s.notesRuntime(), ops.NotesCreate, ops.NotesCreateIn{Title: title, Body: body, FolderID: folderID, Tags: tags})
 }
 
-func (s *AppService) NotesSetOrganization(id, folderID string, tags []string, color string) (notes.Summary, error) {
-	opaqueID := recordID(id)
-	result, err := s.call(context.Background(), "builtin.notes", "notes:write", "note:"+opaqueID, map[string]any{
-		"action":  "set_organization",
-		"note_id": opaqueID,
-	}, func(context.Context) (any, error) {
-		return s.container.Notes.SetOrganization(id, folderID, tags, color)
-	})
-	if err != nil {
-		return notes.Summary{}, err
-	}
-	return result.(notes.Summary), nil
+func (s *AppService) NotesSetOrganization(ctx context.Context, id, folderID string, tags []string, color string) (notes.Summary, error) {
+	return ops.Invoke(callerContext(ctx), s.notesRuntime(), ops.NotesSetOrganization, ops.NotesSetOrganizationIn{ID: id, FolderID: folderID, Tags: tags, Color: color})
 }
 
-func (s *AppService) NotesFolderList() ([]notes.Folder, error) {
-	result, err := s.call(context.Background(), "builtin.notes", "notes:read", "note-folder:list", map[string]any{
-		"action": "list_folders",
-	}, func(context.Context) (any, error) {
-		return s.container.Notes.ListFolders()
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.([]notes.Folder), nil
+func (s *AppService) NotesFolderList(ctx context.Context) ([]notes.Folder, error) {
+	return ops.Invoke(callerContext(ctx), s.notesRuntime(), ops.NotesFolderList, ops.NotesEmptyIn{})
 }
 
-func (s *AppService) NotesFolderCreate(name, color string, tags []string) (notes.Folder, error) {
-	result, err := s.call(context.Background(), "builtin.notes", "notes:write", "note-folder:new", map[string]any{
-		"action": "create_folder",
-	}, func(context.Context) (any, error) {
-		return s.container.Notes.CreateFolder(name, color, tags)
-	})
-	if err != nil {
-		return notes.Folder{}, err
-	}
-	return result.(notes.Folder), nil
+func (s *AppService) NotesFolderCreate(ctx context.Context, name, color string, tags []string) (notes.Folder, error) {
+	return ops.Invoke(callerContext(ctx), s.notesRuntime(), ops.NotesFolderCreate, ops.NotesFolderCreateIn{Name: name, Color: color, Tags: tags})
 }
 
-func (s *AppService) NotesFolderUpdate(id, name, color string, tags []string) (notes.Folder, error) {
-	opaqueID := recordID(id)
-	result, err := s.call(context.Background(), "builtin.notes", "notes:write", "note-folder:"+opaqueID, map[string]any{
-		"action":    "update_folder",
-		"folder_id": opaqueID,
-	}, func(context.Context) (any, error) {
-		return s.container.Notes.UpdateFolder(id, name, color, tags)
-	})
-	if err != nil {
-		return notes.Folder{}, err
-	}
-	return result.(notes.Folder), nil
+func (s *AppService) NotesFolderUpdate(ctx context.Context, id, name, color string, tags []string) (notes.Folder, error) {
+	return ops.Invoke(callerContext(ctx), s.notesRuntime(), ops.NotesFolderUpdate, ops.NotesFolderUpdateIn{ID: id, Name: name, Color: color, Tags: tags})
 }
 
-func (s *AppService) NotesFolderDelete(id string) error {
-	opaqueID := recordID(id)
-	_, err := s.call(context.Background(), "builtin.notes", "notes:write", "note-folder:"+opaqueID, map[string]any{
-		"action":    "delete_folder",
-		"folder_id": opaqueID,
-	}, func(context.Context) (any, error) {
-		return nil, s.container.Notes.DeleteFolder(id)
-	})
+func (s *AppService) NotesFolderDelete(ctx context.Context, id string) error {
+	_, err := ops.Invoke(callerContext(ctx), s.notesRuntime(), ops.NotesFolderDelete, ops.NotesIDIn{ID: id})
 	return err
 }
 
-func (s *AppService) NotesUpdate(id string, title string, body string) (notes.Note, error) {
-	opaqueID := recordID(id)
-	result, err := s.call(context.Background(), "builtin.notes", "notes:write", "note:"+opaqueID, map[string]any{
-		"action":  "update",
-		"note_id": opaqueID,
-	}, func(context.Context) (any, error) {
-		return s.container.Notes.Update(id, title, body)
-	})
-	if err != nil {
-		return notes.Note{}, err
-	}
-	return result.(notes.Note), nil
+func (s *AppService) NotesUpdate(ctx context.Context, id string, title string, body string) (notes.Note, error) {
+	return ops.Invoke(callerContext(ctx), s.notesRuntime(), ops.NotesUpdate, ops.NotesUpdateIn{ID: id, Title: title, Body: body})
 }
 
-func (s *AppService) NotesGet(id string) (notes.Note, error) {
-	opaqueID := recordID(id)
-	result, err := s.call(context.Background(), "builtin.notes", "notes:read", "note:"+opaqueID, map[string]any{
-		"action":  "get",
-		"note_id": opaqueID,
-	}, func(context.Context) (any, error) {
-		return s.container.Notes.Get(id)
-	})
-	if err != nil {
-		return notes.Note{}, err
-	}
-	return result.(notes.Note), nil
+func (s *AppService) NotesGet(ctx context.Context, id string) (notes.Note, error) {
+	return ops.Invoke(callerContext(ctx), s.notesRuntime(), ops.NotesGet, ops.NotesIDIn{ID: id})
 }
 
-// NotesListTrash, NotesRestore, NotesPurge and NotesEmptyTrash stay off the MCP
-// surface. Emptying a trash or deleting forever is the one place in this module
-// where a mistake cannot be walked back, so it is reachable from the Trash
-// screen and nowhere else.
-func (s *AppService) NotesListBacklinks(id string) ([]notes.Summary, error) {
-	opaqueID := recordID(id)
-	result, err := s.call(context.Background(), "builtin.notes", "notes:read", "note:"+opaqueID, map[string]any{
-		"action":  "list_backlinks",
-		"note_id": opaqueID,
-	}, func(context.Context) (any, error) {
-		return s.container.Notes.ListBacklinks(id)
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.([]notes.Summary), nil
+func (s *AppService) NotesListBacklinks(ctx context.Context, id string) ([]notes.Summary, error) {
+	return ops.Invoke(callerContext(ctx), s.notesRuntime(), ops.NotesListBacklinks, ops.NotesIDIn{ID: id})
 }
 
 // NotesResolveLinks turns the ids in a body into the labels to draw. Titles are
 // resolved at render time, so renaming a note updates every link to it without
 // rewriting a single body.
-func (s *AppService) NotesResolveLinks(ids []string) ([]notes.LinkTarget, error) {
-	result, err := s.call(context.Background(), "builtin.notes", "notes:read", "note:links", map[string]any{
-		"action": "resolve_links",
-		"count":  len(ids),
-	}, func(context.Context) (any, error) {
-		return s.container.Notes.ResolveLinks(ids)
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.([]notes.LinkTarget), nil
+func (s *AppService) NotesResolveLinks(ctx context.Context, ids []string) ([]notes.LinkTarget, error) {
+	return ops.Invoke(callerContext(ctx), s.notesRuntime(), ops.NotesResolveLinks, ops.NotesIDsIn{IDs: ids})
 }
 
-// Version history is UI-only for the same reason the trash is: RestoreVersion
-// overwrites the note, and an agent should not be able to roll one back.
-func (s *AppService) NotesCheckpoint(id string) (notes.Version, error) {
-	opaqueID := recordID(id)
-	result, err := s.call(context.Background(), "builtin.notes", "notes:write", "note:"+opaqueID, map[string]any{
-		"action":  "checkpoint",
-		"note_id": opaqueID,
-	}, func(context.Context) (any, error) {
-		return s.container.Notes.Checkpoint(id, notes.TriggerCheckpoint)
-	})
-	if err != nil {
-		return notes.Version{}, err
-	}
-	return result.(notes.Version), nil
+func (s *AppService) NotesCheckpoint(ctx context.Context, id string) (notes.Version, error) {
+	return ops.Invoke(callerContext(ctx), s.notesRuntime(), ops.NotesCheckpoint, ops.NotesIDIn{ID: id})
 }
 
-func (s *AppService) NotesListVersions(id string) ([]notes.Version, error) {
-	opaqueID := recordID(id)
-	result, err := s.call(context.Background(), "builtin.notes", "notes:read", "note:"+opaqueID, map[string]any{
-		"action":  "list_versions",
-		"note_id": opaqueID,
-	}, func(context.Context) (any, error) {
-		return s.container.Notes.ListVersions(id)
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.([]notes.Version), nil
+func (s *AppService) NotesListVersions(ctx context.Context, id string) ([]notes.Version, error) {
+	return ops.Invoke(callerContext(ctx), s.notesRuntime(), ops.NotesListVersions, ops.NotesIDIn{ID: id})
 }
 
 // NotesGetVersion returns the snapshot body so the diff view can compare it
 // with what is on screen.
-func (s *AppService) NotesGetVersion(versionID string) (map[string]string, error) {
-	opaqueID := recordID(versionID)
-	result, err := s.call(context.Background(), "builtin.notes", "notes:read", "note-version:"+opaqueID, map[string]any{
-		"action":     "get_version",
-		"version_id": opaqueID,
-	}, func(context.Context) (any, error) {
-		title, body, err := s.container.Notes.GetVersion(versionID)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]string{"title": title, "body": body}, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.(map[string]string), nil
+func (s *AppService) NotesGetVersion(ctx context.Context, versionID string) (map[string]string, error) {
+	return ops.Invoke(callerContext(ctx), s.notesRuntime(), ops.NotesGetVersion, ops.NotesVersionIn{VersionID: versionID})
 }
 
-func (s *AppService) NotesRestoreVersion(id, versionID string) (notes.Note, error) {
-	opaqueID := recordID(id)
-	result, err := s.call(context.Background(), "builtin.notes", "notes:write", "note:"+opaqueID, map[string]any{
-		"action":     "restore_version",
-		"note_id":    opaqueID,
-		"version_id": recordID(versionID),
-	}, func(context.Context) (any, error) {
-		return s.container.Notes.RestoreVersion(id, versionID)
-	})
-	if err != nil {
-		return notes.Note{}, err
-	}
-	return result.(notes.Note), nil
+func (s *AppService) NotesRestoreVersion(ctx context.Context, id, versionID string) (notes.Note, error) {
+	return ops.Invoke(callerContext(ctx), s.notesRuntime(), ops.NotesRestoreVersion, ops.NotesRestoreVersionIn{ID: id, VersionID: versionID})
 }
 
-func (s *AppService) NotesListTrash() ([]notes.TrashedNote, error) {
-	result, err := s.call(context.Background(), "builtin.notes", "notes:read", "note:trash", map[string]any{
-		"action": "list_trash",
-	}, func(context.Context) (any, error) {
-		return s.container.Notes.ListTrash()
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.([]notes.TrashedNote), nil
+func (s *AppService) NotesListTrash(ctx context.Context) ([]notes.TrashedNote, error) {
+	return ops.Invoke(callerContext(ctx), s.notesRuntime(), ops.NotesListTrash, ops.NotesEmptyIn{})
 }
 
-func (s *AppService) NotesRestore(id string) error {
-	opaqueID := recordID(id)
-	_, err := s.call(context.Background(), "builtin.notes", "notes:write", "note:"+opaqueID, map[string]any{
-		"action":  "restore",
-		"note_id": opaqueID,
-	}, func(context.Context) (any, error) {
-		return nil, s.container.Notes.Restore(id)
-	})
+func (s *AppService) NotesRestore(ctx context.Context, id string) error {
+	_, err := ops.Invoke(callerContext(ctx), s.notesRuntime(), ops.NotesRestore, ops.NotesIDIn{ID: id})
 	return err
 }
 
-func (s *AppService) NotesPurge(id string) error {
-	opaqueID := recordID(id)
-	_, err := s.call(context.Background(), "builtin.notes", "notes:write", "note:"+opaqueID, map[string]any{
-		"action":  "purge",
-		"note_id": opaqueID,
-	}, func(context.Context) (any, error) {
-		return nil, s.container.Notes.Purge(id)
-	})
+func (s *AppService) NotesPurge(ctx context.Context, id string) error {
+	_, err := ops.Invoke(callerContext(ctx), s.notesRuntime(), ops.NotesPurge, ops.NotesIDIn{ID: id})
 	return err
 }
 
-func (s *AppService) NotesEmptyTrash() (int, error) {
-	result, err := s.call(context.Background(), "builtin.notes", "notes:write", "note:trash", map[string]any{
-		"action": "empty_trash",
-	}, func(context.Context) (any, error) {
-		return s.container.Notes.EmptyTrash()
-	})
-	if err != nil {
-		return 0, err
-	}
-	return result.(int), nil
+func (s *AppService) NotesEmptyTrash(ctx context.Context) (int, error) {
+	return ops.Invoke(callerContext(ctx), s.notesRuntime(), ops.NotesEmptyTrash, ops.NotesEmptyIn{})
 }
 
-func (s *AppService) NotesDelete(id string) error {
-	opaqueID := recordID(id)
-	_, err := s.call(context.Background(), "builtin.notes", "notes:write", "note:"+opaqueID, map[string]any{
-		"action":  "delete",
-		"note_id": opaqueID,
-	}, func(context.Context) (any, error) {
-		return nil, s.container.Notes.Delete(id)
-	})
+func (s *AppService) NotesDelete(ctx context.Context, id string) error {
+	_, err := ops.Invoke(callerContext(ctx), s.notesRuntime(), ops.NotesDelete, ops.NotesIDIn{ID: id})
 	return err
+}
+
+func (s *AppService) notesRuntime() ops.Runtime {
+	return ops.Runtime{Deps: ops.Deps{Notes: s.container.Notes, NotesUI: s.container.Notes}, Caller: gatewayCaller{app: s}, ServerMode: s.inServerMode()}
 }

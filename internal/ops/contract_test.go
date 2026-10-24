@@ -2,7 +2,10 @@ package ops
 
 import (
 	"context"
+	"devkit/internal/capabilities"
+	"devkit/internal/identity"
 	"encoding/json"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -65,6 +68,100 @@ func TestRegistryContracts(t *testing.T) {
 			other, ok := names[twin]
 			if !ok || other.Subject != d.Subject || other.Capability != d.Capability {
 				t.Errorf("%s: invalid twin %s", d.Name, twin)
+			}
+		}
+	}
+}
+
+func TestNotesAuditContractMatchesLegacyBridge(t *testing.T) {
+	raw, err := os.ReadFile("testdata/notes_audit.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var baseline []struct {
+		Bridge, Capability, Scope string
+		Metadata                  map[string]any
+	}
+	if err := json.Unmarshal(raw, &baseline); err != nil {
+		t.Fatal(err)
+	}
+	actual := map[string]Operation{}
+	for _, op := range Notes() {
+		actual[op.Descriptor().Bridge] = op
+	}
+	for _, want := range baseline {
+		op := actual[want.Bridge]
+		if op == nil {
+			t.Fatal(want.Bridge)
+		}
+		in := reflect.New(op.InputType()).Elem()
+		canary(in)
+		for _, field := range []string{"ID", "VersionID"} {
+			v := in.FieldByName(field)
+			if v.IsValid() {
+				v.SetString("abcdef0123456789abcdef01")
+			}
+		}
+		scope, err := op.Resolve(context.Background(), in.Interface())
+		if err != nil {
+			t.Fatal(err)
+		}
+		d := op.Descriptor()
+		if scope.Meta == nil {
+			scope.Meta = map[string]any{}
+		}
+		scope.Meta["action"] = dAction(op)
+		got, _ := json.Marshal(scope.Meta)
+		expected, _ := json.Marshal(want.Metadata)
+		if d.Subject != "builtin.notes" || d.Capability != want.Capability || scope.Value != want.Scope || string(got) != string(expected) {
+			t.Errorf("%s contract changed: %s %s %s", want.Bridge, d.Capability, scope.Value, got)
+		}
+	}
+}
+
+// Invoke supplies the action; capture the real request without running domain code.
+func dAction(op Operation) string {
+	c := &captureCaller{}
+	_, _ = op.InvokeJSON(identity.WithCaller(context.Background(), identity.UI()), Runtime{Caller: c}, []byte(`{}`))
+	action, _ := c.request.Metadata["action"].(string)
+	return action
+}
+
+type captureCaller struct{ request capabilities.CallRequest }
+
+func (c *captureCaller) CallOperation(_ context.Context, r capabilities.CallRequest) (any, error) {
+	c.request = r
+	return nil, nil
+}
+
+func TestNotesInputJSONNamesAndSchemaHintsStayIdentical(t *testing.T) {
+	raw, err := os.ReadFile("testdata/notes_inputs.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var baseline map[string][]struct{ Name, Type, Tag string }
+	if err := json.Unmarshal(raw, &baseline); err != nil {
+		t.Fatal(err)
+	}
+	for _, op := range Notes() {
+		if op.Descriptor().Exposure == UI {
+			continue
+		}
+		typ := op.InputType()
+		want, ok := baseline[typ.Name()]
+		if !ok {
+			if typ.NumField() != 0 {
+				t.Fatal(typ)
+			}
+			continue
+		}
+		if typ.NumField() != len(want) {
+			t.Fatal(typ)
+		}
+		for i, field := range want {
+			actual := typ.Field(i)
+			if actual.Name != field.Name || actual.Type.String() != field.Type || string(actual.Tag) != field.Tag {
+				t.Errorf("%s.%s wire schema changed", typ.Name(), field.Name)
 			}
 		}
 	}

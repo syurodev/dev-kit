@@ -2,12 +2,14 @@ package ops
 
 import (
 	"context"
+	"devkit/internal/apperrors"
 	"devkit/internal/audit"
 	"devkit/internal/capabilities"
 	"devkit/internal/identity"
 	"devkit/internal/interaction"
 	"devkit/internal/permissions"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -63,5 +65,51 @@ func TestConfirmationDecision(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestInvokeOrdersTargetScopeAuditGuardConfirmationHandler(t *testing.T) {
+	var order []string
+	sink := audit.NewMemorySink()
+	rt := Runtime{Caller: gatewayCaller{capabilities.NewGateway(permissions.NewPolicy([]permissions.Grant{{SubjectID: "s", Capability: "read", Scope: "*"}}), sink)}}
+	op := Op[struct{}, string]{Name: "test.read", Subject: "s", Capability: "read",
+		Target: &Target{Resolve: func(ctx context.Context, _ Deps, _ any) (context.Context, string, error) {
+			order = append(order, "target")
+			return ctx, "dev", nil
+		}},
+		Scope: func(context.Context, struct{}) (Scope, error) {
+			order = append(order, "scope")
+			return FixedScope("fixed"), nil
+		},
+		Guards: []Guard{func(context.Context, Deps, any) error {
+			if len(sink.Events()) != 1 {
+				t.Fatal("not audited before guard")
+			}
+			order = append(order, "guard")
+			return nil
+		}},
+		Confirm: Confirm{Policy: Custom, Custom: func(context.Context, Deps, any) (interaction.ConfirmRequest, bool, error) {
+			order = append(order, "confirm")
+			return interaction.ConfirmRequest{}, false, nil
+		}},
+		Handle: func(context.Context, Deps, struct{}) (string, error) {
+			order = append(order, "handler")
+			return "ok", nil
+		},
+	}
+	_, err := Invoke(identity.WithCaller(context.Background(), identity.Agent("a")), rt, op, struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(order, ","); got != "target,scope,guard,confirm,handler" {
+		t.Fatal(got)
+	}
+}
+func TestDesktopOperationRefusesServerModeBeforeGateway(t *testing.T) {
+	op := Op[struct{}, string]{Name: "test.desktop", Desktop: "Requires the desktop app"}
+	_, err := Invoke(identity.WithCaller(context.Background(), identity.UI()), Runtime{ServerMode: true}, op, struct{}{})
+	var appErr *apperrors.AppError
+	if !errors.As(err, &appErr) || appErr.Code != "validation_failed" {
+		t.Fatal(err)
 	}
 }

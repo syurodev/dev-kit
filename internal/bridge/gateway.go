@@ -8,6 +8,7 @@ import (
 	"devkit/internal/apperrors"
 	"devkit/internal/capabilities"
 	"devkit/internal/identity"
+	"devkit/internal/ops"
 )
 
 const invalidOpaqueID = "invalid"
@@ -63,17 +64,7 @@ func callerContext(ctx context.Context) context.Context {
 	return identity.WithCaller(ctx, identity.UI())
 }
 
-func recordID(value string) string {
-	if len(value) != 24 {
-		return invalidOpaqueID
-	}
-	for _, char := range value {
-		if !strings.ContainsRune("0123456789abcdef", char) {
-			return invalidOpaqueID
-		}
-	}
-	return value
-}
+func recordID(value string) string { return ops.RecordID(value) }
 
 func commandID(value string) string {
 	if value == "" || len(value) > 128 {

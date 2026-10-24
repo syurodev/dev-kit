@@ -25,7 +25,7 @@ func TestNotesBridgeUsesGateway(t *testing.T) {
 	container.Capabilities = capabilities.NewGateway(container.Permissions, container.Audit)
 	service := NewAppService(container)
 
-	_, err := service.NotesList()
+	_, err := service.NotesList(context.Background())
 	var publicErr *apperrors.AppError
 	if !errors.As(err, &publicErr) {
 		t.Fatalf("NotesList error = %T %v, want *apperrors.AppError", err, err)
@@ -95,7 +95,7 @@ func TestPublicErrorRedacts(t *testing.T) {
 	)
 	service := NewAppService(container)
 
-	_, err := service.NotesList()
+	_, err := service.NotesList(context.Background())
 	var publicErr *apperrors.AppError
 	if !errors.As(err, &publicErr) {
 		t.Fatalf("NotesList error = %T %v, want *apperrors.AppError", err, err)

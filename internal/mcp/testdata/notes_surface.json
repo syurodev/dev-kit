@@ -1,0 +1,68 @@
+[
+  {
+    "name": "notes.list",
+    "description": "List encrypted notes (metadata only)",
+    "readOnly": true,
+    "destructive": null
+  },
+  {
+    "name": "notes.search",
+    "description": "Search notes by title (and body when unlocked)",
+    "readOnly": true,
+    "destructive": null
+  },
+  {
+    "name": "notes.get",
+    "description": "Get a note by id (decrypts body; requires unlocked vault)",
+    "readOnly": true,
+    "destructive": null
+  },
+  {
+    "name": "notes.create",
+    "description": "Create a new encrypted note",
+    "readOnly": false,
+    "destructive": false
+  },
+  {
+    "name": "notes.update",
+    "description": "Update an existing note's title and body",
+    "readOnly": false,
+    "destructive": false
+  },
+  {
+    "name": "notes.delete",
+    "description": "Delete a note by id",
+    "readOnly": false,
+    "destructive": true
+  },
+  {
+    "name": "notes.set_organization",
+    "description": "Set a note's folder and tags",
+    "readOnly": false,
+    "destructive": false
+  },
+  {
+    "name": "notes.folder.list",
+    "description": "List note folders",
+    "readOnly": true,
+    "destructive": null
+  },
+  {
+    "name": "notes.folder.create",
+    "description": "Create a note folder",
+    "readOnly": false,
+    "destructive": false
+  },
+  {
+    "name": "notes.folder.update",
+    "description": "Update a note folder",
+    "readOnly": false,
+    "destructive": false
+  },
+  {
+    "name": "notes.folder.delete",
+    "description": "Delete a note folder",
+    "readOnly": false,
+    "destructive": true
+  }
+]

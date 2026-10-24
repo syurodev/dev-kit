@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -18,7 +19,7 @@ func TestVaultSearchReturnsCrossTypeHits(t *testing.T) {
 		t.Fatalf("SetupVault: %v", err)
 	}
 
-	if _, err := service.NotesCreate("staging runbook", "body", "", nil); err != nil {
+	if _, err := service.NotesCreate(context.Background(), "staging runbook", "body", "", nil); err != nil {
 		t.Fatalf("NotesCreate: %v", err)
 	}
 	if _, err := service.DBCreateProfile(database.CreateProfileInput{

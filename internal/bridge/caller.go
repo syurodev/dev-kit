@@ -4,10 +4,12 @@ import (
 	"context"
 
 	"devkit/internal/capabilities"
+	"devkit/internal/ops"
 )
 
 // Caller is the narrow surface internal/mcp depends on (tests fake it).
 type Caller interface {
+	ops.Caller
 	Call(
 		ctx context.Context,
 		subject, capability, scope string,
@@ -39,3 +41,12 @@ func (g gatewayCaller) Call(
 }
 
 var _ Caller = gatewayCaller{}
+
+func (g gatewayCaller) CallOperation(ctx context.Context, request capabilities.CallRequest) (any, error) {
+	ctx = callerContext(ctx)
+	result, err := g.app.container.Capabilities.Call(ctx, request)
+	if err != nil {
+		return nil, publicErrorFor(ctx, request.SubjectID, err)
+	}
+	return result, nil
+}

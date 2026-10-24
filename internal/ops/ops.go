@@ -116,7 +116,11 @@ type Operation interface {
 }
 
 func (o Op[I, O]) Descriptor() Descriptor {
-	return Descriptor{o.Name, o.Bridge, o.Subject, o.Capability, o.Grant, o.Risk, o.Confirm, o.Exposure, o.Reason, o.Desktop, o.Safe, o.Agent, o.Twins, o.Errors, o.BridgeArgs}
+	return Descriptor{
+		Name: o.Name, Bridge: o.Bridge, Subject: o.Subject, Capability: o.Capability, Grant: o.Grant,
+		Risk: o.Risk, Confirm: o.Confirm, Exposure: o.Exposure, Reason: o.Reason, Desktop: o.Desktop, Safe: o.Safe,
+		Agent: o.Agent, Twins: o.Twins, Errors: o.Errors, BridgeArgs: o.BridgeArgs,
+	}
 }
 func (o Op[I, O]) InputType() reflect.Type                            { return reflect.TypeFor[I]() }
 func (o Op[I, O]) OutputType() reflect.Type                           { return reflect.TypeFor[O]() }
@@ -132,6 +136,9 @@ func (o Op[I, O]) InvokeJSON(ctx context.Context, rt Runtime, raw json.RawMessag
 	if err != nil {
 		return nil, err
 	}
+	if reflect.TypeFor[O]() == reflect.TypeFor[Unit]() {
+		return nil, nil
+	}
 	if o.Agent.Shape != nil {
 		return o.Agent.Shape(out), nil
 	}
@@ -143,7 +150,7 @@ func Invoke[I, O any](ctx context.Context, rt Runtime, op Op[I, O], in I) (O, er
 		return zero, fmt.Errorf("operation %s requires a stamped caller", op.Name)
 	}
 	if rt.ServerMode && op.Desktop != "" {
-		return zero, apperrors.New("desktop_only", op.Desktop, false)
+		return zero, apperrors.New("validation_failed", op.Desktop, false)
 	}
 	env := ""
 	if op.Target != nil {
@@ -268,7 +275,7 @@ func Grants(all ...Operation) []permissions.Grant {
 }
 
 // All grows only as modules migrate.
-func All() []Operation { return nil }
+func All() []Operation { return Notes() }
 
 // Unit represents a handler with no result (the bridge returns only error).
 type Unit struct{}
