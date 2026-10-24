@@ -266,6 +266,52 @@ type stubEnvs map[string]bool
 
 func (e stubEnvs) RequiresConfirmation(name string) bool { return e[name] }
 
+type keyedGuardStore struct {
+	rows map[string][]Guard
+	errs map[string]error
+}
+
+func (g keyedGuardStore) ListGuards(key string) ([]Guard, error) { return g.rows[key], g.errs[key] }
+
+func TestGuardMergeUsesTheGateConfirmationRule(t *testing.T) {
+	tests := []struct {
+		name      string
+		canonical Guard
+		legacy    Guard
+		envs      stubEnvs
+		wantAsk   bool
+	}{
+		{name: "empty legacy env asks", canonical: Guard{Pattern: "feature/*", Env: "dev"}, legacy: Guard{Pattern: "feature/x"}, envs: stubEnvs{}, wantAsk: true},
+		{name: "legacy prod beats canonical dev", canonical: Guard{Pattern: "feature/*", Env: "dev"}, legacy: Guard{Pattern: "feature/x", Env: "prod"}, envs: stubEnvs{"prod": true}, wantAsk: true},
+		{name: "both dev allow", canonical: Guard{Pattern: "feature/*", Env: "dev"}, legacy: Guard{Pattern: "feature/x", Env: "dev"}, envs: stubEnvs{}, wantAsk: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &Service{project: "checkout", policyProject: "canonical", guards: keyedGuardStore{rows: map[string][]Guard{"canonical": {tt.canonical}, "checkout": {tt.legacy}}}, envs: tt.envs, confirm: &stubConfirm{allow: true}}
+			_, guarded := svc.guardFor("feature/x")
+			if !guarded {
+				t.Fatal("matching branch was not guarded")
+			}
+			if err := svc.gate(context.Background(), "feature/x", "Commit", "test"); err != nil {
+				t.Fatal(err)
+			}
+			asked := svc.confirm.(*stubConfirm).asked == 1
+			if asked != tt.wantAsk {
+				t.Fatalf("confirmation asked = %v, want %v", asked, tt.wantAsk)
+			}
+		})
+	}
+	t.Run("legacy read error fails closed", func(t *testing.T) {
+		svc := &Service{project: "checkout", policyProject: "canonical", guards: keyedGuardStore{rows: map[string][]Guard{"canonical": {{Pattern: "feature/*", Env: "dev"}}}, errs: map[string]error{"checkout": errors.New("vault unavailable")}}, envs: stubEnvs{}, confirm: &stubConfirm{allow: true}}
+		if err := svc.gate(context.Background(), "feature/x", "Commit", "test"); err != nil {
+			t.Fatal(err)
+		}
+		if svc.confirm.(*stubConfirm).asked != 1 {
+			t.Fatal("legacy read error did not fail closed")
+		}
+	})
+}
+
 // Commit is not gated by default — it is local and reversible. A guard is
 // what makes it ask, for the repository whose commits are deploy manifests.
 func TestCommitIsGatedOnlyOnAGuardedBranch(t *testing.T) {

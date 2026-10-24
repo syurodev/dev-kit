@@ -42,6 +42,10 @@ type GuardStore interface {
 	ListGuards(projectKey string) ([]Guard, error)
 }
 
+func (s *Service) guardRequiresConfirmation(guard Guard) bool {
+	return guard.Env == "" || s.envs == nil || s.envs.RequiresConfirmation(guard.Env)
+}
+
 // guardFor returns the first guard covering branch, if any.
 func (s *Service) guardFor(branch string) (Guard, bool) {
 	if s.guards == nil || branch == "" {
@@ -65,7 +69,7 @@ func (s *Service) guardFor(branch string) (Guard, bool) {
 	found := false
 	for _, guard := range guards {
 		if guard.Matches(branch) {
-			if !found || (guard.Env != "" && s.envs != nil && s.envs.RequiresConfirmation(guard.Env)) {
+			if !found || s.guardRequiresConfirmation(guard) {
 				matched = guard
 				found = true
 			}
@@ -81,7 +85,7 @@ func (s *Service) gate(ctx context.Context, branch, what, detail string) error {
 	if !guarded {
 		return nil
 	}
-	if guard.Env != "" && s.envs != nil && !s.envs.RequiresConfirmation(guard.Env) {
+	if !s.guardRequiresConfirmation(guard) {
 		return nil
 	}
 	if s.confirm == nil {
