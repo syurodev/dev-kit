@@ -144,7 +144,7 @@ func (s *Service) WorktreeAdd(ctx context.Context, in WorktreeAddInput) (Worktre
 		return Worktree{}, err
 	}
 
-	root, targetPath, err := s.WorktreeTarget(ctx, in.Branch)
+	root, _, err := s.WorktreeTarget(ctx, in.Branch)
 	if err != nil {
 		return Worktree{}, err
 	}
@@ -195,7 +195,7 @@ func (s *Service) WorktreeAdd(ctx context.Context, in WorktreeAddInput) (Worktre
 	if !withinPath(root, resolvedWorktreesDir) {
 		return Worktree{}, fmt.Errorf("%w: worktree directory is outside the repository", ErrWorktreeOutside)
 	}
-	targetPath = filepath.Join(resolvedWorktreesDir, worktreeDir(in.Branch))
+	targetPath := filepath.Join(resolvedWorktreesDir, worktreeDir(in.Branch))
 	// A different branch can slug to the same directory, so check the path too.
 	if _, err := os.Lstat(targetPath); err == nil {
 		return Worktree{}, fmt.Errorf("%w: %s", ErrWorktreeExists, targetPath)
