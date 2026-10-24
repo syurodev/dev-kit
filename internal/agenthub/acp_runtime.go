@@ -90,13 +90,14 @@ type acpRuntime struct {
 	killer       acp.ProcessKiller
 	acpSessionID string
 	// modes is the handshake's answer, guarded by mu: set before the runtime is
-	// returned, then only its CurrentModeID follows a successful SetMode (a
+	// returned, then its CurrentModeID follows SetMode and vendor updates (a
 	// copy is swapped in, never mutated), so Modes() names the mode the agent
 	// is in now rather than the one it started in. steering and goal are read from the same answer:
 	// both are extensions the agent advertises in initialize's top-level _meta,
 	// and calling either without that is a method the agent would refuse.
 	modes        *acp.SessionModeState
-	modeRevision uint64 // own mode notifications observed, guarded by mu
+	modeRevision uint64 // mode changes/notifications observed, guarded by mu
+	pendingMode  bool   // publish current mode when an update handler attaches
 	// configOptions is what session/new said the agent's settings are, as the
 	// agent wrote it. ConfigCatalog reads it for the effort levels it starts
 	// from; options (below) is the live copy.
@@ -232,12 +233,16 @@ func (r *acpRuntime) setConfigOption(ctx context.Context, optionID, value string
 func (r *acpRuntime) SetHandlers(h RuntimeHandlers) {
 	r.mu.Lock()
 	r.handlers = h
+	mode := r.takePendingModeLocked()
 	var announce json.RawMessage
 	if h.OnUpdate != nil && !r.announced && len(r.options) > 0 {
 		r.announced = true
 		announce = r.configOptionsUpdateLocked()
 	}
 	r.mu.Unlock()
+	if mode != nil {
+		h.OnUpdate(mode, nil)
+	}
 	if announce != nil {
 		h.OnUpdate(announce, nil)
 	}
@@ -638,24 +643,29 @@ func (h *acpConnHandler) Elicit(ctx context.Context, params json.RawMessage) (js
 
 func (h *acpConnHandler) SessionUpdate(ctx context.Context, params json.RawMessage) error {
 	_ = ctx
+	var p acp.SessionUpdateParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		// Forward raw blob if shape is unexpected.
+		if on := h.rt.handlersSnapshot().OnUpdate; on != nil {
+			on(params, nil)
+		}
+		return nil
+	}
+	update := p.Update
+	// SetMode can run before SetHandlers on creation and resume. Observe its
+	// own notifications even then; only forwarding depends on a handler.
+	h.rt.mu.Lock()
+	sid := h.rt.acpSessionID
+	h.rt.mu.Unlock()
+	if sid != "" && (p.SessionID == "" || p.SessionID == sid) && !h.rt.observeModeUpdate(update) {
+		return nil
+	}
 	handlers := h.rt.handlersSnapshot()
 	if handlers.OnUpdate == nil {
 		return nil
 	}
-	var p acp.SessionUpdateParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		// Forward raw blob if shape is unexpected.
-		handlers.OnUpdate(params, nil)
-		return nil
-	}
-	update := p.Update
-	if (p.SessionID == "" || p.SessionID == h.rt.acpSessionID) && !h.rt.observeModeUpdate(update) {
-		return nil
-	}
 	h.rt.noteRetry(update)
-	// Handlers are only installed after open() has set acpSessionID, so reading
-	// it here — after the non-nil snapshot above — is ordered behind that write.
-	if p.SessionID != "" && p.SessionID != h.rt.acpSessionID {
+	if p.SessionID != "" && p.SessionID != sid {
 		update = markOrigin(update, p.SessionID)
 	}
 	handlers.OnUpdate(update, p.Meta)

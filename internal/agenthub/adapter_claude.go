@@ -813,8 +813,10 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, plan openPlan) 
 			return nil, fmt.Errorf("%w: session/load returned %q, asked for %q",
 				ErrProcessFailed, loadRes.SessionID, resume)
 		}
+		rt.mu.Lock()
 		rt.acpSessionID = resume
 		rt.modes = loadRes.Modes
+		rt.mu.Unlock()
 		rt.setHandshakeOptions(loadRes.ConfigOptions)
 		return rt, nil
 	}
@@ -838,8 +840,10 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, plan openPlan) 
 	// opened and one that opened and is waiting on its first prompt reply
 	// look identical in the log.
 	log.Printf("agenthub: claude: session ready (acp session %s)", newRes.SessionID)
+	rt.mu.Lock()
 	rt.acpSessionID = newRes.SessionID
 	rt.modes = newRes.Modes
+	rt.mu.Unlock()
 	rt.setHandshakeOptions(newRes.ConfigOptions)
 	return rt, nil
 }

@@ -2045,17 +2045,25 @@ func (s *Service) handleUpdate(ctx context.Context, sessionID string, update jso
 // A mode set from the handshake goes through the same handler, so the picker
 // gets it live and a reload gets it from the stored state row.
 func (s *Service) attachUpdates(sessionID string, rt SessionRuntime) {
+	var modeAnnounced atomic.Bool
 	rt.SetHandlers(RuntimeHandlers{
 		OnUpdate: func(update json.RawMessage, _ json.RawMessage) {
+			if !modeAnnounced.Load() {
+				if parsed := ParseSessionUpdate(update); parsed.Kind == UpdateCurrentMode && parsed.Origin == "" {
+					modeAnnounced.Store(true)
+				}
+			}
 			s.handleUpdate(context.Background(), sessionID, update)
 		},
 		OnElicit: s.elicitHandler(sessionID),
 	})
 	if withModes, ok := rt.(RuntimeModes); ok {
-		if update := modeStateUpdate(withModes.Modes()); update != nil {
+		if update := modeStateUpdate(withModes.Modes()); update != nil && !modeAnnounced.Load() {
 			s.handleUpdate(context.Background(), sessionID, update)
 		}
 	}
+	// Initial seeding is finished; later streaming updates need no extra parse.
+	modeAnnounced.Store(true)
 }
 
 // modeStateUpdate turns a handshake's mode set into a current_mode_update that

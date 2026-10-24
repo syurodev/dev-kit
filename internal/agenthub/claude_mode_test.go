@@ -3,12 +3,155 @@ package agenthub
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"testing"
 	"time"
 
 	"devkit/internal/acp"
 )
+
+// This adapter uses the real ACP runtime and transport. It clamps every mode
+// request before answering, including requests made before handlers attach.
+type clampingModeAdapter struct {
+	*MockAdapter
+	t         *testing.T
+	effective string
+	opened    *acpRuntime
+	attached  chan bool
+}
+
+func (a *clampingModeAdapter) Type() AgentType { return AgentTypeClaude }
+
+func (a *clampingModeAdapter) Open(context.Context, OpenSpec) (SessionRuntime, error) {
+	client, agent := net.Pipe()
+	rt := &acpRuntime{acpSessionID: "clamped-session", modes: &acp.SessionModeState{CurrentModeID: "default"}}
+	for _, id := range claudeLikeModes {
+		rt.modes.AvailableModes = append(rt.modes.AvailableModes, acp.SessionMode{ID: id})
+	}
+	rt.conn = acp.NewConn(client, &acpConnHandler{rt: rt})
+	ctx, cancel := context.WithCancel(context.Background())
+	a.t.Cleanup(func() { cancel(); client.Close(); agent.Close() })
+	go rt.conn.Serve(ctx)
+	go func() {
+		msg, err := acp.ReadMessage(agent)
+		if err != nil {
+			return
+		}
+		a.attached <- rt.handlersSnapshot().OnUpdate != nil
+		params, _ := json.Marshal(acp.SessionUpdateParams{SessionID: rt.acpSessionID, Update: marshalUpdate(map[string]any{
+			"sessionUpdate": "current_mode_update", "currentModeId": a.effective,
+		})})
+		if err := acp.WriteMessage(agent, acp.Notification{JSONRPC: "2.0", Method: "session/update", Params: params}); err == nil {
+			_ = acp.WriteMessage(agent, acp.Response{JSONRPC: "2.0", ID: msg.ID, Result: json.RawMessage(`{}`)})
+		}
+	}()
+	a.opened = rt
+	return rt, nil
+}
+
+func TestClaudeClampBeforeHandlersDuringChildCreationAndResume(t *testing.T) {
+	for _, resume := range []bool{false, true} {
+		// Also cover a clamp that stays in the handshake's mode: observing it
+		// must still move the revision even though the current id is unchanged.
+		for _, effective := range []string{"acceptEdits", "default"} {
+			t.Run(fmt.Sprintf("resume=%v/%s", resume, effective), func(t *testing.T) {
+				f := newModeFixture(t)
+				vendor := AgentTypeCodex
+				if resume {
+					vendor = AgentTypeClaude
+				}
+				parent, caller := f.parent(t, vendor, "auto")
+				a := &clampingModeAdapter{MockAdapter: NewMockAdapter(), t: t, effective: effective, attached: make(chan bool, 1)}
+				f.svc.reg.Register(a)
+				events := make(chan SessionUpdate, 8)
+				f.svc.emit = func(_ string, raw json.RawMessage) {
+					if u := ParseSessionUpdate(raw); u.Kind == UpdateCurrentMode {
+						events <- u
+					}
+				}
+				id := parent.ID
+				if resume {
+					_ = f.svc.recorder.Flush(caller, parent.ID)
+					f.svc.mu.Lock()
+					old := f.svc.runtimes[parent.ID]
+					delete(f.svc.runtimes, parent.ID)
+					f.svc.mu.Unlock()
+					_ = old.Close(caller)
+					if _, err := f.svc.resumeRuntime(caller, parent); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					child, err := f.svc.CreateSession(caller, CreateInput{AgentType: AgentTypeClaude, Cwd: parent.ProjectPath})
+					if err != nil {
+						t.Fatal(err)
+					}
+					id = child.ID
+				}
+				if <-a.attached {
+					t.Fatal("test did not exercise SetMode before attaching handlers")
+				}
+				if got := a.opened.Modes().CurrentModeID; got != effective {
+					t.Fatalf("live mode %q, want vendor clamp %q", got, effective)
+				}
+				if got := storedMode(t, f.svc, id); got != effective {
+					t.Fatalf("stored mode %q, want vendor clamp %q", got, effective)
+				}
+				if len(events) != 1 {
+					t.Fatalf("emitted %d mode announcements on attachment, want one", len(events))
+				}
+				if u := <-events; u.Mode != effective || len(u.AvailableModes) != len(claudeLikeModes) {
+					t.Fatalf("buffered mode announcement = %+v", u)
+				}
+			})
+		}
+	}
+}
+
+func TestClaudeModeRevisionKeepsTheStricterMode(t *testing.T) {
+	for _, tc := range []struct{ observed, requested, want string }{
+		{"acceptEdits", "default", "default"},
+		{"default", "acceptEdits", "default"},
+		{"plan", "auto", "plan"},
+		{"auto", "plan", "plan"},
+		{"futureMode", "auto", "futureMode"},
+		{"auto", "futureMode", "futureMode"},
+		{"futureMode", "anotherUnknown", "futureMode"},
+	} {
+		t.Run(tc.observed+"/"+tc.requested, func(t *testing.T) {
+			rt := &acpRuntime{modes: &acp.SessionModeState{CurrentModeID: "auto"}}
+			rt.observeModeUpdate(marshalUpdate(map[string]any{
+				"sessionUpdate": "current_mode_update", "currentModeId": tc.observed,
+			}))
+			rt.recordSetMode(tc.requested, 0)
+			if got := rt.Modes().CurrentModeID; got != tc.want {
+				t.Fatalf("live mode = %q, want %q", got, tc.want)
+			}
+			var updates []SessionUpdate
+			h := RuntimeHandlers{OnUpdate: func(raw json.RawMessage, _ json.RawMessage) {
+				updates = append(updates, ParseSessionUpdate(raw))
+			}}
+			rt.SetHandlers(h)
+			rt.SetHandlers(h) // buffered change is consumed only once
+			if len(updates) != 1 || updates[0].Mode != tc.want {
+				t.Fatalf("buffered changes = %+v, want one %q", updates, tc.want)
+			}
+		})
+	}
+}
+
+func TestClaudeOverlappingModeCompletionsKeepTheStricterMode(t *testing.T) {
+	for _, ids := range [][]string{{"default", "auto"}, {"auto", "default"}} {
+		rt := &acpRuntime{modes: &acp.SessionModeState{CurrentModeID: "bypassPermissions"}}
+		// Both calls began at revision zero, but their completions can arrive
+		// in either order. Completing one must move the revision for the other.
+		rt.recordSetMode(ids[0], 0)
+		rt.recordSetMode(ids[1], 0)
+		if got := rt.Modes().CurrentModeID; got != "default" {
+			t.Fatalf("completion order %v left mode %q, want default", ids, got)
+		}
+	}
+}
 
 // Exercise the real Claude SetMode and notification handler through Service,
 // then create a child both with a live parent and after losing its runtime.
