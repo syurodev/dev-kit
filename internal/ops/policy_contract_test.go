@@ -79,3 +79,5 @@ func TestEveryUIOpIsDeniedAndAuditedForAgents(t *testing.T) {
 		}
 	}
 }
+
+func (c caller) PublishError(_ context.Context, _ string, err error) error { return err }

@@ -44,3 +44,24 @@ func TestExposureIsCheckedAndAuditedByGateway(t *testing.T) {
 		}
 	}
 }
+
+func TestPreflightRefusalIsAuditedWithoutRunningHandler(t *testing.T) {
+	for _, granted := range []bool{false, true} {
+		var grants []permissions.Grant
+		if granted {
+			grants = []permissions.Grant{{SubjectID: "s", Capability: "read", Scope: "*"}}
+		}
+		sink := audit.NewMemorySink()
+		g := NewGateway(permissions.NewPolicy(grants), sink)
+		refusal := errors.New("desktop app only")
+		called := false
+		_, err := g.Call(context.Background(), CallRequest{SubjectID: "s", Capability: "read", Scope: "operation:test.desktop", Refusal: refusal, Handler: func(context.Context) (any, error) { called = true; return nil, nil }})
+		if !errors.Is(err, refusal) || called {
+			t.Fatalf("granted=%v err=%v called=%v", granted, err, called)
+		}
+		events := sink.Events()
+		if len(events) != 1 || events[0].Outcome != audit.OutcomeDenied {
+			t.Fatal(events)
+		}
+	}
+}

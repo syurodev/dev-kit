@@ -166,3 +166,5 @@ func TestNotesInputJSONNamesAndSchemaHintsStayIdentical(t *testing.T) {
 		}
 	}
 }
+
+func (c *captureCaller) PublishError(_ context.Context, _ string, err error) error { return err }

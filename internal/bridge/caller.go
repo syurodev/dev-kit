@@ -46,7 +46,11 @@ func (g gatewayCaller) CallOperation(ctx context.Context, request capabilities.C
 	ctx = callerContext(ctx)
 	result, err := g.app.container.Capabilities.Call(ctx, request)
 	if err != nil {
-		return nil, publicErrorFor(ctx, request.SubjectID, err)
+		return nil, g.PublishError(ctx, request.SubjectID, err)
 	}
 	return result, nil
+}
+
+func (g gatewayCaller) PublishError(ctx context.Context, subject string, err error) error {
+	return publicErrorFor(callerContext(ctx), subject, err)
 }

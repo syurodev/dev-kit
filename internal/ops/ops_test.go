@@ -105,11 +105,19 @@ func TestInvokeOrdersTargetScopeAuditGuardConfirmationHandler(t *testing.T) {
 		t.Fatal(got)
 	}
 }
-func TestDesktopOperationRefusesServerModeBeforeGateway(t *testing.T) {
+func TestDesktopOperationRefusesServerModeThroughGateway(t *testing.T) {
+	sink := audit.NewMemorySink()
+	g := capabilities.NewGateway(permissions.NewPolicy(nil), sink)
 	op := Op[struct{}, string]{Name: "test.desktop", Desktop: "Requires the desktop app"}
-	_, err := Invoke(identity.WithCaller(context.Background(), identity.UI()), Runtime{ServerMode: true}, op, struct{}{})
+	_, err := Invoke(identity.WithCaller(context.Background(), identity.UI()), Runtime{ServerMode: true, Caller: gatewayCaller{g}}, op, struct{}{})
 	var appErr *apperrors.AppError
 	if !errors.As(err, &appErr) || appErr.Code != "validation_failed" {
 		t.Fatal(err)
 	}
+	events := sink.Events()
+	if len(events) != 1 || events[0].Outcome != audit.OutcomeDenied || events[0].Scope != "operation:test.desktop" {
+		t.Fatal(events)
+	}
 }
+
+func (c gatewayCaller) PublishError(_ context.Context, _ string, err error) error { return err }

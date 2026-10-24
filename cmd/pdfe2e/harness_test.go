@@ -264,3 +264,5 @@ func contains(s string, parts ...string) bool {
 func (a *allowAll) CallOperation(ctx context.Context, r capabilities.CallRequest) (any, error) {
 	return a.Call(ctx, r.SubjectID, r.Capability, r.Scope, r.Metadata, r.Handler)
 }
+
+func (a *allowAll) PublishError(_ context.Context, _ string, err error) error { return err }

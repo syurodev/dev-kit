@@ -64,12 +64,16 @@ type AgentSurface struct {
 type Guard func(context.Context, Deps, any) error
 
 // Target resolves one exact target before scope resolution. Migrating a target-
-// bound module supplies its resolver; notes has none.
+// bound module supplies its resolver; notes has none. Resolve must be read-only:
+// domain mutations and external actions belong in Handle after authorization.
 type Target struct {
 	Resolve func(context.Context, Deps, any) (context.Context, string, error)
 }
 type Caller interface {
 	CallOperation(context.Context, capabilities.CallRequest) (any, error)
+	// PublishError applies the same public error contract as CallOperation without
+	// recording an authorization event for errors in parsing/target/scope resolution.
+	PublishError(context.Context, string, error) error
 }
 type Runtime struct {
 	Deps       Deps
@@ -129,7 +133,7 @@ func (o Op[I, O]) InvokeJSON(ctx context.Context, rt Runtime, raw json.RawMessag
 	var in I
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &in); err != nil {
-			return nil, err
+			return nil, rt.publishError(ctx, o.Subject, err)
 		}
 	}
 	out, err := Invoke(ctx, rt, o, in)
@@ -147,35 +151,36 @@ func (o Op[I, O]) InvokeJSON(ctx context.Context, rt Runtime, raw json.RawMessag
 func Invoke[I, O any](ctx context.Context, rt Runtime, op Op[I, O], in I) (O, error) {
 	var zero O
 	if _, ok := identity.FromContext(ctx); !ok {
-		return zero, fmt.Errorf("operation %s requires a stamped caller", op.Name)
+		return zero, rt.publishError(ctx, op.Subject, fmt.Errorf("operation %s requires a stamped caller", op.Name))
 	}
 	if rt.ServerMode && op.Desktop != "" {
-		return zero, apperrors.New("validation_failed", op.Desktop, false)
+		// Scope resolution has not run: use only the declaration's identity,
+		// never raw input or a resolver error, for the denial's audit record.
+		_, err := rt.Caller.CallOperation(ctx, capabilities.CallRequest{
+			Refusal:   apperrors.New("validation_failed", op.Desktop, false),
+			Operation: op.Name, Exposure: op.Exposure, SubjectID: op.Subject, Capability: op.Capability,
+			Scope: "operation:" + op.Name, Metadata: operationMetadata(op.Name, op.Action, rt.Origin, Scope{}),
+		})
+		return zero, err
 	}
 	env := ""
 	if op.Target != nil {
 		var err error
-		ctx, env, err = op.Target.Resolve(ctx, rt.Deps, in)
+		var resolvedCtx context.Context
+		resolvedCtx, env, err = op.Target.Resolve(ctx, rt.Deps, in)
 		if err != nil {
-			return zero, err
+			return zero, rt.publishError(ctx, op.Subject, err)
 		}
+		if resolvedCtx == nil {
+			return zero, rt.publishError(ctx, op.Subject, fmt.Errorf("operation %s resolved no context", op.Name))
+		}
+		ctx = resolvedCtx
 	}
 	scope, err := op.Scope(ctx, in)
 	if err != nil {
-		return zero, err
+		return zero, rt.publishError(ctx, op.Subject, err)
 	}
-	action := op.Action
-	if action == "" {
-		_, action, _ = strings.Cut(op.Name, ".")
-	}
-	meta := make(map[string]any, len(scope.Meta)+2)
-	for k, v := range scope.Meta {
-		meta[k] = v
-	}
-	meta["action"] = action
-	if rt.Origin != "" {
-		meta["origin"] = rt.Origin
-	}
+	meta := operationMetadata(op.Name, op.Action, rt.Origin, scope)
 	result, err := rt.Caller.CallOperation(ctx, capabilities.CallRequest{
 		SubjectID: op.Subject, Capability: op.Capability, Scope: scope.Value, Metadata: meta, Operation: op.Name, Exposure: op.Exposure,
 		Handler: func(ctx context.Context) (any, error) {
@@ -279,3 +284,26 @@ func All() []Operation { return Notes() }
 
 // Unit represents a handler with no result (the bridge returns only error).
 type Unit struct{}
+
+// publishError is separate from CallOperation so resolver failures are published
+// without inventing authorization/audit events. Desktop denials use the gateway.
+func (rt Runtime) publishError(ctx context.Context, subject string, err error) error {
+	if rt.Caller == nil {
+		return apperrors.New("internal_error", "An unexpected error occurred.", false)
+	}
+	return rt.Caller.PublishError(ctx, subject, err)
+}
+func operationMetadata(name, action, origin string, scope Scope) map[string]any {
+	if action == "" {
+		_, action, _ = strings.Cut(name, ".")
+	}
+	meta := make(map[string]any, len(scope.Meta)+2)
+	for k, v := range scope.Meta {
+		meta[k] = v
+	}
+	meta["action"] = action
+	if origin != "" {
+		meta["origin"] = origin
+	}
+	return meta
+}

@@ -288,3 +288,5 @@ func invokeNoteOp[I, O any](s *Server, ctx context.Context, op ops.Op[I, O], in 
 	}
 	return nil, structured(v), nil
 }
+
+func (f *fakeCaller) PublishError(_ context.Context, _ string, err error) error { return err }

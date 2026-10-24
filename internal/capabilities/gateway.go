@@ -30,6 +30,9 @@ const (
 )
 
 type CallRequest struct {
+	// Refusal carries a denial determined before scope resolution (desktop-only).
+	// It can only refuse a call: the gateway audits it and never runs Handler.
+	Refusal    error
 	Operation  string
 	Exposure   Exposure
 	SubjectID  string
@@ -70,7 +73,7 @@ func isNilSink(sink audit.Sink) bool {
 }
 
 func (g *Gateway) Call(ctx context.Context, request CallRequest) (any, error) {
-	if request.Handler == nil {
+	if request.Handler == nil && request.Refusal == nil {
 		return nil, fmt.Errorf("capability handler is required")
 	}
 
@@ -96,6 +99,9 @@ func (g *Gateway) Call(ctx context.Context, request CallRequest) (any, error) {
 	if !exposed {
 		decision = permissions.Decision{Allowed: false, Reason: fmt.Sprintf("not exposed to %s", caller.Kind)}
 	}
+	if request.Refusal != nil {
+		decision.Allowed = false
+	}
 	outcome := audit.OutcomeDenied
 	if decision.Allowed {
 		outcome = audit.OutcomeAllowed
@@ -109,6 +115,9 @@ func (g *Gateway) Call(ctx context.Context, request CallRequest) (any, error) {
 		Outcome:    outcome,
 		Metadata:   audit.RedactMap(request.Metadata),
 	})
+	if request.Refusal != nil {
+		return nil, request.Refusal
+	}
 	if !decision.Allowed {
 		// The sentinel lets the bridge classify authorization failures without
 		// matching on message text. The reason and what was asked for ride after
