@@ -77,6 +77,9 @@ type acpRuntimeHooks struct {
 	// for Claude, whose own modes decide what is asked.
 	PermissionBefore func(ctx context.Context, params json.RawMessage) (rewritten, answer json.RawMessage)
 	PermissionAfter  func(answer json.RawMessage) json.RawMessage
+	// PromptFailure reads a vendor's typed failure outcome from a successful
+	// session/prompt result. ACP vendors attach their own result metadata.
+	PromptFailure func(meta json.RawMessage) *SessionFailure
 }
 
 type acpRuntime struct {
@@ -112,8 +115,11 @@ type acpRuntime struct {
 
 	// lastRetry is the provider failure the agent last said it was retrying
 	// during the running prompt (opencode's retry notice).
-	retryMu   sync.Mutex
-	lastRetry *ProviderRetry
+	retryMu         sync.Mutex
+	lastRetry       *ProviderRetry
+	failureMu       sync.Mutex
+	lastFailureKey  string
+	limitRetryAfter *time.Time
 
 	mu       sync.Mutex
 	handlers RuntimeHandlers
@@ -379,6 +385,10 @@ func (r *acpRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, meta
 	// after it says the agent has the prompt and is not replying, which is a
 	// different bug from never having sent it at all.
 	log.Printf("agenthub: %s session/prompt sent (session %s)", r.vendorType(), sid)
+	r.failureMu.Lock()
+	r.lastFailureKey = ""
+	r.limitRetryAfter = nil
+	r.failureMu.Unlock()
 	r.retryMu.Lock()
 	r.lastRetry = nil
 	r.retryMu.Unlock()
@@ -435,7 +445,99 @@ func (r *acpRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, meta
 		}
 		return PromptOutcome{}, fmt.Errorf("%w: session/prompt: %v%s", ErrProcessFailed, err, reason)
 	}
+	if failure := r.promptFailure(res.Meta); failure != nil && failure.Severity == "error" {
+		return PromptOutcome{Meta: append(json.RawMessage(nil), res.Meta...)}, r.typedTurnRefusal(*failure)
+	}
 	return PromptOutcome{StopReason: res.StopReason, Meta: res.Meta}, nil
+}
+
+func (r *acpRuntime) promptFailure(meta json.RawMessage) *SessionFailure {
+	if parse := r.hooks.PromptFailure; parse != nil {
+		return parse(meta)
+	}
+	return nil
+}
+
+func sessionFailureKey(f SessionFailure) string { return fmt.Sprintf("%s\x00%d", f.ID, f.Revision) }
+
+func (r *acpRuntime) noteSessionFailure(f *SessionFailure) {
+	if f == nil || f.Severity != "error" {
+		return
+	}
+	r.failureMu.Lock()
+	r.lastFailureKey = sessionFailureKey(*f)
+	r.failureMu.Unlock()
+}
+
+// noteRejectedUsageLimit keeps the vendor's reset time from a usage_update
+// that said the account was rejected. A later result-side typed limit may not
+// repeat that timestamp in its AIR failure object.
+func (r *acpRuntime) noteRejectedUsageLimit(usage *Usage) {
+	if usage == nil {
+		return
+	}
+	now := time.Now()
+	var at time.Time
+	if usage.RateLimit != nil && strings.EqualFold(usage.RateLimit.Status, "rejected") {
+		// Claude's rejected verdict names the blocking window directly. It takes
+		// precedence over other windows, which can be marked reached while only
+		// partially consumed (for example, a weekly window while five-hour is
+		// exhausted).
+		if usage.RateLimit.ResetsAt > now.Unix() {
+			at = time.Unix(usage.RateLimit.ResetsAt, 0).UTC()
+		} else {
+			at = reachedReset(usage.Limits, now)
+		}
+	} else if usage.RateLimit != nil && (strings.EqualFold(usage.RateLimit.Status, "allowed") || strings.EqualFold(usage.RateLimit.Status, "allowed_warning")) {
+		// A complete non-blocking verdict supersedes the last refusal notice.
+		at = time.Time{}
+	} else if len(usage.Limits) > 0 {
+		// LimitWindow is another complete snapshot; use the same policy as
+		// account failover to choose the window that actually blocks.
+		at = reachedReset(usage.Limits, now)
+	} else {
+		return // partial usage update: it cannot clear a previously observed reset
+	}
+	r.failureMu.Lock()
+	if at.IsZero() {
+		r.limitRetryAfter = nil
+	} else {
+		r.limitRetryAfter = &at
+	}
+	r.failureMu.Unlock()
+}
+
+func (r *acpRuntime) typedTurnRefusal(f SessionFailure) error {
+	key := sessionFailureKey(f)
+	r.failureMu.Lock()
+	seen := r.lastFailureKey == key
+	r.lastFailureKey = key
+	r.failureMu.Unlock()
+	if !seen {
+		if on := r.handlersSnapshot().OnUpdate; on != nil {
+			on(sessionFailureUpdate(f), nil)
+		}
+	}
+	message := strings.TrimSpace(f.Details)
+	if message == "" {
+		message = strings.TrimSpace(f.Title)
+	}
+	if message == "" {
+		message = "The turn didn't finish"
+	}
+	sentinel := ErrTurnFailed
+	hint := StopHint{}
+	if strings.EqualFold(f.Category, "limit") {
+		sentinel = ErrAgentUsageLimit
+		hint.Kind = StopUsageLimit
+		r.failureMu.Lock()
+		if r.limitRetryAfter != nil {
+			hint.RetryAfter = *r.limitRetryAfter
+		}
+		r.failureMu.Unlock()
+	}
+	err := vendorMessageError(r.vendorType(), fmt.Errorf("%w: session/prompt: %s", sentinel, message), message)
+	return WithStopHint(err, hint)
 }
 
 // refusedByLiveAgent is whether a failed session/prompt was an answer from a
@@ -681,6 +783,13 @@ func (h *acpConnHandler) SessionUpdate(ctx context.Context, params json.RawMessa
 	h.rt.mu.Lock()
 	sid := h.rt.acpSessionID
 	h.rt.mu.Unlock()
+	if p.SessionID == "" || p.SessionID == sid {
+		parsed := ParseSessionUpdate(update)
+		h.rt.noteSessionFailure(parsed.Failure)
+		if parsed.Usage != nil {
+			h.rt.noteRejectedUsageLimit(parsed.Usage)
+		}
+	}
 	if sid != "" && (p.SessionID == "" || p.SessionID == sid) && !h.rt.observeModeUpdate(update, p.Meta) {
 		return nil
 	}

@@ -652,7 +652,7 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, plan openPlan) 
 
 	rw := &stdioPipe{r: stdout, w: stdin}
 	rt := &acpRuntime{
-		hooks:       acpRuntimeHooks{Type: AgentTypeClaude},
+		hooks:       acpRuntimeHooks{Type: AgentTypeClaude, PromptFailure: claudePromptFailure},
 		environment: captureEnvironment(AgentTypeClaude, spec, pol.Env, cmd.Path, ""),
 		proc:        proc,
 		cwd:         pol.WorkDir,
@@ -1136,6 +1136,16 @@ type claudeMetaRoot struct {
 		InputTokens  *int     `json:"inputTokens"`
 		OutputTokens *int     `json:"outputTokens"`
 	} `json:"claudeCode"`
+	Quota *struct {
+		TokenCount *struct {
+			TotalTokens           *int `json:"totalTokens"`
+			InputTokens           *int `json:"inputTokens"`
+			CachedInputTokens     *int `json:"cachedInputTokens"`
+			CachedWriteTokens     *int `json:"cachedWriteTokens"`
+			OutputTokens          *int `json:"outputTokens"`
+			ReasoningOutputTokens *int `json:"reasoningOutputTokens"`
+		} `json:"token_count"`
+	} `json:"quota"`
 }
 
 func (a *ClaudeAdapter) NormalizeUsage(meta json.RawMessage) (NormalizedUsage, error) {
@@ -1158,7 +1168,41 @@ func (a *ClaudeAdapter) NormalizeUsage(meta json.RawMessage) (NormalizedUsage, e
 			out.OutputTokens = *root.ClaudeCode.OutputTokens
 		}
 	}
+	if q := root.Quota; q != nil && q.TokenCount != nil {
+		// Keep the reported counters separate: this vendor's inputTokens excludes
+		// cache reads and writes, so adding them would change the vendor's totals.
+		t := q.TokenCount
+		out.TotalTokens = copyInt(t.TotalTokens)
+		if t.InputTokens != nil {
+			out.InputTokens = *t.InputTokens
+		}
+		if t.OutputTokens != nil {
+			out.OutputTokens = *t.OutputTokens
+		}
+		out.CachedInputTokens = copyInt(t.CachedInputTokens)
+		out.CachedWriteTokens = copyInt(t.CachedWriteTokens)
+		out.ReasoningOutputTokens = copyInt(t.ReasoningOutputTokens)
+	}
 	return out, nil
+}
+
+func copyInt(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
+// claudePromptFailure is Claude's result-side AIR failure hook. A warning is
+// status information and must not turn an otherwise successful ACP response
+// into a failed turn. A missing/null failure is likewise not terminal.
+func claudePromptFailure(meta json.RawMessage) *SessionFailure {
+	failure := parseSessionFailure(meta)
+	if failure == nil || failure.Severity != "error" || strings.TrimSpace(failure.Title) == "" {
+		return nil
+	}
+	return failure
 }
 
 func (a *ClaudeAdapter) NormalizeToolSummary(meta json.RawMessage, update json.RawMessage) ([]string, string, error) {

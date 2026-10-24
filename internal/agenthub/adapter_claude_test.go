@@ -106,6 +106,46 @@ func TestClaudeNormalizeUsage(t *testing.T) {
 	}
 }
 
+func TestClaudeNormalizeQuotaAndLegacyUsageWithoutAddingCachedTokens(t *testing.T) {
+	a := NewClaudeAdapter(ClaudeOptions{})
+	meta := json.RawMessage(`{"claudeCode":{"costUsd":0.4,"inputTokens":80,"outputTokens":12},"quota":{"token_count":{"totalTokens":155,"inputTokens":100,"cachedInputTokens":30,"cachedWriteTokens":5,"outputTokens":20,"reasoningOutputTokens":4},"model_usage":[{"model":"claude-opus-5-5","token_count":{"totalTokens":155,"inputTokens":100,"cachedInputTokens":30,"cachedWriteTokens":5,"outputTokens":20,"reasoningOutputTokens":4}}]}}`)
+	u, err := a.NormalizeUsage(meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.InputTokens != 100 || u.OutputTokens != 20 || intValue(u.TotalTokens) != 155 || intValue(u.CachedInputTokens) != 30 || intValue(u.CachedWriteTokens) != 5 || intValue(u.ReasoningOutputTokens) != 4 || u.CostUSD != 0.4 {
+		t.Fatalf("usage = %+v", u)
+	}
+	if string(u.RawMeta) != string(meta) {
+		t.Fatalf("RawMeta = %s", u.RawMeta)
+	}
+	// The old shape remains readable when no quota report accompanies it.
+	legacy, err := a.NormalizeUsage(json.RawMessage(`{"claudeCode":{"inputTokens":7,"outputTokens":3}}`))
+	if err != nil || legacy.InputTokens != 7 || legacy.OutputTokens != 3 || legacy.CachedInputTokens != nil || legacy.TotalTokens != nil {
+		t.Fatalf("legacy = %+v, err = %v", legacy, err)
+	}
+	encoded, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"TotalTokens", "CachedInputTokens", "CachedWriteTokens", "ReasoningOutputTokens"} {
+		if _, exists := fields[key]; exists {
+			t.Errorf("absent optional counter %s was serialized as zero", key)
+		}
+	}
+}
+
+func intValue(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
 func TestClaudeRequiresAbsoluteCommand(t *testing.T) {
 	a := NewClaudeAdapter(ClaudeOptions{Command: "npx"})
 	if _, _, err := a.buildSandbox(OpenSpec{Cwd: t.TempDir()}); !errors.Is(err, ErrProcessFailed) {

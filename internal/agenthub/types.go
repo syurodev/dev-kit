@@ -79,10 +79,14 @@ type TurnRecord struct {
 
 // NormalizedUsage is adapter-normalized cost/token info from vendor _meta.
 type NormalizedUsage struct {
-	CostUSD      float64
-	InputTokens  int
-	OutputTokens int
-	RawMeta      json.RawMessage // always set to input meta copy
+	CostUSD               float64
+	InputTokens           int
+	OutputTokens          int
+	TotalTokens           *int            `json:",omitempty"`
+	CachedInputTokens     *int            `json:",omitempty"`
+	CachedWriteTokens     *int            `json:",omitempty"`
+	ReasoningOutputTokens *int            `json:",omitempty"`
+	RawMeta               json.RawMessage // always set to input meta copy
 }
 
 // TranscriptPage is one bounded window of a session's transcript, oldest

@@ -1999,6 +1999,30 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 		// A cancel is recorded too (kind "cancelled"; the parent is not told: the
 		// one who cancelled knows). A busy refusal ran nothing, so it stops nothing.
 		if !errors.Is(promptErr, ErrSessionBusy) {
+			// Some ACP vendors return quota/token accounting alongside a typed
+			// refusal. Keep that billed work in the turn history even though the
+			// turn did not complete. Runtime errors without result metadata keep
+			// their existing behavior.
+			if len(outcome.Meta) > 0 {
+				usage, usageErr := adapter.NormalizeUsage(outcome.Meta)
+				if usageErr != nil {
+					log.Printf("agenthub: invoke %s session %s: normalize usage from failed turn: %v", sess.AgentType, in.SessionID, usageErr)
+					usage = NormalizedUsage{}
+				}
+				usage.RawMeta = append(json.RawMessage(nil), outcome.Meta...)
+				usageJSON, marshalErr := json.Marshal(usage)
+				if marshalErr != nil {
+					log.Printf("agenthub: invoke %s session %s: marshal usage from failed turn: %v", sess.AgentType, in.SessionID, marshalErr)
+				} else {
+					turn := TurnRecord{ID: uuid.NewString(), SessionID: in.SessionID, PromptMessageID: promptMessageID, StopReason: "failed", UsageJSON: usageJSON, RawMeta: append(json.RawMessage(nil), outcome.Meta...), CreatedAt: time.Now().UTC()}
+					if err := s.store.InsertTurn(recordCtx, turn); err != nil {
+						log.Printf("agenthub: invoke %s session %s: save usage from failed turn: %v", sess.AgentType, in.SessionID, err)
+						if s.OnRecordError != nil {
+							s.OnRecordError(in.SessionID, err)
+						}
+					}
+				}
+			}
 			s.recordStop(recordCtx, sess, promptErr, timedOut, invoker)
 		}
 		_ = s.setSessionStatus(recordCtx, in.SessionID, finalStatus)
