@@ -3,12 +3,9 @@ package agenthub
 import (
 	"context"
 	"encoding/json"
-	"net"
-	"os"
+	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"devkit/internal/acp"
 )
@@ -28,6 +25,9 @@ type VendorQuirks struct {
 	SetConfigOptionIDs []string
 	// SetConfigOptionValues are valid values aligned with SetConfigOptionIDs.
 	SetConfigOptionValues []string
+	ExpectedStream        string
+	ExpectedUsage         NormalizedUsage
+	ExpectedUpdateUsage   *Usage
 }
 
 // CapabilitySet flags which conformance cases a vendor can exercise.
@@ -59,89 +59,44 @@ func MockQuirks() VendorQuirks {
 		},
 		SetModeIDs:         []string{"ask", "auto", "bypass"},
 		SetConfigOptionIDs: []string{"model", "effort"},
+		ExpectedStream:     "mock reply", ExpectedUsage: NormalizedUsage{InputTokens: 1, OutputTokens: 1, CostUSD: 0.001},
 	}
 }
 
-// scriptedACPRunner is a scripted agent on a net.Pipe for Claude/opencode ACP tests.
-type scriptedACPRunner struct {
-	replies []string
-	index   int
-	mu      sync.Mutex
-}
-
-func (r *scriptedACPRunner) serve(t *testing.T, agent net.Conn, done chan<- struct{}) {
-	t.Helper()
-	go func() {
-		defer close(done)
-		buf := make([]byte, 4096)
-		for {
-			_, err := agent.Read(buf)
-			if err != nil {
-				return
-			}
-			r.mu.Lock()
-			if r.index >= len(r.replies) {
-				r.mu.Unlock()
-				return
-			}
-			reply := r.replies[r.index]
-			r.index++
-			r.mu.Unlock()
-			if _, err := agent.Write([]byte(reply + "\n")); err != nil {
-				return
-			}
-		}
-	}()
-}
-
-func newScriptedACPRunner(replies []string) *scriptedACPRunner {
-	return &scriptedACPRunner{replies: replies}
-}
-
-// ClaudeQuirks returns quirks for the Claude adapter via scripted ACP on a pipe.
+// ClaudeQuirks uses the existing scriptedVendor fake and its ACP runtime.
 func ClaudeQuirks() VendorQuirks {
 	return VendorQuirks{
 		Name:     "claude",
-		Supports: CapabilitySet{LoadResume: true},
+		Supports: CapabilitySet{LoadResume: true, Elicitation: true, ProcessDeath: true, SetMode: true, SetConfigOption: true, StreamingUpdates: true, Permission: true, VendorRefusal: true, Cancel: true, UsageUpdate: true},
 		Open: func(t *testing.T, script []string) (SessionRuntime, error) {
-			client, agent := net.Pipe()
-			t.Cleanup(func() { client.Close(); agent.Close() })
-
-			runner := newScriptedACPRunner(script)
-			done := make(chan struct{})
-			runner.serve(t, agent, done)
-
-			rt := &acpRuntime{acpSessionID: "acp-test"}
-			rt.conn = acp.NewConn(client, silentHandler{})
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			t.Cleanup(cancel)
-			go rt.conn.Serve(ctx)
-
-			return rt, nil
+			scenario := ""
+			if len(script) > 0 {
+				switch script[0] {
+				case "NEED_PERMISSION":
+					scenario = "permission"
+				case "ELICITATION":
+					scenario = "elicitation"
+				case "HOLD_AFTER":
+					scenario = "cancel"
+				case "die":
+					scenario = "die"
+				case "FAIL_PROVIDER_503":
+					scenario = "refusal"
+				}
+			}
+			runner := scriptedVendor{capture: filepath.Join(t.TempDir(), "claude-wire.jsonl"), scenario: scenario}
+			a := NewClaudeAdapter(ClaudeOptions{Command: fakeAgentBinary(t), Runner: runner})
+			return a.Open(context.Background(), OpenSpec{Cwd: t.TempDir()})
 		},
 		Load: func(t *testing.T, acpSessionID string) (SessionRuntime, error) {
-			client, agent := net.Pipe()
-			t.Cleanup(func() { client.Close(); agent.Close() })
-
-			// Load sends session/load or session/resume; we script a resume
-			runner := newScriptedACPRunner([]string{
-				`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}`,
-				`{"jsonrpc":"2.0","id":2,"result":{"sessionId":"` + acpSessionID + `"}}`,
-			})
-			done := make(chan struct{})
-			runner.serve(t, agent, done)
-
-			rt := &acpRuntime{acpSessionID: acpSessionID}
-			rt.conn = acp.NewConn(client, silentHandler{})
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			t.Cleanup(cancel)
-			go rt.conn.Serve(ctx)
-			return rt, nil
+			runner := scriptedVendor{capture: filepath.Join(t.TempDir(), "claude-wire.jsonl")}
+			a := NewClaudeAdapter(ClaudeOptions{Command: fakeAgentBinary(t), Runner: runner})
+			return a.Load(context.Background(), OpenSpec{Cwd: t.TempDir()}, acpSessionID)
 		},
 		Normalize: func(meta json.RawMessage) (NormalizedUsage, error) {
-			// Claude's usage comes via rate_limit_event; ParseSessionUpdate handles it.
-			return NormalizedUsage{RawMeta: append(json.RawMessage(nil), meta...)}, nil
+			return NewClaudeAdapter(ClaudeOptions{}).NormalizeUsage(meta)
 		},
+		ExpectedStream: "ok", ExpectedUsage: NormalizedUsage{InputTokens: 12, OutputTokens: 4},
 		SetModeIDs:         []string{"ask", "auto", "bypassPermissions"},
 		SetConfigOptionIDs: []string{"model", "effort"},
 	}
@@ -154,14 +109,16 @@ func OpenCodeQuirks() VendorQuirks {
 		Supports: CapabilitySet{LoadResume: true, Elicitation: true, ProcessDeath: false, SetMode: true, SetConfigOption: true, StreamingUpdates: true, Permission: true, VendorRefusal: true, Cancel: true, UsageUpdate: true},
 		Open: func(t *testing.T, script []string) (SessionRuntime, error) {
 			turnReply := openCodeConformanceTurn(script)
+			logFile := filepath.Join(t.TempDir(), "requests.jsonl")
 			replies := []string{
 				openCodeInit,
 				`{"jsonrpc":"2.0","id":2,"result":{"sessionId":"ses_conformance","configOptions":` + openCodeOptionsWire + `}}`,
 				turnReply,
 				`{"jsonrpc":"2.0","id":3,"result":{}}`,
 			}
-			a, _ := newOpenCodeTestAdapter(t, scriptedAgentRunner{replies: replies})
-			rt, err := a.Open(context.Background(), OpenSpec{Cwd: conformanceWorkDir(t)})
+			a, _ := newOpenCodeTestAdapter(t, scriptedAgentRunner{replies: replies, log: logFile})
+			sharedHome := false
+			rt, err := a.Open(context.Background(), OpenSpec{Cwd: t.TempDir(), PrivateHome: &sharedHome})
 			if err != nil {
 				return nil, err
 			}
@@ -170,12 +127,14 @@ func OpenCodeQuirks() VendorQuirks {
 		},
 		Load: func(t *testing.T, acpSessionID string) (SessionRuntime, error) {
 			noResume := strings.Replace(openCodeInit, `,"resume":{}`, "", 1)
-			a, _ := newOpenCodeTestAdapter(t, scriptedAgentRunner{replies: []string{
+			logFile := filepath.Join(t.TempDir(), "requests.jsonl")
+			a, _ := newOpenCodeTestAdapter(t, scriptedAgentRunner{log: logFile, replies: []string{
 				noResume,
 				`{"jsonrpc":"2.0","id":2,"result":{"sessionId":"` + acpSessionID + `","configOptions":` + openCodeOptionsWire + `}}`,
 				`{"jsonrpc":"2.0","id":3,"result":{}}`,
 			}})
-			rt, err := a.Load(context.Background(), OpenSpec{Cwd: conformanceWorkDir(t)}, acpSessionID)
+			sharedHome := false
+			rt, err := a.Load(context.Background(), OpenSpec{Cwd: t.TempDir(), PrivateHome: &sharedHome}, acpSessionID)
 			if err != nil {
 				return nil, err
 			}
@@ -183,9 +142,9 @@ func OpenCodeQuirks() VendorQuirks {
 			return rt, nil
 		},
 		Normalize: func(meta json.RawMessage) (NormalizedUsage, error) {
-			// opencode reports usage via sessionUpdate; NormalizeUsage is not implemented
 			return NormalizedUsage{RawMeta: append(json.RawMessage(nil), meta...)}, nil
 		},
+		ExpectedStream: "ok", ExpectedUpdateUsage: &Usage{Used: 10, Size: 100},
 		SetModeIDs:         []string{"ask", "auto", "bypassPermissions"},
 		SetConfigOptionIDs: []string{"model", "effort"},
 	}
@@ -200,6 +159,8 @@ func openCodeConformanceTurn(script []string) string {
 	switch script[0] {
 	case "die":
 		return "__exit__"
+	case "HOLD_AFTER":
+		return "__hold_until_cancel__"
 	case "FAIL_PROVIDER_503":
 		return `{"jsonrpc":"2.0","id":3,"error":{"code":-32603,"message":"The provider is unavailable: 503"}}`
 	case "NEED_PERMISSION":
@@ -212,21 +173,11 @@ func openCodeConformanceTurn(script []string) string {
 	}
 }
 
-func conformanceWorkDir(t *testing.T) string {
-	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "agenthub-conformance-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	return dir
-}
-
 // CodexQuirks returns quirks for the Codex adapter via fakeCodexRunner scenarios.
 func CodexQuirks() VendorQuirks {
 	return VendorQuirks{
 		Name:     "codex",
-		Supports: CapabilitySet{LoadResume: true, Elicitation: false, ProcessDeath: true, SetMode: true, SetConfigOption: true, StreamingUpdates: true, Permission: true, VendorRefusal: false, Cancel: true, UsageUpdate: true},
+		Supports: CapabilitySet{LoadResume: true, Elicitation: false, ProcessDeath: true, SetMode: true, SetConfigOption: true, StreamingUpdates: true, Permission: true, VendorRefusal: true, Cancel: true, UsageUpdate: true},
 		Open: func(t *testing.T, script []string) (SessionRuntime, error) {
 			// Codex uses fakeCodexRunner scenarios; "turn" is the default happy path
 			scenario := "turn"
@@ -240,6 +191,8 @@ func CodexQuirks() VendorQuirks {
 				case "ELICITATION":
 					scenario = "mcp"
 					servers = []acp.McpServerStdio{{Name: "devkit", Command: "/bin/devkit-mcp"}}
+				case "FAIL_PROVIDER_503":
+					scenario = "refusal"
 				case "HOLD_AFTER":
 					scenario = "interrupt"
 				}
@@ -261,10 +214,8 @@ func CodexQuirks() VendorQuirks {
 			t.Cleanup(func() { _ = rt.Close(context.Background()) })
 			return rt, nil
 		},
-		Normalize: func(meta json.RawMessage) (NormalizedUsage, error) {
-			// Codex usage comes via thread/tokenUsage/updated; ParseSessionUpdate extracts it.
-			return NormalizedUsage{RawMeta: append(json.RawMessage(nil), meta...)}, nil
-		},
+		Normalize:      func(meta json.RawMessage) (NormalizedUsage, error) { return (&CodexAdapter{}).NormalizeUsage(meta) },
+		ExpectedStream: "done", ExpectedUsage: NormalizedUsage{InputTokens: 100, OutputTokens: 20},
 		SetModeIDs:            []string{"ask", "auto", "bypassPermissions"},
 		SetConfigOptionIDs:    []string{"model", "effort"},
 		SetConfigOptionValues: []string{"gpt-5.5-mini", "low"},
