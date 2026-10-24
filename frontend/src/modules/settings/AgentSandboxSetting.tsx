@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { agentHubChooseDirectory } from "../../bridge/agenthub";
 import { errorMessage } from "../../bridge/errors";
-import { getAgentSandbox, saveAgentSandbox } from "../../bridge/preferences";
+import { getAgentSandbox, getAgentSandboxStatus, saveAgentSandbox } from "../../bridge/preferences";
 import type { AgentSandboxSettings } from "../../../bindings/devkit/internal/preferences/models";
 
 const QUERY_KEY = ["preferences", "agent-sandbox"] as const;
@@ -37,6 +37,12 @@ export function AgentSandboxSetting() {
   const { data, error: readError } = useQuery({
     queryKey: QUERY_KEY,
     queryFn: getAgentSandbox,
+  });
+
+  const { data: sandboxStatus } = useQuery({
+    queryKey: ["preferences", "agent-sandbox-status"],
+    queryFn: getAgentSandboxStatus,
+    refetchInterval: 5000,
   });
 
   // A value loading in from the backend replaces an untouched draft; once
@@ -193,6 +199,8 @@ export function AgentSandboxSetting() {
           <code>/opt</code>, say. Anything under a shared home is readable already.
         </p>
       </div>
+
+      {sandboxStatus ? <p role="status" className="text-body-12 text-text-tertiary">{sandboxStatus}</p> : null}
 
       {message ? <p className="text-body-12 text-status-danger">{message}</p> : null}
     </div>

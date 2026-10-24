@@ -121,6 +121,7 @@ func sessionOpenSpec(sess AgentSession) OpenSpec {
 // resumed or forked session runs under the same jail an open would give it,
 // not a narrower one that happens to be easier to reach from that call site.
 func (s *Service) applySandboxExtras(spec *OpenSpec) {
+	spec.TempOwner = s.SessionTempOwner
 	// Not a sandbox setting, but it needs exactly this function's guarantee —
 	// every path that builds an OpenSpec — or a resumed session would come
 	// back without knowing where it is.
@@ -276,10 +277,12 @@ type MCPEndpoints interface {
 
 // Service orchestrates vendor adapters, session persistence, and live runtimes.
 type Service struct {
-	reg         *Registry
-	store       Store
-	recorder    *Recorder
-	unknownSeen map[string]struct{}
+	// SessionTempOwner identifies this database for conservative scratch cleanup.
+	SessionTempOwner string
+	reg              *Registry
+	store            Store
+	recorder         *Recorder
+	unknownSeen      map[string]struct{}
 	// retrying holds the sessions whose agent has an unanswered provider-retry
 	// notice on screen, so the turn that ends can clear it (see endProviderRetry).
 	retrying  map[string]struct{}
@@ -723,7 +726,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 	s.applySandboxExtras(&spec)
 	s.applySubagents(&spec, in.AgentType)
 
-	if err := prepareSessionTemp(&spec); err != nil {
+	if err := prepareSessionTemp(&spec, true); err != nil {
 		closeEndpoint()
 		return AgentSession{}, err
 	}
@@ -2364,7 +2367,7 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 	s.recordSessionAccount(sess.ID, s.fillAccountSpec(ctx, &spec, sess))
 	s.applySubagents(&spec, sess.AgentType)
 
-	if err := prepareSessionTemp(&spec); err != nil {
+	if err := prepareSessionTemp(&spec, false); err != nil {
 		closeEndpoint()
 		return nil, err
 	}

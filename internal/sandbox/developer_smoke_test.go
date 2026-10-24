@@ -4,13 +4,18 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
+
+	"github.com/creack/pty"
 	"testing"
 	"time"
 )
@@ -53,14 +58,40 @@ func TestSmokeSeatbeltDeveloperTools(t *testing.T) {
 				t.Fatal(err)
 			}
 		case "isolation":
-			if _, err := os.ReadFile(os.Getenv("DEVKIT_OTHER_TEMP_FILE")); err == nil {
-				t.Fatal("read another session's temp file")
+			denied := func(action string, err error) {
+				t.Helper()
+				if !errors.Is(err, syscall.EPERM) && !errors.Is(err, syscall.EACCES) {
+					t.Fatalf("%s: expected permission denied, got %v", action, err)
+				}
 			}
+			otherFile := os.Getenv("DEVKIT_OTHER_TEMP_FILE")
+			_, err := os.ReadFile(otherFile)
+			denied("read other session", err)
+			denied("write other session", os.WriteFile(filepath.Join(filepath.Dir(otherFile), "planted"), nil, 0o600))
+			denied("hardlink other session", os.Link(otherFile, filepath.Join(os.TempDir(), "linked")))
+			ownFile := filepath.Join(os.TempDir(), "rename-source")
+			if err := os.WriteFile(ownFile, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			denied("rename into other session", os.Rename(ownFile, filepath.Join(filepath.Dir(otherFile), "renamed")))
+			denied("plant session directory", os.Mkdir("/private/tmp/dk-zzzzzzzz", 0o700))
+			hostPID, err := strconv.Atoi(os.Getenv("DEVKIT_HOST_PID"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			denied("signal host process", syscall.Kill(hostPID, 0))
+			tty, err := os.OpenFile(os.Getenv("DEVKIT_HOST_TTY"), os.O_WRONLY, 0)
+			if err == nil {
+				tty.Close()
+				t.Fatal("opened host-created tty for writing")
+			}
+			denied("write host tty", err)
 			ln, err := net.Listen("unix", os.Getenv("DEVKIT_OUTSIDE_SOCKET"))
 			if err == nil {
 				ln.Close()
 				t.Fatal("bound Unix socket outside own temp")
 			}
+			denied("bind outside scratch", err)
 		case "signal":
 			cmd := exec.Command("/bin/sleep", "30")
 			if err := cmd.Start(); err != nil {
@@ -103,6 +134,12 @@ func TestSmokeSeatbeltDeveloperTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(outside)
+	master, slave, err := pty.Open()
+	if err != nil {
+		t.Fatal("create host PTY fixture", err)
+	}
+	defer master.Close()
+	defer slave.Close()
 	env := map[string]string{"PATH": os.Getenv("PATH"), "HOME": hostHomeDir(), "TMPDIR": dir, "GOTMPDIR": dir}
 	policy := Policy{WorkDir: dir, SessionTempDir: dir, Network: NetworkHost, PrivateHome: boolPtr(false), Env: env,
 		ReadOnlyPaths: []string{exe, "/Library/Developer", "/opt/homebrew", "/usr/local"}}
@@ -126,6 +163,8 @@ func TestSmokeSeatbeltDeveloperTools(t *testing.T) {
 		}
 	}
 	env["DEVKIT_OTHER_TEMP_FILE"] = otherFile
+	env["DEVKIT_HOST_PID"] = strconv.Itoa(os.Getpid())
+	env["DEVKIT_HOST_TTY"] = slave.Name()
 	env["DEVKIT_OUTSIDE_SOCKET"] = filepath.Join(outside, "outside.sock")
 	for _, name := range []string{"unix", "isolation", "signal", "user"} {
 		t.Run(name, func(t *testing.T) {
@@ -143,7 +182,13 @@ func TestSmokeSeatbeltDeveloperTools(t *testing.T) {
 #include <stdlib.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <libproc.h>
+#include <errno.h>
 int probe(void) {
+ struct proc_bsdinfo info;
+ errno = 0;
+ int count = proc_pidinfo(atoi(getenv("DEVKIT_HOST_PID")), PROC_PIDTBSDINFO, 0, &info, sizeof(info));
+ if (count > 0 || (errno != EPERM && errno != EACCES)) return 4;
  int fd = posix_openpt(O_RDWR | O_NOCTTY);
  if (fd < 0) return 1;
  if (grantpt(fd) || unlockpt(fd)) return 2;

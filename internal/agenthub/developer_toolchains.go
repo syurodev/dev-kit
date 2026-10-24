@@ -17,7 +17,7 @@ func developerToolchainRoots() []string {
 	candidates = append(candidates, apps...)
 	var roots []string
 	for _, path := range candidates {
-		if _, err := os.Stat(path); err == nil {
+		if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink == 0 && (info.IsDir() || path == "/private/var/db/xcode_select_link") {
 			roots = append(roots, path)
 		}
 	}

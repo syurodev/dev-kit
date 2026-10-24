@@ -1,0 +1,55 @@
+package sandbox
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+)
+
+type fakeProfileRunner struct {
+	err     error
+	calls   int
+	profile string
+}
+
+func (r *fakeProfileRunner) Run(ctx context.Context, _ Policy, profile string) error {
+	r.calls++
+	r.profile = profile
+	if _, ok := ctx.Deadline(); !ok {
+		panic("profile check must have deadline")
+	}
+	return r.err
+}
+func TestSeatbeltProfileValidationCachesBothOutcomes(t *testing.T) {
+	for _, failure := range []bool{false, true} {
+		t.Run(map[bool]string{false: "supported", true: "rejected"}[failure], func(t *testing.T) {
+			runner := &fakeProfileRunner{}
+			if failure {
+				runner.err = errors.New("profile rejected")
+			}
+			gate := unixProfileGate{runner: runner}
+			p := Policy{WorkDir: "/work", SessionTempDir: "/private/tmp/dk-12345678", DenyReadPaths: []string{"/secret"}}
+			if !strings.Contains(gate.status(), "not been checked") {
+				t.Fatal(gate.status())
+			}
+			profile := gate.profile(p)
+			p.SessionTempDir = "/private/tmp/dk-87654321"
+			next := gate.profile(p)
+			if runner.calls != 1 || !strings.Contains(runner.profile, "local unix-socket") {
+				t.Fatal("must probe full policy exactly once")
+			}
+			for _, result := range []string{profile, next} {
+				if strings.Contains(result, "local unix-socket") == failure {
+					t.Fatal("wrong optional rule fallback", result)
+				}
+				if !strings.Contains(result, `(regex #"^/private/tmp/dk-")`) || !strings.Contains(result, `(subpath "/secret")`) {
+					t.Fatal("fallback removed file protection")
+				}
+			}
+			if failure && !strings.Contains(gate.status(), "unavailable") {
+				t.Fatal(gate.status())
+			}
+		})
+	}
+}

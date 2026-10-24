@@ -57,6 +57,10 @@ var seatbeltNetworkMachServices = []string{
 
 // buildSeatbeltProfile returns an SBPL profile string for sandbox-exec.
 func buildSeatbeltProfile(p Policy) string {
+	return buildSeatbeltProfileWithUnixSockets(p, true)
+}
+
+func buildSeatbeltProfileWithUnixSockets(p Policy, unixSockets bool) string {
 	p = p.withDefaults()
 
 	var b strings.Builder
@@ -200,7 +204,9 @@ func buildSeatbeltProfile(p Policy) string {
 `)
 	if p.SessionTempDir != "" {
 		b.WriteString("(allow file-read* file-write* (subpath \"" + escapeSBPL(p.SessionTempDir) + "\"))\n")
-		writeSessionUnixSockets(&b, p.SessionTempDir)
+		if unixSockets {
+			writeSessionUnixSockets(&b, p.SessionTempDir)
+		}
 	}
 
 	// Deny-write after every allow: SBPL's later matching rule wins, so these

@@ -24,7 +24,7 @@ func TestSeatbeltProfileSessionDevelopment(t *testing.T) {
 	deny := strings.Index(p, `(deny file-read* file-write* (regex #"^/private/tmp/dk-"))`)
 	own := strings.Index(p, `(allow file-read* file-write* (subpath "/private/tmp/dk-12345678"))`)
 	secret := strings.LastIndex(p, `(deny file-read* file-write*`)
-	if deny < 0 || own <= deny || secret <= own || strings.LastIndex(p, "(allow ") > secret {
+	if deny <= strings.LastIndex(p, `(subpath "/private/tmp")`) || own <= deny || secret <= own || strings.LastIndex(p, "(allow ") > secret {
 		t.Fatal("private temp exception must follow temp deny but precede credential denies", p)
 	}
 	if strings.Contains(p, "(allow network-outbound)") || strings.Contains(p, "(allow signal)") {
@@ -33,5 +33,19 @@ func TestSeatbeltProfileSessionDevelopment(t *testing.T) {
 	none := buildSeatbeltProfile(Policy{WorkDir: "/work"})
 	if strings.Contains(none, "unix-socket (subpath") {
 		t.Fatal("no session temp means no Unix listener grant")
+	}
+}
+
+func TestSeatbeltProfileTempDenyFollowsEveryBroadGrant(t *testing.T) {
+	p := buildSeatbeltProfile(Policy{WorkDir: "/private/tmp", ReadOnlyPaths: []string{"/private/tmp/dk-other"}, ReadWritePaths: []string{"/private/tmp"}, SessionTempDir: "/private/tmp/dk-12345678"})
+	deny := strings.Index(p, `(deny file-read* file-write* (regex #"^/private/tmp/dk-"))`)
+	for _, grant := range []string{`(subpath "/private/tmp")`, `(subpath "/private/tmp/dk-other")`} {
+		if deny <= strings.LastIndex(p, grant) {
+			t.Fatalf("temp deny must follow %s", grant)
+		}
+	}
+	after := p[deny:]
+	if strings.Count(after, "(allow file-") != 1 || !strings.Contains(after, `(allow file-read* file-write* (subpath "/private/tmp/dk-12345678"))`) {
+		t.Fatal("only own scratch may be restored", after)
 	}
 }

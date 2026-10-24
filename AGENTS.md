@@ -2237,7 +2237,12 @@ limited to the session. Settings → Agents → Safety → **Allow developer
 toolchains** (default on) adds read-only Command Line Tools and Xcode paths.
 Existing credential and data-directory denies still apply. Changes take effect
 on the next spawn/resume. Temp directories are removed on close and swept at
-startup. Nested Seatbelt cannot run inside an agent session: run
+startup when the owner database has no open session, the owner PID is gone and
+its marker lock is free. Cleanup skips server mode, foreign databases/users and
+unmarked directories. The host checks the Unix-rule profile once; if rejected,
+only that optional rule is dropped and Settings → Agents → Safety shows the
+fallback. Own-directory local IPC is independent of NetworkMode.
+Nested Seatbelt cannot run inside an agent session: run
 `go test ./internal/sandbox -run Smoke -v` from a host terminal to verify native
 cgo, Unix sockets (including the SBPL Unix address filter), PTYs, child signals
 and user lookup. A passing profile-string test alone does not verify macOS enforcement.

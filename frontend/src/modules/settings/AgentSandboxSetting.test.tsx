@@ -4,8 +4,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AgentSandboxSetting } from "./AgentSandboxSetting";
 import type { AgentSandboxSettings } from "../../../bindings/devkit/internal/preferences/models";
 
-function render(settings?: AgentSandboxSettings) {
+function render(settings?: AgentSandboxSettings, status?: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  if (status) client.setQueryData(["preferences", "agent-sandbox-status"], status);
   if (settings) client.setQueryData(["preferences", "agent-sandbox"], settings);
   return renderToStaticMarkup(<QueryClientProvider client={client}><AgentSandboxSetting /></QueryClientProvider>);
 }
@@ -22,6 +23,12 @@ describe("AgentSandboxSetting developer toolchains", () => {
   });
   test("a stored opt-out stays off", () => {
     expect(toolchainRow(render({ revision: 4, allowDeveloperToolchains: false }))).toContain('aria-checked="false"');
+  });
+  test("shows when the host disabled unsupported Unix rules", () => {
+    const status = "Session Unix sockets are unavailable on this system. Sessions can still run.";
+    const html = render({ revision: 0 }, status);
+    expect(html).toContain('role="status"');
+    expect(html).toContain(status);
   });
   test("the switch stays disabled until settings load", () => {
     expect(toolchainRow(render())).toContain("disabled");

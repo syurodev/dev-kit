@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"os/exec"
-	"sort"
 )
 
 // SeatbeltBackend starts macOS commands inside a sandbox-exec Seatbelt profile.
@@ -46,7 +45,7 @@ func (SeatbeltBackend) Start(ctx context.Context, p Policy, c Cmd) (*Proc, error
 	// The profile rides on argv (-p) instead of a temp file: sandbox-exec
 	// reads the file after exec, so unlinking it right after Start raced with
 	// the child opening it.
-	args := []string{"-p", buildSeatbeltProfile(p), "--", c.Path}
+	args := []string{"-p", sessionUnixGate.profile(p), "--", c.Path}
 	args = append(args, c.Args...)
 
 	cmd := exec.CommandContext(ctx, sandboxExec, args...)
@@ -78,7 +77,7 @@ func (SeatbeltBackend) StartPiped(ctx context.Context, p Policy, c Cmd) (*Proc, 
 
 	p = p.withDefaults()
 	// See Start: the profile rides on argv, no temp file to unlink.
-	args := []string{"-p", buildSeatbeltProfile(p), "--", c.Path}
+	args := []string{"-p", sessionUnixGate.profile(p), "--", c.Path}
 	args = append(args, c.Args...)
 
 	cmd := exec.CommandContext(ctx, sandboxExec, args...)
@@ -104,21 +103,4 @@ func (SeatbeltBackend) StartPiped(ctx context.Context, p Policy, c Cmd) (*Proc, 
 		return nil, err
 	}
 	return proc, nil
-}
-
-func seatbeltProcessEnv(p Policy) []string {
-	if p.Env == nil && !p.EffectivePrivateHome() {
-		return nil
-	}
-	env := withHomeEnv(p, p.Env)
-	keys := make([]string, 0, len(env))
-	for key := range env {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	out := make([]string, 0, len(keys))
-	for _, key := range keys {
-		out = append(out, key+"="+env[key])
-	}
-	return out
 }

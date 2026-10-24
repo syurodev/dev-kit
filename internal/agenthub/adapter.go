@@ -16,6 +16,7 @@ type OpenSpec struct {
 	// SessionID is set by the service, never a tool input.
 	SessionID      string
 	SessionTempDir string
+	TempOwner      string
 	Customizations map[string]preferences.AgentCustomization
 	// GateOwnedMCP is supplied by the trusted identity-bound endpoint registry.
 	// These tools ask through DevKit's gate after vendor dispatch, exactly once.

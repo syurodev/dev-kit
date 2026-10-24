@@ -22,7 +22,8 @@ var defaultSensitiveDenyPaths = []string{
 
 type Policy struct {
 	// SessionTempDir is a private, short macOS session scratch directory.
-	// Only this directory may host the session's Unix listeners.
+	// Only this directory may host the session's Unix listeners. Local IPC
+	// is independent of NetworkMode, including NetworkNone.
 	SessionTempDir string
 	WorkDir        string
 	ReadOnlyPaths  []string
