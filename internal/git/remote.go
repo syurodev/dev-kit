@@ -141,10 +141,21 @@ func (s *Service) Remotes(ctx context.Context) ([]Remote, error) {
 	}
 	bindings := map[string]Remote{}
 	if s.remotes != nil {
-		stored, err := s.remotes.ListRemotes(s.Project())
+		stored, err := s.remotes.ListRemotes(s.policyKey())
 		if err == nil {
 			for _, binding := range stored {
 				bindings[binding.Name] = binding
+			}
+		}
+		for _, alias := range s.PolicyAliases() {
+			legacy, err := s.remotes.ListRemotes(alias)
+			if err != nil {
+				continue
+			}
+			for _, binding := range legacy {
+				if _, exists := bindings[binding.Name]; !exists {
+					bindings[binding.Name] = binding
+				}
 			}
 		}
 	}

@@ -42,24 +42,40 @@ type GuardStore interface {
 	ListGuards(projectKey string) ([]Guard, error)
 }
 
+func (s *Service) guardRequiresConfirmation(guard Guard) bool {
+	return guard.Env == "" || s.envs == nil || s.envs.RequiresConfirmation(guard.Env)
+}
+
 // guardFor returns the first guard covering branch, if any.
 func (s *Service) guardFor(branch string) (Guard, bool) {
 	if s.guards == nil || branch == "" {
 		return Guard{}, false
 	}
-	guards, err := s.guards.ListGuards(s.Project())
+	guards, err := s.guards.ListGuards(s.policyKey())
 	if err != nil {
 		// A guard store that cannot be read must not silently un-gate a
 		// protected branch. Refuse by reporting a guard with no env, which
 		// confirm() turns into a denial.
 		return Guard{Pattern: branch, Env: ""}, true
 	}
+	for _, alias := range s.PolicyAliases() {
+		legacy, legacyErr := s.guards.ListGuards(alias)
+		if legacyErr != nil {
+			return Guard{Pattern: branch, Env: ""}, true
+		}
+		guards = append(guards, legacy...)
+	}
+	var matched Guard
+	found := false
 	for _, guard := range guards {
 		if guard.Matches(branch) {
-			return guard, true
+			if !found || s.guardRequiresConfirmation(guard) {
+				matched = guard
+				found = true
+			}
 		}
 	}
-	return Guard{}, false
+	return matched, found
 }
 
 // gate asks the user when the branch is guarded and its environment demands
@@ -69,7 +85,7 @@ func (s *Service) gate(ctx context.Context, branch, what, detail string) error {
 	if !guarded {
 		return nil
 	}
-	if guard.Env != "" && s.envs != nil && !s.envs.RequiresConfirmation(guard.Env) {
+	if !s.guardRequiresConfirmation(guard) {
 		return nil
 	}
 	if s.confirm == nil {

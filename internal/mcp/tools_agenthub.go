@@ -10,6 +10,7 @@ import (
 
 	"devkit/internal/agenthub"
 	"devkit/internal/apperrors"
+	gitservice "devkit/internal/git"
 	"devkit/internal/identity"
 	"devkit/internal/interaction"
 	"devkit/internal/tasks"
@@ -20,6 +21,7 @@ import (
 // AgentHubAPI is the Agent Hub domain surface MCP tools invoke (duck-typed).
 type AgentHubAPI interface {
 	ListSessions(ctx context.Context) ([]agenthub.AgentSession, error)
+	WorktreeInUse(ctx context.Context, worktreePath string) (bool, error)
 	CreateSession(ctx context.Context, in agenthub.CreateInput) (agenthub.AgentSession, error)
 	GetStatus(ctx context.Context, id string) (agenthub.AgentSession, error)
 	Invoke(ctx context.Context, in agenthub.InvokeInput) (agenthub.InvokeResult, error)
@@ -70,7 +72,7 @@ func (s *Server) registerAgentHub(ms *sdk.Server) {
 			"`profile` picks one of the person's model profiles (agenthub.listModelProfiles); `initialConfig` names a model and effort from agenthub.listModels. " +
 			"A model other than yours, or a higher effort, asks the person first unless from a profile. " +
 			"It starts in your permission mode, never a more permissive one. " +
-			"`taskId`: DevKit claims that task for the child and sends it the task as its first message.",
+			"For code work pass `worktree` (a branch name) to give it a separate checkout; with `taskId`, DevKit records the branch, claims the task and sends it first.",
 		Annotations: &sdk.ToolAnnotations{
 			ReadOnlyHint:    false,
 			DestructiveHint: boolPtr(false),
@@ -202,7 +204,8 @@ type agentHubCreateInput struct {
 	// TaskID starts the child on a task: DevKit checks the task can be given
 	// away, claims it for the new session and sends the session the task as its
 	// first message. See tools_agenthub_task.go.
-	TaskID string `json:"taskId,omitempty"`
+	TaskID   string `json:"taskId,omitempty"`
+	Worktree string `json:"worktree,omitempty"`
 }
 
 func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.CallToolRequest, in agentHubCreateInput) (*sdk.CallToolResult, any, error) {
@@ -242,16 +245,61 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 	if profile != "" {
 		audit["profile"] = clipAudit(profile)
 	}
+	branch := strings.TrimSpace(in.Worktree)
+	if branch != "" {
+		audit["worktree"] = clipAudit(branch)
+	}
 	if model := config["model"]; model != "" {
 		audit["model"] = clipAudit(model)
 	}
 	if effort := config["reasoning_effort"]; effort != "" {
 		audit["effort"] = clipAudit(effort)
 	}
+	var createdWorktree *gitservice.Worktree
 	v, err := s.deps.Caller.Call(ctx, "builtin.agenthub", "agenthub:execute", "session:new", meta("create_session", audit), func(callCtx context.Context) (any, error) {
+		cwd := in.Cwd
+		var worktreeGit GitAPI
+		var worktreeRepo string
+		if branch != "" {
+			parent, err := s.deps.AgentHub.GetStatus(callCtx, in.CallerSessionID)
+			if err != nil {
+				return nil, err
+			}
+			worktreeGit, worktreeRepo, err = s.gitFor(callCtx, parent.ProjectPath, true)
+			if err != nil {
+				return nil, err
+			}
+			root, target, err := worktreeGit.WorktreeTarget(callCtx, branch)
+			if err != nil {
+				return nil, err
+			}
+			if err := s.requireGitWritePaths(callCtx, root, target); err != nil {
+				return nil, err
+			}
+			value, err := s.deps.Caller.Call(callCtx, "builtin.git", "git:write", "repo:worktree", meta("worktree_add", repoMeta(worktreeRepo, map[string]any{"branch": clipAudit(branch)})), func(ctx context.Context) (any, error) {
+				return worktreeGit.WorktreeAdd(ctx, gitservice.WorktreeAddInput{Branch: branch})
+			})
+			if err != nil {
+				return nil, err
+			}
+			wt, ok := value.(gitservice.Worktree)
+			if !ok {
+				return nil, apperrors.New("internal_error", "Git did not return the new worktree.", true)
+			}
+			createdWorktree = &wt
+			cwd = wt.Path
+		}
+		cleanupWorktree := func() {
+			if createdWorktree == nil {
+				return
+			}
+			_, _ = s.deps.Caller.Call(callCtx, "builtin.git", "git:write", "repo:worktree", meta("worktree_remove", repoMeta(worktreeRepo, nil)), func(ctx context.Context) (any, error) {
+				return nil, worktreeGit.WorktreeRemove(ctx, createdWorktree.Path)
+			})
+		}
 		create := agenthub.CreateInput{
 			AgentType:       agenthub.AgentType(in.AgentType),
-			Cwd:             in.Cwd,
+			Cwd:             cwd,
 			WorkspaceID:     in.WorkspaceID,
 			ParentSessionID: in.CallerSessionID,
 			Title:           in.Title,
@@ -262,6 +310,7 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 		// CreateSession repeats the check and refuses without this answer.
 		plan, err := s.deps.AgentHub.PlanModelChoice(callCtx, agenthub.ModelChoiceInput{Vendor: create.AgentType, Config: config, Profile: profile})
 		if err != nil {
+			cleanupWorktree()
 			return nil, err
 		}
 		if plan.NeedsApproval {
@@ -270,12 +319,14 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 			if err := mapInteractErr(effectiveHub(s.deps.Hub).Confirm(callCtx, interaction.ConfirmRequest{
 				Tool: "agenthub.createAgentSession", Summary: summary, Kind: interaction.KindAgent, EnvBlocks: true,
 			})); err != nil {
+				cleanupWorktree()
 				return nil, err
 			}
 			create.ModelChoiceApproved = true
 		}
 		sess, err := s.deps.AgentHub.CreateSession(callCtx, create)
 		if err != nil {
+			cleanupWorktree()
 			return nil, err
 		}
 		return forAgent(sess), nil
@@ -285,7 +336,11 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 	}
 	if taskID != "" {
 		if sess, ok := v.(agenthub.AgentSession); ok {
-			v, err = s.giveChildItsTask(ctx, sess, task)
+			branchName := ""
+			if createdWorktree != nil {
+				branchName = createdWorktree.Branch
+			}
+			v, err = s.giveChildItsTask(ctx, sess, task, branchName)
 			if err != nil {
 				return nil, nil, err
 			}

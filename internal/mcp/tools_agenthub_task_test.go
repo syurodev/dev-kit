@@ -17,14 +17,17 @@ import (
 // childTasks is the slice of the board a child-on-a-task start touches.
 type childTasks struct {
 	TasksAPI
-	task        tasks.Task
-	assignable  error
-	assignErr   error
-	assignedID  string
-	assignedTo  string
-	assignedBy  tasks.Caller
-	checkedBy   tasks.Caller
-	assignCalls int
+	task         tasks.Task
+	assignable   error
+	assignErr    error
+	assignedID   string
+	assignedTo   string
+	assignedBy   tasks.Caller
+	checkedBy    tasks.Caller
+	assignCalls  int
+	branch       string
+	branchBy     tasks.Caller
+	branchWrites int
 }
 
 func (f *childTasks) Assignable(c tasks.Caller, id string) (tasks.Task, error) {
@@ -38,6 +41,15 @@ func (f *childTasks) Assign(c tasks.Caller, id, sessionID string) (tasks.Task, e
 	f.assignCalls++
 	f.assignedBy, f.assignedID, f.assignedTo = c, id, sessionID
 	return f.task, f.assignErr
+}
+
+func (f *childTasks) SetFields(c tasks.Caller, id string, fields tasks.Fields) (tasks.Task, error) {
+	if fields.Branch != nil {
+		f.branchWrites++
+		f.branchBy = c
+		f.branch = *fields.Branch
+	}
+	return f.task, nil
 }
 
 func childTaskFixture() (*Server, *fakeAgentHub, *childTasks, context.Context) {
@@ -84,6 +96,19 @@ func TestCreateAgentSessionOnATaskClaimsItAndSendsItAsTheFirstMessage(t *testing
 	}
 }
 
+func TestWorktreeBranchIsRecordedOnlyAfterChildReceivesTask(t *testing.T) {
+	srv, hub, board, ctx := childTaskFixture()
+	hub.status = agenthub.AgentSession{ID: "parent-1", ProjectPath: "/tmp/p"}
+	srv.deps.GitRepos = fakeRepos{"/tmp/p": &fakeGit{}}
+	_, _, err := srv.toolAgentHubCreateAgentSession(ctx, &sdk.CallToolRequest{}, agentHubCreateInput{AgentType: "mock", TaskID: "t1", Worktree: "feature/task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if board.branchWrites != 1 || board.branch != "feature/task" || board.branchBy.SessionID != "child-1" {
+		t.Fatalf("branch writes=%d branch=%q by=%+v, want one write by the task-holding child", board.branchWrites, board.branch, board.branchBy)
+	}
+}
+
 func TestATaskThatCannotBeGivenAwayLeavesNoSessionBehind(t *testing.T) {
 	srv, hub, board, ctx := childTaskFixture()
 	board.assignable = tasks.ErrNotAssignable
@@ -107,6 +132,9 @@ func TestAClaimLostAfterTheSessionExistsClosesTheSession(t *testing.T) {
 	}
 	if hub.closeID != "child-1" || hub.sendCalled {
 		t.Errorf("closed %q, sent %v: want the new session closed and nothing sent", hub.closeID, hub.sendCalled)
+	}
+	if board.branchWrites != 0 {
+		t.Errorf("recorded a branch on a task the child did not receive: %+v", board)
 	}
 }
 

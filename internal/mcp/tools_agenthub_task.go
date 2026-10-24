@@ -9,6 +9,7 @@ import (
 
 	"devkit/internal/agenthub"
 	"devkit/internal/apperrors"
+	"devkit/internal/identity"
 	"devkit/internal/tasks"
 )
 
@@ -93,7 +94,7 @@ func (s *Server) prepareTaskForChild(ctx context.Context, taskID string) (tasks.
 // the meantime) closes the child again: a session nobody asked for is not left
 // behind. A message that fails does not undo the claim — the child holds the
 // task and the parent is told the delivery, so it can send the message itself.
-func (s *Server) giveChildItsTask(ctx context.Context, sess agenthub.AgentSession, task tasks.Task) (any, error) {
+func (s *Server) giveChildItsTask(ctx context.Context, sess agenthub.AgentSession, task tasks.Task, branch string) (any, error) {
 	tc := taskCaller(ctx)
 	if _, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:write", "task:"+task.ID, meta("assign", map[string]any{"child_session": sess.ID}), func(context.Context) (any, error) {
 		return s.deps.Tasks.Assign(tc, task.ID, sess.ID)
@@ -102,6 +103,17 @@ func (s *Server) giveChildItsTask(ctx context.Context, sess agenthub.AgentSessio
 			log.Printf("mcp: close session %s after its task could not be assigned: %v", sess.ID, closeErr)
 		}
 		return nil, err
+	}
+	if branch != "" {
+		childCtx := identity.WithCaller(ctx, identity.Agent(sess.ID))
+		if _, err := s.deps.Caller.Call(childCtx, "builtin.tasks", "tasks:write", "task:"+task.ID, meta("record_worktree_branch", map[string]any{"child_session": sess.ID}), func(context.Context) (any, error) {
+			return s.deps.Tasks.SetFields(taskCaller(childCtx), task.ID, tasks.Fields{Branch: &branch})
+		}); err != nil {
+			if closeErr := s.deps.AgentHub.CloseSession(ctx, sess.ID); closeErr != nil {
+				log.Printf("mcp: close session %s after its worktree branch could not be recorded: %v", sess.ID, closeErr)
+			}
+			return nil, err
+		}
 	}
 
 	out := childOnTask{AgentSession: sess, Task: taskRef{ID: task.ID, Key: task.Key, Title: oneLine(task.Title)}}

@@ -144,6 +144,12 @@ as production-verified against a real Claude Code session in cloud CI.
   commit as the account identity. `git.fetch` / `git.pull` (ff-only) use the remote's bound
   account and answer ahead/behind. The Claude hook also refuses shell `git pull`,
   `rebase`, `cherry-pick` and `revert`.
+- **Git worktrees give code-editing children separate checkouts** (`internal/git/worktree.go`,
+  `internal/mcp/tools_git.go`). `git.worktree.add|list|remove` use the same `repo` argument and
+  granted-folder rule as other Git tools; worktrees live under
+  `.superpowers/.worktrees/<branch-slug>`. Removal refuses dirty worktrees and never deletes a
+  branch. `agenthub.createAgentSession` accepts `worktree` (a branch name), creates it before
+  the child, starts the child there and records the branch on `taskId` when supplied.
 - **`pr.*` tools work with the pull request of an agent's branch** (`internal/mcp/tools_pr.go`; the host client is
   `internal/forge` — GitHub and gitlab.com, see "GitLab is the second provider" below — the folder→repo→account→request logic `internal/prwatch`). Reads `pr.get|list|checks|comments`
   (`git:read` on `repo:pr`); writes `pr.create|update|comment|reply|merge|close|deleteBranch` (`git:push` on

@@ -981,6 +981,41 @@ func (s *Service) ListSessions(ctx context.Context) ([]AgentSession, error) {
 	return out, nil
 }
 
+// WorktreeInUse reports only whether any non-closed session has a cwd inside
+// the given worktree. Unlike ListSessions, this safety check intentionally
+// scans all persisted sessions and does not disclose their identities.
+func (s *Service) WorktreeInUse(ctx context.Context, worktreePath string) (bool, error) {
+	worktreePath, err := filepath.Abs(worktreePath)
+	if err != nil {
+		return false, err
+	}
+	worktreePath, err = filepath.EvalSymlinks(worktreePath)
+	if err != nil {
+		return false, err
+	}
+	list, err := s.store.ListSessions(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, sess := range list {
+		if sess.Status == SessionStatusClosed {
+			continue
+		}
+		cwd, err := filepath.Abs(sess.ProjectPath)
+		if err != nil {
+			return false, err
+		}
+		cwd, err = filepath.EvalSymlinks(cwd)
+		if err != nil {
+			return false, err
+		}
+		if cwd == worktreePath || underResolved(cwd, worktreePath) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 const maxContextSuggestions = 100
 
 // contextWalkBudget bounds how many entries one listing reads. A query that

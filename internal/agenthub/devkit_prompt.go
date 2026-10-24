@@ -184,7 +184,9 @@ shows the memory.
   the task to a terminal status — the board's gate runs then, and your own word
   that tests passed does not close it. Children that edit code get one task
   each, each on its own branch ({{git.push}} only pushes a branch recorded on a
-  task the session holds), so they cannot overwrite each other. A read-only
+  task the session holds), so they cannot overwrite each other. Pass ` + "`worktree`" + `
+  with that branch name to {{agenthub.createAgentSession}} for every code-editing
+  child; use {{git.worktree.list}} and {{git.worktree.remove}} to manage it. A read-only
   question, a quick check, or a workspace with no board needs no task: one
   short message is the brief.
 - **Choosing a child's model.** With no choice a child runs on your own

@@ -31,6 +31,9 @@ type fakeAgentHub struct {
 	cancelID                  string
 	statusID                  string
 	listCalled                bool
+	worktreeInUse             bool
+	worktreeInUseErr          error
+	worktreeCheckCalled       bool
 
 	sendIn     agenthub.SendMessageInput
 	sendOut    agenthub.SendMessageResult
@@ -95,6 +98,11 @@ func (f *fakeAgentHub) PlanModelChoice(_ context.Context, in agenthub.ModelChoic
 func (f *fakeAgentHub) ListSessions(context.Context) ([]agenthub.AgentSession, error) {
 	f.listCalled = true
 	return f.list, nil
+}
+
+func (f *fakeAgentHub) WorktreeInUse(context.Context, string) (bool, error) {
+	f.worktreeCheckCalled = true
+	return f.worktreeInUse, f.worktreeInUseErr
 }
 
 func (f *fakeAgentHub) CreateSession(_ context.Context, in agenthub.CreateInput) (agenthub.AgentSession, error) {
@@ -205,6 +213,26 @@ func TestAgentHubCreateAgentSessionTool(t *testing.T) {
 	}
 	if caller.last.metadata["agent_type"] != "mock" {
 		t.Fatalf("agent_type = %v", caller.last.metadata["agent_type"])
+	}
+}
+
+func TestAgentHubChildWorktreeStartsInSeparateCheckout(t *testing.T) {
+	parent := agenthub.AgentSession{ID: gitSession, ProjectPath: auth}
+	srv, _, repos := gitServer(parent)
+	hub := &fakeAgentHub{status: parent, created: agenthub.AgentSession{ID: "child-worktree", AgentType: agenthub.AgentTypeMock}}
+	srv.deps.AgentHub = hub
+	_, _, err := srv.toolAgentHubCreateAgentSession(agentCtx(), &sdk.CallToolRequest{}, agentHubCreateInput{
+		AgentType: "mock", CallerSessionID: gitSession, Worktree: "feature/child-worktree",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := auth + "/.superpowers/.worktrees/feature-child-worktree"
+	if hub.createIn.Cwd != want {
+		t.Fatalf("child cwd = %q, want %q", hub.createIn.Cwd, want)
+	}
+	if repos[auth].worktreeInput.Branch != "feature/child-worktree" {
+		t.Fatalf("worktree branch = %+v", repos[auth].worktreeInput)
 	}
 }
 

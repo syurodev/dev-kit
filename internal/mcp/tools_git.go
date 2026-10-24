@@ -45,6 +45,16 @@ type GitAPI interface {
 	Revert(ctx context.Context, in gitservice.PickInput) (gitservice.HistoryResult, error)
 	Fetch(ctx context.Context, remote string) error
 	Pull(ctx context.Context, remote string) error
+	WorktreeAdd(ctx context.Context, in gitservice.WorktreeAddInput) (gitservice.Worktree, error)
+	WorktreeTarget(ctx context.Context, branch string) (root, target string, err error)
+	Worktrees(ctx context.Context) ([]gitservice.Worktree, error)
+	WorktreeRemove(ctx context.Context, name string) error
+}
+
+// GitWorktreeGrants are checked against the real default policy as well as
+// used by the worktree handlers, so a test fake cannot hide a missing grant.
+func GitWorktreeGrants() [][3]string {
+	return [][3]string{{"builtin.git", "git:read", "repo:worktree"}, {"builtin.git", "git:write", "repo:worktree"}}
 }
 
 // TaskBranches reports the branches recorded on tasks a session holds. It is
@@ -56,7 +66,7 @@ type TaskBranches interface {
 
 // gitRepoInput is the argument every git tool shares: which repository.
 type gitRepoInput struct {
-	Repo string `json:"repo,omitempty" jsonschema:"optional; which repository: a folder name from workspace.list or git.repos (e.g. kong-plugin) or an absolute path. Defaults to your session's working directory — from a terminal, to the repository open in DevKit"`
+	Repo string `json:"repo,omitempty" jsonschema:"optional; workspace folder name or path; defaults to your session repository"`
 }
 
 // gitStatusResult is git.status's answer, naming the repository it read so an
@@ -133,6 +143,22 @@ func repoMeta(repo string, extra map[string]any) map[string]any {
 	}
 	extra["repo"] = repo
 	return extra
+}
+
+func (s *Server) requireGitWritePaths(ctx context.Context, paths ...string) error {
+	scope, err := s.gitScopeFor(ctx)
+	if err != nil {
+		return err
+	}
+	if !scope.agent {
+		return nil
+	}
+	for _, path := range paths {
+		if !workspace.Covered(path, scope.granted) {
+			return apperrors.New("git.repoNotGranted", path+" is not a folder your session may write. Ask the person to add it to the session, or work in "+scope.cwd+".", false)
+		}
+	}
+	return nil
 }
 
 func (s *Server) registerGit(ms *sdk.Server) {
@@ -288,6 +314,25 @@ func (s *Server) registerGit(ms *sdk.Server) {
 	// work that the history cannot give back, and `git merge --abort` is left
 	// out for the same reason — discarding everyone's in-flight merge is a
 	// person's decision.
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name:        "git.worktree.add",
+		Description: "Create or attach a branch worktree under `.superpowers/.worktrees/`; guarded branches ask the person.",
+		Annotations: &sdk.ToolAnnotations{DestructiveHint: boolPtr(false)},
+	}, s.toolGitWorktreeAdd)
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name:        "git.worktree.list",
+		Description: "List worktree paths, branches, heads and locked, prunable, and dirty states.",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolGitWorktreeList)
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name:        "git.worktree.remove",
+		Description: "Remove a clean worktree by branch or path. Keeps the branch.",
+		Annotations: &sdk.ToolAnnotations{DestructiveHint: boolPtr(false)},
+	}, s.toolGitWorktreeRemove)
+
 }
 
 func (s *Server) toolGitStatus(ctx context.Context, _ *sdk.CallToolRequest, in gitRepoInput) (*sdk.CallToolResult, any, error) {
@@ -784,4 +829,97 @@ func (s *Server) gitSync(ctx context.Context, in gitRemoteInput, op string, run 
 		return nil, nil, err
 	}
 	return nil, structured(v), nil
+}
+
+// Worktree tools
+
+type gitWorktreeAddInput struct {
+	gitRepoInput
+	Branch string `json:"branch"`
+	Base   string `json:"base,omitempty"`
+}
+
+func (s *Server) toolGitWorktreeAdd(ctx context.Context, _ *sdk.CallToolRequest, in gitWorktreeAddInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:write", "repo:worktree", meta("worktree_add", repoMeta(in.Repo, nil)), func(ctx context.Context) (any, error) {
+		git, _, err := s.gitFor(ctx, in.Repo, true)
+		if err != nil {
+			return nil, err
+		}
+		root, target, err := git.WorktreeTarget(ctx, in.Branch)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.requireGitWritePaths(ctx, root, target); err != nil {
+			return nil, err
+		}
+		return git.WorktreeAdd(ctx, gitservice.WorktreeAddInput{Branch: in.Branch, Base: in.Base})
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+type gitWorktreeListInput struct {
+	gitRepoInput
+}
+
+func (s *Server) toolGitWorktreeList(ctx context.Context, _ *sdk.CallToolRequest, in gitWorktreeListInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.git", "git:read", "repo:worktree", meta("worktree_list", repoMeta(in.Repo, nil)), func(ctx context.Context) (any, error) {
+		git, _, err := s.gitFor(ctx, in.Repo, false)
+		if err != nil {
+			return nil, err
+		}
+		return git.Worktrees(ctx)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+type gitWorktreeRemoveInput struct {
+	gitRepoInput
+	Name string `json:"name"`
+}
+
+func (s *Server) toolGitWorktreeRemove(ctx context.Context, _ *sdk.CallToolRequest, in gitWorktreeRemoveInput) (*sdk.CallToolResult, any, error) {
+	_, err := s.deps.Caller.Call(ctx, "builtin.git", "git:write", "repo:worktree", meta("worktree_remove", repoMeta(in.Repo, nil)), func(ctx context.Context) (any, error) {
+		git, _, err := s.gitFor(ctx, in.Repo, true)
+		if err != nil {
+			return nil, err
+		}
+		worktrees, err := git.Worktrees(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, worktree := range worktrees {
+			if worktree.Branch != in.Name && worktree.Path != in.Name {
+				continue
+			}
+			if err := s.refuseLiveWorktree(ctx, worktree.Path); err != nil {
+				return nil, err
+			}
+			break
+		}
+		return nil, git.WorktreeRemove(ctx, in.Name)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(map[string]any{"removed": in.Name}), nil
+}
+
+func (s *Server) refuseLiveWorktree(ctx context.Context, worktreePath string) error {
+	if s.deps.AgentHub == nil {
+		return apperrors.New("internal_error", "Agent Hub is not available to check worktree use.", true)
+	}
+	inUse, err := s.deps.AgentHub.WorktreeInUse(ctx, worktreePath)
+	if err != nil {
+		return apperrors.New("git.worktreeCheckFailed", "Could not verify whether an Agent Hub session is using this worktree, so it was not removed.", false)
+	}
+	if inUse {
+		return apperrors.New("git.worktreeInUse", "A live Agent Hub session is using this worktree. Close that session before removing it.", false)
+	}
+	return nil
 }

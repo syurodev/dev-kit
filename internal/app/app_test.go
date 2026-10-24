@@ -102,6 +102,15 @@ func TestNewContainerGrantsAgentGitSync(t *testing.T) {
 	}
 }
 
+func TestNewContainerGrantsAgentGitWorktrees(t *testing.T) {
+	container := NewContainer()
+	for _, grant := range mcp.GitWorktreeGrants() {
+		if !container.Permissions.Check(permissions.Request{SubjectID: grant[0], Capability: grant[1], Scope: grant[2]}).Allowed {
+			t.Errorf("git.worktree.* asks for %s %q on %q, which no default grant covers", grant[0], grant[1], grant[2])
+		}
+	}
+}
+
 // Every pr.* tool asks the gateway for one of these. The tests in internal/mcp
 // call the handlers without the policy, so only the grants the container really
 // installs can say whether an agent's pr.get or pr.create would be refused.

@@ -40,6 +40,11 @@ var gitRefusals = []struct {
 	{gitservice.ErrNoProject, "git.noProject", "No project folder is open for git."},
 	{gitservice.ErrGitUnavailable, "git.unavailable", "git is not usable on this machine."},
 	{gitservice.ErrNoRepository, "git.noRepository", "This folder is not a git repository."},
+	{gitservice.ErrWorktreeDirty, "git.worktreeDirty", "The worktree has uncommitted changes — commit or stash them first."},
+	{gitservice.ErrWorktreeOutside, "git.worktreeOutside", "The worktree path would escape the repository."},
+	{gitservice.ErrWorktreeExists, "git.worktreeExists", "A worktree already exists at that location."},
+	{gitservice.ErrWorktreeNotFound, "git.worktreeNotFound", "No such worktree."},
+	{gitservice.ErrBranchCheckedOut, "git.branchCheckedOut", "That branch is already checked out in another worktree."},
 }
 
 // gitRefusalError maps one of gitRefusals to an AppError carrying its sentence,
