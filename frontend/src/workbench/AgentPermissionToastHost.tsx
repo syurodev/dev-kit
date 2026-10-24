@@ -106,7 +106,7 @@ export function AgentPermissionToastHost({
 
   // Before the early return: hooks cannot be skipped, and null is a fine
   // argument — there is simply nothing to answer.
-  const { busy, resolve } = useResolvePermission(permissionShowing ? pending : null);
+  const { busy, error: permissionError, resolve } = useResolvePermission(permissionShowing ? pending : null);
   const { busy: questionBusy, respond } = useRespondElicitation(question);
 
   // The toast outlives its request by one exit animation, by holding on to the
@@ -159,6 +159,7 @@ export function AgentPermissionToastHost({
             onResolve={resolve}
             onOpenRail={() => openRailOn(card.item.sessionId)}
             busy={busy}
+            error={permissionError}
             // pendingQueue holds the request on screen too; the pill counts the rest.
             queued={Math.max(0, (isSSR ? useAgentSessionsStore.getState().pendingQueue.length : storeQueueLength) - 1)}
           />

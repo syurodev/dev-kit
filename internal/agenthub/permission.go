@@ -39,6 +39,22 @@ type PendingPermission struct {
 	ExpiresAt time.Time `json:"expiresAt,omitzero"`
 }
 
+// Why a pending permission request is gone (PermissionClosed.Reason).
+const (
+	PermissionAnswered  = "answered"   // a person answered it (here or in another window)
+	PermissionWithdrawn = "withdrawn"  // the agent took it back, or its process went away
+	PermissionTurnEnded = "turn_ended" // the turn was stopped and every request of the session denied
+	PermissionExpired   = "expired"    // the gate's deadline passed
+)
+
+// PermissionClosed says a pending permission request is gone and why, so a
+// card still showing it can come down. Fired once per request.
+type PermissionClosed struct {
+	ID        string `json:"id"`
+	SessionID string `json:"sessionId"`
+	Reason    string `json:"reason"`
+}
+
 // PermissionWaiter blocks ACP session/request_permission until Complete or timeout.
 //
 // Shared broker for vendor requests and tool gates. Gates translate their
@@ -52,6 +68,10 @@ type PermissionWaiter struct {
 	// Service.mediatePermission. Zero, the default, is no deadline at all: the
 	// request then carries no ExpiresAt and the card draws no countdown.
 	Timeout time.Duration
+	// OnClosed, when set before the waiter is used, is told once for every
+	// request that stops waiting. It is called without the lock held and must
+	// not block.
+	OnClosed func(PermissionClosed)
 
 	mu      sync.Mutex
 	pending map[string]*permissionWait // by ID; independent gated calls may queue
@@ -63,6 +83,10 @@ type permissionWait struct {
 	finished bool
 	gate     bool
 	ctx      context.Context
+	// opened is closed once notify has returned, i.e. the request's opening
+	// has been published. A close that happens earlier waits for it, so for
+	// one id the window never sees the close before the open.
+	opened chan struct{}
 }
 
 // NewPermissionWaiter creates a waiter. notify may be nil (still waits for Complete).
@@ -109,6 +133,7 @@ func (w *PermissionWaiter) wait(ctx context.Context, sessionID string, params js
 		p.ExpiresAt = deadline
 	}
 
+	opened := make(chan struct{})
 	w.mu.Lock()
 	for _, other := range w.pending {
 		if other.SessionID == sessionID && !(gate && other.gate) {
@@ -118,18 +143,25 @@ func (w *PermissionWaiter) wait(ctx context.Context, sessionID string, params js
 			return append(json.RawMessage(nil), deniedPermissionOutcome...), ErrPermissionDenied
 		}
 	}
-	w.pending[id] = &permissionWait{PendingPermission: p, result: resCh, gate: gate, ctx: ctx}
+	w.pending[id] = &permissionWait{PendingPermission: p, result: resCh, gate: gate, ctx: ctx, opened: opened}
 	w.mu.Unlock()
 
-	defer w.invalidate(id)
+	// A request answered through Complete is closed here as "answered"; every
+	// other exit below closes it first with its own reason, which makes this a no-op.
+	defer w.close(id, PermissionAnswered)
 
 	if w.notify != nil {
 		w.notify(p)
 	}
+	close(opened)
 
 	select {
 	case <-ctx.Done():
-		w.invalidate(id)
+		reason := PermissionWithdrawn
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			reason = PermissionExpired
+		}
+		w.close(id, reason)
 		return append(json.RawMessage(nil), deniedPermissionOutcome...), ErrPermissionDenied
 	case outcome := <-resCh:
 		if ctx.Err() != nil {
@@ -147,18 +179,18 @@ func (w *PermissionWaiter) Complete(id string, outcome json.RawMessage) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if len(w.pending) == 0 {
-		return errors.New("agenthub: no pending permission")
+		return ErrPermissionNotWaiting
 	}
 	p, ok := w.pending[id]
 	if !ok || p.finished || p.ctx.Err() != nil || (!p.ExpiresAt.IsZero() && !time.Now().Before(p.ExpiresAt)) {
-		return errors.New("agenthub: invalid permission id")
+		return ErrPermissionNotWaiting
 	}
 	select {
 	case p.result <- append(json.RawMessage(nil), outcome...):
 		p.finished = true
 		return nil
 	default:
-		return errors.New("agenthub: no pending permission")
+		return ErrPermissionNotWaiting
 	}
 }
 
@@ -175,6 +207,16 @@ func (w *PermissionWaiter) Complete(id string, outcome json.RawMessage) error {
 // timeout, and it is the fail-closed answer. A tool call that was never
 // approved must not run because the turn behind it was stopped.
 func (w *PermissionWaiter) CancelSession(sessionID string) int {
+	type goneRequest struct {
+		wait   *permissionWait
+		closed PermissionClosed
+	}
+	var gone []goneRequest
+	defer func() {
+		for _, g := range gone {
+			w.announceClosed(g.wait, g.closed)
+		}
+	}()
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	cancelled := 0
@@ -189,6 +231,7 @@ func (w *PermissionWaiter) CancelSession(sessionID string) int {
 		}
 		p.finished = true
 		delete(w.pending, id)
+		gone = append(gone, goneRequest{p, PermissionClosed{ID: id, SessionID: sessionID, Reason: PermissionTurnEnded}})
 	}
 	return cancelled
 }
@@ -219,12 +262,39 @@ func (w *PermissionWaiter) Pending() *PendingPermission {
 	return &list[0]
 }
 
-func (w *PermissionWaiter) invalidate(id string) {
+// close takes a request out of the queue and announces it, once: only the call
+// that finds it still there fires.
+func (w *PermissionWaiter) close(id, reason string) {
 	w.mu.Lock()
-	defer w.mu.Unlock()
-	if p, ok := w.pending[id]; ok {
+	p, ok := w.pending[id]
+	if ok {
 		p.finished = true
 		delete(w.pending, id)
+	}
+	w.mu.Unlock()
+	if ok {
+		w.announceClosed(p, PermissionClosed{ID: id, SessionID: p.SessionID, Reason: reason})
+	}
+}
+
+// announceClosed fires the close after the request's open was published. When
+// the open is still being built (notify looks the session up) the close waits
+// for it in its own goroutine, so a slow notify never blocks a canceller.
+func (w *PermissionWaiter) announceClosed(p *permissionWait, c PermissionClosed) {
+	select {
+	case <-p.opened:
+		w.fireClosed(c)
+	default:
+		go func() {
+			<-p.opened
+			w.fireClosed(c)
+		}()
+	}
+}
+
+func (w *PermissionWaiter) fireClosed(c PermissionClosed) {
+	if w.OnClosed != nil {
+		w.OnClosed(c)
 	}
 }
 

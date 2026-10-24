@@ -26,6 +26,8 @@ export type AgentPermissionRequestProps = {
   session?: AgentSession | null;
   onResolve: (optionId: string | null) => void | Promise<void>;
   busy?: boolean;
+  /** Why the last answer failed, when it did; the buttons stay live so it can be retried. */
+  error?: string;
   env?: PermissionEnv;
   /**
    * "rail" stacks; "wide" puts the ask and the answer on one line. The module's
@@ -104,6 +106,7 @@ export function AgentPermissionRequest({
   session,
   onResolve,
   busy = false,
+  error,
   env: explicitEnv,
   size = "rail",
   onMinimize,
@@ -244,6 +247,11 @@ export function AgentPermissionRequest({
         <PermissionFileEdits pending={pending} projectPath={session?.projectPath} actions={actions} />
 
         <PermissionLockedNote env={env} environment={gate?.env} untagged={isUntaggedGate(gate)} />
+        {error ? (
+          <p data-testid="permission-error" className="text-body-13 text-status-danger">
+            {error}
+          </p>
+        ) : null}
       </div>
       {/* Its own row, on the body's padding: sticky to the foot of whatever
           scrolls this card (the composer's panel area on a short pane), so a

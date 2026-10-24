@@ -194,6 +194,12 @@ export type ElicitationClosedEvent = {
   reason: "answered" | "cancelled" | "turn_stopped" | string;
 };
 
+export type PermissionClosedEvent = {
+  id: string;
+  sessionId: string;
+  reason: "answered" | "withdrawn" | "turn_ended" | "expired" | string;
+};
+
 /** The three answers ACP has for a question; the hub keeps only what was asked. */
 export type ElicitationResponse =
   | { action: "accept"; content: Record<string, string | number | boolean | string[]> }
@@ -209,6 +215,7 @@ export type PermissionOption = {
 const SESSION_UPDATE_EVENT = "agenthub:sessionUpdate";
 const PERMISSION_EVENT = "agenthub:permission";
 const ELICITATION_EVENT = "agenthub:elicitation";
+const PERMISSION_CLOSED_EVENT = "agenthub:permissionClosed";
 const ELICITATION_CLOSED_EVENT = "agenthub:elicitationClosed";
 const TURN_FINISHED_EVENT = "agenthub:turnFinished";
 const TURN_STARTED_EVENT = "agenthub:turnStarted";
@@ -755,6 +762,21 @@ export function onAgentHubElicitation(handler: (pending: PendingElicitation) => 
   return Events.On(ELICITATION_EVENT, (ev) => {
     const parsed = parseElicitation(Array.isArray(ev?.data) ? ev.data[0] : ev?.data);
     if (parsed) handler(parsed);
+  });
+}
+
+/** Go stopped waiting for a permission: answered, withdrawn by the agent, turn ended or expired. */
+export function onAgentHubPermissionClosed(handler: (event: PermissionClosedEvent) => void): () => void {
+  return Events.On(PERMISSION_CLOSED_EVENT, (ev) => {
+    const data = Array.isArray(ev?.data) ? ev.data[0] : ev?.data;
+    if (!data || typeof data !== "object") return;
+    const record = data as Record<string, unknown>;
+    if (typeof record.id !== "string" || !record.id) return;
+    handler({
+      id: record.id,
+      sessionId: typeof record.sessionId === "string" ? record.sessionId : "",
+      reason: typeof record.reason === "string" ? record.reason : "",
+    });
   });
 }
 

@@ -75,6 +75,7 @@ func TestPublicErrorMapsAgentHubSentinels(t *testing.T) {
 			"validation_failed: The account was removed, but DevKit could not delete its folder. You can delete it by hand."},
 		{errAgentAccountsDesktopOnly,
 			"validation_failed: Changing agent accounts is only available in the desktop app: this window cannot be trusted to do it."},
+		{agenthub.ErrPermissionNotWaiting, "agenthub.permissionNotWaiting: This request is no longer waiting for an answer."},
 		{agenthub.ErrAccountLabelTaken, "validation_failed: You already have an account with that name."},
 		{agenthub.ErrAccountInUse, "validation_failed: A session is using that account. Close it first."},
 		{fmt.Errorf("%w: the CLI said something with a path /x/y", agenthub.ErrUsageNotCheckable), "validation_failed: This account's usage cannot be read right now."},

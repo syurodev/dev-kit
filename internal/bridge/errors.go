@@ -38,6 +38,10 @@ import (
 	"devkit/internal/wssearch"
 )
 
+// codePermissionNotWaiting: a permission card answered after Go stopped waiting
+// for it. The window takes the card down instead of showing an error.
+const codePermissionNotWaiting = "agenthub.permissionNotWaiting"
+
 const (
 	codeValidationFailed   = "validation_failed"
 	codeVaultLocked        = "vault_locked"
@@ -125,8 +129,6 @@ var safeValidationMessages = map[string]struct{}{
 	"sasl_mechanism is required for SASL security protocols": {},
 	"unsupported sasl mechanism":                             {},
 	"unsupported security protocol":                          {},
-	"agenthub: no pending permission":                        {},
-	"agenthub: invalid permission id":                        {},
 	"agenthub: no pending elicitation":                       {},
 	"agenthub: invalid elicitation id":                       {},
 }
@@ -430,6 +432,8 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.New(codeValidationFailed, "This account's usage cannot be read right now.", true)
 		case errors.Is(err, agenthub.ErrAccountsUnavailable):
 			return apperrors.New(codeValidationFailed, "Accounts are not available.", true)
+		case errors.Is(err, agenthub.ErrPermissionNotWaiting):
+			return apperrors.New(codePermissionNotWaiting, "This request is no longer waiting for an answer.", true)
 		case errors.Is(err, agenthub.ErrProcessFailed):
 			return apperrors.New(codeConnectionFailed, "Agent process failed.", true)
 		case errors.Is(err, agenthub.ErrNotDescendant):

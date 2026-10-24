@@ -1,7 +1,15 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, mock } from "bun:test";
 
 import type { AgentSession } from "@/bridge/agenthub";
-import { statusAfterAnswer } from "./permissions";
+import { AppError } from "@/bridge/errors";
+
+const realBridge = await import("@/bridge/agenthub");
+mock.module("@/bridge/agenthub", () => ({
+  ...realBridge,
+  agentHubGetStatus: async (id: string) => ({ id, status: "awaiting_permission" }) as AgentSession,
+}));
+
+import { PERMISSION_NOT_WAITING, isPermissionNotWaiting, statusAfterAnswer } from "./permissions";
 
 const session = (status: AgentSession["status"]) => ({ id: "s1", status }) as AgentSession;
 
@@ -19,5 +27,22 @@ describe("statusAfterAnswer", () => {
     for (const status of ["idle", "error", "closed", "running"] as const) {
       expect(statusAfterAnswer(session(status), false).status).toBe(status);
     }
+  });
+});
+
+describe("a request Go no longer waits for", () => {
+  it("is recognised by its published code, however it arrives", () => {
+    expect(isPermissionNotWaiting(new AppError({ code: PERMISSION_NOT_WAITING, message: "gone", recoverable: true }))).toBe(true);
+    expect(isPermissionNotWaiting({ cause: { code: PERMISSION_NOT_WAITING, message: "gone" } })).toBe(true);
+    expect(isPermissionNotWaiting(new Error("boom"))).toBe(false);
+  });
+});
+
+describe("statusAfterAnswer with a request in the queue", () => {
+  it("keeps awaiting_permission over an idle read", () => {
+    expect(statusAfterAnswer(session("idle"), true).status).toBe("awaiting_permission");
+  });
+  it("leaves error and closed alone", () => {
+    for (const status of ["error", "closed"] as const) expect(statusAfterAnswer(session(status), true).status).toBe(status);
   });
 });

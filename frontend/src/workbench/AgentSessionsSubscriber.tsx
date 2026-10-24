@@ -8,6 +8,7 @@ import {
   agentHubSetPromptQueue,
   onAgentHubElicitation,
   onAgentHubElicitationClosed,
+  onAgentHubPermissionClosed,
   onAgentHubPermission,
   onAgentHubSessionCreated,
   onAgentHubSessionUpdate,
@@ -17,10 +18,12 @@ import {
   onAgentHubTurnStarted,
   type AgentSession,
   type AgentTurnFinishedEvent,
+  type PermissionClosedEvent,
   type SessionUpdateEvent,
 } from "../bridge/agenthub";
 import { useAgentPinsStore } from "../stores/agentPins";
 import { useAgentSessionsStore } from "../stores/agentSessions";
+import { refreshSessionAfterPermission } from "../modules/agenthub/permissions";
 import { pruneDismissed } from "../modules/agenthub/sidebar/dismissed";
 import { reloadTranscript, startAgentTranscriptStream } from "../modules/agenthub/transcript";
 import { agentSessionOnScreen, showAgentSession, syncAgentSessionTabTitles } from "../modules/agenthub/documents";
@@ -487,6 +490,9 @@ export function AgentSessionsSubscriber() {
   // (awaiting_permission would say the agent is blocked on an authorization,
   // and would stop the stream's running dot). The queue alone drives the cards.
   useEffect(() => onAgentHubElicitation(enqueueElicitation), [enqueueElicitation]);
+  // Go stopped waiting for a permission (the agent took it back, the turn ended,
+  // it expired). Without this the card stayed and its buttons answered nothing.
+  useEffect(() => onAgentHubPermissionClosed(handlePermissionClosed), []);
   useEffect(() => onAgentHubElicitationClosed((event) => dequeueElicitation(event.id)), [dequeueElicitation]);
 
   return (
@@ -494,4 +500,12 @@ export function AgentSessionsSubscriber() {
       {announcement}
     </div>
   );
+}
+
+/** Go stopped waiting for a permission: the card goes, and the session is read again. */
+export function handlePermissionClosed(event: PermissionClosedEvent): void {
+  const state = useAgentSessionsStore.getState();
+  const wasShown = state.pendingQueue.some((p) => p.id === event.id);
+  state.dequeuePending(event.id);
+  if (wasShown && event.reason !== "answered") void refreshSessionAfterPermission(event.sessionId);
 }

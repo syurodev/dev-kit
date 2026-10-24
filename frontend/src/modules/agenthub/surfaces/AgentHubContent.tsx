@@ -110,6 +110,7 @@ export type AgentHubContentProps = {
   pendingPermission?: PendingPermission | null;
   onResolvePermission?: (optionId: string | null) => void | Promise<void>;
   permissionBusy?: boolean;
+  permissionError?: string;
   /**
    * A question this session's agent is waiting on, asked here for the same
    * reason as the permission: the conversation it came out of is on screen.
@@ -238,6 +239,7 @@ export function AgentHubContent({
   pendingPermission,
   onResolvePermission,
   permissionBusy = false,
+  permissionError,
   pendingElicitation,
   onRespondElicitation,
   elicitationBusy = false,
@@ -330,7 +332,7 @@ export function AgentHubContent({
       ) : undefined,
     permission:
       pendingPermission && onResolvePermission
-        ? { pending: pendingPermission, onResolve: onResolvePermission, busy: permissionBusy }
+        ? { pending: pendingPermission, onResolve: onResolvePermission, busy: permissionBusy, error: permissionError }
         : null,
     question:
       pendingElicitation && onRespondElicitation
