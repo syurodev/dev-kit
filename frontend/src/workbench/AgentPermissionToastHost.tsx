@@ -18,6 +18,8 @@ import {
 import { useAgentPaneSessionIds } from "./AgentPaneTabs";
 import { useAgentSessionList, useAgentSessionsStore } from "@/stores/agentSessions";
 import { SHELL_FLOAT_ATTR } from "@/lib/shellFloat";
+import { selectToastPermission, shouldCollapseToastPermission } from "./permissionToastModel";
+import { Button } from "@/components/ui/button";
 
 /**
  * Hosts the Agent / Permission Toast (Figma 924:152) at the shell level, and
@@ -54,7 +56,7 @@ export function AgentPermissionToastHost({
   chatOpen: propChatOpen,
 }: AgentPermissionToastHostProps = {}) {
   const storePending = useAgentSessionsStore((s) => s.pending);
-  const storeQueueLength = useAgentSessionsStore((s) => s.pendingQueue.length);
+  const storePermissionQueue = useAgentSessionsStore((s) => s.pendingQueue);
   const storeQuestions = useAgentSessionsStore((s) => s.elicitationQueue);
   const storeSessions = useAgentSessionList();
   const storeActiveSessionId = useAgentSessionsStore((s) => s.activeSessionId);
@@ -71,6 +73,7 @@ export function AgentPermissionToastHost({
       : isSSR
         ? useAgentSessionsStore.getState().pending
         : storePending;
+  const permissionQueue = isSSR ? useAgentSessionsStore.getState().pendingQueue : storePermissionQueue;
   const questions = isSSR ? useAgentSessionsStore.getState().elicitationQueue : storeQuestions;
   const sessions = isSSR
     ? useAgentSessionsStore.getState().sessionIds.map((id) => useAgentSessionsStore.getState().sessionsById[id])
@@ -94,19 +97,20 @@ export function AgentPermissionToastHost({
   const askedInline = (sessionId: string) =>
     activeModuleId === AGENTHUB_MODULE ? hubSessionId === sessionId : chatOpen && shownSessionId === sessionId;
 
-  const permissionShowing = pending != null && !askedInline(pending.sessionId);
+  const toastPermission = selectToastPermission(permissionQueue, pending, askedInline);
+  const permissionShowing = toastPermission != null;
   // The oldest question nobody is looking at. The inline card only ever takes
   // the shown session's, so a second session's question still needs the corner.
   const question = permissionShowing ? null : (questions.find((q) => !askedInline(q.sessionId)) ?? null);
   const current: Shown | null = permissionShowing
-    ? { kind: "permission", item: pending }
+    ? { kind: "permission", item: toastPermission }
     : question
       ? { kind: "question", item: question }
       : null;
 
   // Before the early return: hooks cannot be skipped, and null is a fine
   // argument — there is simply nothing to answer.
-  const { busy, error: permissionError, resolve } = useResolvePermission(permissionShowing ? pending : null);
+  const { busy, error: permissionError, resolve } = useResolvePermission(permissionShowing ? toastPermission : null);
   const { busy: questionBusy, respond } = useRespondElicitation(question);
 
   // The toast outlives its request by one exit animation, by holding on to the
@@ -130,6 +134,8 @@ export function AgentPermissionToastHost({
   if (!card) return null;
 
   const session = propSession ?? sessions.find((s) => s.id === card.item.sessionId) ?? null;
+  const collapsePermission = card.kind === "permission" &&
+    shouldCollapseToastPermission(permissionQueue, askedInline);
 
   function openRailOn(sessionId: string) {
     showAgentSession(sessionId);
@@ -145,7 +151,23 @@ export function AgentPermissionToastHost({
     // request that fails closed must stay answerable with Settings open. The
     // shell-float mark keeps that dialog from reading the click as "dismiss",
     // and pointer-events-auto survives the body lock a modal puts on.
-    <div {...{ [SHELL_FLOAT_ATTR]: "" }} className="pointer-events-none fixed right-4 bottom-4 z-60">
+    <div
+      {...{ [SHELL_FLOAT_ATTR]: "" }}
+      className={collapsePermission
+        ? "pointer-events-none fixed right-4 top-4 z-60"
+        : "pointer-events-none fixed right-4 bottom-4 z-60"}
+    >
+      {collapsePermission && card.kind === "permission" ? (
+        <Button
+          type="button"
+          variant="outline"
+          data-testid="agent-permission-waiting-pill"
+          className="pointer-events-auto glass-float"
+          onClick={() => openRailOn(card.item.sessionId)}
+        >
+          1 request waiting in {session?.title ?? "another session"}
+        </Button>
+      ) : (
       <PermissionPresence
         pendingId={current ? current.item.id : null}
         variant="toast"
@@ -161,7 +183,7 @@ export function AgentPermissionToastHost({
             busy={busy}
             error={permissionError}
             // pendingQueue holds the request on screen too; the pill counts the rest.
-            queued={Math.max(0, (isSSR ? useAgentSessionsStore.getState().pendingQueue.length : storeQueueLength) - 1)}
+            queued={Math.max(0, permissionQueue.length - 1)}
           />
         ) : (
           <AgentQuestionToast
@@ -174,6 +196,7 @@ export function AgentPermissionToastHost({
           />
         )}
       </PermissionPresence>
+      )}
     </div>
   );
 }

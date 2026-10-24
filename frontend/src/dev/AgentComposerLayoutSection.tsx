@@ -225,8 +225,8 @@ const COMMANDS = [
   { name: "init", description: "" },
 ];
 
-type Scenario = "idle" | "streaming" | "permission" | "permissionmessage" | "questions" | "failure" | "error" | "queue" | "attachments" | "longprompt" | "draft";
-const SCENARIOS: Scenario[] = ["idle", "streaming", "permission", "permissionmessage", "questions", "failure", "error", "queue", "attachments", "longprompt", "draft"];
+type Scenario = "idle" | "streaming" | "permission" | "permissionmessage" | "permission-other" | "questions" | "failure" | "error" | "queue" | "attachments" | "longprompt" | "draft";
+const SCENARIOS: Scenario[] = ["idle", "streaming", "permission", "permissionmessage", "permission-other", "questions", "failure", "error", "queue", "attachments", "longprompt", "draft"];
 const LONG_PROMPT = Array.from({ length: 30 }, (_, i) => `line ${i + 1} of a long prompt`).join("\n");
 
 export function AgentComposerLayoutSection() {
@@ -243,7 +243,7 @@ export function AgentComposerLayoutSection() {
   const [model, setModel] = useState("sonnet");
 
   const session = useMemo<AgentSession>(
-    () => ({ ...SESSION, status: scenario === "error" ? "error" : scenario === "streaming" ? "running" : scenario === "permission" || scenario === "permissionmessage" ? "awaiting_permission" : "idle" }),
+    () => ({ ...SESSION, status: scenario === "error" ? "error" : scenario === "streaming" ? "running" : scenario === "permission" || scenario === "permissionmessage" || scenario === "permission-other" ? "awaiting_permission" : "idle" }),
     [scenario],
   );
   const items = useMemo(() => transcript(turns), [turns]);
@@ -253,6 +253,8 @@ export function AgentComposerLayoutSection() {
     const permissions =
       scenario === "permission"
         ? [PERMISSION, { ...PERMISSION, id: "perm-2" }, { ...PERMISSION, id: "perm-3" }]
+        : scenario === "permission-other"
+          ? [PERMISSION, { ...PERMISSION, id: "perm-other", sessionId: "sess-other", title: "Other session" }]
         : scenario === "permissionmessage"
           ? [PERMISSION_MESSAGE]
           : [];
@@ -314,7 +316,7 @@ export function AgentComposerLayoutSection() {
     onCompact: () => {},
   };
 
-  const pendingPermission = scenario === "permission" ? PERMISSION : scenario === "permissionmessage" ? PERMISSION_MESSAGE : null;
+  const pendingPermission = scenario === "permission" || scenario === "permission-other" ? PERMISSION : scenario === "permissionmessage" ? PERMISSION_MESSAGE : null;
   const pendingElicitation = scenario === "questions" ? question("q-1", 4) : null;
 
   return (
@@ -334,7 +336,7 @@ export function AgentComposerLayoutSection() {
             }}
             className="rounded-md border border-border-subtle px-2 py-1 aria-pressed:bg-state-soft aria-pressed:text-text-primary"
           >
-            {name}
+            {name === "permission-other" ? "own + other" : name}
           </button>
         ))}
         <span className="mx-2">|</span>
@@ -375,8 +377,13 @@ export function AgentComposerLayoutSection() {
           <div
             data-testid="layout-hub"
             style={{ width, height }}
-            className="overflow-hidden rounded-control border border-border-subtle bg-surface-base"
+            className="relative overflow-hidden rounded-control border border-border-subtle bg-surface-base"
           >
+            {scenario === "permission-other" ? (
+              <div className="absolute right-3 top-3 z-10 rounded-full border border-border-subtle bg-surface-overlay px-3 py-1.5 text-caption-11-medium text-text-secondary shadow-sm" data-testid="layout-other-permission-pill">
+                1 request waiting in Other session
+              </div>
+            ) : null}
             <AgentHubContent
               {...common}
               session={scenario === "draft" ? null : session}
