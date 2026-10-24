@@ -158,10 +158,16 @@ func (t *turnTiming) markPromptSent() {
 // attaches (Claude announces its config options from SetHandlers) would
 // otherwise report a first update before the model had been asked anything,
 // which reads as a fast agent and is not one.
+//
+// The stamp decides, not the clock this call runs on: an update handed over
+// while the prompt was still being set up can be processed after markPromptSent,
+// and judging it then would count it with arrived < PromptSent — breaking the
+// order the phases promise and crediting the vendor for the turn's own setup
+// time.
 func (t *turnTiming) observeUpdate(kind UpdateKind, arrived time.Duration) (firstVisible bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if !t.promptSentOn {
+	if !t.promptSentOn || arrived < t.promptSent {
 		return false
 	}
 	if !t.firstUpdateOn {

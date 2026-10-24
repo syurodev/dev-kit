@@ -1796,6 +1796,11 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 		// Replaces the handler attachUpdates installed rather than adding to
 		// it, so the turn's updates are still emitted and recorded once.
 		OnUpdate: func(update json.RawMessage, meta json.RawMessage) {
+			// Stamped on arrival, before any of the work below, because the
+			// prompt may go out while this handler is still running: an update
+			// that was handed over before the prompt did not answer it, and
+			// observeUpdate judges it by this stamp, not by when it is parsed.
+			arrived := timing.elapsed()
 			lastUpdateMu.Lock()
 			lastUpdate = append(json.RawMessage(nil), update...)
 			lastUpdateMu.Unlock()
@@ -1812,7 +1817,6 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 			// keeping was the one guaranteed to be dropped — the log read
 			// "transcript write failed: context canceled" and the UI drew an
 			// empty bubble where the agent's error should have been.
-			arrived := timing.elapsed()
 			parsed := s.handleUpdate(recordCtx, in.SessionID, update)
 			if timing.observeUpdate(parsed.Kind, arrived) {
 				// The row that ends "Starting" has just been recorded: this is
