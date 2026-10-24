@@ -80,8 +80,20 @@ func (g *Gateway) Call(ctx context.Context, request CallRequest) (any, error) {
 		Scope:      request.Scope,
 	})
 	caller, _ := identity.FromContext(ctx)
-	if (request.Exposure == ExposureUI && caller.Kind != identity.KindUI) ||
-		(request.Exposure == ExposureAgent && caller.Kind == identity.KindUI) {
+	exposed := false
+	switch request.Exposure {
+	case ExposureBoth:
+		// Legacy calls preserve their zero-value exposure until migrated.
+		exposed = true
+	case ExposureUI:
+		exposed = caller.Kind == identity.KindUI
+	case ExposureAgent:
+		switch caller.Kind {
+		case identity.KindAgent, identity.KindUserTerminal:
+			exposed = true
+		}
+	}
+	if !exposed {
 		decision = permissions.Decision{Allowed: false, Reason: fmt.Sprintf("not exposed to %s", caller.Kind)}
 	}
 	outcome := audit.OutcomeDenied
