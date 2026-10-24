@@ -1447,7 +1447,45 @@ CREATE TABLE IF NOT EXISTS workspace_memory_revisions (
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38, m39, m40, m41, m42, m43, m44, m45, m46})
+	// m47: durable Agent Hub peer delivery and guard state. The outbox is local
+	// application data and mirrors peer text already stored in the transcript.
+	m47 := Migration{
+		Version: 47,
+		Name:    "agent peer outbox",
+		Up: func(ctx context.Context) error {
+			if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS agent_peer_outbox (
+				message_id TEXT PRIMARY KEY,
+				from_session TEXT NOT NULL DEFAULT '',
+				to_session TEXT NOT NULL,
+				from_workspace TEXT NOT NULL DEFAULT '',
+				to_workspace TEXT NOT NULL DEFAULT '',
+				relation TEXT NOT NULL DEFAULT '',
+				source_json TEXT NOT NULL,
+				body TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				state TEXT NOT NULL,
+				code TEXT NOT NULL DEFAULT '',
+				hop INTEGER NOT NULL DEFAULT 1,
+				exchange_limit INTEGER NOT NULL DEFAULT 6,
+				sibling INTEGER NOT NULL DEFAULT 0,
+				cross_workspace_approved INTEGER NOT NULL DEFAULT 0
+			)`); err != nil {
+				return err
+			}
+			if _, err := db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS agent_peer_outbox_target_state ON agent_peer_outbox(to_session, state, created_at)`); err != nil {
+				return err
+			}
+			_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS agent_peer_guard_state (
+				state_key TEXT PRIMARY KEY,
+				state_json TEXT NOT NULL,
+				updated_at TEXT NOT NULL
+			)`)
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38, m39, m40, m41, m42, m43, m44, m45, m46, m47})
 	if err != nil {
 		return err
 	}

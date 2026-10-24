@@ -688,6 +688,11 @@ func main() {
 	if err := agentSvc.RecoverStaleSessions(context.Background()); err != nil {
 		log.Printf("agenthub: recover stale sessions: %v", err)
 	}
+	// Restore durable accepted peer messages after stale turns are idle. Recovery
+	// only queues items; delivery waits for the ordinary queue mirror/drain path.
+	if err := agentSvc.RecoverPeerOutbox(context.Background()); err != nil {
+		log.Printf("agenthub: recover peer outbox: %v", err)
+	}
 	// Codex and opencode never name their sessions; the first prompt does.
 	if err := agentSvc.BackfillSessionTitles(context.Background()); err != nil {
 		log.Printf("agenthub: backfill session titles: %v", err)

@@ -482,7 +482,8 @@ type Service struct {
 	rewinds  rewindPlans
 
 	// peers is the state of messages between sessions (peer.go).
-	peers peerState
+	peers          peerState
+	peerRecoveryMu sync.Mutex
 	// turnWork counts what is still working on the database after a turn: each
 	// invoke for its whole length, and the queue drains peer.go starts. For
 	// WaitQuiet.
@@ -1462,6 +1463,7 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	if closeErr != nil {
 		return closeErr
 	}
+	s.refuseQueued(id, PeerClosed)
 	if s.CancelPendingPermissions != nil {
 		s.CancelPendingPermissions(id)
 	}
@@ -1675,7 +1677,7 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 	if peer == nil && invokeUnbounded(ctx) {
 		// The person is talking to this session: whatever exchange with other
 		// sessions it was in is over, and its replies start counting afresh.
-		s.peers.resetChain(in.SessionID)
+		s.resetPeerChain(in.SessionID)
 	}
 	// PDFs are not read into the prompt: they are kept in the session's document
 	// store and the agent reads them with DevKit's PDF tools. The prompt carries
@@ -2662,6 +2664,7 @@ func (s *Service) PrepareSession(ctx context.Context, id string) error {
 			return vendorError(sess.AgentType, fmt.Errorf("%w: %w", ErrModelsUnavailable, err))
 		}
 	}
+	s.savePeerGuardState()
 	return nil
 }
 
@@ -2722,7 +2725,7 @@ func (s *Service) Steer(ctx context.Context, id, text string) (SteerOutcome, err
 	}
 	s.emit(id, userEchoUpdate(text, echo.MessageID, nil, nil))
 	if invokeUnbounded(ctx) {
-		s.peers.resetChain(id) // the person spoke to it: see invoke
+		s.resetPeerChain(id) // the person spoke to it: see invoke
 	}
 	return SteerOutcome(outcome), nil
 }

@@ -113,6 +113,40 @@ export function promptQueueChanges(
   return out;
 }
 
+/**
+ * The prompt queues live in this window, so a startup session snapshot must
+ * mirror even its empty queues to release the backend's post-restart hold.
+ */
+export function promptQueueSnapshot(
+  sessionIds: string[],
+  state: QueueFacts,
+): { sessionId: string; waiting: number; paused: boolean }[] {
+  return sessionIds.map((sessionId) => ({
+    sessionId,
+    waiting: state.queuedPromptsBySession[sessionId]?.length ?? 0,
+    paused: Boolean(state.queuePausedBySession[sessionId]),
+  }));
+}
+
+const promptQueueMirrorTails = new Map<string, Promise<void>>();
+
+/** Keep bridge updates for one session in call order; a late startup snapshot
+ * must not overwrite a newer pause or queue count. */
+export function mirrorPromptQueueInOrder(
+  sessionId: string,
+  waiting: number,
+  paused: boolean,
+  send: (sessionId: string, waiting: number, paused: boolean) => Promise<void> = agentHubSetPromptQueue,
+): Promise<void> {
+  const previous = promptQueueMirrorTails.get(sessionId) ?? Promise.resolve();
+  const next = previous.catch(() => {}).then(() => send(sessionId, waiting, paused)).catch(() => {});
+  promptQueueMirrorTails.set(sessionId, next);
+  void next.then(() => {
+    if (promptQueueMirrorTails.get(sessionId) === next) promptQueueMirrorTails.delete(sessionId);
+  });
+  return next;
+}
+
 /** A user message the person did not type: another session's, or the terminal's. */
 export function isPeerMessage(event: Pick<SessionUpdateEvent, "parsed">): boolean {
   const parsed = event.parsed;
@@ -309,7 +343,7 @@ export function AgentSessionsSubscriber() {
           return;
         }
         for (const { sessionId, waiting, paused } of promptQueueChanges(state, previous)) {
-          void agentHubSetPromptQueue(sessionId, waiting, paused).catch(() => {});
+          void mirrorPromptQueueInOrder(sessionId, waiting, paused);
         }
       }),
     [],
@@ -331,6 +365,10 @@ export function AgentSessionsSubscriber() {
       .then((sessions) => {
         if (mounted) {
           setSessions(sessions);
+          const queue = useAgentSessionsStore.getState();
+          for (const { sessionId, waiting, paused } of promptQueueSnapshot(sessions.map((session) => session.id), queue)) {
+            void mirrorPromptQueueInOrder(sessionId, waiting, paused);
+          }
         }
       })
       .catch(() => {

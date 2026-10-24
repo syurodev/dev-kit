@@ -25,7 +25,7 @@ import (
 //
 // Nothing here is a second way to run a turn. A message either starts an
 // ordinary turn (invoke, so it gets a turn row, a checkpoint and a Stop button),
-// is steered into the turn already running, or waits in a small in-memory queue
+// is steered into the turn already running, or waits in the durable peer outbox
 // until the session can take it.
 
 const (
@@ -188,8 +188,12 @@ type peerMessage struct {
 	length int
 	// limit is the cap of this exchange (MaxPeerHops, or MaxSiblingHops between
 	// siblings); sibling says the sender and the target share a parent.
-	limit   int
-	sibling bool
+	limit         int
+	sibling       bool
+	approved      bool
+	fromWorkspace string
+	toWorkspace   string
+	relation      PeerRelation
 }
 
 // exchangeLimit is the cap this message was sent under; 0 (an older queued
@@ -232,23 +236,25 @@ type userQueueMirror struct {
 	at      time.Time
 }
 
-// peerState is everything the messaging keeps. In memory on purpose: a restart
-// ends every runtime, which ends every exchange, so nothing here is worth a
-// table — and a stale queued message delivered after a restart is worse than a
-// dropped one the sender was told could be dropped.
+// peerState holds the live view of peer queues and guards. SQLStore persists
+// accepted outbox items and the hop/rate state; runtime coordination and the
+// window's current prompt queue remain in memory.
 type peerState struct {
-	mu        sync.Mutex
-	now       func() time.Time
-	queues    map[string][]*peerMessage
-	chain     map[peerPair]peerChain
-	windows   map[string][]time.Time
-	records   map[string]peerRecord
-	order     []string
-	userQueue map[string]userQueueMirror
+	mu          sync.Mutex
+	now         func() time.Time
+	queues      map[string][]*peerMessage
+	dispatching map[string]string
+	chain       map[peerPair]peerChain
+	windows     map[string][]time.Time
+	records     map[string]peerRecord
+	order       []string
+	userQueue   map[string]userQueueMirror
 	// stopNoticed is the failure (kind and sentence) a parent was last told a
 	// child stopped on, by child id. The same failure on the parent's next try is
 	// not told again; a completed turn, or a different failure, resets it.
-	stopNoticed map[string]string
+	stopNoticed   map[string]string
+	recoveryReady bool
+	recoveredHold map[string]bool
 }
 
 func (p *peerState) clock() time.Time {
@@ -264,11 +270,13 @@ func (p *peerState) init() {
 		return
 	}
 	p.queues = map[string][]*peerMessage{}
+	p.dispatching = map[string]string{}
 	p.chain = map[peerPair]peerChain{}
 	p.windows = map[string][]time.Time{}
 	p.records = map[string]peerRecord{}
 	p.userQueue = map[string]userQueueMirror{}
 	p.stopNoticed = map[string]string{}
+	p.recoveredHold = map[string]bool{}
 }
 
 // allow records one message in the sliding window under key and says whether it
@@ -303,6 +311,57 @@ func (p *peerState) remember(id string, rec peerRecord) {
 	for len(p.order) > peerRecordLimit {
 		delete(p.records, p.order[0])
 		p.order = p.order[1:]
+	}
+}
+
+func (p *peerState) guardState() PeerGuardState {
+	now := p.clock()
+	for key, times := range p.windows {
+		kept := times[:0]
+		for _, at := range times {
+			if now.Sub(at) < peerWindow {
+				kept = append(kept, at)
+			}
+		}
+		if len(kept) == 0 {
+			delete(p.windows, key)
+		} else {
+			p.windows[key] = kept
+		}
+	}
+	for key, chain := range p.chain {
+		if now.Sub(chain.at) >= peerChainDecay {
+			delete(p.chain, key)
+		}
+	}
+	state := PeerGuardState{Chains: make(map[string]PeerChainState, len(p.chain)), Windows: make(map[string][]time.Time, len(p.windows))}
+	for pair, c := range p.chain {
+		state.Chains[pair.lo+"\x00"+pair.hi] = PeerChainState{Hop: c.hop, From: c.from, At: c.at}
+	}
+	for key, times := range p.windows {
+		state.Windows[key] = append([]time.Time(nil), times...)
+	}
+	return state
+}
+
+func (p *peerState) loadGuardState(state PeerGuardState) {
+	p.init()
+	now := p.clock()
+	for key, c := range state.Chains {
+		parts := strings.SplitN(key, "\x00", 2)
+		if len(parts) == 2 && now.Sub(c.At) < peerChainDecay {
+			p.chain[peerPair{lo: parts[0], hi: parts[1]}] = peerChain{hop: c.Hop, from: c.From, at: c.At}
+		}
+	}
+	for key, times := range state.Windows {
+		for _, at := range times {
+			if now.Sub(at) < peerWindow {
+				p.windows[key] = append(p.windows[key], at)
+			}
+		}
+		if len(p.windows[key]) == 0 {
+			delete(p.windows, key)
+		}
 	}
 }
 
@@ -378,6 +437,14 @@ func (p *peerState) held(sessionID string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.init()
+	return p.heldLocked(sessionID)
+}
+
+// heldLocked is held's predicate for a caller that already owns mu.
+func (p *peerState) heldLocked(sessionID string) bool {
+	if p.recoveredHold[sessionID] {
+		return true
+	}
 	m, ok := p.userQueue[sessionID]
 	if !ok {
 		return false
@@ -388,14 +455,25 @@ func (p *peerState) held(sessionID string) bool {
 	return m.waiting > 0 && p.clock().Sub(m.at) < peerUserQueueFresh
 }
 
+func (p *peerState) hasQueued(sessionID string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.init()
+	return len(p.queues[sessionID]) > 0 || p.dispatching[sessionID] != ""
+}
+
 // SetPromptQueue is the window telling the service about the prompts it holds
 // for a session: how many wait and whether the person paused them. The queue is
 // the window's, so the service can only be told; it uses it to put the person's
 // own prompts ahead of messages from other sessions, and never to start work
 // behind a pause the person set.
 func (s *Service) SetPromptQueue(sessionID string, waiting int, paused bool) {
+	recoveryErr := s.ensurePeerRecovery(context.Background())
 	s.peers.mu.Lock()
 	s.peers.init()
+	if recoveryErr == nil {
+		delete(s.peers.recoveredHold, sessionID) // explicit queue mirror releases the post-restart hold
+	}
 	if waiting <= 0 && !paused {
 		delete(s.peers.userQueue, sessionID)
 	} else {
@@ -405,6 +483,10 @@ func (s *Service) SetPromptQueue(sessionID string, waiting int, paused bool) {
 	if waiting <= 0 && !paused {
 		s.kickPeers(sessionID)
 	}
+}
+
+func (s *Service) ensurePeerRecovery(ctx context.Context) error {
+	return s.RecoverPeerOutbox(ctx)
 }
 
 func sanitizeName(s string) string {
@@ -528,6 +610,9 @@ func (s *Service) PeerRoute(ctx context.Context, targetID string) (rel PeerRelat
 // rather than an error: the sender is an agent that should read why and decide.
 // An error is a malformed call or a store failure.
 func (s *Service) SendMessage(ctx context.Context, in SendMessageInput) (SendMessageResult, error) {
+	if err := s.ensurePeerRecovery(ctx); err != nil {
+		return SendMessageResult{}, fmt.Errorf("agenthub: peer outbox recovery required: %w", err)
+	}
 	caller, _ := identity.FromContext(ctx)
 	if !caller.IsAgent() && caller.Kind != identity.KindUserTerminal {
 		return SendMessageResult{}, fmt.Errorf("%w: only an agent session or the user's terminal sends messages", ErrUnsupported)
@@ -549,6 +634,7 @@ func (s *Service) SendMessage(ctx context.Context, in SendMessageInput) (SendMes
 		return SendMessageResult{}, err
 	}
 	var sender AgentSession
+	relation := PeerRelation("terminal")
 	if caller.IsAgent() {
 		var ok bool
 		if sender, ok = byID[caller.SessionID]; !ok {
@@ -563,6 +649,7 @@ func (s *Service) SendMessage(ctx context.Context, in SendMessageInput) (SendMes
 	target, ok := byID[in.SessionID]
 	if ok && caller.IsAgent() {
 		rel, visible := peerRelationOf(byID, sender, target)
+		relation = rel
 		switch {
 		case rel == PeerSelfRelation:
 			return finish(DeliveryRefused, PeerSelf, "A session cannot message itself."), nil
@@ -621,13 +708,32 @@ func (s *Service) SendMessage(ctx context.Context, in SendMessageInput) (SendMes
 		s.peers.mu.Unlock()
 		return finish(DeliveryRefused, PeerRate, "That session is receiving too many messages right now. Wait a little."), nil
 	}
-	msg := &peerMessage{id: res.MessageID, from: src, to: target.ID, text: text, at: s.peers.clock(), length: utf8.RuneCountInString(text), limit: limit, sibling: limit == MaxSiblingHops}
+	fromWorkspace := ""
+	if caller.IsAgent() {
+		fromWorkspace = sender.WorkspaceID
+	}
+	msg := &peerMessage{id: res.MessageID, from: src, to: target.ID, text: text, at: s.peers.clock(), length: utf8.RuneCountInString(text), limit: limit, sibling: limit == MaxSiblingHops, approved: in.CrossWorkspaceApproved, fromWorkspace: fromWorkspace, toWorkspace: target.WorkspaceID, relation: relation}
 	s.peers.remember(msg.id, peerRecord{from: senderKey, to: target.ID, hop: hop})
 	if caller.IsAgent() {
 		s.peers.noteHop(sender.ID, target.ID, hop)
 	} else {
 		// The person's terminal starting an exchange: nothing came before it.
 		s.peers.endChains(target.ID)
+	}
+	if outbox, ok := s.store.(PeerOutboxStore); ok {
+		if err := outbox.SavePeerGuardState(ctx, s.peers.guardState(), s.peers.clock()); err != nil {
+			s.peers.unallow(pairKey)
+			s.peers.unallow(targetKey)
+			s.peers.mu.Unlock()
+			return SendMessageResult{}, err
+		}
+		record := peerOutboxRecord(msg, "dispatching", "")
+		if err := outbox.SavePeerOutbox(ctx, record); err != nil {
+			s.peers.unallow(pairKey)
+			s.peers.unallow(targetKey)
+			s.peers.mu.Unlock()
+			return SendMessageResult{}, err
+		}
 	}
 	s.peers.mu.Unlock()
 
@@ -639,7 +745,164 @@ func (s *Service) SendMessage(ctx context.Context, in SendMessageInput) (SendMes
 		s.peers.mu.Unlock()
 		return SendMessageResult{}, err
 	}
+	if delivery != DeliveryQueued {
+		if err := s.transitionPeerState(msg.id, "dispatching", string(delivery), code); err != nil && s.OnRecordError != nil {
+			s.OnRecordError(msg.to, err)
+		}
+	}
 	return finish(delivery, code, reason), nil
+}
+
+func peerOutboxRecord(msg *peerMessage, state, code string) PeerOutboxRecord {
+	fromSession := ""
+	if msg.from.Kind == "session" || msg.from.Kind == MessageKindDevKit {
+		fromSession = msg.from.SessionID
+	}
+	return PeerOutboxRecord{ID: msg.id, From: msg.from, FromSession: fromSession, To: msg.to, FromWorkspace: msg.fromWorkspace, ToWorkspace: msg.toWorkspace, Relation: msg.relation, Text: msg.text, At: msg.at, UpdatedAt: msg.at, Length: msg.length, Limit: msg.limit, Sibling: msg.sibling, CrossWorkspaceApproved: msg.approved, State: state, Code: code}
+}
+
+func (s *Service) transitionPeerState(id, from, to, code string) error {
+	if outbox, ok := s.store.(PeerOutboxStore); ok {
+		changed, err := outbox.TransitionPeerOutbox(context.Background(), id, from, to, code, time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		if !changed {
+			return fmt.Errorf("peer outbox item %s was not in state %s", id, from)
+		}
+	}
+	return nil
+}
+
+func (s *Service) savePeerGuardState() {
+	outbox, ok := s.store.(PeerOutboxStore)
+	if !ok {
+		return
+	}
+	s.peers.mu.Lock()
+	state := s.peers.guardState()
+	now := s.peers.clock()
+	err := outbox.SavePeerGuardState(context.Background(), state, now)
+	s.peers.mu.Unlock()
+	if err != nil && s.OnRecordError != nil {
+		s.OnRecordError("", err)
+	}
+}
+
+func (s *Service) resetPeerChain(sessionID string) {
+	s.peers.resetChain(sessionID)
+	s.savePeerGuardState()
+}
+
+// RecoverPeerOutbox loads accepted queued messages after stale turns have been
+// reset. It never invokes a vendor during recovery; a later prompt-queue mirror
+// or turn completion kicks the ordinary drain path.
+func (s *Service) RecoverPeerOutbox(ctx context.Context) error {
+	s.peerRecoveryMu.Lock()
+	defer s.peerRecoveryMu.Unlock()
+	s.peers.mu.Lock()
+	ready := s.peers.recoveryReady
+	s.peers.mu.Unlock()
+	if ready {
+		return nil
+	}
+	store, ok := s.store.(PeerOutboxStore)
+	if !ok {
+		s.peers.mu.Lock()
+		s.peers.recoveryReady = true
+		s.peers.mu.Unlock()
+		return nil
+	}
+	guard, err := store.LoadPeerGuardState(ctx)
+	if err != nil {
+		return err
+	}
+	rows, err := store.ListPeerOutbox(ctx)
+	if err != nil {
+		return err
+	}
+	byID, err := s.sessionsByID(ctx)
+	if err != nil {
+		return err
+	}
+	refs, err := store.ListRecentPeerReferences(ctx)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	s.peers.mu.Lock()
+	s.peers.init()
+	s.peers.records = map[string]peerRecord{}
+	s.peers.order = nil
+	s.peers.chain = map[peerPair]peerChain{}
+	s.peers.windows = map[string][]time.Time{}
+	s.peers.loadGuardState(guard)
+	for _, ref := range refs {
+		if ref.From.Kind == "session" && ref.FromSession != "" {
+			s.peers.remember(ref.ID, peerRecord{from: ref.FromSession, to: ref.To, hop: ref.From.Hop})
+		}
+	}
+	for _, row := range rows {
+		if row.State == "dispatching" {
+			if _, err := store.TransitionPeerOutbox(ctx, row.ID, "dispatching", "ambiguous", "dispatch_outcome_unknown", now); err != nil {
+				s.peers.mu.Unlock()
+				return err
+			}
+			continue
+		}
+		if row.State != string(DeliveryQueued) {
+			continue
+		}
+		refuse := ""
+		target, targetOK := byID[row.To]
+		if !targetOK {
+			refuse = PeerNotFound
+		} else if target.Status == SessionStatusClosed {
+			refuse = PeerClosed
+		} else if row.FromSession != "" {
+			sender, senderOK := byID[row.FromSession]
+			if !senderOK {
+				refuse = PeerNotFound
+			} else {
+				relation, visible := peerRelationOf(byID, sender, target)
+				if sender.WorkspaceID != row.FromWorkspace || target.WorkspaceID != row.ToWorkspace || relation != row.Relation || relation == PeerOtherBranch || (!visible && !row.CrossWorkspaceApproved) {
+					refuse = PeerNotFound
+				}
+			}
+		}
+		if refuse != "" {
+			if _, err := store.TransitionPeerOutbox(ctx, row.ID, "queued", "refused", refuse, now); err != nil {
+				s.peers.mu.Unlock()
+				return err
+			}
+			continue
+		}
+		if now.Sub(row.At) >= peerQueueTTL {
+			if _, err := store.TransitionPeerOutbox(ctx, row.ID, "queued", "expired", PeerUndelivery, now); err != nil {
+				s.peers.mu.Unlock()
+				return err
+			}
+			continue
+		}
+		s.peers.recoveredHold[row.To] = true
+		if peerQueueContains(s.peers.queues[row.To], row.ID) {
+			continue
+		}
+		msg := &peerMessage{id: row.ID, from: row.From, to: row.To, text: row.Text, at: row.At, length: row.Length, limit: row.Limit, sibling: row.Sibling, approved: row.CrossWorkspaceApproved, fromWorkspace: row.FromWorkspace, toWorkspace: row.ToWorkspace, relation: row.Relation}
+		s.peers.queues[msg.to] = append(s.peers.queues[msg.to], msg)
+	}
+	s.peers.recoveryReady = true
+	s.peers.mu.Unlock()
+	return nil
+}
+
+func peerQueueContains(queue []*peerMessage, id string) bool {
+	for _, msg := range queue {
+		if msg.id == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) peerEvent(ev PeerMessageEvent) {
@@ -659,6 +922,8 @@ func (s *Service) deliverPeer(ctx context.Context, msg *peerMessage) (PeerDelive
 		switch {
 		case sess.Status == SessionStatusClosed:
 			return DeliveryRefused, PeerClosed, "That session is closed; only the person can reopen it.", nil
+		case s.peers.hasQueued(msg.to):
+			return s.queuePeer(msg, "Earlier messages are waiting for this session; this message stays behind them.")
 		case sess.Status == SessionStatusAwaitingPermission || s.questionPending(msg.to):
 			// The person is being asked something: not the moment to add to the turn.
 			return s.queuePeer(msg, "The session is waiting for the person to answer it.")
@@ -674,7 +939,7 @@ func (s *Service) deliverPeer(ctx context.Context, msg *peerMessage) (PeerDelive
 			if s.peers.held(msg.to) {
 				return s.queuePeer(msg, "The person has prompts of their own queued or paused on this session; the message waits behind them.")
 			}
-			switch err := s.startPeerTurn(msg); {
+			switch err := s.startPeerTurn(msg, false); {
 			case err == nil:
 				return DeliveryStarted, "", "", nil
 			case errors.Is(err, ErrSessionBusy):
@@ -704,6 +969,16 @@ func (s *Service) queuePeer(msg *peerMessage, reason string) (PeerDelivery, stri
 	if len(s.peers.queues[msg.to]) >= peerQueueLimit {
 		s.peers.mu.Unlock()
 		return DeliveryRefused, PeerQueueFull, fmt.Sprintf("That session already has %d messages waiting.", peerQueueLimit), nil
+	}
+	if outbox, ok := s.store.(PeerOutboxStore); ok {
+		changed, err := outbox.TransitionPeerOutbox(context.Background(), msg.id, "dispatching", string(DeliveryQueued), "", time.Now().UTC())
+		if err != nil || !changed {
+			s.peers.mu.Unlock()
+			if err == nil {
+				err = errors.New("peer outbox item was no longer dispatching")
+			}
+			return "", "", "", err
+		}
 	}
 	s.peers.queues[msg.to] = append(s.peers.queues[msg.to], msg)
 	s.peers.mu.Unlock()
@@ -768,7 +1043,15 @@ type peerRun struct {
 // startPeerTurn begins an ordinary turn on the message in the background and
 // returns once the turn has the message — recorded and running — or failed to
 // get that far (ErrSessionBusy when somebody else holds the session).
-func (s *Service) startPeerTurn(msg *peerMessage) error {
+func (s *Service) startPeerTurn(msg *peerMessage, keepReservation bool) error {
+	s.peers.mu.Lock()
+	s.peers.init()
+	if owner := s.peers.dispatching[msg.to]; owner != "" && owner != msg.id {
+		s.peers.mu.Unlock()
+		return ErrSessionBusy
+	}
+	s.peers.dispatching[msg.to] = msg.id
+	s.peers.mu.Unlock()
 	claimed := make(chan error, 1)
 	var once sync.Once
 	run := &peerRun{msg: msg, settle: func(err error) { once.Do(func() { claimed <- err }) }}
@@ -781,7 +1064,23 @@ func (s *Service) startPeerTurn(msg *peerMessage) error {
 			log.Printf("agenthub: turn on a message from another session, session %s: %v", msg.to, err)
 		}
 	}()
-	return <-claimed
+	err := <-claimed
+	if !keepReservation {
+		s.endPeerDispatch(msg)
+	}
+	return err
+}
+
+func (s *Service) endPeerDispatch(msg *peerMessage) {
+	s.peers.mu.Lock()
+	if s.peers.dispatching[msg.to] == msg.id {
+		delete(s.peers.dispatching, msg.to)
+	}
+	waiting := len(s.peers.queues[msg.to]) > 0 && s.peers.recoveryReady
+	s.peers.mu.Unlock()
+	if waiting {
+		s.kickPeers(msg.to)
+	}
 }
 
 func (s *Service) namingOf(sessionID string) toolNaming {
@@ -794,6 +1093,12 @@ func (s *Service) namingOf(sessionID string) toolNaming {
 
 // kickPeers tries to deliver what waits for a session, off the caller's stack.
 func (s *Service) kickPeers(sessionID string) {
+	s.peers.mu.Lock()
+	ready := s.peers.recoveryReady
+	s.peers.mu.Unlock()
+	if !ready {
+		return
+	}
 	s.peers.mu.Lock()
 	s.peers.init()
 	waiting := len(s.peers.queues[sessionID]) > 0
@@ -826,6 +1131,9 @@ func (s *Service) WaitQuiet(ctx context.Context) error {
 // drainPeers starts a turn on the oldest message that waits for a session, when
 // the session can take it. One per call: the turn's end kicks the next.
 func (s *Service) drainPeers(sessionID string) {
+	if err := s.ensurePeerRecovery(context.Background()); err != nil {
+		return
+	}
 	ctx := context.Background()
 	s.peers.mu.Lock()
 	s.peers.init()
@@ -833,6 +1141,19 @@ func (s *Service) drainPeers(sessionID string) {
 	queue := s.peers.queues[sessionID]
 	var expired []*peerMessage
 	for len(queue) > 0 && now.Sub(queue[0].at) > peerQueueTTL {
+		if outbox, ok := s.store.(PeerOutboxStore); ok {
+			changed, err := outbox.TransitionPeerOutbox(ctx, queue[0].id, string(DeliveryQueued), "expired", PeerUndelivery, now)
+			if err != nil {
+				if s.OnRecordError != nil {
+					s.OnRecordError(sessionID, err)
+				}
+				break // retain the item until its expiration is durable
+			}
+			if !changed {
+				queue = queue[1:] // another operation already settled this id
+				continue
+			}
+		}
 		expired = append(expired, queue[0])
 		queue = queue[1:]
 	}
@@ -844,6 +1165,10 @@ func (s *Service) drainPeers(sessionID string) {
 	if len(queue) > 0 {
 		msg = queue[0]
 	}
+	validatedMessageID := ""
+	if msg != nil {
+		validatedMessageID = msg.id
+	}
 	s.peers.mu.Unlock()
 	for _, m := range expired {
 		s.peerEvent(PeerMessageEvent{MessageID: m.id, From: m.from, To: m.to, Length: m.length, Delivery: DeliveryRefused, Code: PeerUndelivery, Drained: true})
@@ -854,8 +1179,13 @@ func (s *Service) drainPeers(sessionID string) {
 	sess, err := s.store.GetSession(ctx, sessionID)
 	if err != nil {
 		if errors.Is(err, ErrSessionNotFound) {
+			s.refuseQueued(sessionID, PeerNotFound)
 			s.peers.forget(sessionID)
 		}
+		return
+	}
+	if sess.Status == SessionStatusClosed {
+		s.refuseQueued(sessionID, PeerClosed)
 		return
 	}
 	if sess.Status != SessionStatusIdle && sess.Status != SessionStatusError {
@@ -864,36 +1194,145 @@ func (s *Service) drainPeers(sessionID string) {
 	if s.isInvoking(sessionID) || s.questionPending(sessionID) || s.peers.held(sessionID) {
 		return
 	}
+	if code := s.validatePeerScope(ctx, msg); code != "" {
+		s.dropQueuedPeer(sessionID, msg, code)
+		return
+	}
 	// Take the message out of the queue BEFORE the turn starts, not after: a turn
 	// on it can end (and kick the next drain) before this returns, and a message
 	// still queued then would be delivered twice. A drain that loses the race for
 	// the session gets ErrSessionBusy and puts it back at the front.
-	s.peers.mu.Lock()
-	queue = s.peers.queues[sessionID]
-	if len(queue) == 0 {
-		s.peers.mu.Unlock()
-		return // another drain took it
+	msg, claimed, claimErr := s.claimPeerQueueHead(ctx, sessionID, validatedMessageID)
+	if claimErr != nil {
+		if s.OnRecordError != nil {
+			s.OnRecordError(sessionID, claimErr)
+		}
+		return
 	}
-	msg = queue[0]
-	if len(queue) == 1 {
-		delete(s.peers.queues, sessionID)
-	} else {
-		s.peers.queues[sessionID] = queue[1:]
+	if !claimed {
+		return
 	}
-	s.peers.mu.Unlock()
-	err = s.startPeerTurn(msg)
+	err = s.startPeerTurn(msg, true)
 	if errors.Is(err, ErrSessionBusy) {
 		s.peers.mu.Lock()
+		if outbox, ok := s.store.(PeerOutboxStore); ok {
+			changed, transitionErr := outbox.TransitionPeerOutbox(ctx, msg.id, "dispatching", string(DeliveryQueued), "", time.Now().UTC())
+			if transitionErr != nil || !changed {
+				if transitionErr != nil && s.OnRecordError != nil {
+					s.OnRecordError(sessionID, transitionErr)
+				}
+				s.peers.mu.Unlock()
+				s.endPeerDispatch(msg)
+				return
+			}
+		}
 		s.peers.queues[sessionID] = append([]*peerMessage{msg}, s.peers.queues[sessionID]...)
+		if s.peers.dispatching[sessionID] == msg.id {
+			delete(s.peers.dispatching, sessionID)
+		}
 		s.peers.mu.Unlock()
 		return
 	}
 	if err != nil {
 		log.Printf("agenthub: queued message from another session could not start a turn on %s: %v", sessionID, err)
+		if transitionErr := s.transitionPeerState(msg.id, "dispatching", "refused", PeerUndelivery); transitionErr != nil && s.OnRecordError != nil {
+			s.OnRecordError(sessionID, transitionErr)
+		}
+		s.endPeerDispatch(msg)
 		s.peerEvent(PeerMessageEvent{MessageID: msg.id, From: msg.from, To: msg.to, Length: msg.length, Delivery: DeliveryRefused, Code: PeerUndelivery, Drained: true})
 		return
 	}
+	if transitionErr := s.transitionPeerState(msg.id, "dispatching", string(DeliveryStarted), ""); transitionErr != nil && s.OnRecordError != nil {
+		s.OnRecordError(sessionID, transitionErr)
+	}
+	s.endPeerDispatch(msg)
 	s.peerEvent(PeerMessageEvent{MessageID: msg.id, From: msg.from, To: msg.to, Length: msg.length, Delivery: DeliveryStarted, Drained: true})
+}
+
+// claimPeerQueueHead serializes queue selection with the per-target dispatch
+// reservation and the latest user-queue mirror. expectedID is the item whose
+// scope the caller just checked, so a competing drain cannot substitute a
+// different queue head between validation and claim.
+func (s *Service) claimPeerQueueHead(ctx context.Context, sessionID, expectedID string) (*peerMessage, bool, error) {
+	s.peers.mu.Lock()
+	defer s.peers.mu.Unlock()
+	s.peers.init()
+	queue := s.peers.queues[sessionID]
+	if len(queue) == 0 || s.peers.dispatching[sessionID] != "" || s.peers.heldLocked(sessionID) {
+		return nil, false, nil
+	}
+	msg := queue[0]
+	if msg.id != expectedID {
+		return nil, false, nil
+	}
+	if outbox, ok := s.store.(PeerOutboxStore); ok {
+		changed, err := outbox.TransitionPeerOutbox(ctx, msg.id, string(DeliveryQueued), "dispatching", "", time.Now().UTC())
+		if err != nil {
+			return nil, false, err
+		}
+		if !changed {
+			return nil, false, nil
+		}
+	}
+	s.peers.dispatching[sessionID] = msg.id
+	if len(queue) == 1 {
+		delete(s.peers.queues, sessionID)
+	} else {
+		s.peers.queues[sessionID] = queue[1:]
+	}
+	return msg, true, nil
+}
+
+func (s *Service) refuseQueued(sessionID, code string) {
+	s.peers.mu.Lock()
+	queue := append([]*peerMessage(nil), s.peers.queues[sessionID]...)
+	delete(s.peers.queues, sessionID)
+	s.peers.mu.Unlock()
+	for _, msg := range queue {
+		if transitionErr := s.transitionPeerState(msg.id, string(DeliveryQueued), "refused", code); transitionErr != nil && s.OnRecordError != nil {
+			s.OnRecordError(sessionID, transitionErr)
+		}
+		s.peerEvent(PeerMessageEvent{MessageID: msg.id, From: msg.from, To: msg.to, Length: msg.length, Delivery: DeliveryRefused, Code: code, Drained: true})
+	}
+}
+
+func (s *Service) validatePeerScope(ctx context.Context, msg *peerMessage) string {
+	if msg.from.Kind != "session" && msg.from.Kind != MessageKindDevKit {
+		return ""
+	}
+	byID, err := s.sessionsByID(ctx)
+	if err != nil {
+		return PeerUnavail
+	}
+	sender, ok := byID[msg.from.SessionID]
+	if !ok || sender.WorkspaceID != msg.fromWorkspace {
+		return PeerNotFound
+	}
+	target, ok := byID[msg.to]
+	if !ok || target.WorkspaceID != msg.toWorkspace {
+		return PeerNotFound
+	}
+	relation, visible := peerRelationOf(byID, sender, target)
+	if relation != msg.relation || relation == PeerOtherBranch || (!visible && !msg.approved) {
+		return PeerNotFound
+	}
+	return ""
+}
+
+func (s *Service) dropQueuedPeer(sessionID string, msg *peerMessage, code string) {
+	s.peers.mu.Lock()
+	queue := s.peers.queues[sessionID]
+	for i, queued := range queue {
+		if queued.id == msg.id {
+			s.peers.queues[sessionID] = append(queue[:i], queue[i+1:]...)
+			break
+		}
+	}
+	s.peers.mu.Unlock()
+	if err := s.transitionPeerState(msg.id, string(DeliveryQueued), "refused", code); err != nil && s.OnRecordError != nil {
+		s.OnRecordError(sessionID, err)
+	}
+	s.peerEvent(PeerMessageEvent{MessageID: msg.id, From: msg.from, To: msg.to, Length: msg.length, Delivery: DeliveryRefused, Code: code, Drained: true})
 }
 
 // peerEnvelope is the text the model receives for a message from elsewhere. The

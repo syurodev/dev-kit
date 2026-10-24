@@ -21,6 +21,7 @@ import (
 type peerRig struct {
 	t       *testing.T
 	svc     *agenthub.Service
+	store   *agenthub.SQLStore
 	mock    *agenthub.MockAdapter
 	a, b, c agenthub.AgentSession
 	rts     map[string]*mockRuntimeView
@@ -54,8 +55,9 @@ func newPeerRigSteering(t *testing.T, steering bool) *peerRig {
 	mock.SetSteering(steering)
 	reg := agenthub.NewRegistry()
 	reg.Register(mock)
-	r := &peerRig{t: t, mock: mock, rts: map[string]*mockRuntimeView{}}
-	svc := agenthub.NewService(reg, agenthub.NewSQLStore(db), func(_ string, update json.RawMessage) {
+	store := agenthub.NewSQLStore(db)
+	r := &peerRig{t: t, mock: mock, store: store, rts: map[string]*mockRuntimeView{}}
+	svc := agenthub.NewService(reg, store, func(_ string, update json.RawMessage) {
 		r.mu.Lock()
 		r.emitted = append(r.emitted, update)
 		r.mu.Unlock()

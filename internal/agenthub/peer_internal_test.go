@@ -1,6 +1,7 @@
 package agenthub
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -52,6 +53,28 @@ func TestHopCountsTheExchangeOfOnePairAndForgetsIt(t *testing.T) {
 	now = now.Add(peerChainDecay + time.Second)
 	if got := p.hopFor("a", "b", ""); got != 1 {
 		t.Fatalf("hop after the decay = %d, want 1", got)
+	}
+}
+
+func TestQueueClaimDoesNotReplaceAnInflightHeadOrCrossANewPause(t *testing.T) {
+	svc := NewService(NewRegistry(), newInternalStore(t), nil)
+	first := &peerMessage{id: "first", to: "target", at: time.Now()}
+	second := &peerMessage{id: "second", to: "target", at: time.Now()}
+	svc.peers.mu.Lock()
+	svc.peers.init()
+	svc.peers.queues["target"] = []*peerMessage{first, second}
+	svc.peers.dispatching["target"] = "first"
+	svc.peers.mu.Unlock()
+
+	if got, claimed, err := svc.claimPeerQueueHead(context.Background(), "target", "second"); err != nil || claimed || got != nil {
+		t.Fatalf("second drain crossed the inflight first message: item=%v claimed=%t err=%v", got, claimed, err)
+	}
+	svc.peers.mu.Lock()
+	delete(svc.peers.dispatching, "target")
+	svc.peers.userQueue["target"] = userQueueMirror{waiting: 1, paused: true, at: time.Now()}
+	svc.peers.mu.Unlock()
+	if got, claimed, err := svc.claimPeerQueueHead(context.Background(), "target", "first"); err != nil || claimed || got != nil {
+		t.Fatalf("queue claim crossed a newer user pause: item=%v claimed=%t err=%v", got, claimed, err)
 	}
 }
 
