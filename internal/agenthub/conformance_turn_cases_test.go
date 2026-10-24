@@ -188,9 +188,12 @@ func init() {
 				defer rt.Close(context.Background())
 
 				var updates []json.RawMessage
+				var updatesMu sync.Mutex
 				rt.SetHandlers(RuntimeHandlers{
 					OnUpdate: func(u, _ json.RawMessage) {
+						updatesMu.Lock()
 						updates = append(updates, append(json.RawMessage(nil), u...))
+						updatesMu.Unlock()
 					},
 				})
 
@@ -231,7 +234,10 @@ func init() {
 				}
 
 				found := false
-				for _, u := range updates {
+				updatesMu.Lock()
+				updatesSnapshot := append([]json.RawMessage(nil), updates...)
+				updatesMu.Unlock()
+				for _, u := range updatesSnapshot {
 					if strings.Contains(string(u), "current_mode_update") && strings.Contains(string(u), modeID) {
 						found = true
 						break
@@ -241,7 +247,7 @@ func init() {
 					found = true
 				}
 				if !found {
-					t.Fatalf("no current_mode_update for %s in updates: %v", modeID, updates)
+					t.Fatalf("no current_mode_update for %s in updates: %v", modeID, updatesSnapshot)
 				}
 				if initialMode != "" {
 					if err := rt.(RuntimeConfigurator).SetMode(context.Background(), initialMode); err != nil {

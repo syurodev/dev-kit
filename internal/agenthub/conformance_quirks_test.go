@@ -65,35 +65,20 @@ func MockQuirks() VendorQuirks {
 	}
 }
 
-// ClaudeQuirks uses the existing scriptedVendor fake and its ACP runtime.
+// ClaudeQuirks uses a method-dispatching ACP child process and the real adapter.
 func ClaudeQuirks() VendorQuirks {
 	wireLog := ""
 	return VendorQuirks{
 		Name:     "claude",
 		Supports: CapabilitySet{LoadResume: true, Elicitation: true, ProcessDeath: true, SetMode: true, SetConfigOption: true, StreamingUpdates: true, Permission: true, VendorRefusal: true, Cancel: true, UsageUpdate: true},
 		Open: func(t *testing.T, script []string) (SessionRuntime, error) {
-			scenario := ""
-			if len(script) > 0 {
-				switch script[0] {
-				case "NEED_PERMISSION":
-					scenario = "permission"
-				case "ELICITATION":
-					scenario = "elicitation"
-				case "HOLD_AFTER":
-					scenario = "cancel"
-				case "die":
-					scenario = "die"
-				case "FAIL_PROVIDER_503":
-					scenario = "refusal"
-				}
-			}
-			runner := scriptedVendor{capture: filepath.Join(t.TempDir(), "claude-wire.jsonl"), scenario: scenario}
+			runner := claudeConformanceRunner{log: filepath.Join(t.TempDir(), "claude-wire.jsonl"), scenario: claudeConformanceScenario(script)}
 			a := NewClaudeAdapter(ClaudeOptions{Command: fakeAgentBinary(t), Runner: runner})
-			wireLog = runner.capture
+			wireLog = runner.log
 			return a.Open(context.Background(), OpenSpec{Cwd: t.TempDir()})
 		},
 		Load: func(t *testing.T, acpSessionID string) (SessionRuntime, error) {
-			runner := scriptedVendor{capture: filepath.Join(t.TempDir(), "claude-wire.jsonl")}
+			runner := claudeConformanceRunner{log: filepath.Join(t.TempDir(), "claude-wire.jsonl"), scenario: "turn"}
 			a := NewClaudeAdapter(ClaudeOptions{Command: fakeAgentBinary(t), Runner: runner})
 			return a.Load(context.Background(), OpenSpec{Cwd: t.TempDir()}, acpSessionID)
 		},
