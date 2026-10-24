@@ -5,7 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { applySessionUpdate, createInitialTranscriptModel } from "./transcript";
 import { AgentSessionFailure } from "./surfaces/AgentSessionFailure";
 import { rateLimitDetail, rateLimitFailure, rateLimitLabel } from "./surfaces/AgentContextMeter";
-import { failureKey } from "./AgentHubView";
+import { failureKey } from "./session/sessionModel";
 
 const render = (node: React.ReactNode) => renderRaw(<TooltipProvider>{node}</TooltipProvider>);
 
@@ -106,12 +106,12 @@ describe("steering a running turn", () => {
   const base = { status: "running", text: "wait, use the other API", attachments: 0, images: 0, busy: false, retrying: false };
 
   it("puts a mid-turn message into the turn", async () => {
-    const { shouldSteer } = await import("./AgentHubView");
+    const { shouldSteer } = await import("./session/sessionModel");
     expect(shouldSteer(base)).toBe(true);
   });
 
   it("queues instead when there is nothing to steer into, or files to send", async () => {
-    const { shouldSteer } = await import("./AgentHubView");
+    const { shouldSteer } = await import("./session/sessionModel");
     // Idle or parked on a permission: the turn is not taking input.
     expect(shouldSteer({ ...base, status: "idle" })).toBe(false);
     expect(shouldSteer({ ...base, status: "awaiting_permission" })).toBe(false);

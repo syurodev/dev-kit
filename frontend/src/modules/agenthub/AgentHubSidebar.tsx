@@ -35,7 +35,7 @@ import { useSidebarWorkspaces } from "./sidebarWorkspaces";
 import { forgetAgentTranscript, loadWholeTranscript } from "./transcript";
 import { transcriptToMarkdown } from "./exportMarkdown";
 import { groupTurns } from "./turns";
-import { renameAgentSession } from "./AgentHubView";
+import { renameAgentSession } from "./session/sessionModel";
 import {
   AGENTHUB_MODULE,
   activeAgentHubSessionId,

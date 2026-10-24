@@ -3,7 +3,7 @@ import { renderToString as renderRaw } from "react-dom/server";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppError } from "../../bridge/errors";
 import { signInStatusLine } from "../../bridge/agentSignIn";
-import { createFailure } from "./AgentHubView";
+import { createFailure } from "./session/sessionModel";
 import { AgentSessionError } from "./surfaces/AgentSessionError";
 import { chosenKeyLabel } from "./CodexAccountSection";
 import type { Account } from "@/bridge/accounts";

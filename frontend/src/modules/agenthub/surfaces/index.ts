@@ -16,3 +16,4 @@ export * from "./AgentDockBadge";
 export * from "./AgentMetaInspector";
 export * from "./VendorIcon";
 export * from "./permissionCard";
+export * from "./AgentConversationSurface";
