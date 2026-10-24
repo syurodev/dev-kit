@@ -3,6 +3,10 @@ package mcp
 import (
 	"context"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"devkit/internal/agenthub"
@@ -10,6 +14,7 @@ import (
 	gitservice "devkit/internal/git"
 	"devkit/internal/gitparse"
 	"devkit/internal/identity"
+	"devkit/internal/workspace"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -22,6 +27,7 @@ type fakeGit struct {
 	worktreeInput gitservice.WorktreeAddInput
 	worktrees     []gitservice.Worktree
 	removed       string
+	basePath      string
 }
 
 func (f *fakeGit) Status(context.Context) (gitservice.Status, error) {
@@ -77,7 +83,15 @@ func (f *fakeGit) Pull(_ context.Context, remote string) error {
 }
 func (f *fakeGit) WorktreeAdd(_ context.Context, in gitservice.WorktreeAddInput) (gitservice.Worktree, error) {
 	f.worktreeInput = in
-	return gitservice.Worktree{Branch: in.Branch, Path: "/repo/.superpowers/.worktrees/" + in.Branch, Head: "abc"}, nil
+	_, path, _ := f.WorktreeTarget(context.Background(), in.Branch)
+	return gitservice.Worktree{Branch: in.Branch, Path: path, Head: "abc"}, nil
+}
+func (f *fakeGit) WorktreeTarget(_ context.Context, branch string) (string, string, error) {
+	root := f.basePath
+	if root == "" {
+		root = "/repo"
+	}
+	return root, filepath.Join(root, ".superpowers", ".worktrees", strings.ReplaceAll(branch, "/", "-")), nil
 }
 func (f *fakeGit) Worktrees(context.Context) ([]gitservice.Worktree, error) { return f.worktrees, nil }
 func (f *fakeGit) WorktreeRemove(_ context.Context, name string) error      { f.removed = name; return nil }
@@ -88,7 +102,14 @@ type fakeRepos map[string]*fakeGit
 
 func (f fakeRepos) At(_ context.Context, path string) (GitAPI, error) {
 	if repo, ok := f[path]; ok {
+		repo.basePath = path
 		return repo, nil
+	}
+	for root, repo := range f {
+		if workspace.Within(path, root) {
+			repo.basePath = root
+			return repo, nil
+		}
 	}
 	return nil, gitservice.ErrNoRepository
 }
@@ -208,6 +229,130 @@ func TestGitWorktreeToolsUseRepositoryAndWriteGrants(t *testing.T) {
 	}
 	if _, _, err := srv.toolGitWorktreeAdd(agentCtx(), &sdk.CallToolRequest{}, gitWorktreeAddInput{gitRepoInput: gitRepoInput{Repo: config}, Branch: "forbidden"}); appCode(err) != "git.repoNotGranted" {
 		t.Fatalf("write to ungranted folder = %v", err)
+	}
+}
+
+func TestGitWorktreeAddChecksResolvedRootAgainstSessionGrant(t *testing.T) {
+	srv, _, repos := gitServer(agenthub.AgentSession{ID: gitSession, ProjectPath: auth + "/subdir"})
+	_, _, err := srv.toolGitWorktreeAdd(agentCtx(), &sdk.CallToolRequest{}, gitWorktreeAddInput{Branch: "feature/restricted"})
+	if appCode(err) != "git.repoNotGranted" {
+		t.Fatalf("add from subdirectory-only grant = %v, want git.repoNotGranted", err)
+	}
+	if repos[auth].worktreeInput.Branch != "" {
+		t.Fatalf("worktree was created before root authorization: %+v", repos[auth].worktreeInput)
+	}
+}
+
+func TestGitWorktreeRemoveRefusesIdleAndRunningSessionCwds(t *testing.T) {
+	for _, status := range []agenthub.SessionStatus{agenthub.SessionStatusIdle, agenthub.SessionStatusRunning} {
+		t.Run(string(status), func(t *testing.T) {
+			srv, _, repos := gitServer(agenthub.AgentSession{ID: gitSession, ProjectPath: auth})
+			path := auth + "/.superpowers/.worktrees/feature"
+			repos[auth].worktrees = []gitservice.Worktree{{Path: path, Branch: "feature"}}
+			hub := &fakeAgentHub{status: agenthub.AgentSession{ID: gitSession, ProjectPath: auth}, list: []agenthub.AgentSession{{ID: "child", Status: status, ProjectPath: path + "/nested"}}}
+			srv.deps.AgentHub = hub
+			_, listed, err := srv.toolGitWorktreeList(agentCtx(), &sdk.CallToolRequest{}, gitWorktreeListInput{})
+			if err != nil {
+				t.Fatalf("list before remove: %v", err)
+			}
+			if got := len(unwrap(listed).([]gitservice.Worktree)); got != 1 {
+				t.Fatalf("listed %d worktrees", got)
+			}
+			_, _, err = srv.toolGitWorktreeRemove(agentCtx(), &sdk.CallToolRequest{}, gitWorktreeRemoveInput{Name: "feature"})
+			if appCode(err) != "git.worktreeInUse" {
+				t.Fatalf("remove while %s session uses checkout = %v (list called %v)", status, err, hub.listCalled)
+			}
+			if repos[auth].removed != "" {
+				t.Fatalf("live checkout was removed: %q", repos[auth].removed)
+			}
+		})
+	}
+	closed, _, repos := gitServer(agenthub.AgentSession{ID: gitSession, ProjectPath: auth})
+	path := auth + "/.superpowers/.worktrees/feature"
+	repos[auth].worktrees = []gitservice.Worktree{{Path: path, Branch: "feature"}}
+	closed.deps.AgentHub = &fakeAgentHub{status: agenthub.AgentSession{ID: gitSession, ProjectPath: auth}, list: []agenthub.AgentSession{{ID: "child", Status: agenthub.SessionStatusClosed, ProjectPath: path}}}
+	if _, _, err := closed.toolGitWorktreeRemove(agentCtx(), &sdk.CallToolRequest{}, gitWorktreeRemoveInput{Name: "feature"}); err != nil {
+		t.Fatalf("remove after close = %v", err)
+	}
+	if repos[auth].removed != "feature" {
+		t.Fatalf("removed = %q, want feature", repos[auth].removed)
+	}
+}
+
+type mcpGitGuards map[string][]gitservice.Guard
+
+func (g mcpGitGuards) ListGuards(project string) ([]gitservice.Guard, error) { return g[project], nil }
+
+type mcpGitEnvs map[string]bool
+
+func (e mcpGitEnvs) RequiresConfirmation(name string) bool { return e[name] }
+
+type mcpGitConfirmer struct {
+	allow bool
+	asked int
+}
+
+func (c *mcpGitConfirmer) Confirm(context.Context, string, string) (bool, error) {
+	c.asked++
+	return c.allow, nil
+}
+
+func TestGitCommitThroughMCPKeepsParentGuardInLinkedWorktree(t *testing.T) {
+	ctx := context.Background()
+	git := gitservice.NewService(ctx)
+	availability := git.Availability()
+	if !availability.OK() {
+		t.Skip("checkpoint.Locate found no usable Git")
+	}
+	repo := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command(availability.Path, append([]string{"-C", repo}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "--initial-branch=main")
+	run("config", "user.name", "Test")
+	run("config", "user.email", "test@example.invalid")
+	if err := os.WriteFile(filepath.Join(repo, "base.txt"), []byte("base\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := git.Open(ctx, repo); err != nil {
+		t.Fatal(err)
+	}
+	if err := git.Stage(ctx, []string{"base.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := git.Commit(ctx, gitservice.CommitInput{Message: "base"}); err != nil {
+		t.Fatal(err)
+	}
+	git.SetGuards(mcpGitGuards{repo: {{Pattern: "feature/*", Env: "prod"}}})
+	git.SetEnvs(mcpGitEnvs{"prod": true})
+	allow := &mcpGitConfirmer{allow: true}
+	git.SetConfirmer(allow)
+	worktree, err := git.WorktreeAdd(ctx, gitservice.WorktreeAddInput{Branch: "feature/mcp-guard"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deny := &mcpGitConfirmer{}
+	git.SetConfirmer(deny)
+	if err := os.WriteFile(filepath.Join(worktree.Path, "change.txt"), []byte("change\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hub := &fakeAgentHub{status: agenthub.AgentSession{ID: gitSession, ProjectPath: worktree.Path}}
+	deps := agentHubTestDeps(&fakeCaller{}, hub)
+	deps.GitRepos = GitReposOf(git)
+	srv := NewServer(deps)
+	if _, _, err := srv.toolGitStage(agentCtx(), &sdk.CallToolRequest{}, gitPathsInput{Paths: []string{"change.txt"}}); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = srv.toolGitCommit(agentCtx(), &sdk.CallToolRequest{}, gitCommitInput{Message: "must be denied"})
+	if !errors.Is(err, gitservice.ErrNotAllowed) {
+		t.Fatalf("MCP commit on guarded linked branch = %v, want ErrNotAllowed", err)
+	}
+	if deny.asked != 1 {
+		t.Fatalf("denying confirmer asked %d times, want once", deny.asked)
 	}
 }
 

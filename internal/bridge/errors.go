@@ -764,6 +764,7 @@ var keptCodes = map[string]bool{
 	"git.worktreeOutside":  true,
 	"git.worktreeExists":   true,
 	"git.worktreeNotFound": true,
+	"git.worktreeInUse":    true,
 	"git.branchCheckedOut": true,
 	// internal/mcp/tools_pr.go prError. Fixed sentences, the platform's name
 	// ("GitHub") or a time of day: the account/host/branch states.

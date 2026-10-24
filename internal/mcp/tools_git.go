@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 
+	"devkit/internal/agenthub"
 	"devkit/internal/apperrors"
 	"devkit/internal/workspace"
 
@@ -46,9 +47,9 @@ type GitAPI interface {
 	Fetch(ctx context.Context, remote string) error
 	Pull(ctx context.Context, remote string) error
 	WorktreeAdd(ctx context.Context, in gitservice.WorktreeAddInput) (gitservice.Worktree, error)
+	WorktreeTarget(ctx context.Context, branch string) (root, target string, err error)
 	Worktrees(ctx context.Context) ([]gitservice.Worktree, error)
 	WorktreeRemove(ctx context.Context, name string) error
-	WorktreePrune(ctx context.Context) ([]string, error)
 }
 
 // GitWorktreeGrants are checked against the real default policy as well as
@@ -143,6 +144,22 @@ func repoMeta(repo string, extra map[string]any) map[string]any {
 	}
 	extra["repo"] = repo
 	return extra
+}
+
+func (s *Server) requireGitWritePaths(ctx context.Context, paths ...string) error {
+	scope, err := s.gitScopeFor(ctx)
+	if err != nil {
+		return err
+	}
+	if !scope.agent {
+		return nil
+	}
+	for _, path := range paths {
+		if !workspace.Covered(path, scope.granted) {
+			return apperrors.New("git.repoNotGranted", path+" is not a folder your session may write. Ask the person to add it to the session, or work in "+scope.cwd+".", false)
+		}
+	}
+	return nil
 }
 
 func (s *Server) registerGit(ms *sdk.Server) {
@@ -829,6 +846,13 @@ func (s *Server) toolGitWorktreeAdd(ctx context.Context, _ *sdk.CallToolRequest,
 		if err != nil {
 			return nil, err
 		}
+		root, target, err := git.WorktreeTarget(ctx, in.Branch)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.requireGitWritePaths(ctx, root, target); err != nil {
+			return nil, err
+		}
 		return git.WorktreeAdd(ctx, gitservice.WorktreeAddInput{Branch: in.Branch, Base: in.Base})
 	})
 	if err != nil {
@@ -866,10 +890,42 @@ func (s *Server) toolGitWorktreeRemove(ctx context.Context, _ *sdk.CallToolReque
 		if err != nil {
 			return nil, err
 		}
+		worktrees, err := git.Worktrees(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, worktree := range worktrees {
+			if worktree.Branch != in.Name && worktree.Path != in.Name {
+				continue
+			}
+			if err := s.refuseLiveWorktree(ctx, worktree.Path); err != nil {
+				return nil, err
+			}
+			break
+		}
 		return nil, git.WorktreeRemove(ctx, in.Name)
 	})
 	if err != nil {
 		return nil, nil, err
 	}
 	return nil, structured(map[string]any{"removed": in.Name}), nil
+}
+
+func (s *Server) refuseLiveWorktree(ctx context.Context, worktreePath string) error {
+	if s.deps.AgentHub == nil {
+		return apperrors.New("internal_error", "Agent Hub is not available to check worktree use.", true)
+	}
+	v, err := s.deps.Caller.Call(ctx, "builtin.agenthub", "agenthub:read", "session:list", meta("worktree_session_check", nil), func(ctx context.Context) (any, error) {
+		return s.deps.AgentHub.ListSessions(ctx)
+	})
+	if err != nil {
+		return err
+	}
+	sessions, _ := v.([]agenthub.AgentSession)
+	for _, session := range sessions {
+		if session.Status != agenthub.SessionStatusClosed && workspace.Within(session.ProjectPath, worktreePath) {
+			return apperrors.New("git.worktreeInUse", "A live Agent Hub session is using this worktree. Close that session before removing it.", false)
+		}
+	}
+	return nil
 }

@@ -45,6 +45,47 @@ type WorktreeAddInput struct {
 	Base string
 }
 
+// WorktreeTarget resolves the repository root and future checkout path without
+// creating directories. MCP uses both paths to check the caller's write grant
+// before WorktreeAdd performs any filesystem or Git mutation.
+func (s *Service) WorktreeTarget(ctx context.Context, branch string) (root, target string, err error) {
+	if err := validateWorktreeName(branch); err != nil {
+		return "", "", err
+	}
+	r, err := s.active()
+	if err != nil {
+		return "", "", err
+	}
+	if _, err := r.run(ctx, nil, "check-ref-format", "--branch", branch); err != nil {
+		return "", "", fmt.Errorf("%w: invalid branch name", ErrWorktreeOutside)
+	}
+	root, err = s.worktreeRoot(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	base := filepath.Join(root, ".superpowers", ".worktrees")
+	for _, path := range []string{filepath.Dir(base), base} {
+		if err := checkManagedDir(path); err != nil {
+			return "", "", err
+		}
+	}
+	return root, filepath.Join(base, worktreeDir(branch)), nil
+}
+
+func checkManagedDir(path string) error {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("%w: managed worktree directory is not a real directory", ErrWorktreeOutside)
+	}
+	return nil
+}
+
 // worktreeRoot returns the absolute path to the repository toplevel.
 func (s *Service) worktreeRoot(ctx context.Context) (string, error) {
 	r, err := s.active()
@@ -103,7 +144,7 @@ func (s *Service) WorktreeAdd(ctx context.Context, in WorktreeAddInput) (Worktre
 		return Worktree{}, err
 	}
 
-	root, err := s.worktreeRoot(ctx)
+	root, targetPath, err := s.WorktreeTarget(ctx, in.Branch)
 	if err != nil {
 		return Worktree{}, err
 	}
@@ -111,9 +152,6 @@ func (s *Service) WorktreeAdd(ctx context.Context, in WorktreeAddInput) (Worktre
 	r, err := s.active()
 	if err != nil {
 		return Worktree{}, err
-	}
-	if _, err := r.run(ctx, nil, "check-ref-format", "--branch", in.Branch); err != nil {
-		return Worktree{}, fmt.Errorf("%w: invalid branch name", ErrWorktreeOutside)
 	}
 	// Check if the branch is already checked out elsewhere.
 	existing, err := s.Worktrees(ctx)
@@ -129,11 +167,19 @@ func (s *Service) WorktreeAdd(ctx context.Context, in WorktreeAddInput) (Worktre
 	if branchErr == nil && in.Base != "" {
 		return Worktree{}, fmt.Errorf("%w: base is only used when creating a branch", ErrNotAllowed)
 	}
+	baseSHA := ""
+	if branchErr != nil && in.Base != "" {
+		resolved, err := r.run(ctx, nil, "rev-parse", "--verify", "--end-of-options", in.Base+"^{commit}")
+		if err != nil {
+			return Worktree{}, fmt.Errorf("%w: base must resolve to a commit", ErrNotAllowed)
+		}
+		baseSHA = strings.TrimSpace(string(resolved))
+	}
 	if err := s.gate(ctx, in.Branch, "Create worktree", "for a new or existing branch"); err != nil {
 		return Worktree{}, err
 	}
 
-	// Worktrees live under <repo>/.superpowers/.worktrees/<branch-slug>
+	// Worktrees live under <repo>/.superpowers/.worktrees/<branch-slug>.
 	superpowersDir := filepath.Join(root, ".superpowers")
 	if err := mkdirManagedDir(superpowersDir); err != nil {
 		return Worktree{}, err
@@ -149,19 +195,20 @@ func (s *Service) WorktreeAdd(ctx context.Context, in WorktreeAddInput) (Worktre
 	if !withinPath(root, resolvedWorktreesDir) {
 		return Worktree{}, fmt.Errorf("%w: worktree directory is outside the repository", ErrWorktreeOutside)
 	}
-	targetPath := filepath.Join(resolvedWorktreesDir, worktreeDir(in.Branch))
+	targetPath = filepath.Join(resolvedWorktreesDir, worktreeDir(in.Branch))
 	// A different branch can slug to the same directory, so check the path too.
 	if _, err := os.Lstat(targetPath); err == nil {
 		return Worktree{}, fmt.Errorf("%w: %s", ErrWorktreeExists, targetPath)
 	}
 
-	args := []string{"worktree", "add", targetPath}
+	args := []string{"worktree", "add"}
 	if branchErr == nil {
-		args = append(args, in.Branch)
-	} else if in.Base != "" {
-		args = append(args, "-b", in.Branch, in.Base)
+		args = append(args, "--", targetPath, in.Branch)
 	} else {
-		args = append(args, "-b", in.Branch)
+		args = append(args, "-b", in.Branch, "--", targetPath)
+		if baseSHA != "" {
+			args = append(args, baseSHA)
+		}
 	}
 	if _, err := r.run(ctx, nil, args...); err != nil {
 		return Worktree{}, err
@@ -325,7 +372,7 @@ func (s *Service) WorktreeRemove(ctx context.Context, name string) error {
 }
 
 // WorktreePrune prunes stale worktree administrative files.
-func (s *Service) WorktreePrune(ctx context.Context) ([]string, error) {
+func (s *Service) worktreePrune(ctx context.Context) ([]string, error) {
 	r, err := s.active()
 	if err != nil {
 		return nil, err

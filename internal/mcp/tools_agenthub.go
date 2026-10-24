@@ -268,6 +268,13 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 			if err != nil {
 				return nil, err
 			}
+			root, target, err := worktreeGit.WorktreeTarget(callCtx, branch)
+			if err != nil {
+				return nil, err
+			}
+			if err := s.requireGitWritePaths(callCtx, root, target); err != nil {
+				return nil, err
+			}
 			value, err := s.deps.Caller.Call(callCtx, "builtin.git", "git:write", "repo:worktree", meta("worktree_add", repoMeta(worktreeRepo, map[string]any{"branch": clipAudit(branch)})), func(ctx context.Context) (any, error) {
 				return worktreeGit.WorktreeAdd(ctx, gitservice.WorktreeAddInput{Branch: branch})
 			})
@@ -280,15 +287,6 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 			}
 			createdWorktree = &wt
 			cwd = wt.Path
-			if taskID != "" && s.deps.Tasks != nil {
-				branchName := wt.Branch
-				if _, err := s.deps.Caller.Call(callCtx, "builtin.tasks", "tasks:write", "task:"+taskID, meta("record_worktree_branch", nil), func(context.Context) (any, error) {
-					return s.deps.Tasks.SetFields(taskCaller(callCtx), taskID, tasks.Fields{Branch: &branchName})
-				}); err != nil {
-					_, _ = s.deps.Caller.Call(callCtx, "builtin.git", "git:write", "repo:worktree", meta("worktree_remove", repoMeta(worktreeRepo, nil)), func(ctx context.Context) (any, error) { return nil, worktreeGit.WorktreeRemove(ctx, wt.Path) })
-					return nil, err
-				}
-			}
 		}
 		cleanupWorktree := func() {
 			if createdWorktree == nil {
@@ -297,12 +295,6 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 			_, _ = s.deps.Caller.Call(callCtx, "builtin.git", "git:write", "repo:worktree", meta("worktree_remove", repoMeta(worktreeRepo, nil)), func(ctx context.Context) (any, error) {
 				return nil, worktreeGit.WorktreeRemove(ctx, createdWorktree.Path)
 			})
-			if taskID != "" && s.deps.Tasks != nil {
-				emptyBranch := ""
-				_, _ = s.deps.Caller.Call(callCtx, "builtin.tasks", "tasks:write", "task:"+taskID, meta("clear_worktree_branch", nil), func(context.Context) (any, error) {
-					return s.deps.Tasks.SetFields(taskCaller(callCtx), taskID, tasks.Fields{Branch: &emptyBranch})
-				})
-			}
 		}
 		create := agenthub.CreateInput{
 			AgentType:       agenthub.AgentType(in.AgentType),
@@ -343,7 +335,11 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 	}
 	if taskID != "" {
 		if sess, ok := v.(agenthub.AgentSession); ok {
-			v, err = s.giveChildItsTask(ctx, sess, task)
+			branchName := ""
+			if createdWorktree != nil {
+				branchName = createdWorktree.Branch
+			}
+			v, err = s.giveChildItsTask(ctx, sess, task, branchName)
 			if err != nil {
 				return nil, nil, err
 			}

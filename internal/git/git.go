@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -126,7 +127,11 @@ type Service struct {
 	// reading it.
 	mu      sync.RWMutex
 	project string
-	runner  runner
+	// policyProject is the canonical repository identity used for guards and
+	// remote bindings. A linked worktree has its own project/cwd but shares the
+	// main repository's Git metadata and policy.
+	policyProject string
+	runner        runner
 
 	guards  GuardStore
 	remotes RemoteStore
@@ -200,8 +205,12 @@ func (s *Service) Open(ctx context.Context, projectPath string) error {
 	if _, err := r.run(ctx, nil, "rev-parse", "--is-inside-work-tree"); err != nil {
 		return ErrNoRepository
 	}
+	policyProject, err := repositoryPolicyKey(ctx, r, projectPath)
+	if err != nil {
+		return err
+	}
 	s.mu.Lock()
-	s.project, s.runner = projectPath, r
+	s.project, s.policyProject, s.runner = projectPath, policyProject, r
 	s.mu.Unlock()
 	return nil
 }
@@ -224,18 +233,23 @@ func (s *Service) At(ctx context.Context, projectPath string) (*Service, error) 
 	if _, err := r.run(ctx, nil, "rev-parse", "--is-inside-work-tree"); err != nil {
 		return nil, ErrNoRepository
 	}
+	policyProject, err := repositoryPolicyKey(ctx, r, projectPath)
+	if err != nil {
+		return nil, err
+	}
 	return &Service{
-		availability: s.availability,
-		project:      projectPath,
-		runner:       r,
-		guards:       s.guards,
-		remotes:      s.remotes,
-		envs:         s.envs,
-		creds:        s.creds,
-		picker:       s.picker,
-		confirm:      s.confirm,
-		hostOf:       s.hostOf,
-		sshOptions:   s.sshOptions,
+		availability:  s.availability,
+		project:       projectPath,
+		policyProject: policyProject,
+		runner:        r,
+		guards:        s.guards,
+		remotes:       s.remotes,
+		envs:          s.envs,
+		creds:         s.creds,
+		picker:        s.picker,
+		confirm:       s.confirm,
+		hostOf:        s.hostOf,
+		sshOptions:    s.sshOptions,
 	}, nil
 }
 
@@ -245,8 +259,64 @@ func (s *Service) At(ctx context.Context, projectPath string) (*Service, error) 
 // would go on showing the previous repository under the new folder's name.
 func (s *Service) Reset() {
 	s.mu.Lock()
-	s.project, s.runner = "", runner{}
+	s.project, s.policyProject, s.runner = "", "", runner{}
 	s.mu.Unlock()
+}
+
+// repositoryPolicyKey returns the repository root whose guards and remote
+// bindings apply to this checkout. For linked worktrees Git points the
+// per-worktree git dir at a common metadata directory under the main repo's
+// .git; ordinary repositories (including submodules) use their own top-level.
+func repositoryPolicyKey(ctx context.Context, r runner, projectPath string) (string, error) {
+	topOut, err := r.run(ctx, nil, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", err
+	}
+	top := strings.TrimSpace(string(topOut))
+	if !filepath.IsAbs(top) {
+		top, err = filepath.Abs(filepath.Join(projectPath, top))
+		if err != nil {
+			return "", err
+		}
+	}
+	top, err = filepath.EvalSymlinks(top)
+	if err != nil {
+		return "", err
+	}
+	gitDirOut, err := r.run(ctx, nil, "rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return "", err
+	}
+	commonOut, err := r.run(ctx, nil, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return "", err
+	}
+	gitDir := strings.TrimSpace(string(gitDirOut))
+	commonDir := strings.TrimSpace(string(commonOut))
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(top, commonDir)
+	}
+	gitDir, err = filepath.EvalSymlinks(gitDir)
+	if err != nil {
+		return "", err
+	}
+	commonDir, err = filepath.EvalSymlinks(commonDir)
+	if err != nil {
+		return "", err
+	}
+	if gitDir != commonDir && filepath.Base(commonDir) == ".git" {
+		return filepath.Dir(commonDir), nil
+	}
+	return top, nil
+}
+
+func (s *Service) policyKey() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.policyProject != "" {
+		return s.policyProject
+	}
+	return s.project
 }
 
 // Project is the open project's path, empty when none is open.

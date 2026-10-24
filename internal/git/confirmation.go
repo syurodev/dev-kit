@@ -13,7 +13,7 @@ type DetailedConfirmer interface {
 }
 
 func (s *Service) confirmGit(ctx context.Context, req Confirmation) (bool, error) {
-	req.Repo = s.Project()
+	req.Repo = s.policyKey()
 	if c, ok := s.confirm.(DetailedConfirmer); ok {
 		return c.ConfirmGit(ctx, req)
 	}

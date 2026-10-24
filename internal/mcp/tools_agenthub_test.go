@@ -219,7 +219,7 @@ func TestAgentHubChildWorktreeStartsInSeparateCheckout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "/repo/.superpowers/.worktrees/feature/child-worktree"
+	want := auth + "/.superpowers/.worktrees/feature-child-worktree"
 	if hub.createIn.Cwd != want {
 		t.Fatalf("child cwd = %q, want %q", hub.createIn.Cwd, want)
 	}

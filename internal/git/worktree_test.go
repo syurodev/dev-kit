@@ -72,8 +72,18 @@ func TestWorktreeAddRefusesDuplicate(t *testing.T) {
 
 	// Second attempt should fail.
 	_, err = svc.WorktreeAdd(ctx, WorktreeAddInput{Branch: "duplicate-test"})
-	if !errors.Is(err, ErrWorktreeExists) {
-		t.Fatalf("second add = %v, want ErrWorktreeExists", err)
+	if !errors.Is(err, ErrBranchCheckedOut) {
+		t.Fatalf("second add = %v, want ErrBranchCheckedOut", err)
+	}
+}
+
+func TestWorktreeAddRefusesSlugCollision(t *testing.T) {
+	svc, _ := newRepo(t)
+	if _, err := svc.WorktreeAdd(context.Background(), WorktreeAddInput{Branch: "feature/x"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.WorktreeAdd(context.Background(), WorktreeAddInput{Branch: "feature-x"}); !errors.Is(err, ErrWorktreeExists) {
+		t.Fatalf("different branch with same slug = %v, want ErrWorktreeExists", err)
 	}
 }
 
@@ -221,7 +231,7 @@ func TestWorktreePrune(t *testing.T) {
 	ctx := context.Background()
 
 	// Just verify it runs without error.
-	pruned, err := svc.WorktreePrune(ctx)
+	pruned, err := svc.worktreePrune(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -407,6 +417,13 @@ func TestWorktreeBaseParameter(t *testing.T) {
 	}
 }
 
+func TestWorktreeAddRejectsOptionShapedBase(t *testing.T) {
+	svc, _ := newRepo(t)
+	if _, err := svc.WorktreeAdd(context.Background(), WorktreeAddInput{Branch: "from-option", Base: "--force"}); !errors.Is(err, ErrNotAllowed) {
+		t.Fatalf("option-shaped base = %v, want ErrNotAllowed", err)
+	}
+}
+
 func TestLinkedWorktreeSupportsCommitStatusAndPush(t *testing.T) {
 	ctx := context.Background()
 	root, _, _ := newRepoWithRemote(t)
@@ -434,5 +451,37 @@ func TestLinkedWorktreeSupportsCommitStatusAndPush(t *testing.T) {
 	}
 	if err := linked.Push(ctx, PushInput{Remote: "origin", Branch: "feature/linked", SetUpstream: true}); err != nil {
 		t.Fatalf("push from linked worktree: %v", err)
+	}
+}
+
+func TestLinkedWorktreeKeepsParentRepositoryGuard(t *testing.T) {
+	ctx := context.Background()
+	root, dir := newRepo(t)
+	root.SetGuards(guardsFor{dir: {{Pattern: "feature/*", Env: "prod"}}})
+	root.SetEnvs(stubEnvs{"prod": true})
+	allowAdd := &stubConfirm{allow: true}
+	root.SetConfirmer(allowAdd)
+	wt, err := root.WorktreeAdd(ctx, WorktreeAddInput{Branch: "feature/guarded"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	denyCommit := &stubConfirm{allow: false}
+	root.SetConfirmer(denyCommit)
+	linked, err := root.At(ctx, wt.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if linked.Project() != wt.Path || linked.policyKey() != dir {
+		t.Fatalf("linked project/policy = %q/%q; want checkout %q, policy %q", linked.Project(), linked.policyKey(), wt.Path, dir)
+	}
+	write(t, wt.Path, "guarded.txt", "guarded\n")
+	if err := linked.Stage(ctx, []string{"guarded.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := linked.Commit(ctx, CommitInput{Message: "guarded linked commit"}); !errors.Is(err, ErrNotAllowed) {
+		t.Fatalf("commit on guarded linked branch = %v, want ErrNotAllowed", err)
+	}
+	if denyCommit.asked != 1 {
+		t.Fatalf("denying confirmer asked %d times, want once", denyCommit.asked)
 	}
 }
