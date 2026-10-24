@@ -359,6 +359,11 @@ type Service struct {
 	// OnTurnFinished fires after the turn's final transcript flush, including
 	// cancellation and errors, so shell consumers can clear running state once.
 	OnTurnFinished func(sessionID string, status SessionStatus, outcome string)
+	// OnTurnTiming receives each turn's phase timings once, under the same
+	// numbers the "agenthub: turn timing" log line carries (see TurnTiming).
+	// It fires at the first row the transcript can draw — when "Starting"
+	// ends — or at the turn's end when none arrived. nil logs only.
+	OnTurnTiming func(TurnTiming)
 	// OnUnknownUpdate reports a session/update kind this build does not model,
 	// once per kind per session. It exists because the gap used to be wide and
 	// silent: of the sixteen kinds claude-agent-acp 0.74 emits this build parsed
@@ -1538,6 +1543,7 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 // the cycle check do not apply, nobody waits on it so no time limit does, and
 // its echo is the sender's words with their label rather than a user prompt.
 func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (result InvokeResult, retErr error) {
+	started := time.Now()
 	s.turnWork.Add(1)
 	defer s.turnWork.Add(-1) // registered first, so it runs after every other defer
 	if peer != nil {
@@ -1557,6 +1563,11 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 	if err != nil {
 		return InvokeResult{}, err
 	}
+	// Where the turn's time went (see TurnTiming). The vendor is known from the
+	// row, so this is the first moment a timing can name it. Finished at the
+	// first drawable row, or in the defer if the turn never draws one.
+	timing := newTurnTiming(started, in.SessionID, sess.AgentType)
+	defer s.finishTurnTiming(timing)
 	if peer == nil {
 		if err := s.authorizeTarget(ctx, in.SessionID); err != nil {
 			return InvokeResult{}, err
@@ -1630,13 +1641,17 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 	// two processes onto one MCP socket path, where the second failed with
 	// "address already in use" or removed the first one's socket and left
 	// that agent without DevKit's tools.
+	timing.markAuthorize()
+	claimStart := time.Now()
 	s.mu.Lock()
 	if _, busy := s.invoking[in.SessionID]; busy {
 		s.mu.Unlock()
+		timing.addClaim(time.Since(claimStart))
 		return InvokeResult{}, ErrSessionBusy
 	}
 	s.invoking[in.SessionID] = struct{}{}
 	s.mu.Unlock()
+	timing.addClaim(time.Since(claimStart))
 	release := func() {
 		s.mu.Lock()
 		delete(s.invoking, in.SessionID)
@@ -1680,7 +1695,12 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 	// An orphan — the row outlived the process that served it, which is what
 	// every restart does to every open session, and what a mid-turn crash does
 	// too — resumes here. This used to be the end of the conversation.
+	// Whether the process had to be opened or was already live is part of the
+	// timing: a resume is the phase that costs seconds.
+	resumed := s.liveRuntime(ctx, sess.ID) == nil
+	runtimeStart := time.Now()
 	rt, err := s.runtimeFor(ctx, sess)
+	timing.addRuntime(time.Since(runtimeStart), resumed)
 	if err != nil {
 		cp.Finish(context.WithoutCancel(ctx), TurnResult{Cancelled: true})
 		release()
@@ -1786,7 +1806,14 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 			// keeping was the one guaranteed to be dropped — the log read
 			// "transcript write failed: context canceled" and the UI drew an
 			// empty bubble where the agent's error should have been.
+			arrived := timing.elapsed()
 			parsed := s.handleUpdate(recordCtx, in.SessionID, update)
+			if timing.observeUpdate(parsed.Kind, arrived) {
+				// The row that ends "Starting" has just been recorded: this is
+				// the moment the person stops waiting, so it is the moment to
+				// say where the turn's time went.
+				s.finishTurnTiming(timing)
+			}
 			lastMsg.observe(parsed)
 			// Where a tool call says it worked. This is the only evidence a
 			// changed file was the agent's doing rather than a Bash script's,
@@ -1846,8 +1873,11 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 
 	// Join the opening snapshot. Past this line the prompt is about to go out,
 	// so a snapshot still running is one the turn would be waiting on.
+	checkpointStart := time.Now()
 	cp.Wait()
+	timing.addCheckpointWait(time.Since(checkpointStart))
 
+	timing.markPromptSent()
 	outcome, promptErr := rt.Prompt(ctx, prompt, fileChangeReportRequest(cp.ID()))
 
 	// The closing snapshot, before anything below decides the session's status.
