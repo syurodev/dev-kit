@@ -44,7 +44,7 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
   const upsertSession = useAgentSessionsStore((s) => s.upsertSession);
   const setPrompt = useAgentSessionsStore((s) => s.setPrompt);
   const pending = useAgentSessionsStore((s) => s.pending);
-  const { busy: permBusy, resolve: resolvePermission } = useResolvePermission(pending);
+  const { busy: permBusy, error: permError, resolve: resolvePermission } = useResolvePermission(pending);
   const enqueuePrompt = useAgentSessionsStore((s) => s.enqueuePrompt);
   const removeQueuedPrompt = useAgentSessionsStore((s) => s.removeQueuedPrompt);
 
@@ -237,6 +237,7 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
       pendingPermission={pending}
       onResolvePermission={resolvePermission}
       permissionBusy={permBusy}
+      permissionError={permError}
       pendingElicitation={question}
       onRespondElicitation={respondQuestion}
       elicitationBusy={questionBusy}

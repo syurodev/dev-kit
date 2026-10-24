@@ -23,6 +23,8 @@ export type AgentPermissionToastProps = {
   onResolve: (optionId: string | null) => void | Promise<void>;
   onOpenRail: () => void;
   busy?: boolean;
+  /** Why the last answer failed, when it did. */
+  error?: string;
   timeoutSeconds?: number;
   env?: ToastEnv;
   /** How many other requests are waiting behind this one. */
@@ -55,6 +57,7 @@ export function AgentPermissionToast({
   onResolve,
   onOpenRail,
   busy = false,
+  error,
   timeoutSeconds = 60,
   env: explicitEnv,
   queued = 0,
@@ -105,6 +108,11 @@ export function AgentPermissionToast({
 
       <PermissionAsk pending={pending} />
       <PermissionLockedNote env={env} environment={gatePermission(pending.params)?.env} />
+      {error ? (
+        <p data-testid="toast-error" className="text-body-13 text-status-danger">
+          {error}
+        </p>
+      ) : null}
 
       {/* The action row escalates left to right: Open rail for the full
           transcript, then Deny, then Allow once. No allow-always, per the note. */}

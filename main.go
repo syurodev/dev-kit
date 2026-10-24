@@ -490,6 +490,15 @@ func main() {
 		// after this callback, so nothing here may wait on the OS.
 		agentNotifier.Notify(agentTarget(p.SessionID), "Permission needed", "The agent is waiting for your approval.")
 	})
+	agentWaiter.OnClosed = func(c agenthub.PermissionClosed) {
+		// Answered, withdrawn by the agent, turn ended or expired: every open
+		// card for this id goes away.
+		emitAppEvent("agenthub:permissionClosed", map[string]any{
+			"id":        c.ID,
+			"sessionId": c.SessionID,
+			"reason":    c.Reason,
+		})
+	}
 	agentElicitations := agenthub.NewElicitationWaiter(func(e agenthub.PendingElicitation) {
 		// Its own event, not agenthub:sessionUpdate: that channel runs
 		// ParseSessionUpdate, and a question is not an update. No expiresAt —

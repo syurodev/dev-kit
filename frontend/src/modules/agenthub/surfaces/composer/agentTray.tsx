@@ -74,6 +74,7 @@ export type AgentTrayInput = {
     pending: PendingPermission;
     onResolve: (optionId: string | null) => void | Promise<void>;
     busy?: boolean;
+    error?: string;
   } | null;
   question?: {
     pending: PendingElicitation;
@@ -226,6 +227,7 @@ export function useAgentTray(input: AgentTrayInput): {
             session={session}
             onResolve={permission.onResolve}
             busy={permission.busy}
+            error={permission.error}
             size={size}
             panel
             waiting={permissionCount}

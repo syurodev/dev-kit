@@ -56,6 +56,7 @@ export type AgentRailProps = {
   pendingPermission?: PendingPermission | null;
   onResolvePermission?: (optionId: string | null) => void | Promise<void>;
   permissionBusy?: boolean;
+  permissionError?: string;
   pendingElicitation?: PendingElicitation | null;
   onRespondElicitation?: (response: ElicitationResponse) => void | Promise<void>;
   elicitationBusy?: boolean;
@@ -138,6 +139,7 @@ export function AgentRail({
   pendingPermission,
   onResolvePermission,
   permissionBusy = false,
+  permissionError,
   pendingElicitation,
   onRespondElicitation,
   elicitationBusy = false,
@@ -183,7 +185,7 @@ export function AgentRail({
     onOpenFile,
     permission:
       isPendingForActiveSession && pendingPermission
-        ? { pending: pendingPermission, onResolve: onResolvePermission ?? (() => {}), busy: permissionBusy }
+        ? { pending: pendingPermission, onResolve: onResolvePermission ?? (() => {}), busy: permissionBusy, error: permissionError }
         : null,
     question:
       isQuestionForActiveSession && pendingElicitation

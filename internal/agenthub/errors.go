@@ -26,10 +26,13 @@ var (
 	ErrCycleDetected      = errors.New("agenthub.cycleDetected")
 	ErrVendorUnknown      = errors.New("agenthub.vendorUnknown")
 	ErrPermissionDenied   = errors.New("agenthub.permissionDenied")
-	ErrCancelled          = errors.New("agenthub.cancelled")
-	ErrProcessFailed      = errors.New("agenthub.processFailed")
-	ErrSandboxUnavailable = errors.New("agenthub.sandboxUnavailable")
-	ErrUnavailable        = errors.New("agenthub.unavailable")
+	// ErrPermissionNotWaiting: the request answered is no longer waiting — the
+	// agent withdrew it, the turn ended or it expired. Nothing was sent.
+	ErrPermissionNotWaiting = errors.New("agenthub.permissionNotWaiting")
+	ErrCancelled            = errors.New("agenthub.cancelled")
+	ErrProcessFailed        = errors.New("agenthub.processFailed")
+	ErrSandboxUnavailable   = errors.New("agenthub.sandboxUnavailable")
+	ErrUnavailable          = errors.New("agenthub.unavailable")
 	// ErrUnavailableInServerMode: server mode serves the whole bridge over
 	// unauthenticated loopback HTTP, and a jailed agent shares the host
 	// loopback (NetworkHost). It could answer its own permission prompts, so

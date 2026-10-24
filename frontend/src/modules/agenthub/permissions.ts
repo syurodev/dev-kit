@@ -8,7 +8,7 @@ import {
   type AgentSession,
   type PendingPermission,
 } from "@/bridge/agenthub";
-import { errorMessage } from "@/bridge/errors";
+import { errorMessage, toAppError } from "@/bridge/errors";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
 
 /**
@@ -21,6 +21,25 @@ import { useAgentSessionsStore } from "@/stores/agentSessions";
  * `optionId` null is "deny": the cancelled outcome, which is also what the gate
  * does on its own after 60s.
  */
+/** The code Go answers with when the request it was asked to answer is no longer waiting. */
+export const PERMISSION_NOT_WAITING = "agenthub.permissionNotWaiting";
+
+export function isPermissionNotWaiting(error: unknown): boolean {
+  return toAppError(error).code === PERMISSION_NOT_WAITING;
+}
+
+/** Re-read a session after one of its permission cards went away without our answer. */
+export async function refreshSessionAfterPermission(sessionId: string): Promise<void> {
+  if (!sessionId) return;
+  try {
+    const fresh = await agentHubGetStatus(sessionId);
+    const state = useAgentSessionsStore.getState();
+    state.upsertSession(statusAfterAnswer(fresh, state.pendingQueue.some((p) => p.sessionId === sessionId)));
+  } catch {
+    // The session may be gone or the hub away; the card is down either way.
+  }
+}
+
 export function useResolvePermission(pending: PendingPermission | null) {
   const dequeuePending = useAgentSessionsStore((s) => s.dequeuePending);
   const upsertSession = useAgentSessionsStore((s) => s.upsertSession);
@@ -49,7 +68,14 @@ export function useResolvePermission(pending: PendingPermission | null) {
           // the refreshed row must not look like a failed permission.
         }
       } catch (e) {
-        setError(errorMessage(e));
+        if (isPermissionNotWaiting(e)) {
+          // Go withdrew the request before this answer: the card is stale, not
+          // failed. Take it down and show the session as it really is.
+          dequeuePending(pending.id);
+          await refreshSessionAfterPermission(pending.sessionId);
+        } else {
+          setError(errorMessage(e));
+        }
       } finally {
         setBusy(false);
       }
