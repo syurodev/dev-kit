@@ -252,15 +252,7 @@ func NewContainerWithStores(
 		// Tools grants come from tools.Commands so a new command cannot be
 		// registered without one — the failure that leaves a command runnable
 		// with no matching grant, or granted and never wired.
-		{SubjectID: "builtin.notes", Capability: "notes:write", Scope: "note:new"},
-		{SubjectID: "builtin.notes", Capability: "notes:write", Scope: "note:*"},
-		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note:list"},
-		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note:search"},
-		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note:*"},
-		{SubjectID: "builtin.notes", Capability: "notes:write", Scope: "note-folder:new"},
-		{SubjectID: "builtin.notes", Capability: "notes:write", Scope: "note-folder:*"},
-		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note-folder:list"},
-		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note-folder:*"},
+
 		{SubjectID: "builtin.environments", Capability: "env:read", Scope: "tag:list"},
 		{SubjectID: "builtin.environments", Capability: "env:write", Scope: "tag:new"},
 		{SubjectID: "builtin.environments", Capability: "env:write", Scope: "tag:*"},
@@ -277,6 +269,17 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.workspace", Capability: "ws:write", Scope: "service:reindex"},
 		{SubjectID: "builtin.workspace-memory", Capability: "workspace-memory:read", Scope: "workspace:*"},
 		{SubjectID: "builtin.workspace-memory", Capability: "workspace-memory:write", Scope: "workspace:*"},
+		{SubjectID: "builtin.notes", Capability: "notes:write", Scope: "note:new"},
+		{SubjectID: "builtin.notes", Capability: "notes:write", Scope: "note:*"},
+		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note:list"},
+		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note:search"},
+		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note:*"},
+		{SubjectID: "builtin.notes", Capability: "notes:write", Scope: "note-folder:new"},
+		{SubjectID: "builtin.notes", Capability: "notes:write", Scope: "note-folder:*"},
+		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note-folder:list"},
+		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note-folder:*"},
+		// Version previews use their own record scope.
+		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note-version:*"},
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:list"},
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:new"},
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:active"},
