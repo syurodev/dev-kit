@@ -760,12 +760,13 @@ var keptCodes = map[string]bool{
 	"git.notARepository":       true,
 	// internal/git worktree refusals are mapped by gitRefusalError and carry
 	// fixed guidance or the caller's own branch/path in the sentence.
-	"git.worktreeDirty":    true,
-	"git.worktreeOutside":  true,
-	"git.worktreeExists":   true,
-	"git.worktreeNotFound": true,
-	"git.worktreeInUse":    true,
-	"git.branchCheckedOut": true,
+	"git.worktreeDirty":       true,
+	"git.worktreeOutside":     true,
+	"git.worktreeExists":      true,
+	"git.worktreeNotFound":    true,
+	"git.worktreeInUse":       true,
+	"git.worktreeCheckFailed": true,
+	"git.branchCheckedOut":    true,
 	// internal/mcp/tools_pr.go prError. Fixed sentences, the platform's name
 	// ("GitHub") or a time of day: the account/host/branch states.
 	"pr.noAccount":        true,

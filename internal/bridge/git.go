@@ -351,7 +351,26 @@ func (s *AppService) GitGuards() ([]gitservice.Guard, error) {
 	result, err := s.call(context.Background(), "builtin.git", "git:read", "repo:guards", map[string]any{
 		"action": "guards",
 	}, func(context.Context) (any, error) {
-		return s.container.GitBindings.ListGuards(s.container.Git.Project())
+		guards, err := s.container.GitBindings.ListGuards(s.container.Git.PolicyProject())
+		if err != nil {
+			return nil, err
+		}
+		for _, alias := range s.container.Git.PolicyAliases() {
+			legacy, err := s.container.GitBindings.ListGuards(alias)
+			if err != nil {
+				continue
+			}
+			seen := make(map[string]bool, len(guards))
+			for _, guard := range guards {
+				seen[guard.ID] = true
+			}
+			for _, guard := range legacy {
+				if !seen[guard.ID] {
+					guards = append(guards, guard)
+				}
+			}
+		}
+		return guards, nil
 	})
 	if err != nil {
 		return nil, err
@@ -368,7 +387,7 @@ func (s *AppService) GitCreateGuard(pattern, env string) (gitservice.Guard, erro
 		"pattern": pattern,
 		"env":     env,
 	}, func(context.Context) (any, error) {
-		return s.container.GitBindings.CreateGuard(s.container.Git.Project(), pattern, env)
+		return s.container.GitBindings.CreateGuard(s.container.Git.PolicyProject(), pattern, env)
 	})
 	if err != nil {
 		return gitservice.Guard{}, err
@@ -393,7 +412,7 @@ func (s *AppService) GitBindRemote(name, accountID, env string) (gitservice.Remo
 		"remote": name,
 		"env":    env,
 	}, func(context.Context) (any, error) {
-		return s.container.GitBindings.BindRemote(s.container.Git.Project(), name, accountID, env)
+		return s.container.GitBindings.BindRemote(s.container.Git.PolicyProject(), name, accountID, env)
 	})
 	if err != nil {
 		return gitservice.Remote{}, err

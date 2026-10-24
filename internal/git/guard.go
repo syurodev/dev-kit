@@ -48,6 +48,23 @@ func (s *Service) guardFor(branch string) (Guard, bool) {
 		return Guard{}, false
 	}
 	guards, err := s.guards.ListGuards(s.policyKey())
+	if err == nil {
+		for _, alias := range s.PolicyAliases() {
+			legacy, legacyErr := s.guards.ListGuards(alias)
+			if legacyErr != nil {
+				continue
+			}
+			seen := make(map[string]bool, len(guards))
+			for _, guard := range guards {
+				seen[guard.ID] = true
+			}
+			for _, guard := range legacy {
+				if !seen[guard.ID] {
+					guards = append(guards, guard)
+				}
+			}
+		}
+	}
 	if err != nil {
 		// A guard store that cannot be read must not silently un-gate a
 		// protected branch. Refuse by reporting a guard with no env, which

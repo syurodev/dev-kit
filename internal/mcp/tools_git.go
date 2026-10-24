@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 
-	"devkit/internal/agenthub"
 	"devkit/internal/apperrors"
 	"devkit/internal/workspace"
 
@@ -915,17 +914,12 @@ func (s *Server) refuseLiveWorktree(ctx context.Context, worktreePath string) er
 	if s.deps.AgentHub == nil {
 		return apperrors.New("internal_error", "Agent Hub is not available to check worktree use.", true)
 	}
-	v, err := s.deps.Caller.Call(ctx, "builtin.agenthub", "agenthub:read", "session:list", meta("worktree_session_check", nil), func(ctx context.Context) (any, error) {
-		return s.deps.AgentHub.ListSessions(ctx)
-	})
+	inUse, err := s.deps.AgentHub.WorktreeInUse(ctx, worktreePath)
 	if err != nil {
-		return err
+		return apperrors.New("git.worktreeCheckFailed", "Could not verify whether an Agent Hub session is using this worktree, so it was not removed.", false)
 	}
-	sessions, _ := v.([]agenthub.AgentSession)
-	for _, session := range sessions {
-		if session.Status != agenthub.SessionStatusClosed && workspace.Within(session.ProjectPath, worktreePath) {
-			return apperrors.New("git.worktreeInUse", "A live Agent Hub session is using this worktree. Close that session before removing it.", false)
-		}
+	if inUse {
+		return apperrors.New("git.worktreeInUse", "A live Agent Hub session is using this worktree. Close that session before removing it.", false)
 	}
 	return nil
 }

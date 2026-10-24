@@ -319,6 +319,22 @@ func (s *Service) policyKey() string {
 	return s.project
 }
 
+// PolicyProject is the canonical repository identity used for guards and
+// remote bindings. Project remains the actual checkout path shown by the Git
+// view, which can be a linked worktree.
+func (s *Service) PolicyProject() string { return s.policyKey() }
+
+// PolicyAliases includes the checkout path for backward-compatible reads of
+// records created before policy keys were canonicalized.
+func (s *Service) PolicyAliases() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.project == "" || s.project == s.policyProject {
+		return nil
+	}
+	return []string{s.project}
+}
+
 // Project is the open project's path, empty when none is open.
 func (s *Service) Project() string {
 	s.mu.RLock()

@@ -31,6 +31,9 @@ type fakeAgentHub struct {
 	cancelID                  string
 	statusID                  string
 	listCalled                bool
+	worktreeInUse             bool
+	worktreeInUseErr          error
+	worktreeCheckCalled       bool
 
 	sendIn     agenthub.SendMessageInput
 	sendOut    agenthub.SendMessageResult
@@ -95,6 +98,11 @@ func (f *fakeAgentHub) PlanModelChoice(_ context.Context, in agenthub.ModelChoic
 func (f *fakeAgentHub) ListSessions(context.Context) ([]agenthub.AgentSession, error) {
 	f.listCalled = true
 	return f.list, nil
+}
+
+func (f *fakeAgentHub) WorktreeInUse(context.Context, string) (bool, error) {
+	f.worktreeCheckCalled = true
+	return f.worktreeInUse, f.worktreeInUseErr
 }
 
 func (f *fakeAgentHub) CreateSession(_ context.Context, in agenthub.CreateInput) (agenthub.AgentSession, error) {

@@ -485,3 +485,67 @@ func TestLinkedWorktreeKeepsParentRepositoryGuard(t *testing.T) {
 		t.Fatalf("denying confirmer asked %d times, want once", denyCommit.asked)
 	}
 }
+
+type keyedRemoteBindings map[string][]Remote
+
+func (r keyedRemoteBindings) ListRemotes(project string) ([]Remote, error) { return r[project], nil }
+
+func TestPolicyConfiguredFromLinkedGitViewAppliesToOriginalRepository(t *testing.T) {
+	ctx := context.Background()
+	root, _ := newRepo(t)
+	wt, err := root.WorktreeAdd(ctx, WorktreeAddInput{Branch: "feature/policy-view"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	linked, err := root.At(ctx, wt.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The bridge stores Git view guard and remote configuration using
+	// PolicyProject, even while Project is the linked checkout path.
+	configuredKey := linked.PolicyProject()
+	if configuredKey != root.PolicyProject() || configuredKey == linked.Project() {
+		t.Fatalf("linked Git view policy key = %q, root key = %q, checkout = %q", configuredKey, root.PolicyProject(), linked.Project())
+	}
+	guards := guardsFor{configuredKey: {{Pattern: "main", Env: "prod"}}, wt.Path: {{Pattern: "feature/*", Env: "prod"}}}
+	root.SetGuards(guards)
+	linked.SetGuards(guards)
+	root.SetEnvs(stubEnvs{"prod": true})
+	linked.SetEnvs(stubEnvs{"prod": true})
+	root.SetConfirmer(&stubConfirm{allow: false})
+	linked.SetConfirmer(&stubConfirm{allow: false})
+	write(t, root.Project(), "policy.txt", "guarded\n")
+	if err := root.Stage(ctx, []string{"policy.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := root.Commit(ctx, CommitInput{Message: "must stay guarded"}); !errors.Is(err, ErrNotAllowed) {
+		t.Fatalf("original repo commit after linked-view guard = %v, want ErrNotAllowed", err)
+	}
+	write(t, wt.Path, "linked-policy.txt", "legacy linked alias\n")
+	if err := linked.Stage(ctx, []string{"linked-policy.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := linked.Commit(ctx, CommitInput{Message: "legacy alias stays guarded"}); !errors.Is(err, ErrNotAllowed) {
+		t.Fatalf("linked commit with legacy alias guard = %v, want ErrNotAllowed", err)
+	}
+
+	runGit(t, root, root.Project(), "remote", "add", "origin", "https://example.test/acme/repo.git")
+	bindings := keyedRemoteBindings{configuredKey: {{Name: "origin", AccountID: "account-from-linked-view", Env: "prod"}}, wt.Path: {{Name: "origin", AccountID: "legacy-account", Env: "dev"}}}
+	root.SetRemotes(bindings)
+	linked.SetRemotes(bindings)
+	remotes, err := linked.Remotes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remotes) != 1 || remotes[0].AccountID != "account-from-linked-view" || remotes[0].Env != "prod" {
+		t.Fatalf("remote bindings from linked-view key = %+v", remotes)
+	}
+	// Canonical rows win, while a checkout-keyed legacy row remains readable
+	// when the canonical record is absent.
+	root.SetRemotes(keyedRemoteBindings{wt.Path: {{Name: "origin", AccountID: "legacy-account", Env: "dev"}}})
+	linked.SetRemotes(keyedRemoteBindings{wt.Path: {{Name: "origin", AccountID: "legacy-account", Env: "dev"}}})
+	remotes, err = linked.Remotes(ctx)
+	if err != nil || len(remotes) != 1 || remotes[0].AccountID != "legacy-account" {
+		t.Fatalf("legacy remote binding = %+v, %v", remotes, err)
+	}
+}

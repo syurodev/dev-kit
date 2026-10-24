@@ -307,6 +307,56 @@ func TestAgentOnlyReachesItsSubtree(t *testing.T) {
 	}
 }
 
+func TestWorktreeInUseSeesOtherRootsAndResolvesSymlinkCwds(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		alias bool
+	}{
+		{name: "nested cwd"},
+		{name: "symlink alias", alias: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, _, _ := newIdentityService(t)
+			worktree := filepath.Join(t.TempDir(), "checkout")
+			if err := os.MkdirAll(filepath.Join(worktree, "nested"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			cwd := filepath.Join(worktree, "nested")
+			if tc.alias {
+				alias := filepath.Join(t.TempDir(), "checkout-alias")
+				if err := os.Symlink(worktree, alias); err != nil {
+					t.Fatal(err)
+				}
+				cwd = filepath.Join(alias, "nested")
+			}
+			caller, err := svc.CreateSession(uiCtx(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: projectDir(t)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			// This root session is not visible through caller's agent-scoped
+			// ListSessions, but its cwd must still protect the checkout.
+			other, err := svc.CreateSession(uiCtx(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: cwd})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if visible, err := svc.ListSessions(agentCtx(caller.ID)); err != nil || len(visible) != 1 {
+				t.Fatalf("caller-scoped list = %d, %v; want only caller", len(visible), err)
+			}
+			inUse, err := svc.WorktreeInUse(agentCtx(caller.ID), worktree)
+			if err != nil || !inUse {
+				t.Fatalf("WorktreeInUse = %v, %v; want true for other root %s", inUse, err, other.ID)
+			}
+			if err := svc.CloseSession(uiCtx(), other.ID); err != nil {
+				t.Fatal(err)
+			}
+			inUse, err = svc.WorktreeInUse(agentCtx(caller.ID), worktree)
+			if err != nil || inUse {
+				t.Fatalf("WorktreeInUse after close = %v, %v; want false", inUse, err)
+			}
+		})
+	}
+}
+
 func TestOnSessionClosedHookFires(t *testing.T) {
 	svc, _, _ := newIdentityService(t)
 	var closed []string

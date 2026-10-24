@@ -21,6 +21,7 @@ import (
 // AgentHubAPI is the Agent Hub domain surface MCP tools invoke (duck-typed).
 type AgentHubAPI interface {
 	ListSessions(ctx context.Context) ([]agenthub.AgentSession, error)
+	WorktreeInUse(ctx context.Context, worktreePath string) (bool, error)
 	CreateSession(ctx context.Context, in agenthub.CreateInput) (agenthub.AgentSession, error)
 	GetStatus(ctx context.Context, id string) (agenthub.AgentSession, error)
 	Invoke(ctx context.Context, in agenthub.InvokeInput) (agenthub.InvokeResult, error)

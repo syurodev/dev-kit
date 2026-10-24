@@ -147,6 +147,17 @@ func (s *Service) Remotes(ctx context.Context) ([]Remote, error) {
 				bindings[binding.Name] = binding
 			}
 		}
+		for _, alias := range s.PolicyAliases() {
+			legacy, err := s.remotes.ListRemotes(alias)
+			if err != nil {
+				continue
+			}
+			for _, binding := range legacy {
+				if _, exists := bindings[binding.Name]; !exists {
+					bindings[binding.Name] = binding
+				}
+			}
+		}
 	}
 	seen := map[string]bool{}
 	var remotes []Remote

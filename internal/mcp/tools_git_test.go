@@ -249,7 +249,7 @@ func TestGitWorktreeRemoveRefusesIdleAndRunningSessionCwds(t *testing.T) {
 			srv, _, repos := gitServer(agenthub.AgentSession{ID: gitSession, ProjectPath: auth})
 			path := auth + "/.superpowers/.worktrees/feature"
 			repos[auth].worktrees = []gitservice.Worktree{{Path: path, Branch: "feature"}}
-			hub := &fakeAgentHub{status: agenthub.AgentSession{ID: gitSession, ProjectPath: auth}, list: []agenthub.AgentSession{{ID: "child", Status: status, ProjectPath: path + "/nested"}}}
+			hub := &fakeAgentHub{status: agenthub.AgentSession{ID: gitSession, ProjectPath: auth}, worktreeInUse: true}
 			srv.deps.AgentHub = hub
 			_, listed, err := srv.toolGitWorktreeList(agentCtx(), &sdk.CallToolRequest{}, gitWorktreeListInput{})
 			if err != nil {
@@ -260,7 +260,7 @@ func TestGitWorktreeRemoveRefusesIdleAndRunningSessionCwds(t *testing.T) {
 			}
 			_, _, err = srv.toolGitWorktreeRemove(agentCtx(), &sdk.CallToolRequest{}, gitWorktreeRemoveInput{Name: "feature"})
 			if appCode(err) != "git.worktreeInUse" {
-				t.Fatalf("remove while %s session uses checkout = %v (list called %v)", status, err, hub.listCalled)
+				t.Fatalf("remove while %s session uses checkout = %v (check called %v)", status, err, hub.worktreeCheckCalled)
 			}
 			if repos[auth].removed != "" {
 				t.Fatalf("live checkout was removed: %q", repos[auth].removed)
@@ -270,7 +270,7 @@ func TestGitWorktreeRemoveRefusesIdleAndRunningSessionCwds(t *testing.T) {
 	closed, _, repos := gitServer(agenthub.AgentSession{ID: gitSession, ProjectPath: auth})
 	path := auth + "/.superpowers/.worktrees/feature"
 	repos[auth].worktrees = []gitservice.Worktree{{Path: path, Branch: "feature"}}
-	closed.deps.AgentHub = &fakeAgentHub{status: agenthub.AgentSession{ID: gitSession, ProjectPath: auth}, list: []agenthub.AgentSession{{ID: "child", Status: agenthub.SessionStatusClosed, ProjectPath: path}}}
+	closed.deps.AgentHub = &fakeAgentHub{status: agenthub.AgentSession{ID: gitSession, ProjectPath: auth}}
 	if _, _, err := closed.toolGitWorktreeRemove(agentCtx(), &sdk.CallToolRequest{}, gitWorktreeRemoveInput{Name: "feature"}); err != nil {
 		t.Fatalf("remove after close = %v", err)
 	}
