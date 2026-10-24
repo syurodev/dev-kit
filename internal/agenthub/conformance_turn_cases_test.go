@@ -160,14 +160,12 @@ func init() {
 					}
 				}
 				mu.Unlock()
-				if len(outcome.Meta) > 0 {
-					norm, err := v.Normalize(outcome.Meta)
-					if err != nil {
-						t.Fatalf("NormalizeUsage: %v", err)
-					}
-					if v.ExpectedUpdateUsage == nil && (norm.InputTokens != v.ExpectedUsage.InputTokens || norm.OutputTokens != v.ExpectedUsage.OutputTokens || norm.CostUSD != v.ExpectedUsage.CostUSD) {
-						t.Fatalf("normalized usage = %+v, want %+v", norm, v.ExpectedUsage)
-					}
+				norm, err := v.Normalize(outcome.Meta)
+				if err != nil {
+					t.Fatalf("NormalizeUsage: %v", err)
+				}
+				if v.ExpectedUpdateUsage == nil && (norm.InputTokens != v.ExpectedUsage.InputTokens || norm.OutputTokens != v.ExpectedUsage.OutputTokens || norm.CostUSD != v.ExpectedUsage.CostUSD) {
+					t.Fatalf("normalized usage = %+v, want %+v", norm, v.ExpectedUsage)
 				}
 				if v.ExpectedUpdateUsage != nil && !found {
 					t.Fatal("no usage update decoded")
@@ -197,11 +195,39 @@ func init() {
 				})
 
 				modeID := v.SetModeIDs[0]
+				initialMode := ""
+				if modes, ok := rt.(RuntimeModes); ok && modes.Modes() != nil {
+					initialMode = modes.Modes().CurrentModeID
+				}
+				if modes, ok := rt.(RuntimeModes); ok && modes.Modes() != nil && modes.Modes().CurrentModeID == modeID {
+					for _, candidate := range v.SetModeIDs[1:] {
+						if candidate != modes.Modes().CurrentModeID {
+							modeID = candidate
+							break
+						}
+					}
+				}
 				if err := rt.(RuntimeConfigurator).SetMode(context.Background(), modeID); err != nil {
 					t.Fatalf("SetMode(%s): %v", modeID, err)
 				}
-				if modes, ok := rt.(RuntimeModes); ok && modes.Modes() != nil && modes.Modes().CurrentModeID == modeID {
+				if modes, ok := rt.(RuntimeModes); ok && modes.Modes() != nil && modes.Modes().CurrentModeID != modeID {
+					t.Fatalf("current mode = %q, want %q", modes.Modes().CurrentModeID, modeID)
+				}
+				if v.Name == "codex" {
+					if _, err := rt.Prompt(context.Background(), TextPrompt("mode conformance"), nil); err != nil {
+						t.Fatalf("Prompt after SetMode: %v", err)
+					}
+					want := map[string]string{"auto": "on-request", "bypassPermissions": "never", "ask": "untrusted"}[modeID]
+					assertWireField(t, v, "turn/start", "approvalPolicy", want)
+					if initialMode != "" {
+						if err := rt.(RuntimeConfigurator).SetMode(context.Background(), initialMode); err != nil {
+							t.Fatalf("reset mode: %v", err)
+						}
+					}
 					return
+				}
+				if v.Name == "claude" {
+					assertWireField(t, v, "session/set_mode", "modeId", modeID)
 				}
 
 				found := false
@@ -211,8 +237,19 @@ func init() {
 						break
 					}
 				}
+				if modes, ok := rt.(RuntimeModes); ok && modes.Modes() != nil && modes.Modes().CurrentModeID == modeID {
+					found = true
+				}
 				if !found {
 					t.Fatalf("no current_mode_update for %s in updates: %v", modeID, updates)
+				}
+				if initialMode != "" {
+					if err := rt.(RuntimeConfigurator).SetMode(context.Background(), initialMode); err != nil {
+						t.Fatalf("reset mode: %v", err)
+					}
+					if got := rt.(RuntimeModes).Modes().CurrentModeID; got != initialMode {
+						t.Fatalf("mode after reset = %q, want %q", got, initialMode)
+					}
 				}
 			},
 			RequiredCap: CapSetMode,
@@ -226,7 +263,11 @@ func init() {
 				return false, ""
 			},
 			Run: func(t *testing.T, v VendorQuirks) {
-				rt, err := v.Open(t, nil)
+				script := []string(nil)
+				if v.Name == "opencode" {
+					script = []string{"SET_CONFIG_OPTION"}
+				}
+				rt, err := v.Open(t, script)
 				if err != nil {
 					t.Fatalf("Open: %v", err)
 				}
@@ -248,15 +289,12 @@ func init() {
 					t.Fatalf("SetConfigOption(%s): %v", optID, err)
 				}
 
-				found := false
-				for _, u := range updates {
-					if strings.Contains(string(u), "config_option_update") && strings.Contains(string(u), optID) {
-						found = true
-						break
-					}
+				if valueOfConfigOption(rt, optID) != value {
+					t.Fatalf("stored config value for %s = %q, want %q", optID, valueOfConfigOption(rt, optID), value)
 				}
-				if !found {
-					t.Fatalf("no config_option_update for %s in updates: %v", optID, updates)
+				if v.Name != "mock" && v.Name != "codex" {
+					assertWireField(t, v, "session/set_config_option", "configId", optID)
+					assertWireField(t, v, "session/set_config_option", "value", value)
 				}
 			},
 			RequiredCap: CapSetConfigOption,
@@ -336,8 +374,8 @@ func init() {
 				if !errors.Is(err, ErrTurnFailed) {
 					t.Fatalf("Prompt = %v, want ErrTurnFailed", err)
 				}
-				if !strings.Contains(err.Error(), "unavailable") {
-					t.Fatalf("error should carry vendor sentence: %v", err)
+				if !strings.Contains(err.Error(), v.ExpectedRefusal) {
+					t.Fatalf("error should carry full vendor sentence %q: %v", v.ExpectedRefusal, err)
 				}
 				// Session should be idle, not crashed
 				if liveness, ok := rt.(RuntimeLiveness); ok {
@@ -345,6 +383,9 @@ func init() {
 					if dead {
 						t.Fatal("session should be idle, not dead")
 					}
+				}
+				if _, err := rt.Prompt(context.Background(), TextPrompt("recovery turn"), nil); err != nil {
+					t.Fatalf("second turn after vendor refusal: %v", err)
 				}
 			},
 			RequiredCap: CapVendorRefusal,

@@ -28,6 +28,8 @@ type VendorQuirks struct {
 	ExpectedStream        string
 	ExpectedUsage         NormalizedUsage
 	ExpectedUpdateUsage   *Usage
+	ExpectedRefusal       string
+	wireLogPath           func() string
 }
 
 // CapabilitySet flags which conformance cases a vendor can exercise.
@@ -60,11 +62,13 @@ func MockQuirks() VendorQuirks {
 		SetModeIDs:         []string{"ask", "auto", "bypass"},
 		SetConfigOptionIDs: []string{"model", "effort"},
 		ExpectedStream:     "mock reply", ExpectedUsage: NormalizedUsage{InputTokens: 1, OutputTokens: 1, CostUSD: 0.001},
+		ExpectedRefusal: "Upstream request failed: Endpoint is unavailable.",
 	}
 }
 
 // ClaudeQuirks uses the existing scriptedVendor fake and its ACP runtime.
 func ClaudeQuirks() VendorQuirks {
+	wireLog := ""
 	return VendorQuirks{
 		Name:     "claude",
 		Supports: CapabilitySet{LoadResume: true, Elicitation: true, ProcessDeath: true, SetMode: true, SetConfigOption: true, StreamingUpdates: true, Permission: true, VendorRefusal: true, Cancel: true, UsageUpdate: true},
@@ -86,6 +90,7 @@ func ClaudeQuirks() VendorQuirks {
 			}
 			runner := scriptedVendor{capture: filepath.Join(t.TempDir(), "claude-wire.jsonl"), scenario: scenario}
 			a := NewClaudeAdapter(ClaudeOptions{Command: fakeAgentBinary(t), Runner: runner})
+			wireLog = runner.capture
 			return a.Open(context.Background(), OpenSpec{Cwd: t.TempDir()})
 		},
 		Load: func(t *testing.T, acpSessionID string) (SessionRuntime, error) {
@@ -97,19 +102,23 @@ func ClaudeQuirks() VendorQuirks {
 			return NewClaudeAdapter(ClaudeOptions{}).NormalizeUsage(meta)
 		},
 		ExpectedStream: "ok", ExpectedUsage: NormalizedUsage{InputTokens: 12, OutputTokens: 4},
+		ExpectedRefusal:    "The provider is unavailable: 503",
 		SetModeIDs:         []string{"ask", "auto", "bypassPermissions"},
 		SetConfigOptionIDs: []string{"model", "effort"},
+		wireLogPath:        func() string { return wireLog },
 	}
 }
 
 // OpenCodeQuirks returns quirks for the opencode adapter via recordingRunner.
 func OpenCodeQuirks() VendorQuirks {
+	wireLog := ""
 	return VendorQuirks{
 		Name:     "opencode",
 		Supports: CapabilitySet{LoadResume: true, Elicitation: true, ProcessDeath: false, SetMode: true, SetConfigOption: true, StreamingUpdates: true, Permission: true, VendorRefusal: true, Cancel: true, UsageUpdate: true},
 		Open: func(t *testing.T, script []string) (SessionRuntime, error) {
 			turnReply := openCodeConformanceTurn(script)
 			logFile := filepath.Join(t.TempDir(), "requests.jsonl")
+			wireLog = logFile
 			replies := []string{
 				openCodeInit,
 				`{"jsonrpc":"2.0","id":2,"result":{"sessionId":"ses_conformance","configOptions":` + openCodeOptionsWire + `}}`,
@@ -145,8 +154,10 @@ func OpenCodeQuirks() VendorQuirks {
 			return NormalizedUsage{RawMeta: append(json.RawMessage(nil), meta...)}, nil
 		},
 		ExpectedStream: "ok", ExpectedUpdateUsage: &Usage{Used: 10, Size: 100},
+		ExpectedRefusal:    "The provider is unavailable: 503",
 		SetModeIDs:         []string{"ask", "auto", "bypassPermissions"},
 		SetConfigOptionIDs: []string{"model", "effort"},
+		wireLogPath:        func() string { return wireLog },
 	}
 }
 
@@ -161,8 +172,10 @@ func openCodeConformanceTurn(script []string) string {
 		return "__exit__"
 	case "HOLD_AFTER":
 		return "__hold_until_cancel__"
+	case "SET_CONFIG_OPTION":
+		return `{"jsonrpc":"2.0","id":3,"result":{"configOptions":[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"test-value","options":[{"value":"test-value","name":"Test"}]},{"id":"effort","name":"Effort","category":"thought_level","type":"select","currentValue":"low","options":[{"value":"low","name":"Low"}]}]}}`
 	case "FAIL_PROVIDER_503":
-		return `{"jsonrpc":"2.0","id":3,"error":{"code":-32603,"message":"The provider is unavailable: 503"}}`
+		return "__refuse_once__"
 	case "NEED_PERMISSION":
 		return `{"jsonrpc":"2.0","id":77,"method":"session/request_permission","params":{"sessionId":"ses_conformance","toolCall":{"toolCallId":"call","kind":"execute"},"options":[{"optionId":"allow","kind":"allow_once","name":"Allow once"},{"optionId":"reject","kind":"reject_once","name":"Reject"}]}}`
 	case "ELICITATION":
@@ -175,6 +188,7 @@ func openCodeConformanceTurn(script []string) string {
 
 // CodexQuirks returns quirks for the Codex adapter via fakeCodexRunner scenarios.
 func CodexQuirks() VendorQuirks {
+	wireLog := ""
 	return VendorQuirks{
 		Name:     "codex",
 		Supports: CapabilitySet{LoadResume: true, Elicitation: false, ProcessDeath: true, SetMode: true, SetConfigOption: true, StreamingUpdates: true, Permission: true, VendorRefusal: true, Cancel: true, UsageUpdate: true},
@@ -198,6 +212,7 @@ func CodexQuirks() VendorQuirks {
 				}
 			}
 			f := newCodexFixture(t, scenario)
+			wireLog = f.runner.log
 			rt, err := f.adapter.Open(context.Background(), OpenSpec{Cwd: f.cwd, McpServers: servers})
 			if err != nil {
 				return nil, err
@@ -216,8 +231,10 @@ func CodexQuirks() VendorQuirks {
 		},
 		Normalize:      func(meta json.RawMessage) (NormalizedUsage, error) { return (&CodexAdapter{}).NormalizeUsage(meta) },
 		ExpectedStream: "done", ExpectedUsage: NormalizedUsage{InputTokens: 100, OutputTokens: 20},
+		ExpectedRefusal:       "The provider is unavailable: 503",
 		SetModeIDs:            []string{"ask", "auto", "bypassPermissions"},
 		SetConfigOptionIDs:    []string{"model", "effort"},
 		SetConfigOptionValues: []string{"gpt-5.5-mini", "low"},
+		wireLogPath:           func() string { return wireLog },
 	}
 }

@@ -1140,6 +1140,7 @@ type scriptedVendor struct {
 func (v scriptedVendor) StartPiped(context.Context, sandbox.Policy, sandbox.Cmd) (*sandbox.Proc, error) {
 	script := `
 prompt_id=
+refused=0
 while IFS= read -r line; do
   printf '%s\n' "$line" >> "$0"
   case "$line" in
@@ -1172,7 +1173,7 @@ done
 	case "die":
 		promptAction = `exit 3`
 	case "refusal":
-		promptAction = `printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32603,"message":"The provider is unavailable: 503"}}\n' "$id"; prompt_id=`
+		promptAction = `if [ "$refused" = 0 ]; then printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32603,"message":"The provider is unavailable: 503"}}\n' "$id"; refused=1; else printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fresh-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"recovered"}}}}\n'; printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$id"; fi; prompt_id=`
 	}
 	script = strings.Replace(script, "@@PROMPT_ACTION@@", promptAction, 1)
 	cmd := exec.Command("sh", "-c", script, v.capture)

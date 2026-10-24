@@ -20,6 +20,17 @@ func init() {
 				_ = rt.Close(context.Background())
 			},
 		},
+		ConformanceCase{Name: "deferred_resume_never_prompted_service_followup_resume", Run: func(t *testing.T, _ VendorQuirks) {
+			t.Skip("harness not implemented, tracked as follow-up B3-FOLLOWUP-RESUME")
+		}},
+		ConformanceCase{Name: "deferred_opencode_process_death_followup_process_death", SkipIf: func(v VendorQuirks) (bool, string) {
+			if v.Name != "opencode" {
+				return true, "only opencode process-death harness is deferred"
+			}
+			return false, ""
+		}, Run: func(t *testing.T, _ VendorQuirks) {
+			t.Skip("harness not implemented, tracked as follow-up B3-FOLLOWUP-OPENCODE-DEATH")
+		}},
 		ConformanceCase{
 			Name: "load_resume",
 			SkipIf: func(v VendorQuirks) (bool, string) {

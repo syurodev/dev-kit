@@ -3,6 +3,7 @@ package agenthub
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -72,6 +73,7 @@ func init() {
 				defer rt.Close(context.Background())
 
 				var asked json.RawMessage
+				var answer json.RawMessage
 				rt.SetHandlers(RuntimeHandlers{
 					OnUpdate: func(json.RawMessage, json.RawMessage) {},
 					OnPermission: func(_ context.Context, params json.RawMessage) (json.RawMessage, error) {
@@ -84,7 +86,8 @@ func init() {
 						_ = json.Unmarshal(p["options"], &opts)
 						for _, opt := range opts {
 							if opt["optionId"] == "allow" || opt["kind"] == "allow_once" {
-								return json.Marshal(map[string]any{"outcome": "selected", "optionId": opt["optionId"]})
+								answer, _ = json.Marshal(map[string]any{"outcome": map[string]any{"outcome": "selected", "optionId": opt["optionId"]}})
+								return answer, nil
 							}
 						}
 						return nil, ErrPermissionDenied
@@ -98,6 +101,10 @@ func init() {
 				if len(asked) == 0 {
 					t.Fatal("OnPermission was not called")
 				}
+				if !strings.Contains(string(answer), "allow") {
+					t.Fatalf("allow answer = %s", answer)
+				}
+				assertPermissionWireAnswer(t, v, true)
 			},
 			RequiredCap: CapPermission,
 		},
@@ -117,11 +124,13 @@ func init() {
 				defer rt.Close(context.Background())
 
 				var asked json.RawMessage
+				var answer json.RawMessage
 				rt.SetHandlers(RuntimeHandlers{
 					OnUpdate: func(json.RawMessage, json.RawMessage) {},
 					OnPermission: func(_ context.Context, params json.RawMessage) (json.RawMessage, error) {
 						asked = params
-						return nil, ErrPermissionDenied
+						answer = json.RawMessage(`{"outcome":{"outcome":"cancelled"}}`)
+						return answer, ErrPermissionDenied
 					},
 				})
 
@@ -134,6 +143,10 @@ func init() {
 				if len(asked) == 0 {
 					t.Fatal("OnPermission was not called")
 				}
+				if !strings.Contains(string(answer), "cancelled") {
+					t.Fatalf("deny answer = %s", answer)
+				}
+				assertPermissionWireAnswer(t, v, false)
 			},
 			RequiredCap: CapPermission,
 		},
