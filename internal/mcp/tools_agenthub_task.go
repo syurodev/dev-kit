@@ -2,33 +2,20 @@ package mcp
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"strings"
 	"unicode/utf8"
 
 	"devkit/internal/agenthub"
+	"devkit/internal/agentwork"
 	"devkit/internal/apperrors"
 	"devkit/internal/identity"
 	"devkit/internal/tasks"
 )
 
 // A child started on a task (agenthub.createAgentSession with taskId).
-//
-// The brief of a job that changes code lives on a task: the person sees it on
-// the board, it survives a restart, and its description is one place instead of
-// a message the parent retyped. So instead of the parent creating a session,
-// then telling it which task to take, DevKit does the three steps with nothing
-// for the model to get wrong: it checks the task can be given away before the
-// session exists, claims it for the new session, and sends the session the task
-// as its first message — which the parent never writes.
+const taskBriefRunes = agentwork.BriefRunes
 
-// taskBriefRunes bounds the description copied into the child's first message;
-// the rest stays on the task, which the child reads in full.
-const taskBriefRunes = 8000
-
-// childOnTask is what the parent is told: the new session, the task it holds,
-// and what became of the first message.
 type childOnTask struct {
 	agenthub.AgentSession
 	Task      taskRef               `json:"task"`
@@ -44,37 +31,26 @@ type taskRef struct {
 	Title string `json:"title"`
 }
 
-// taskBrief is the child's first message: which task, that it is already
-// claimed, and the description the parent wrote. The rules of working on a
-// task are in the system prompt; the message does not repeat them.
-func taskBrief(t tasks.Task) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "Your task: %s — %s\nTask id: %s. It is already claimed for you.\n\n", t.Key, oneLine(t.Title), t.ID)
-	desc := strings.TrimSpace(t.Description)
-	switch {
-	case desc == "":
-		b.WriteString("The task has no description beyond its title.")
-	case utf8.RuneCountInString(desc) > taskBriefRunes:
-		b.WriteString(string([]rune(desc)[:taskBriefRunes]))
-		fmt.Fprintf(&b, "\n\n[The description is cut at %d characters; the rest is on the task.]", taskBriefRunes)
-	default:
-		b.WriteString(desc)
-	}
-	return b.String()
-}
-
+// taskBrief preserves the package's existing helper for focused MCP tests.
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
-// prepareTaskForChild reads the task an agent wants to start a child on and
-// refuses, before any session exists, one it cannot give away: out of its
-// scope, finished or archived, or held by another live session.
-func (s *Server) prepareTaskForChild(ctx context.Context, taskID string) (tasks.Task, error) {
+func taskBrief(t tasks.Task) string {
+	return agentwork.Brief(agentwork.Task{ID: t.ID, Key: t.Key, Title: t.Title, Description: t.Description})
+}
+
+type taskHandoffOps struct {
+	server *Server
+	create func(tasks.Task) (agenthub.AgentSession, string, error)
+}
+
+func (o taskHandoffOps) CheckTask(ctx context.Context, taskID string) (agentwork.Task, error) {
+	s := o.server
 	if s.deps.Tasks == nil {
-		return tasks.Task{}, apperrors.New("internal_error", "The task board is not available.", true)
+		return agentwork.Task{}, apperrors.New("internal_error", "The task board is not available.", true)
 	}
 	tc := taskCaller(ctx)
 	if !tc.IsAgent() {
-		return tasks.Task{}, apperrors.New("validation_failed", "taskId is for an agent session starting its own child.", true)
+		return agentwork.Task{}, apperrors.New("validation_failed", "taskId is for an agent session starting its own child.", true)
 	}
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:write", "task:"+taskID, meta("assignable", nil), func(context.Context) (any, error) {
 		if _, err := s.deps.Tasks.Assignable(tc, taskID); err != nil {
@@ -83,57 +59,60 @@ func (s *Server) prepareTaskForChild(ctx context.Context, taskID string) (tasks.
 		return s.deps.Tasks.Get(tc, taskID)
 	})
 	if err != nil {
-		return tasks.Task{}, err
+		return agentwork.Task{}, err
 	}
 	task, _ := v.(tasks.Task)
-	return task, nil
+	return toAgentworkTask(task), nil
 }
 
-// giveChildItsTask claims the task for the child that was just created and
-// sends it the task as its first message. A claim that fails (it was taken in
-// the meantime) closes the child again: a session nobody asked for is not left
-// behind. A message that fails does not undo the claim — the child holds the
-// task and the parent is told the delivery, so it can send the message itself.
-func (s *Server) giveChildItsTask(ctx context.Context, sess agenthub.AgentSession, task tasks.Task, branch string) (any, error) {
-	tc := taskCaller(ctx)
-	if _, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:write", "task:"+task.ID, meta("assign", map[string]any{"child_session": sess.ID}), func(context.Context) (any, error) {
-		return s.deps.Tasks.Assign(tc, task.ID, sess.ID)
-	}); err != nil {
-		if closeErr := s.deps.AgentHub.CloseSession(ctx, sess.ID); closeErr != nil {
-			log.Printf("mcp: close session %s after its task could not be assigned: %v", sess.ID, closeErr)
-		}
-		return nil, err
+func (o taskHandoffOps) CreateChild(_ context.Context, task agentwork.Task) (agentwork.Child, error) {
+	created, branch, err := o.create(tasks.Task{ID: task.ID, Key: task.Key, Title: task.Title, Description: task.Description})
+	if err != nil {
+		return agentwork.Child{}, err
 	}
-	if branch != "" {
-		childCtx := identity.WithCaller(ctx, identity.Agent(sess.ID))
-		if _, err := s.deps.Caller.Call(childCtx, "builtin.tasks", "tasks:write", "task:"+task.ID, meta("record_worktree_branch", map[string]any{"child_session": sess.ID}), func(context.Context) (any, error) {
-			return s.deps.Tasks.SetFields(taskCaller(childCtx), task.ID, tasks.Fields{Branch: &branch})
-		}); err != nil {
-			if closeErr := s.deps.AgentHub.CloseSession(ctx, sess.ID); closeErr != nil {
-				log.Printf("mcp: close session %s after its worktree branch could not be recorded: %v", sess.ID, closeErr)
-			}
-			return nil, err
-		}
-	}
+	return agentwork.Child{ID: created.ID, Value: created, Branch: branch}, nil
+}
 
-	out := childOnTask{AgentSession: sess, Task: taskRef{ID: task.ID, Key: task.Key, Title: oneLine(task.Title)}}
-	text := taskBrief(task)
-	subject, capability, scope := peerSendGrant(sess.ID)
-	v, err := s.deps.Caller.Call(ctx, subject, capability, scope, meta("send_message", map[string]any{
-		"session_id": sess.ID,
-		"length":     utf8.RuneCountInString(text),
+func (o taskHandoffOps) AssignTask(ctx context.Context, task agentwork.Task, child agentwork.Child) error {
+	tc := taskCaller(ctx)
+	_, err := o.server.deps.Caller.Call(ctx, "builtin.tasks", "tasks:write", "task:"+task.ID, meta("assign", map[string]any{"child_session": child.ID}), func(context.Context) (any, error) {
+		return o.server.deps.Tasks.Assign(tc, task.ID, child.ID)
+	})
+	return err
+}
+
+func (o taskHandoffOps) RecordBranch(ctx context.Context, task agentwork.Task, child agentwork.Child, branch string) error {
+	childCtx := identity.WithCaller(ctx, identity.Agent(child.ID))
+	_, err := o.server.deps.Caller.Call(childCtx, "builtin.tasks", "tasks:write", "task:"+task.ID, meta("record_worktree_branch", map[string]any{"child_session": child.ID}), func(context.Context) (any, error) {
+		return o.server.deps.Tasks.SetFields(taskCaller(childCtx), task.ID, tasks.Fields{Branch: &branch})
+	})
+	return err
+}
+
+func (o taskHandoffOps) SendBrief(ctx context.Context, task agentwork.Task, child agentwork.Child, brief string) (agentwork.Delivery, error) {
+	subject, capability, scope := peerSendGrant(child.ID)
+	v, err := o.server.deps.Caller.Call(ctx, subject, capability, scope, meta("send_message", map[string]any{
+		"session_id": child.ID,
+		"length":     utf8.RuneCountInString(brief),
 		"task_id":    task.ID,
 	}), func(callCtx context.Context) (any, error) {
-		return s.deps.AgentHub.SendMessage(callCtx, agenthub.SendMessageInput{SessionID: sess.ID, Message: text})
+		return o.server.deps.AgentHub.SendMessage(callCtx, agenthub.SendMessageInput{SessionID: child.ID, Message: brief})
 	})
 	if err != nil {
-		out.Delivery, out.Code = agenthub.DeliveryRefused, "not_sent"
-		out.Reason = "The task is claimed for the new session but its first message could not be sent; send it with agenthub.sendMessage."
-		log.Printf("mcp: first message to session %s on task %s: %v", sess.ID, task.ID, err)
-		return out, nil
+		return agentwork.Delivery{}, err
 	}
 	if sent, ok := v.(agenthub.SendMessageResult); ok {
-		out.Delivery, out.Code, out.Reason, out.MessageID = sent.Delivery, sent.Code, sent.Reason, sent.MessageID
+		return agentwork.Delivery{State: string(sent.Delivery), Code: sent.Code, Reason: sent.Reason, MessageID: sent.MessageID}, nil
 	}
-	return out, nil
+	return agentwork.Delivery{}, nil
+}
+
+func (o taskHandoffOps) CloseChild(ctx context.Context, child agentwork.Child) error {
+	return o.server.deps.AgentHub.CloseSession(ctx, child.ID)
+}
+
+func (o taskHandoffOps) Logf(format string, args ...any) { log.Printf(format, args...) }
+
+func toAgentworkTask(t tasks.Task) agentwork.Task {
+	return agentwork.Task{ID: t.ID, Key: t.Key, Title: t.Title, Description: t.Description}
 }

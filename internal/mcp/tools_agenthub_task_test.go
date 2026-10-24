@@ -26,6 +26,7 @@ type childTasks struct {
 	checkedBy    tasks.Caller
 	assignCalls  int
 	branch       string
+	branchErr    error
 	branchBy     tasks.Caller
 	branchWrites int
 }
@@ -49,7 +50,7 @@ func (f *childTasks) SetFields(c tasks.Caller, id string, fields tasks.Fields) (
 		f.branchBy = c
 		f.branch = *fields.Branch
 	}
-	return f.task, nil
+	return f.task, f.branchErr
 }
 
 func childTaskFixture() (*Server, *fakeAgentHub, *childTasks, context.Context) {
@@ -174,5 +175,32 @@ func TestTheTaskBriefIsShortAndCutsAHugeDescription(t *testing.T) {
 	}
 	if !strings.Contains(huge, "cut at") || !strings.Contains(huge, "the rest is on the task") {
 		t.Errorf("the cut is not said: …%s", huge[len(huge)-120:])
+	}
+}
+
+func TestBranchRecordingFailureClosesClaimedChild(t *testing.T) {
+	srv, hub, board, ctx := childTaskFixture()
+	hub.status = agenthub.AgentSession{ID: "parent-1", ProjectPath: "/tmp/p"}
+	srv.deps.GitRepos = fakeRepos{"/tmp/p": &fakeGit{}}
+	board.branchErr = errors.New("write failed")
+	_, _, err := srv.toolAgentHubCreateAgentSession(ctx, &sdk.CallToolRequest{}, agentHubCreateInput{AgentType: "mock", TaskID: "t1", Worktree: "feature/task"})
+	if err == nil || hub.closeID != "child-1" || hub.sendCalled {
+		t.Fatalf("err=%v closed=%q sent=%v; want rollback after branch recording failed", err, hub.closeID, hub.sendCalled)
+	}
+}
+
+func TestFirstBriefRefusalKeepsClaimAndUsesExistingWireShape(t *testing.T) {
+	srv, hub, board, ctx := childTaskFixture()
+	hub.sendErr = errors.New("peer unavailable")
+	_, out, err := srv.toolAgentHubCreateAgentSession(ctx, &sdk.CallToolRequest{}, agentHubCreateInput{AgentType: "mock", TaskID: "t1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, ok := out.(childOnTask)
+	if !ok || result.Delivery != agenthub.DeliveryRefused || result.Code != "not_sent" || result.Task.ID != "t1" {
+		t.Fatalf("result = %#v; want task handoff with refused delivery", out)
+	}
+	if board.assignedTo != "child-1" || hub.closeID != "" {
+		t.Fatalf("assignment=%q closed=%q; delivery refusal must keep the claimed child", board.assignedTo, hub.closeID)
 	}
 }

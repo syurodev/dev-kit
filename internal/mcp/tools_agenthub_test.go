@@ -38,6 +38,7 @@ type fakeAgentHub struct {
 	sendIn     agenthub.SendMessageInput
 	sendOut    agenthub.SendMessageResult
 	sendCalled bool
+	sendErr    error
 	peers      []agenthub.PeerInfo
 	route      agenthub.PeerRelation
 	routeTo    agenthub.AgentSession
@@ -56,7 +57,7 @@ type fakeAgentHub struct {
 
 func (f *fakeAgentHub) SendMessage(_ context.Context, in agenthub.SendMessageInput) (agenthub.SendMessageResult, error) {
 	f.sendIn, f.sendCalled = in, true
-	return f.sendOut, nil
+	return f.sendOut, f.sendErr
 }
 
 func (f *fakeAgentHub) ResumeChild(_ context.Context, id string, force bool) error {

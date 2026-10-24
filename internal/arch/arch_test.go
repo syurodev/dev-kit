@@ -228,6 +228,13 @@ func TestLayering(t *testing.T) {
 		t.Errorf("layering violation: checkpoint must not import %s", short(imp))
 	}
 
+	// agentwork is a reusable orchestration leaf. Host-specific DTO mapping,
+	// capability checks and services are all injected by callers; production
+	// code in this package therefore imports no in-module package.
+	if imports := graph[pkg("agentwork")]; len(imports) != 0 {
+		t.Errorf("layering violation: agentwork must be a standard-library-only leaf, imports %v", imports)
+	}
+
 	// Nothing but main may import the bridge; nothing but the bridge (and main)
 	// may import app. main is the module-root package "devkit".
 	for from, imports := range graph {
