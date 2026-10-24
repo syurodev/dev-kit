@@ -83,6 +83,14 @@ type ElicitationClosed struct {
 type ElicitationWaiter struct {
 	notify func(PendingElicitation)
 	closed func(ElicitationClosed)
+	// Persistence hooks receive metadata only and run before publication or
+	// before releasing an answer to the agent.
+	PersistOpen  func(context.Context, PendingRequestRecord) error
+	PersistClose func(context.Context, PendingRequestResolution) error
+	// OnPersistenceError reports metadata durability failures without request
+	// params, question text, or response data. It must be nonblocking and must
+	// not re-enter the waiter; some paths report while holding its lock.
+	OnPersistenceError func(error)
 
 	mu      sync.Mutex
 	pending map[string]*elicitationWait
@@ -90,9 +98,10 @@ type ElicitationWaiter struct {
 
 type elicitationWait struct {
 	PendingElicitation
-	result   chan json.RawMessage
-	finished bool
-	ctx      context.Context
+	result         chan json.RawMessage
+	finished       bool
+	ctx            context.Context
+	persistedClose bool
 }
 
 // NewElicitationWaiter creates a waiter. Either callback may be nil.
@@ -116,6 +125,9 @@ func (w *ElicitationWaiter) Resolve(ctx context.Context, sessionID string, param
 // not an error: the response is still written, because the agent keeps a
 // request it cancelled pending until one arrives.
 func (w *ElicitationWaiter) Wait(ctx context.Context, sessionID string, params json.RawMessage) (json.RawMessage, error) {
+	if ctx.Err() != nil {
+		return append(json.RawMessage(nil), cancelledElicitation...), nil
+	}
 	id, err := vaultitem.NewID()
 	if err != nil {
 		return nil, err
@@ -136,6 +148,18 @@ func (w *ElicitationWaiter) Wait(ctx context.Context, sessionID string, params j
 		Params:     append(json.RawMessage(nil), params...),
 		CreatedAt:  time.Now().UTC(),
 	}
+	if w.PersistOpen != nil {
+		if err := w.PersistOpen(ctx, elicitationRecord(p)); err != nil {
+			w.reportPersistenceError(err)
+			return append(json.RawMessage(nil), declinedElicitation...), nil
+		}
+	}
+	if ctx.Err() != nil {
+		if w.PersistClose != nil {
+			w.reportPersistenceError(w.PersistClose(context.Background(), PendingRequestResolution{ID: id, Reason: ElicitationCancelled, ResolvedAt: time.Now().UTC()}))
+		}
+		return append(json.RawMessage(nil), cancelledElicitation...), nil
+	}
 	resCh := make(chan json.RawMessage, 1)
 
 	w.mu.Lock()
@@ -148,7 +172,7 @@ func (w *ElicitationWaiter) Wait(ctx context.Context, sessionID string, params j
 
 	select {
 	case <-ctx.Done():
-		if w.finish(id) {
+		if w.finish(id, ElicitationCancelled) {
 			w.fireClosed(ElicitationClosed{ID: id, SessionID: sessionID, Reason: ElicitationCancelled})
 		}
 		return append(json.RawMessage(nil), cancelledElicitation...), nil
@@ -176,6 +200,23 @@ func (w *ElicitationWaiter) Complete(id string, response json.RawMessage) error 
 		}
 		return errors.New("agenthub: invalid elicitation id")
 	}
+	if w.PersistClose != nil {
+		if err := w.PersistClose(context.Background(), PendingRequestResolution{ID: id, Reason: ElicitationAnswered, ResolvedAt: time.Now().UTC()}); err != nil {
+			w.mu.Unlock()
+			w.reportPersistenceError(err)
+			return err
+		}
+		p.persistedClose = true
+	}
+	if p.ctx.Err() != nil {
+		if w.PersistClose != nil {
+			err := w.PersistClose(context.Background(), PendingRequestResolution{ID: id, Reason: ElicitationCancelled, ResolvedAt: time.Now().UTC()})
+			w.reportPersistenceError(err)
+			p.persistedClose = err == nil
+		}
+		w.mu.Unlock()
+		return errors.New("agenthub: elicitation no longer waiting")
+	}
 	p.finished = true
 	delete(w.pending, id)
 	p.result <- append(json.RawMessage(nil), response...) // buffered, and only one sender wins finished
@@ -199,10 +240,16 @@ func (w *ElicitationWaiter) CancelSession(sessionID string) int {
 		if p.SessionID != sessionID || p.finished {
 			continue
 		}
+		closed := ElicitationClosed{ID: id, SessionID: sessionID, Reason: ElicitationTurnStopped}
+		if w.PersistClose != nil {
+			persistErr := w.PersistClose(context.Background(), PendingRequestResolution{ID: id, Reason: closed.Reason, ResolvedAt: time.Now().UTC()})
+			p.persistedClose = persistErr == nil
+			w.reportPersistenceError(persistErr)
+		}
 		p.finished = true
 		delete(w.pending, id)
 		p.result <- append(json.RawMessage(nil), cancelledElicitation...)
-		gone = append(gone, ElicitationClosed{ID: id, SessionID: sessionID, Reason: ElicitationTurnStopped})
+		gone = append(gone, closed)
 	}
 	w.mu.Unlock()
 
@@ -251,12 +298,17 @@ func (w *ElicitationWaiter) Pending() *PendingElicitation {
 // finish marks id resolved and reports whether this call was the one that did.
 // Exactly one of Complete, CancelSession and a ctx ending wins, so a card gets
 // exactly one closed event.
-func (w *ElicitationWaiter) finish(id string) bool {
+func (w *ElicitationWaiter) finish(id, reason string) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	p, ok := w.pending[id]
 	if !ok || p.finished {
 		return false
+	}
+	if w.PersistClose != nil && !p.persistedClose {
+		err := w.PersistClose(context.Background(), PendingRequestResolution{ID: id, Reason: reason, ResolvedAt: time.Now().UTC()})
+		w.reportPersistenceError(err)
+		p.persistedClose = err == nil
 	}
 	p.finished = true
 	delete(w.pending, id)
@@ -407,4 +459,14 @@ func stringArray(v any) (any, bool) {
 		out = append(out, s)
 	}
 	return out, true
+}
+
+func elicitationRecord(p PendingElicitation) PendingRequestRecord {
+	return PendingRequestRecord{ID: p.ID, SessionID: p.SessionID, Kind: PendingRequestElicitation, CreatedAt: p.CreatedAt}
+}
+
+func (w *ElicitationWaiter) reportPersistenceError(err error) {
+	if err != nil && w.OnPersistenceError != nil {
+		w.OnPersistenceError(err)
+	}
 }

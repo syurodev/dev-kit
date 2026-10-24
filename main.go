@@ -610,6 +610,15 @@ func main() {
 	agentSvc.Documents = agentDocuments
 	agentSvc.ResolvePermission = agentWaiter.Resolve
 	agentSvc.ResolveGatePermission = agentWaiter.ResolveGate
+	if pendingStore, ok := any(agentStore).(agenthub.PendingRequestStore); ok {
+		agentWaiter.PersistOpen = func(ctx context.Context, p agenthub.PendingRequestRecord) error {
+			return pendingStore.RecordPendingRequest(ctx, p)
+		}
+		agentWaiter.PersistClose = func(ctx context.Context, r agenthub.PendingRequestResolution) error {
+			return pendingStore.ResolvePendingRequest(ctx, r)
+		}
+		agentWaiter.OnPersistenceError = func(err error) { log.Printf("agenthub: permission request metadata: %v", err) }
+	}
 	agentSvc.CancelPendingPermissions = agentWaiter.CancelSession
 	// The person's "which model for which job" list, read on every call so an
 	// edit in Settings reaches the next session an agent starts.
@@ -653,6 +662,15 @@ func main() {
 	accountSignInDone = agentSvc.AfterAccountSignIn
 	agentSvc.ResolveElicitation = agentElicitations.Resolve
 	agentSvc.CancelPendingElicitations = agentElicitations.CancelSession
+	if pendingStore, ok := any(agentStore).(agenthub.PendingRequestStore); ok {
+		agentElicitations.PersistOpen = func(ctx context.Context, p agenthub.PendingRequestRecord) error {
+			return pendingStore.RecordPendingRequest(ctx, p)
+		}
+		agentElicitations.PersistClose = func(ctx context.Context, r agenthub.PendingRequestResolution) error {
+			return pendingStore.ResolvePendingRequest(ctx, r)
+		}
+		agentElicitations.OnPersistenceError = func(err error) { log.Printf("agenthub: elicitation request metadata: %v", err) }
+	}
 	// Read fresh on every spawn/resume/fork (see Service.SandboxExtras), so a
 	// change in Settings applies to the next session without a restart.
 	agentSvc.SandboxExtras = func() preferences.AgentSandboxSettings {

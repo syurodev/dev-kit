@@ -1,6 +1,6 @@
 # Durable Agent Hub peer outbox
 
-Status: implementation design for OPT-040960 (B5).
+Status: implemented in B5 (`b61dd768`), integrated with B6 migration 48; integrated validation is pending.
 
 ## Goal
 

@@ -8,8 +8,8 @@ Started 2026-10-25 at the person's request. Implementation uses Codex Luna subag
 | --- | --- | --- | --- |
 | Claude quota and typed result failures | OPT-40f16b | codex/claude-usage-failure | Luna; parent review |
 | Shared handoff orchestration service | B7 / OPT-828dec | codex/team-handoff-b7 | Luna; parent review |
-| Durable peer outbox | B5 / OPT-040960 | codex/peer-outbox-b5 | Luna; parent review |
-| Interrupted pending permission/question metadata | B6 / OPT-e67e8f | codex/pending-recovery-b6 | Luna; parent review |
+| Durable peer outbox | B5 / OPT-040960 | codex/peer-outbox-b5 @ `b61dd768` | integrated; tests pending |
+| Interrupted pending permission/question metadata | B6 / OPT-e67e8f | codex/pending-recovery-b6 @ `2d654717` | integrated; tests pending |
 | Conversation-centred shell | C1 / OPT-484f67 | design deliverable | Concrete spec; no C3–C6 implementation implied |
 | Unattended policy | D1 / OPT-0a45f5 | codex/scoped-approvals-d1 | Scope explicitly approved by the person on 2026-10-25; Luna implementing |
 

@@ -282,6 +282,7 @@ type Service struct {
 	reg              *Registry
 	store            Store
 	recorder         *Recorder
+	recoveryID       string
 	unknownSeen      map[string]struct{}
 	// retrying holds the sessions whose agent has an unanswered provider-retry
 	// notice on screen, so the turn that ends can clear it (see endProviderRetry).
@@ -511,6 +512,7 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 		reg:             reg,
 		store:           store,
 		recorder:        NewRecorder(store),
+		recoveryID:      uuid.NewString(),
 		runtimes:        make(map[string]SessionRuntime),
 		endpoints:       make(map[string]func()),
 		invoking:        make(map[string]struct{}),
@@ -565,6 +567,46 @@ func (s *Service) CheckpointsEnabled() bool {
 	return s.checkpoints.Enabled()
 }
 
+func (s *Service) interruptionNoticeID(sessionID string) string {
+	if s.recoveryID == "" {
+		s.recoveryID = uuid.NewString()
+	}
+	return "interrupted:" + s.recoveryID + ":" + sessionID
+}
+
+func (s *Service) hasInterruptedNotice(ctx context.Context, sessionID, noticeID string) (bool, error) {
+	if finder, ok := s.store.(interface {
+		HasInterruptedNotice(context.Context, string, string) (bool, error)
+	}); ok {
+		return finder.HasInterruptedNotice(ctx, sessionID, noticeID)
+	}
+	entries, err := s.store.ListTranscript(ctx, sessionID)
+	if err != nil {
+		return false, err
+	}
+	for _, entry := range entries {
+		if entry.Kind != UpdateSessionInfo {
+			continue
+		}
+		var update SessionUpdate
+		if json.Unmarshal(entry.Payload, &update) == nil && update.Failure != nil && update.Failure.ID == noticeID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func interruptedPendingRequestMessage(summary PendingRequestSummary) string {
+	var waiting []string
+	if summary.Permissions > 0 {
+		waiting = append(waiting, "permission approval")
+	}
+	if summary.Questions > 0 {
+		waiting = append(waiting, "a question")
+	}
+	return "The app restarted while this session was waiting for " + strings.Join(waiting, " and ") + ". That request can no longer be answered; resume the conversation and send a new instruction. No prompt or response was replayed."
+}
+
 // Shutdown lands every session's buffered transcript and stops the recorder.
 // The app calls it on quit, before the database closes: the recorder batches
 // its writes, so without it a quit mid-stream lost the last cadence of text
@@ -584,27 +626,98 @@ func (s *Service) Shutdown(ctx context.Context) error {
 // Startup-only by contract, mirroring outbox.RecoverStaleSyncing: calling it
 // while turns are actually running would reset live sessions.
 func (s *Service) RecoverStaleSessions(ctx context.Context) error {
+	pendingBySession := map[string]PendingRequestSummary{}
+	pendingStore, hasPendingStore := s.store.(PendingRequestStore)
+	if hasPendingStore {
+		if err := pendingStore.PrunePendingRequests(ctx, time.Now().UTC().Add(-30*24*time.Hour)); err != nil {
+			return err
+		}
+		summaries, err := pendingStore.ListPendingRequestSummaries(ctx)
+		if err != nil {
+			return err
+		}
+		for _, summary := range summaries {
+			pendingBySession[summary.SessionID] = summary
+		}
+	}
 	list, err := s.store.ListSessions(ctx)
 	if err != nil {
 		return err
 	}
+	if hasPendingStore {
+		byID := make(map[string]AgentSession, len(list))
+		for _, sess := range list {
+			byID[sess.ID] = sess
+		}
+		for sessionID := range pendingBySession {
+			sess, exists := byID[sessionID]
+			if !exists {
+				if err := pendingStore.MarkPendingRequestsInterrupted(ctx, sessionID, time.Now().UTC(), "session_missing"); err != nil {
+					return err
+				}
+				delete(pendingBySession, sessionID)
+				continue
+			}
+			if sess.Status == SessionStatusClosed {
+				if err := pendingStore.MarkPendingRequestsInterrupted(ctx, sessionID, time.Now().UTC(), "session_closed"); err != nil {
+					return err
+				}
+				delete(pendingBySession, sessionID)
+			}
+		}
+	}
 	for _, sess := range list {
-		if sess.Status != SessionStatusRunning && sess.Status != SessionStatusAwaitingPermission {
+		summary, hadPendingRequest := pendingBySession[sess.ID]
+		wasInFlight := sess.Status == SessionStatusRunning || sess.Status == SessionStatusAwaitingPermission
+		if !wasInFlight && !hadPendingRequest {
 			continue
 		}
 		interrupted := InterruptedStop(time.Now())
+		if hadPendingRequest {
+			interrupted.Message = interruptedPendingRequestMessage(summary)
+		}
 		if err := s.store.UpdateSessionStop(ctx, sess.ID, &interrupted, time.Now().UTC()); err != nil {
 			return err
 		}
 		notice := SessionUpdate{Kind: UpdateSessionInfo, Failure: &SessionFailure{
-			ID: "interrupted:" + sess.ID, Revision: 1, Category: "interrupted", Severity: "warning", Title: "Previous turn was interrupted",
+			ID: s.interruptionNoticeID(sess.ID), Revision: 1, Category: "interrupted", Severity: "warning", Title: "Previous turn was interrupted",
 			Details: "The app stopped before this turn finished. Its earlier changes may already exist. Resume this conversation, then send your next instruction; no prompt or command is replayed automatically.", Actions: []string{"resume"},
 		}}
-		if err := s.recorder.Record(ctx, sess.ID, notice); err != nil {
+		alreadyNoticed, err := s.hasInterruptedNotice(ctx, sess.ID, s.interruptionNoticeID(sess.ID))
+		if err != nil {
 			return err
 		}
-		if err := s.store.UpdateSessionStatus(ctx, sess.ID, SessionStatusIdle, time.Now().UTC()); err != nil {
-			return err
+		if !alreadyNoticed {
+			if err := s.recorder.Record(ctx, sess.ID, notice); err != nil {
+				return err
+			}
+		}
+		if hadPendingRequest {
+			if err := pendingStore.MarkPendingRequestsInterrupted(ctx, sess.ID, time.Now().UTC(), "app_restarted"); err != nil {
+				// Leave the session busy until the old request ID is durably
+				// unanswerable; startup can retry this write next time. An idle row
+				// with pending metadata is inconsistent, so hold it at the status
+				// implied by the request kind while persistence is unavailable.
+				busy := sess.Status
+				if !wasInFlight {
+					busy = SessionStatusRunning
+					if summary.Permissions > 0 {
+						busy = SessionStatusAwaitingPermission
+					}
+				}
+				_ = s.store.UpdateSessionStatus(context.WithoutCancel(ctx), sess.ID, busy, time.Now().UTC())
+				return err
+			}
+		}
+		if wasInFlight {
+			if err := s.store.UpdateSessionStatus(ctx, sess.ID, SessionStatusIdle, time.Now().UTC()); err != nil {
+				return err
+			}
+		}
+		if hadPendingRequest {
+			if err := pendingStore.AcknowledgePendingRequestRecovery(ctx, sess.ID); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

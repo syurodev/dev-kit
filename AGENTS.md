@@ -200,6 +200,11 @@ as production-verified against a real Claude Code session in cloud CI.
   handoff is shared there, while MCP keeps capability checks, caller identity and model gates.
   Failed assignment/branch recording closes only the newly created child using bounded cleanup
   independent of the cancelled request; failed brief delivery keeps the assigned child available.
+- The peer outbox (migration 47) stores peer bodies as local plaintext like the transcript; never
+  log them. A crashed `dispatching` item is ambiguous and is not replayed. Recovered queued items
+  remain held until that session's user queue is mirrored; scope and hop/rate guards are rechecked.
+- Pending-request recovery (migration 48) stores metadata only. Never persist question/permission
+  payloads or restore an old approval as answerable after its vendor process has stopped.
 - Claude ACP prompt-result metadata can contain a typed failure even when JSON-RPC succeeded.
   The Claude adapter's `PromptFailure` hook classifies it; do not add vendor branches to the generic
   runtime. `_meta.quota.token_count` counters distinguish input, cache read, cache write and output;
