@@ -48,35 +48,30 @@ func (s *Service) guardFor(branch string) (Guard, bool) {
 		return Guard{}, false
 	}
 	guards, err := s.guards.ListGuards(s.policyKey())
-	if err == nil {
-		for _, alias := range s.PolicyAliases() {
-			legacy, legacyErr := s.guards.ListGuards(alias)
-			if legacyErr != nil {
-				continue
-			}
-			seen := make(map[string]bool, len(guards))
-			for _, guard := range guards {
-				seen[guard.ID] = true
-			}
-			for _, guard := range legacy {
-				if !seen[guard.ID] {
-					guards = append(guards, guard)
-				}
-			}
-		}
-	}
 	if err != nil {
 		// A guard store that cannot be read must not silently un-gate a
 		// protected branch. Refuse by reporting a guard with no env, which
 		// confirm() turns into a denial.
 		return Guard{Pattern: branch, Env: ""}, true
 	}
+	for _, alias := range s.PolicyAliases() {
+		legacy, legacyErr := s.guards.ListGuards(alias)
+		if legacyErr != nil {
+			return Guard{Pattern: branch, Env: ""}, true
+		}
+		guards = append(guards, legacy...)
+	}
+	var matched Guard
+	found := false
 	for _, guard := range guards {
 		if guard.Matches(branch) {
-			return guard, true
+			if !found || (guard.Env != "" && s.envs != nil && s.envs.RequiresConfirmation(guard.Env)) {
+				matched = guard
+				found = true
+			}
 		}
 	}
-	return Guard{}, false
+	return matched, found
 }
 
 // gate asks the user when the branch is guarded and its environment demands

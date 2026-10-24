@@ -507,7 +507,7 @@ func TestPolicyConfiguredFromLinkedGitViewAppliesToOriginalRepository(t *testing
 	if configuredKey != root.PolicyProject() || configuredKey == linked.Project() {
 		t.Fatalf("linked Git view policy key = %q, root key = %q, checkout = %q", configuredKey, root.PolicyProject(), linked.Project())
 	}
-	guards := guardsFor{configuredKey: {{Pattern: "main", Env: "prod"}}, wt.Path: {{Pattern: "feature/*", Env: "prod"}}}
+	guards := guardsFor{configuredKey: {{ID: "canonical", Pattern: "feature/*", Env: "dev"}, {ID: "main", Pattern: "main", Env: "prod"}}, wt.Path: {{ID: "legacy", Pattern: "feature/policy-view", Env: "prod"}}}
 	root.SetGuards(guards)
 	linked.SetGuards(guards)
 	root.SetEnvs(stubEnvs{"prod": true})
