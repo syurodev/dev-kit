@@ -27,22 +27,24 @@ func (r *acpRuntime) recordSetMode(id string, revision uint64) {
 	r.modeRevision++
 	r.pendingMode = true
 	update := r.takePendingModeLocked()
-	onUpdate := r.handlers.OnUpdate
 	r.mu.Unlock()
-	if update != nil {
-		onUpdate(update, nil)
-	}
+	r.emitMode(update)
 }
 
 // observeModeUpdate keeps Modes current for vendor-initiated changes too. Only
 // the runtime's own notifications pass here, never a vendor subagent's mode.
-func (r *acpRuntime) observeModeUpdate(update json.RawMessage) bool {
+func (r *acpRuntime) observeModeUpdate(update, meta json.RawMessage) bool {
 	parsed := ParseSessionUpdate(update)
-	if parsed.Kind != UpdateCurrentMode || parsed.Mode == "" {
+	if parsed.Kind != UpdateCurrentMode {
+		return true
+	}
+	if r.vendorType() != AgentTypeClaude {
+		return false
+	}
+	if parsed.Mode == "" {
 		return true
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.modeRevision++
 	changed := r.changeModeLocked(parsed.Mode)
 	if len(parsed.AvailableModes) > 0 {
@@ -55,9 +57,16 @@ func (r *acpRuntime) observeModeUpdate(update json.RawMessage) bool {
 		// Coalesce changes before attachment to the latest effective mode.
 		// SetHandlers publishes it once, including the available mode list.
 		r.pendingMode = true
+		r.mu.Unlock()
 		return false
 	}
-	return changed
+	var announcement *modeAnnouncement
+	if changed {
+		announcement = &modeAnnouncement{r.modeRevision, update, meta, r.handlers.OnUpdate}
+	}
+	r.mu.Unlock()
+	r.emitMode(announcement)
+	return false // own mode updates are forwarded only through emitMode
 }
 
 func (r *acpRuntime) changeModeLocked(id string) bool {
@@ -76,14 +85,46 @@ func (r *acpRuntime) changeModeLocked(id string) bool {
 
 // takePendingModeLocked consumes the buffered announcement only when it can
 // be delivered. The service recognises this update instead of seeding it again.
-func (r *acpRuntime) takePendingModeLocked() json.RawMessage {
+func (r *acpRuntime) takePendingModeLocked() *modeAnnouncement {
+	if r.vendorType() != AgentTypeClaude {
+		r.pendingMode = false
+		return nil
+	}
 	if !r.pendingMode || r.handlers.OnUpdate == nil || r.modes == nil {
 		return nil
 	}
 	r.pendingMode = false
-	return marshalUpdate(map[string]any{
-		"sessionUpdate":  string(UpdateCurrentMode),
-		"currentModeId":  r.modes.CurrentModeID,
-		"availableModes": r.modes.AvailableModes,
-	})
+	return &modeAnnouncement{
+		revision: r.modeRevision,
+		update: marshalUpdate(map[string]any{
+			"sessionUpdate":  string(UpdateCurrentMode),
+			"currentModeId":  r.modes.CurrentModeID,
+			"availableModes": r.modes.AvailableModes,
+		}),
+		onUpdate: r.handlers.OnUpdate,
+	}
+}
+
+// Snapshot each announcement and its revision under mu. All mode callbacks
+// share this sequencer: an older snapshot can run first, or be discarded after
+// a newer one, but cannot overwrite a newer record. Keep mu free for callbacks
+// that read Modes or other runtime state.
+type modeAnnouncement struct {
+	revision uint64
+	update   json.RawMessage
+	meta     json.RawMessage
+	onUpdate func(json.RawMessage, json.RawMessage)
+}
+
+func (r *acpRuntime) emitMode(announcement *modeAnnouncement) {
+	if announcement == nil {
+		return
+	}
+	r.modeEmitMu.Lock()
+	defer r.modeEmitMu.Unlock()
+	if announcement.revision <= r.modeEmittedRevision {
+		return
+	}
+	r.modeEmittedRevision = announcement.revision
+	announcement.onUpdate(announcement.update, announcement.meta)
 }

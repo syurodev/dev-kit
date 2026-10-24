@@ -122,7 +122,7 @@ func TestClaudeModeRevisionKeepsTheStricterMode(t *testing.T) {
 			rt := &acpRuntime{modes: &acp.SessionModeState{CurrentModeID: "auto"}}
 			rt.observeModeUpdate(marshalUpdate(map[string]any{
 				"sessionUpdate": "current_mode_update", "currentModeId": tc.observed,
-			}))
+			}), nil)
 			rt.recordSetMode(tc.requested, 0)
 			if got := rt.Modes().CurrentModeID; got != tc.want {
 				t.Fatalf("live mode = %q, want %q", got, tc.want)
@@ -150,6 +150,83 @@ func TestClaudeOverlappingModeCompletionsKeepTheStricterMode(t *testing.T) {
 		if got := rt.Modes().CurrentModeID; got != "default" {
 			t.Fatalf("completion order %v left mode %q, want default", ids, got)
 		}
+	}
+}
+
+func TestClaudeDelayedAttachModeCannotOverwriteANewerRecord(t *testing.T) {
+	f := newModeFixture(t)
+	parent, _ := f.parent(t, AgentTypeClaude, "default")
+	rt := &acpRuntime{acpSessionID: "parent", modes: &acp.SessionModeState{CurrentModeID: "default"}}
+	rt.observeModeUpdate(marshalUpdate(map[string]any{
+		"sessionUpdate": "current_mode_update", "currentModeId": "auto",
+	}), nil)
+	var modes []string
+	// Capture the same pending snapshot SetHandlers takes under mu, then
+	// deterministically let a newer vendor notification win the emit race.
+	rt.mu.Lock()
+	rt.handlers = RuntimeHandlers{OnUpdate: func(raw json.RawMessage, meta json.RawMessage) {
+		_ = rt.Modes() // callbacks can read state without deadlocking on mu
+		modes = append(modes, ParseSessionUpdate(raw).Mode)
+		f.svc.handleUpdate(context.Background(), parent.ID, raw)
+	}}
+	old := rt.takePendingModeLocked()
+	rt.mu.Unlock()
+	params, _ := json.Marshal(acp.SessionUpdateParams{SessionID: "parent", Update: marshalUpdate(map[string]any{
+		"sessionUpdate": "current_mode_update", "currentModeId": "plan",
+	})})
+	if err := (&acpConnHandler{rt: rt}).SessionUpdate(context.Background(), params); err != nil {
+		t.Fatal(err)
+	}
+	rt.emitMode(old)
+	if len(modes) != 1 || modes[0] != "plan" {
+		t.Fatalf("mode announcements = %v, want only the newer plan", modes)
+	}
+	if got := storedMode(t, f.svc, parent.ID); got != "plan" {
+		t.Fatalf("stored mode = %q, want newer plan", got)
+	}
+}
+
+func TestOpenCodeVendorModeCannotReplaceDevKitPermissionMode(t *testing.T) {
+	for _, permission := range codexLikeModes {
+		t.Run(permission, func(t *testing.T) {
+			f := newModeFixture(t)
+			f.svc.reg.Register(&modeAdapter{MockAdapter: NewMockAdapter(), typ: AgentTypeOpenCode, offered: codexLikeModes, start: permission})
+			sess, err := f.svc.CreateSession(context.Background(), CreateInput{AgentType: AgentTypeOpenCode, Cwd: t.TempDir()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			base := &acpRuntime{hooks: acpRuntimeHooks{Type: AgentTypeOpenCode}, acpSessionID: "opencode", modes: &acp.SessionModeState{
+				CurrentModeID: "build", AvailableModes: []acp.SessionMode{{ID: "build"}, {ID: "plan"}},
+			}}
+			rt := &openCodeRuntime{acpRuntime: base, mode: permission}
+			handler := &acpConnHandler{rt: base}
+			var announcements []string
+			f.svc.emit = func(_ string, raw json.RawMessage) {
+				if u := ParseSessionUpdate(raw); u.Kind == UpdateCurrentMode {
+					announcements = append(announcements, u.Mode)
+				}
+			}
+			for _, attached := range []bool{false, true} {
+				if attached {
+					f.svc.attachUpdates(sess.ID, rt)
+				}
+				params, _ := json.Marshal(acp.SessionUpdateParams{SessionID: "opencode", Update: marshalUpdate(map[string]any{
+					"sessionUpdate": "current_mode_update", "currentModeId": "plan",
+				})})
+				if err := handler.SessionUpdate(context.Background(), params); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := rt.Modes().CurrentModeID; got != permission {
+				t.Fatalf("live permission mode = %q, want %q", got, permission)
+			}
+			if got := storedMode(t, f.svc, sess.ID); got != permission {
+				t.Fatalf("stored permission mode = %q, want %q", got, permission)
+			}
+			if len(announcements) != 1 || announcements[0] != permission {
+				t.Fatalf("permission announcements = %v, want only DevKit's %q", announcements, permission)
+			}
+		})
 	}
 }
 

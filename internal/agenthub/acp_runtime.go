@@ -95,9 +95,11 @@ type acpRuntime struct {
 	// is in now rather than the one it started in. steering and goal are read from the same answer:
 	// both are extensions the agent advertises in initialize's top-level _meta,
 	// and calling either without that is a method the agent would refuse.
-	modes        *acp.SessionModeState
-	modeRevision uint64 // mode changes/notifications observed, guarded by mu
-	pendingMode  bool   // publish current mode when an update handler attaches
+	modes               *acp.SessionModeState
+	modeRevision        uint64     // mode changes/notifications observed, guarded by mu
+	pendingMode         bool       // publish current mode when an update handler attaches
+	modeEmitMu          sync.Mutex // serialises mode callbacks without holding mu
+	modeEmittedRevision uint64     // guarded by modeEmitMu
 	// configOptions is what session/new said the agent's settings are, as the
 	// agent wrote it. ConfigCatalog reads it for the effort levels it starts
 	// from; options (below) is the live copy.
@@ -240,9 +242,7 @@ func (r *acpRuntime) SetHandlers(h RuntimeHandlers) {
 		announce = r.configOptionsUpdateLocked()
 	}
 	r.mu.Unlock()
-	if mode != nil {
-		h.OnUpdate(mode, nil)
-	}
+	r.emitMode(mode)
 	if announce != nil {
 		h.OnUpdate(announce, nil)
 	}
@@ -652,12 +652,17 @@ func (h *acpConnHandler) SessionUpdate(ctx context.Context, params json.RawMessa
 		return nil
 	}
 	update := p.Update
+	// opencode's build/plan selector is unrelated to DevKit's permission mode.
+	// Drop those vendor announcements even when they come from a subagent.
+	if h.rt.vendorType() != AgentTypeClaude && ParseSessionUpdate(update).Kind == UpdateCurrentMode {
+		return nil
+	}
 	// SetMode can run before SetHandlers on creation and resume. Observe its
 	// own notifications even then; only forwarding depends on a handler.
 	h.rt.mu.Lock()
 	sid := h.rt.acpSessionID
 	h.rt.mu.Unlock()
-	if sid != "" && (p.SessionID == "" || p.SessionID == sid) && !h.rt.observeModeUpdate(update) {
+	if sid != "" && (p.SessionID == "" || p.SessionID == sid) && !h.rt.observeModeUpdate(update, p.Meta) {
 		return nil
 	}
 	handlers := h.rt.handlersSnapshot()
