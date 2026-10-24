@@ -39,6 +39,7 @@ import {
   agentRuntimeActivate,
   agentRuntimeCheckLatest,
   agentRuntimeInstall,
+  agentRuntimeQueryKey,
   agentRuntimeRemove,
   agentRuntimeSetClaudeBinary,
   agentRuntimeStatus,
@@ -55,8 +56,6 @@ import {
 import { ClaudeSignInSection } from "@/modules/agenthub/ClaudeSignIn";
 import { CodexAccountSection } from "@/modules/agenthub/CodexAccountSection";
 import { CLAUDE_INFO, vendorInfo, type VendorInfo } from "@/modules/agenthub/vendors";
-
-export const agentRuntimeQueryKey = (agent: string) => ["agentRuntime", agent] as const;
 
 // Module-level so Cancel works from whichever surface is on screen — the
 // install started in Agent Hub can be stopped from Settings, and the other way.

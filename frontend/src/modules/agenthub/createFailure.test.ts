@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { createFailure } from "./AgentHubView";
+import { createFailure } from "./session/sessionModel";
 import { AppError } from "../../bridge/errors";
 
 const coded = (code: string, message = "x") => new AppError({ code, message, recoverable: true });

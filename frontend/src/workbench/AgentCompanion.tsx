@@ -10,7 +10,7 @@ import { errorMessage } from "@/bridge/errors";
 import { AgentRail } from "@/modules/agenthub/surfaces";
 import { providerRetryFailure } from "@/modules/agenthub/providerRetry";
 import { rateLimitFailure } from "@/modules/agenthub/surfaces/AgentContextMeter";
-import { failureKey } from "@/modules/agenthub/AgentHubView";
+import { failureKey } from "@/modules/agenthub/session/sessionModel";
 import { useAgentTranscript } from "@/modules/agenthub/transcript";
 import { useResolvePermission } from "@/modules/agenthub/permissions";
 import { elicitationForSession, useRespondElicitation } from "@/modules/agenthub/elicitations";

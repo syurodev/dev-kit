@@ -21,10 +21,11 @@ import { dirname, join, normalize } from "node:path";
 // "from -> to": the number of files in `from` that import from `to`. Keep
 // this at what measure() actually reports, never above it.
 const BASELINE: Record<string, number> = {
-  // The agent setup and runtime panels reuse Settings' own form controls —
-  // both surfaces about the same underlying agent runtime, in the module
-  // that owns the UI shell for it.
-  "agenthub -> settings": 2,
+  // The agent setup panel reuses Settings' own runtime form — both surfaces
+  // about the same underlying agent runtime, in the module that owns the UI
+  // shell for it. (Agent Hub's other readers of the runtime status now take
+  // `agentRuntimeQueryKey` from bridge/agentRuntime, where it belongs.)
+  "agenthub -> settings": 1,
   // CodeGraph plan comments resolve an agenthub session reference to jump to
   // its transcript; "Ask agent" shows the session it wrote into the way every
   // other caller does (agenthub/documents.ts showAgentSession: its tab in

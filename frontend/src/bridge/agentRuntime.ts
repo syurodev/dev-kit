@@ -14,6 +14,12 @@ export type { AuthMethod, InstalledRuntime, Requirement };
 /** Status with `requirements` never null — Go's nil slice arrives as null. */
 export type AgentRuntimeStatus = Omit<Status, "requirements"> & { requirements: Requirement[] };
 
+/**
+ * The React Query key for one agent runtime's status. Shared so a surface that
+ * hears about a sign-in can invalidate the panel that draws it.
+ */
+export const agentRuntimeQueryKey = (agent: string) => ["agentRuntime", agent] as const;
+
 export type ClaudeBinarySource = "bundled" | "machine";
 
 /** Claude's adapter, the runtime DevKit installs for the "claude" vendor. */
