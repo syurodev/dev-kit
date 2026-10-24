@@ -30,17 +30,27 @@ func TestEveryOpIsGrantedByTheRealPolicy(t *testing.T) {
 	c := app.NewContainer()
 	for _, op := range ops.All() {
 		d := op.Descriptor()
-		for _, canary := range []bool{false, true} {
+		for _, sample := range []string{"zero", "canary", "real-shaped"} {
 			in := reflect.New(op.InputType()).Elem()
-			if canary {
+			if sample != "zero" {
 				fill(in)
+			}
+			if sample == "real-shaped" {
+				for _, name := range []string{"ID", "VersionID", "FolderID"} {
+					if field := in.FieldByName(name); field.IsValid() {
+						field.SetString("abcdef0123456789abcdef01")
+					}
+				}
+				if field := in.FieldByName("IDs"); field.IsValid() {
+					field.Set(reflect.ValueOf([]string{"abcdef0123456789abcdef01"}))
+				}
 			}
 			scope, err := op.Resolve(context.Background(), in.Interface())
 			if err != nil {
 				t.Fatal(err)
 			}
 			if got := c.Permissions.Check(permissions.Request{SubjectID: d.Subject, Capability: d.Capability, Scope: scope.Value}); !got.Allowed {
-				t.Errorf("%s: %s", d.Name, got.Reason)
+				t.Errorf("%s/%s: %s on %s", d.Name, sample, got.Reason, scope.Value)
 			}
 		}
 	}
