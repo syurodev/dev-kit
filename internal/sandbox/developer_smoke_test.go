@@ -184,18 +184,18 @@ func TestSmokeSeatbeltDeveloperTools(t *testing.T) {
 	}{
 		{
 			name: "cgo-process-info",
-			// Apple's libproc wrapper maps a failed __proc_info call to zero:
-			// https://github.com/apple-oss-distributions/xnu/blob/main/libsyscall/wrappers/libproc/libproc.c
-			// The public source does not pin Seatbelt's denial errno. Accept
-			// no data with EPERM/EACCES/ESRCH or no errno, but never host data.
+			// proc_pidinfo can return host metadata despite the process-info
+			// same-sandbox rule; sysctl-read may be responsible. Probe the
+			// boundary we do enforce instead: proc_pidpath must not disclose a
+			// host process executable path. Keep the raw observation in PROBE.
 			body: `
- struct proc_bsdinfo info;
+			 char path[PROC_PIDPATHINFO_MAXSIZE];
  errno = 0;
- int count = proc_pidinfo(atoi(getenv("DEVKIT_HOST_PID")), PROC_PIDTBSDINFO, 0, &info, sizeof(info));
+			 int count = proc_pidpath(atoi(getenv("DEVKIT_HOST_PID")), path, sizeof(path));
  int saved_errno = errno;
- printf("PROBE count=%d errno=%d\n", count, saved_errno);
+			 printf("PROBE path_bytes=%d errno=%d\n", count, saved_errno);
  fflush(stdout);
- if (count > 0) return 10; // Host process information escaped the jail.
+			 if (count > 0) return 10; // Host executable path escaped the jail.
  if (count != 0 || (saved_errno != 0 && saved_errno != EPERM && saved_errno != EACCES && saved_errno != ESRCH)) return 11;
  return 0;
 `,
@@ -235,6 +235,8 @@ func main() {
  }
  fmt.Println("DEVELOPER_OK")
 }
+
+
 `
 			path := filepath.Join(dir, probe.name+".go")
 			if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
@@ -247,6 +249,88 @@ func main() {
 			env["CGO_ENABLED"] = "1"
 			env["GOCACHE"] = filepath.Join(dir, "cache")
 			run(t, Cmd{Path: goBin, Args: []string{"run", path}})
+		})
+	}
+}
+
+// TestSmokeSeatbeltProcessInfoVariants isolates the two broad profile grants
+// that could account for proc_pidinfo's observed host metadata. It is opt-in
+// because it needs to run under a real host Seatbelt policy.
+func TestSmokeSeatbeltProcessInfoVariants(t *testing.T) {
+	if os.Getenv("DEVKIT_SANDBOX_VARIANTS") != "1" {
+		t.Skip("set DEVKIT_SANDBOX_VARIANTS=1 on a macOS host to compare Seatbelt rules")
+	}
+	requireHostSeatbelt(t)
+	dir, err := os.MkdirTemp("/private/tmp", "dk-procinfo-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	pid := os.Getpid()
+	source := `package main
+/*
+#include <libproc.h>
+#include <sys/sysctl.h>
+#include <sys/proc.h>
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+void probe(int pid) {
+ struct proc_bsdinfo info;
+ char path[PROC_PIDPATHINFO_MAXSIZE];
+ int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, pid };
+ struct kinfo_proc kp;
+ size_t size = sizeof(kp);
+ errno = 0;
+ int info_count = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, sizeof(info));
+ int info_errno = errno;
+ errno = 0;
+ int path_count = proc_pidpath(pid, path, sizeof(path));
+ int path_errno = errno;
+ errno = 0;
+ int sysctl_result = sysctl(mib, 4, &kp, &size, NULL, 0);
+ int sysctl_errno = errno;
+ printf("PROBE pidinfo_count=%d pidinfo_errno=%d pidpath_bytes=%d pidpath_errno=%d kern_proc_data=%d kern_proc_errno=%d\n",
+  info_count, info_errno, path_count, path_errno, sysctl_result == 0 && size > 0, sysctl_errno);
+}
+*/
+import "C"
+import "os"
+import "strconv"
+func main() { pid, _ := strconv.Atoi(os.Getenv("DEVKIT_HOST_PID")); C.probe(C.int(pid)) }
+`
+	sourcePath := filepath.Join(dir, "probe.go")
+	binaryPath := filepath.Join(dir, "probe")
+	if err := os.WriteFile(sourcePath, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	build := exec.Command("go", "build", "-o", binaryPath, sourcePath)
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build cgo probe: %v\n%s", err, output)
+	}
+	policy := Policy{WorkDir: dir, SessionTempDir: dir, Network: NetworkHost, PrivateHome: boolPtr(false),
+		Env: map[string]string{"HOME": hostHomeDir(), "TMPDIR": dir}}
+	base := buildSeatbeltProfileWithUnixSockets(policy, true)
+	variants := []struct{ name, profile string }{
+		{"baseline", base},
+		{"without-sysctl-read", strings.Replace(base, "(allow sysctl-read)\n", "", 1)},
+		{"without-process-info", strings.Replace(base, "(allow process-info* (target same-sandbox))", "", 1)},
+	}
+	for _, variant := range variants {
+		t.Run(variant.name, func(t *testing.T) {
+			control, err := exec.Command("/usr/bin/sandbox-exec", "-p", variant.profile, "--", "/usr/bin/true").CombinedOutput()
+			if err != nil {
+				t.Fatalf("profile control did not start /usr/bin/true: %v: %s", err, control)
+			}
+			cmd := exec.Command("/usr/bin/sandbox-exec", "-p", variant.profile, "--", binaryPath)
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(), "DEVKIT_HOST_PID="+strconv.Itoa(pid), "TMPDIR="+dir, "HOME="+hostHomeDir())
+			output, err := cmd.CombinedOutput()
+			line := strings.TrimSpace(string(output))
+			t.Logf("VARIANT %s control=started %s error=%v", variant.name, line, err)
+			if err != nil || !strings.Contains(line, "PROBE ") {
+				t.Fatalf("probe failed under %s: %v: %s", variant.name, err, output)
+			}
 		})
 	}
 }

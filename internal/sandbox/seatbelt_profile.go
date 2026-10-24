@@ -129,6 +129,11 @@ func buildSeatbeltProfileWithUnixSockets(p Policy, unixSockets bool) string {
 
 	b.WriteString("(allow process-exec)\n")
 	b.WriteString("(allow process-fork)\n")
+	// Seatbelt's same-sandbox scope blocks direct process-info and signals to
+	// other processes. It does not hide all process metadata: the broad
+	// sysctl-read grant below may also expose process metadata on macOS. The
+	// developer smoke probe observed proc_pidinfo host metadata, but has not
+	// isolated which rule permits it.
 	b.WriteString(`(allow signal (target same-sandbox))
 (allow process-info* (target same-sandbox))
 (allow mach-lookup (global-name "com.apple.system.opendirectoryd.libinfo"))

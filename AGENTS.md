@@ -2256,3 +2256,10 @@ Nested Seatbelt cannot run inside an agent session: run
 `go test ./internal/sandbox -run Smoke -v` from a host terminal to verify native
 cgo, Unix sockets (including the SBPL Unix address filter), PTYs, child signals
 and user lookup. A passing profile-string test alone does not verify macOS enforcement.
+The `process-info*` and signal rules are scoped to `(target same-sandbox)`, but
+macOS `proc_pidinfo` still returns basic metadata for a host process under the
+current profile (`PROBE count=136 errno=0`, `sizeof(struct proc_bsdinfo)`). The
+profile's broad `sysctl-read` grant may expose related process metadata too; do
+not describe the profile as hiding host process metadata. The smoke probe checks
+that `proc_pidpath` does not reveal a host executable path, while the separate
+signal probe checks that a host PID cannot be signalled.
