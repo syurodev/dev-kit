@@ -21,6 +21,7 @@ type modeRuntime struct {
 	refuse   bool
 	sets     []string
 	closed   bool
+	silent   bool // simulate a runtime that changes mode without announcing it
 	handlers RuntimeHandlers
 }
 
@@ -47,7 +48,7 @@ func (r *modeRuntime) SetMode(_ context.Context, id string) error {
 	r.current = id
 	h := r.handlers
 	r.mu.Unlock()
-	if h.OnUpdate != nil {
+	if !r.silent && h.OnUpdate != nil {
 		body, _ := json.Marshal(map[string]any{"sessionUpdate": "current_mode_update", "currentModeId": id})
 		h.OnUpdate(body, nil)
 	}
@@ -225,10 +226,9 @@ func TestAChildAcrossVendorsTakesTheMatchingMode(t *testing.T) {
 		{"codex full is claude bypass", AgentTypeCodex, codexModeFull, AgentTypeClaude, "bypassPermissions", true},
 		{"claude default is codex ask", AgentTypeClaude, "default", AgentTypeCodex, codexModeAsk, true},
 		{"codex ask is claude default", AgentTypeCodex, codexModeAsk, AgentTypeClaude, "default", true},
-		// No equal on the other side: a stricter parent gets the child's asking
-		// mode, not its more permissive default.
+		// Plan has no exact match; acceptEdits → auto is the product mapping.
 		{"claude plan gets codex ask", AgentTypeClaude, "plan", AgentTypeCodex, codexModeAsk, true},
-		{"claude acceptEdits gets codex ask", AgentTypeClaude, "acceptEdits", AgentTypeCodex, codexModeAsk, true},
+		{"claude acceptEdits gets codex auto", AgentTypeClaude, "acceptEdits", AgentTypeCodex, codexModeAuto, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newModeFixture(t)
@@ -249,11 +249,11 @@ func TestAnUnmappedModeLeavesTheChildOnItsDefaultOnlyWhenThatIsNoMorePermissive(
 	f := newModeFixture(t)
 	f.codex.offered = []string{codexModeAuto, codexModeFull}
 
-	// acceptEdits is stricter than auto, but there is no safer mode to give:
-	// the creation does not fail — only an Ask / default / plan parent does.
-	parent, ctx := f.parent(t, AgentTypeClaude, "acceptEdits")
+	// Unknown modes stay unranked and cannot select a cross-vendor mode.
+	// Only an Ask / default / plan parent fails closed on a missing mapping.
+	parent, ctx := f.parent(t, AgentTypeClaude, "futureMode")
 	if _, err := f.svc.CreateSession(ctx, CreateInput{AgentType: AgentTypeCodex, Cwd: parent.ProjectPath}); err != nil {
-		t.Fatalf("acceptEdits parent: %v", err)
+		t.Fatalf("unranked parent: %v", err)
 	}
 	if got, sets, _ := f.codex.last().state(); got != codexModeAuto || len(sets) != 0 {
 		t.Fatalf("child is in %q after %v, want its untouched default", got, sets)
@@ -287,6 +287,19 @@ func TestARefusedModeNeverLeavesAnAskParentsChildMorePermissive(t *testing.T) {
 	}
 	if len(sessions) != 1 {
 		t.Fatalf("%d sessions stored, want only the parent", len(sessions))
+	}
+}
+
+func TestARefusedModeNeverLeavesAPlanParentsChildMorePermissive(t *testing.T) {
+	f := newModeFixture(t)
+	parent, ctx := f.parent(t, AgentTypeClaude, "plan")
+	f.codex.refuse = true
+	_, err := f.svc.CreateSession(ctx, CreateInput{AgentType: AgentTypeCodex, Cwd: parent.ProjectPath})
+	if !errors.Is(err, ErrModeNotInherited) {
+		t.Fatalf("err = %v, want ErrModeNotInherited", err)
+	}
+	if _, _, closed := f.codex.last().state(); !closed {
+		t.Fatal("the refused Plan parent's child was left running")
 	}
 }
 
@@ -352,5 +365,85 @@ func TestAParentWithoutModesAddsNoModeToItsChild(t *testing.T) {
 	}
 	if got, sets, _ := f.codex.last().state(); got != codexModeAuto || len(sets) != 0 {
 		t.Fatalf("child is in %q after %v", got, sets)
+	}
+}
+
+func TestChildPrefersLiveModeOverStaleTranscript(t *testing.T) {
+	f := newModeFixture(t)
+	parent, ctx := f.parent(t, AgentTypeClaude, "default")
+	rt := f.claude.last()
+	rt.silent = true
+	if err := f.svc.SetMode(ctx, parent.ID, "bypassPermissions"); err != nil {
+		t.Fatal(err)
+	}
+	if got := storedMode(t, f.svc, parent.ID); got != "default" {
+		t.Fatalf("test needs stale recorded default, got %q", got)
+	}
+	if _, err := f.svc.CreateSession(ctx, CreateInput{AgentType: AgentTypeCodex, Cwd: parent.ProjectPath}); err != nil {
+		t.Fatal(err)
+	}
+	if got, sets, _ := f.codex.last().state(); got != codexModeFull || len(sets) != 1 {
+		t.Fatalf("child mode %q after %v, want live parent's bypassPermissions", got, sets)
+	}
+}
+
+func TestChildUsesStoredModeWithoutLiveParentAndAfterResume(t *testing.T) {
+	for _, resume := range []bool{false, true} {
+		t.Run(map[bool]string{false: "no runtime", true: "resumed"}[resume], func(t *testing.T) {
+			f := newModeFixture(t)
+			parent, ctx := f.parent(t, AgentTypeClaude, "bypassPermissions")
+			_ = f.svc.recorder.Flush(ctx, parent.ID)
+			f.svc.mu.Lock()
+			old := f.svc.runtimes[parent.ID]
+			delete(f.svc.runtimes, parent.ID)
+			f.svc.mu.Unlock()
+			_ = old.Close(ctx)
+			if resume {
+				if _, err := f.svc.resumeRuntime(ctx, parent); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := f.svc.CreateSession(ctx, CreateInput{AgentType: AgentTypeCodex, Cwd: parent.ProjectPath}); err != nil {
+				t.Fatal(err)
+			}
+			if got, sets, _ := f.codex.last().state(); got != codexModeFull || len(sets) != 1 {
+				t.Fatalf("child mode %q after %v, want stored parent's bypassPermissions", got, sets)
+			}
+		})
+	}
+}
+
+func TestCrossVendorModeTable(t *testing.T) {
+	claudeModes := make([]acp.SessionMode, 0, len(claudeLikeModes))
+	for _, id := range claudeLikeModes {
+		if modeRank(id) < 0 {
+			t.Fatalf("advertised Claude mode %q is unranked", id)
+		}
+		claudeModes = append(claudeModes, acp.SessionMode{ID: id})
+	}
+	for _, vendor := range []AgentType{AgentTypeCodex, AgentTypeOpenCode} {
+		otherModes := []acp.SessionMode{{ID: "ask"}, {ID: "auto"}, {ID: "bypassPermissions"}}
+		for from, want := range map[string]string{
+			"plan": "ask", "default": "ask", "acceptEdits": "auto", "auto": "auto",
+			"bypassPermissions": "bypassPermissions", "dontAsk": "ask",
+		} {
+			got, why := inheritedModeID(parentMode{Vendor: AgentTypeClaude, ID: from}, vendor, otherModes)
+			if got != want || why != "" {
+				t.Errorf("Claude %s → %s = %q (%s), want %q", from, vendor, got, why, want)
+			}
+		}
+		for from, want := range map[string]string{"ask": "default", "auto": "auto", "bypassPermissions": "bypassPermissions"} {
+			got, why := inheritedModeID(parentMode{Vendor: vendor, ID: from}, AgentTypeClaude, claudeModes)
+			if got != want || why != "" {
+				t.Errorf("%s %s → Claude = %q (%s), want %q", vendor, from, got, why, want)
+			}
+		}
+		got, _ := inheritedModeID(parentMode{Vendor: vendor, ID: "auto"}, AgentTypeClaude, []acp.SessionMode{{ID: "acceptEdits"}, {ID: "default"}})
+		if got != "acceptEdits" {
+			t.Errorf("%s auto → older Claude = %q", vendor, got)
+		}
+	}
+	if modeRank("futureMode") != -1 {
+		t.Fatal("unknown modes must stay unranked")
 	}
 }
