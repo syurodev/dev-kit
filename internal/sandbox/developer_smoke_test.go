@@ -158,6 +158,7 @@ func TestSmokeSeatbeltDeveloperTools(t *testing.T) {
 		}
 		err = proc.Wait()
 		stdout, stderr := proc.Output()
+		t.Logf("sandbox stdout:\n%s", stdout)
 		if err != nil || !strings.Contains(string(stdout), "DEVELOPER_OK") {
 			t.Fatalf("%v\n%s\n%s", err, stdout, stderr)
 		}
@@ -174,43 +175,78 @@ func TestSmokeSeatbeltDeveloperTools(t *testing.T) {
 		})
 	}
 	delete(env, "DEVKIT_DEVELOPER_SMOKE_CHILD")
-	t.Run("cgo-and-posix_openpt", func(t *testing.T) {
-		// Build and execute inside the jail: tests xcrun/clang discovery, cgo's
-		// temp work tree and the PTY extension, not just a host-built executable.
-		source := `package main
+	// Separate programs keep a process-info failure from hiding the PTY result.
+	// Build and execute both inside the jail to exercise xcrun/clang discovery
+	// and cgo's temp work tree, rather than just a host-built executable.
+	for _, probe := range []struct {
+		name string
+		body string
+	}{
+		{
+			name: "cgo-process-info",
+			// Apple's libproc wrapper maps a failed __proc_info call to zero:
+			// https://github.com/apple-oss-distributions/xnu/blob/main/libsyscall/wrappers/libproc/libproc.c
+			// The public source does not pin Seatbelt's denial errno. Accept
+			// no data with EPERM/EACCES/ESRCH or no errno, but never host data.
+			body: `
+ struct proc_bsdinfo info;
+ errno = 0;
+ int count = proc_pidinfo(atoi(getenv("DEVKIT_HOST_PID")), PROC_PIDTBSDINFO, 0, &info, sizeof(info));
+ int saved_errno = errno;
+ printf("PROBE count=%d errno=%d\n", count, saved_errno);
+ fflush(stdout);
+ if (count > 0) return 10; // Host process information escaped the jail.
+ if (count != 0 || (saved_errno != 0 && saved_errno != EPERM && saved_errno != EACCES && saved_errno != ESRCH)) return 11;
+ return 0;
+`,
+		},
+		{
+			name: "cgo-and-posix_openpt",
+			body: `
+ int fd = posix_openpt(O_RDWR | O_NOCTTY);
+ if (fd < 0) return 1;
+ if (grantpt(fd) || unlockpt(fd)) { close(fd); return 2; }
+ int slave = open(ptsname(fd), O_RDWR | O_NOCTTY);
+ if (slave < 0) { close(fd); return 3; }
+ close(slave); close(fd); return 0;
+`,
+		},
+	} {
+		t.Run(probe.name, func(t *testing.T) {
+			source := `package main
 /*
 #include <stdlib.h>
+#include <stdio.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <libproc.h>
 #include <errno.h>
-int probe(void) {
- struct proc_bsdinfo info;
- errno = 0;
- int count = proc_pidinfo(atoi(getenv("DEVKIT_HOST_PID")), PROC_PIDTBSDINFO, 0, &info, sizeof(info));
- if (count > 0 || (errno != EPERM && errno != EACCES)) return 4;
- int fd = posix_openpt(O_RDWR | O_NOCTTY);
- if (fd < 0) return 1;
- if (grantpt(fd) || unlockpt(fd)) return 2;
- int slave = open(ptsname(fd), O_RDWR | O_NOCTTY);
- if (slave < 0) return 3;
- close(slave); close(fd); return 0;
-}
+int probe(void) {` + probe.body + `}
 */
 import "C"
-import "fmt"
-func main() { if n := C.probe(); n != 0 { panic(n) }; fmt.Println("DEVELOPER_OK") }
+import (
+ "fmt"
+ "os"
+)
+func main() {
+ if n := C.probe(); n != 0 {
+  fmt.Fprintf(os.Stderr, "probe failed: code=%d\n", int(n))
+  os.Exit(int(n))
+ }
+ fmt.Println("DEVELOPER_OK")
+}
 `
-		path := filepath.Join(dir, "hello.go")
-		if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		goBin, err := exec.LookPath("go")
-		if err != nil {
-			t.Fatal(err)
-		}
-		env["CGO_ENABLED"] = "1"
-		env["GOCACHE"] = filepath.Join(dir, "cache")
-		run(t, Cmd{Path: goBin, Args: []string{"run", path}})
-	})
+			path := filepath.Join(dir, probe.name+".go")
+			if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			goBin, err := exec.LookPath("go")
+			if err != nil {
+				t.Fatal(err)
+			}
+			env["CGO_ENABLED"] = "1"
+			env["GOCACHE"] = filepath.Join(dir, "cache")
+			run(t, Cmd{Path: goBin, Args: []string{"run", path}})
+		})
+	}
 }
