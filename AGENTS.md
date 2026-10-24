@@ -2263,4 +2263,4 @@ bytes, and `KERN_PROC_PID` returned data for a host PID). Removing
 the Go probe from starting (`failed to get system page size`), so its role in
 the libproc results remains unproven. Do not describe the profile as hiding
 other processes' metadata or paths. The separate signal probe confirms a host
-PID cannot be signalled; host process memory access is also denied.
+PID cannot be signalled. Reading another process's memory was not measured.
