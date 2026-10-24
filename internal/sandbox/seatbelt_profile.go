@@ -129,11 +129,10 @@ func buildSeatbeltProfileWithUnixSockets(p Policy, unixSockets bool) string {
 
 	b.WriteString("(allow process-exec)\n")
 	b.WriteString("(allow process-fork)\n")
-	// Seatbelt's same-sandbox scope blocks direct process-info and signals to
-	// other processes. It does not hide all process metadata: the broad
-	// sysctl-read grant below may also expose process metadata on macOS. The
-	// developer smoke probe observed proc_pidinfo host metadata, but has not
-	// isolated which rule permits it.
+	// Removing process-info* did not change host proc_pidinfo or proc_pidpath
+	// results. Removing sysctl-read prevents the Go runtime from starting
+	// (system page-size lookup); its connection to proc_pidinfo/proc_pidpath is
+	// unproven. KERN_PROC_PID sysctl data was readable in the jail.
 	b.WriteString(`(allow signal (target same-sandbox))
 (allow process-info* (target same-sandbox))
 (allow mach-lookup (global-name "com.apple.system.opendirectoryd.libinfo"))
