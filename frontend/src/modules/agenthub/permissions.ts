@@ -97,7 +97,8 @@ export function useResolvePermission(pending: PendingPermission | null) {
 export function statusAfterAnswer(fresh: AgentSession, stillWaiting: boolean): AgentSession {
   // The queue is the truth about what is waiting: a read that began before a
   // newer request arrived says running, and must not overwrite that request.
-  if (stillWaiting && (fresh.status === "running" || fresh.status === "awaiting_permission")) {
+  // Idle included: a read that began before the request existed can say idle.
+  if (stillWaiting && (fresh.status === "running" || fresh.status === "idle" || fresh.status === "awaiting_permission")) {
     return { ...fresh, status: "awaiting_permission" };
   }
   if (fresh.status === "awaiting_permission" && !stillWaiting) return { ...fresh, status: "running" };

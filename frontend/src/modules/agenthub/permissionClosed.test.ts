@@ -87,6 +87,24 @@ describe("agenthub:permissionClosed, delivered through the bridge listener", () 
   });
 });
 
+describe("a status read that is older than the queue", () => {
+  it("cannot lower a new request's awaiting_permission, whatever it says", async () => {
+    for (const stale of ["idle", "running"] as const) {
+      resetClosedPermissions();
+      useAgentSessionsStore.setState({ pendingQueue: [], pending: null });
+      const read = deferred<AgentSession>();
+      statusReply = () => read.promise;
+      const store = useAgentSessionsStore.getState();
+      store.enqueuePending(request("old-" + stale));
+      handlePermissionClosed({ id: "old-" + stale, sessionId: "s1", reason: "turn_ended" });
+      store.enqueuePending(request("new-" + stale));
+      read.resolve({ id: "s1", status: stale } as AgentSession);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(status()).toBe("awaiting_permission");
+    }
+  });
+});
+
 describe("answering a request Go no longer waits for", () => {
   it("takes the card down, refreshes the session and shows no error", async () => {
     useAgentSessionsStore.getState().enqueuePending(request("p1"));

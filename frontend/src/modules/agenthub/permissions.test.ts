@@ -37,3 +37,12 @@ describe("a request Go no longer waits for", () => {
     expect(isPermissionNotWaiting(new Error("boom"))).toBe(false);
   });
 });
+
+describe("statusAfterAnswer with a request in the queue", () => {
+  it("keeps awaiting_permission over an idle read", () => {
+    expect(statusAfterAnswer(session("idle"), true).status).toBe("awaiting_permission");
+  });
+  it("leaves error and closed alone", () => {
+    for (const status of ["error", "closed"] as const) expect(statusAfterAnswer(session(status), true).status).toBe(status);
+  });
+});
