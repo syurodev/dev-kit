@@ -168,17 +168,27 @@ func buildSeatbeltProfileWithUnixSockets(p Policy, unixSockets bool) string {
 		// ssh-agent's launchd listener, and so on. The one unix socket the
 		// process legitimately needs is mDNSResponder (getaddrinfo goes through
 		// it, verified live), so that is allowed by literal path, the same way
-		// Apple's own /System/Library/Sandbox/Profiles/*.sb do it. The /var
-		// read grant below is what lets the path resolve.
+		// Apple's own /System/Library/Sandbox/Profiles/*.sb do it.
 		// ponytail: loopback TCP (local DBs, dev servers) is still reachable;
 		// closing that needs a proxy architecture, not a profile rule.
 		b.WriteString("(allow network-outbound (remote ip \"*:*\"))\n")
 		b.WriteString("(allow network-outbound (literal \"/private/var/run/mDNSResponder\"))\n")
-		b.WriteString("(allow file-read* (subpath \"/var\"))\n")
-		b.WriteString("(allow file-read* (subpath \"/private/var\"))\n")
+		// The connect right alone is not enough (measured on macOS: curl, Node
+		// and Go all failed to resolve): the path walk to the socket needs
+		// metadata on each parent, and /etc/resolv.conf is a link into
+		// /private/var/run that the pure-Go resolver reads. /etc/localtime
+		// points into /var/db/timezone, which without a grant silently turns the
+		// jail's clock into UTC. Those literals replace a read of all of /var,
+		// which listed the user's /var/folders temp and cache trees, /var/log
+		// and /var/db.
+		b.WriteString("(allow file-read-metadata (literal \"/private/var\") (literal \"/private/var/run\") (literal \"/var\") (literal \"/var/run\"))\n")
+		b.WriteString("(allow file-read* (literal \"/private/var/run/resolv.conf\") (literal \"/var/run/resolv.conf\"))\n")
+		b.WriteString("(allow file-read* (subpath \"/private/var/db/timezone\") (subpath \"/var/db/timezone\"))\n")
 		for _, service := range seatbeltNetworkMachServices {
 			b.WriteString("(allow mach-lookup (global-name \"" + service + "\"))\n")
 		}
+		// Nothing above grants these any more; the denies stay so that a later
+		// broad grant (a ReadOnlyPaths entry, say) cannot reopen them.
 		b.WriteString("(deny file-read* (subpath \"/var/root\"))\n")
 		b.WriteString("(deny file-read* (subpath \"/private/var/root\"))\n")
 		b.WriteString("(deny file-read* (subpath \"/var/db/Keychains\"))\n")

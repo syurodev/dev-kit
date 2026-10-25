@@ -87,7 +87,7 @@ Hai cách chạy, cùng nhận `Policy` + `Cmd`:
 |---|---|
 | Empty `Network` | `none` |
 | `PrivateHome` nil | `true` — force `HOME` + `TMPDIR=/tmp`; **Linux** thêm `--tmpfs $HOME`. **macOS không có tmpfs**: `HOME` vẫn trỏ home thật, home không đọc được chỉ nhờ `(deny default)`. Không tuyệt đối: caller vẫn khoan được lỗ vào home qua `ReadWritePaths` — Claude adapter làm vậy cho `~/.claude*` (xem [Agent Hub](/dev-kit/agent-hub)) |
-| `PrivateHome` false | Linux `--bind $HOME $HOME`, macOS `(subpath $HOME)` read-write; `/tmp` riêng và `HOME`/`TMPDIR` vẫn được đặt. Agent Hub dùng mặc định này — xem "Agent Hub's jail" bên dưới |
+| `PrivateHome` false | Linux `--bind $HOME $HOME`, macOS `(subpath $HOME)` read-write; `HOME`/`TMPDIR` vẫn được đặt. `/tmp` riêng chỉ có trên Linux; macOS dùng chung `/tmp` và `/private/tmp` (xem "Sharing home, per backend"). Agent Hub dùng mặc định này — xem "Agent Hub's jail" bên dưới |
 | Sensitive denies | Always on; off only with `DangerousAllowSensitive` (tests) |
 
 ### Errors
@@ -143,6 +143,16 @@ Codex CLI (cùng bài toán, cùng OS): test của họ cũng cấm dòng
   là `/private/var/run/mDNSResponder` (getaddrinfo đi qua nó) — cùng cách các
   profile trong `/System/Library/Sandbox/Profiles/*.sb` của Apple làm
   (`TestSeatbeltNetworkHostDeniesUnixSockets`, smoke test HTTPS vẫn 200).
+- **Connect tới mDNSResponder chưa đủ để resolve DNS.** Đo trên host macOS: nếu
+  chỉ giữ rule connect, curl, Node và Go đều báo không resolve được tên miền.
+  Đường dẫn tới socket cần `file-read-metadata` trên `/private/var`,
+  `/private/var/run`, `/var`, `/var/run`; `/etc/resolv.conf` là link vào
+  `/private/var/run` mà resolver thuần Go đọc; `/etc/localtime` trỏ vào
+  `/var/db/timezone`, thiếu thì đồng hồ trong jail im lặng về UTC. Ba rule
+  literal này thay cho việc đọc cả `/var` và `/private/var` như trước, vốn cho
+  jail liệt kê `/var/folders` (temp và cache của người dùng), `/var/log` và
+  `/var/db` (`TestSeatbeltProfileNetworkHostDoesNotReadAllOfVar`; smoke
+  `TestSmokeSeatbeltNetworkHostNarrowVar` chạy trên host).
 
 - **`(subpath X)` mất tác dụng khi tổ tiên của X bị đổi tên.** Với
   `WorkDir=/Users`, `mv /Users/me /Users/x` rồi ghi `/Users/x/.ssh/…` — deny
@@ -356,8 +366,12 @@ permissive one now, so failing closed means failing to the other end.
 so "not private" has to be a `--bind $HOME $HOME` — without it (what
 `RelaxedHome` used to produce) home simply was not there, and neither was
 `/tmp` nor `$HOME` in the environment. Seatbelt grants `(subpath $HOME)`
-read-write. Both now always give a private `/tmp` and always set `HOME` and
-`TMPDIR` (`withHomeEnv`).
+read-write. Both always set `HOME` and `TMPDIR` (`withHomeEnv`). Only bwrap
+gives a private `/tmp`: Seatbelt still grants the shared `/tmp` and
+`/private/tmp` read-write, minus other sessions' `dk-*` directories. Agent Hub
+adds its own `/private/tmp/dk-<session>` and points `TMPDIR`/`GOTMPDIR` there,
+but a program that hard-codes `/tmp` (Claude Code does unless
+`CLAUDE_CODE_TMPDIR` is set) still writes to the shared one.
 
 **Finding Docker** (`agenthub.DetectDocker`), in the CLI's own order:
 
