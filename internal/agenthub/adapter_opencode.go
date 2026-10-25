@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"devkit/internal/acp"
 	"devkit/internal/agentruntime"
 	"devkit/internal/sandbox"
@@ -918,6 +920,16 @@ func (a *OpenCodeAdapter) ConfigCatalog(ctx context.Context, spec OpenSpec) ([]C
 		return nil, err
 	}
 	defer os.RemoveAll(work)
+	// A read with no session of its own still gets a private temp directory:
+	// without one the jail leaves the host's TMPDIR (under /var/folders)
+	// unreadable, and opencode fails its first mkdir there with EEXIST.
+	if spec.SessionTempDir == "" {
+		spec.SessionID = uuid.NewString()
+		if err := prepareSessionTemp(&spec, true); err != nil {
+			return nil, err
+		}
+		defer removeSessionTemp(spec.SessionID)
+	}
 	// Not resolved through symlinks: on macOS the temp directory is
 	// /var/folders/…, and its real spelling (/private/var/…) puts /private among
 	// the folders opencode resolves on the way up from the working directory — a

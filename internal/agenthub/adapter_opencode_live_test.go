@@ -379,16 +379,22 @@ func TestOpenCodeLiveCatalogListsTheProviderModel(t *testing.T) {
 	a, _, _ := openCodeForReal(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	options, err := a.ConfigCatalog(ctx, OpenSpec{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, o := range options[0].Options {
-		found = found || o.Value == "mock/mock-1"
-	}
-	if !found {
-		t.Fatalf("the catalog does not list the provider the home's config adds: %+v", options)
+	// The shared-home spec is the one Settings builds by default for a person who
+	// shares their real $HOME; it inherits the host TMPDIR, which the jail does
+	// not let opencode read.
+	shared := false
+	for name, spec := range map[string]OpenSpec{"private home": {}, "shared home": {PrivateHome: &shared}} {
+		options, err := a.ConfigCatalog(ctx, spec)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		found := false
+		for _, o := range options[0].Options {
+			found = found || o.Value == "mock/mock-1"
+		}
+		if !found {
+			t.Fatalf("%s: the catalog does not list the provider the home's config adds: %+v", name, options)
+		}
 	}
 }
 

@@ -456,6 +456,43 @@ func TestOpenCodeConfigCatalogReadsModelsAndDeletesItsScratchSession(t *testing.
 	}
 }
 
+// capturePolicyRunner records the policy each process is started under.
+type capturePolicyRunner struct {
+	recordingRunner
+	policies *[]sandbox.Policy
+}
+
+func (r capturePolicyRunner) StartPiped(ctx context.Context, p sandbox.Policy, c sandbox.Cmd) (*sandbox.Proc, error) {
+	*r.policies = append(*r.policies, p)
+	return r.recordingRunner.StartPiped(ctx, p, c)
+}
+
+func TestOpenCodeConfigCatalogRunsWithItsOwnTempDirectory(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("bwrap owns Linux temp isolation")
+	}
+	var policies []sandbox.Policy
+	a, _ := newOpenCodeTestAdapter(t, capturePolicyRunner{policies: &policies, recordingRunner: recordingRunner{log: filepath.Join(t.TempDir(), "requests"), replies: []string{
+		openCodeInit,
+		`{"jsonrpc":"2.0","id":2,"result":{"sessionId":"ses_scratch","configOptions":` + openCodeOptionsWire + `}}`,
+		`{"jsonrpc":"2.0","id":3,"result":{}}`,
+	}}})
+	shared := false
+	if _, err := a.ConfigCatalog(context.Background(), OpenSpec{PrivateHome: &shared}); err != nil {
+		t.Fatal(err)
+	}
+	if len(policies) != 1 || policies[0].SessionTempDir == "" {
+		t.Fatalf("policies = %+v, want one with a session temp directory", policies)
+	}
+	dir := policies[0].SessionTempDir
+	if policies[0].Env["TMPDIR"] != dir {
+		t.Fatalf("TMPDIR = %q, want %q: a shared home would inherit the host's", policies[0].Env["TMPDIR"], dir)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("the catalog read left %s behind: %v", dir, err)
+	}
+}
+
 func TestOpenCodeConfigCatalogWithNoModelsSaysToSignIn(t *testing.T) {
 	a, _ := newOpenCodeTestAdapter(t, scriptedAgentRunner{replies: []string{
 		openCodeInit,
