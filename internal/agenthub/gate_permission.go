@@ -31,8 +31,10 @@ func (s *Service) ConfirmTool(ctx context.Context, req interaction.ConfirmReques
 	params, _ := json.Marshal(map[string]any{
 		"sessionId": caller.SessionID, "origin": "devkit_gate", "env": req.Env, "locked": req.EnvBlocks,
 		"target": req.Target, "profileId": req.ProfileID, "profileName": profileName, "kind": req.Kind, "tool": req.Tool, "summary": req.Summary,
-		"toolCall": map[string]any{"title": req.Tool, "kind": "other", "rawInput": map[string]string{"command": req.Summary}},
-		"options":  options,
+		"approvalFingerprint": req.ApprovalFingerprint, "targetRevision": req.TargetRevision,
+		"envRevision": req.EnvRevision,
+		"toolCall":    map[string]any{"title": req.Tool, "kind": "other", "rawInput": map[string]string{"command": req.Summary}},
+		"options":     options,
 	})
 	outcome, err := s.mediatePermissionWith(ctx, caller.SessionID, params, s.ResolveGatePermission)
 	if err != nil {
@@ -59,6 +61,10 @@ func (s *Service) ConfirmTool(ctx context.Context, req interaction.ConfirmReques
 	case "allow_always":
 		if !req.EnvBlocks {
 			return "allow_always", nil
+		}
+	case "allow_scoped":
+		if !req.EnvBlocks && req.Tool == "db.query" && req.ApprovalFingerprint != "" && req.TargetRevision != "" {
+			return "allow_scoped", nil
 		}
 	}
 	return "", interaction.ErrConfirmationDenied

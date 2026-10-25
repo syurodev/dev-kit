@@ -3,6 +3,7 @@ import { useCallback, useState } from "react";
 import {
   agentHubGetStatus,
   agentHubResolvePermission,
+  agentHubCreateScopedApproval,
   cancelledPermissionOutcome,
   selectedPermissionOutcome,
   type AgentSession,
@@ -81,7 +82,22 @@ export function useResolvePermission(pending: PendingPermission | null) {
     [pending],
   );
 
-  return { busy, error, resolve };
+  const approveScoped = useCallback(async (uses: number, lifetimeMinutes: number) => {
+    if (!pending) return;
+    setBusy(true); setError("");
+    try {
+      await agentHubCreateScopedApproval(pending.id, uses, lifetimeMinutes);
+      const store = useAgentSessionsStore.getState();
+      store.dequeuePending(pending.id);
+      await refreshSessionAfterPermission(pending.sessionId);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [pending]);
+
+  return { busy, error, resolve, approveScoped };
 }
 
 /**

@@ -1,12 +1,14 @@
 # Scoped unattended pre-approvals
 
-Task: D1 / OPT-0a45f5. Date: 2026-10-25. Status: **proposal for explicit review; no permission policy code changed**.
+Task: D1 / OPT-0a45f5. Date: 2026-10-25. Status: **approved by the person for v1 implementation**.
 
 ## Direction and approval boundary
 
 The person chose unattended work outside environments whose tag blocks auto. An environment requiring confirmation, including a missing/unresolvable tag under fail-closed behavior, must continue asking every time.
 
-The existing D1 task explicitly requires: “Security-sensitive: spec approved by the person before any code.” This document makes the proposed scope, expiration and non-environment gates concrete so that review is the last step before implementing policy changes. The request to implement team foundations does not silently select all the unresolved choices below.
+The person explicitly approved this exact v1 scope before implementation. The choices below are binding for this implementation; later expansions require a new explicit scope review.
+
+Implementation note: this branch delivers the first vertical slice for exact `db.query` only. Other rows in the approved matrix remain ineligible and continue using their existing gates until separately implemented and tested.
 
 ## Current behavior
 
@@ -77,8 +79,8 @@ Server mode never accepts approval creation via its unauthenticated bridge. Supp
 - Gateway grants and audit are exercised with the real container; UI-only approval methods are absent from MCP.
 - Manual confirmation, allow-always and explicit denial retain existing semantics when no pre-approval is configured.
 
-## Decisions requested before code
+## Approved decisions
 
-Review the operation eligibility matrix, one-use/30-minute default, 8-hour cap, restart invalidation and exclusion of PR mutations/cross-workspace messages/task closure without verify. Any broader choice needs its own concrete target/revision matching rules before implementation.
+The person approved the operation eligibility matrix, one-use/30-minute default, 8-hour cap, restart invalidation and exclusion of PR mutations/cross-workspace messages/task closure without verify. Any broader choice needs its own concrete target/revision matching rules before implementation.
 
 Related: [Team orchestration design](2026-10-24-agent-hub-team-orchestration-design.md), D1 task description, capability registry A1–A4. This document changes no current grant, confirmation, account or environment policy.

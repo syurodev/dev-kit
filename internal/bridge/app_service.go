@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"devkit/internal/app"
 	"devkit/internal/preferences"
@@ -20,7 +21,8 @@ type AppService struct {
 	// it, so reading one by path is limited to those.
 	sshKeys sshKeyPaths
 	// serverMode reports the unauthenticated HTTP build. Nil means a desktop one.
-	serverMode func() bool
+	serverMode       func() bool
+	vaultLifecycleMu sync.Mutex
 }
 
 func NewAppService(container *app.Container, themeApplier ...func(preferences.Theme) error) *AppService {
@@ -28,6 +30,14 @@ func NewAppService(container *app.Container, themeApplier ...func(preferences.Th
 	if len(themeApplier) > 0 {
 		service.applyTheme = themeApplier[0]
 	}
+	return service
+}
+
+// NewAppServiceWithMode wires the trusted execution boundary used by methods
+// whose desktop-only UI authority must stay unavailable in server mode.
+func NewAppServiceWithMode(container *app.Container, themeApplier func(preferences.Theme) error, serverMode func() bool) *AppService {
+	service := NewAppService(container, themeApplier)
+	service.serverMode = serverMode
 	return service
 }
 

@@ -26,6 +26,8 @@ export type PendingInteraction = {
   remember: string;
 };
 
+export type ScopedApproval = { id: string; caller: string; tool: string; profileId: string; env: string; fingerprint: string; createdAt: string; lastUsedAt?: string; expiresAt: string; remaining: number };
+
 function toPending(raw: {
   id: string;
   type: string;
@@ -66,6 +68,14 @@ function toPending(raw: {
     })),
     remember: raw.remember ?? "",
   };
+}
+
+export function getScopedApprovals(): Promise<ScopedApproval[]> {
+  return callBridge(async () => (await AppService.InteractionScopedApprovals()) ?? []);
+}
+
+export function revokeScopedApproval(id: string): Promise<void> {
+  return callBridge(() => AppService.InteractionRevokeScopedApproval(id) as Promise<void>);
 }
 
 export function getInteractionPending(): Promise<PendingInteraction | null> {

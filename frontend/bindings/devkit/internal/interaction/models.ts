@@ -80,6 +80,22 @@ export interface Pending {
     "remember"?: string;
 }
 
+/**
+ * ScopedApproval is the UI representation; it contains no request body or secret.
+ */
+export interface ScopedApproval {
+    "id": string;
+    "caller": string;
+    "tool": string;
+    "profileId": string;
+    "env": string;
+    "fingerprint": string;
+    "createdAt": string;
+    "lastUsedAt"?: string;
+    "expiresAt": string;
+    "remaining": number;
+}
+
 export interface Target {
     "repo"?: string;
     "branch"?: string;

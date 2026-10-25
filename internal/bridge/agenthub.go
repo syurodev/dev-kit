@@ -14,6 +14,7 @@ import (
 	"devkit/internal/app"
 
 	"devkit/internal/agenthub"
+	"devkit/internal/interaction"
 	"devkit/internal/terminal"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -798,6 +799,71 @@ func (s *AppService) AgentHubResolvePermission(id string, outcome json.RawMessag
 		return nil, waiter.Complete(id, outcome)
 	})
 	return err
+}
+
+// AgentHubCreateScopedApproval creates a bounded scope from the exact live
+// Agent Hub gate card and answers that request once. The bridge never accepts
+// target, environment, caller or fingerprint from the frontend.
+func (s *AppService) AgentHubCreateScopedApproval(id string, uses int, lifetimeMinutes int) (interaction.ScopedApproval, error) {
+	if s.serverMode != nil && s.serverMode() {
+		return interaction.ScopedApproval{}, errInteractionUnavailable
+	}
+	if s.container.Vault == nil || s.container.Vault.IsLocked() || s.container.Interaction == nil {
+		return interaction.ScopedApproval{}, errInteractionUnavailable
+	}
+	if lifetimeMinutes < 0 || lifetimeMinutes > 480 {
+		return interaction.ScopedApproval{}, interaction.ErrInvalidInteractionID
+	}
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:execute", "permission:scoped_approval", map[string]any{"action": "scoped_approval", "id": recordID(id)}, func(context.Context) (any, error) {
+		s.vaultLifecycleMu.Lock()
+		defer s.vaultLifecycleMu.Unlock()
+		if s.container.Vault == nil || s.container.Vault.IsLocked() {
+			return nil, errInteractionUnavailable
+		}
+		waiter, err := s.agentHubPermissions()
+		if err != nil {
+			return nil, err
+		}
+		pending := waiter.PendingByID(id)
+		if pending == nil || !pending.ScopedApprovalEligible {
+			return nil, interaction.ErrInvalidInteractionID
+		}
+		var p struct {
+			Origin         string           `json:"origin"`
+			Env            string           `json:"env"`
+			Locked         bool             `json:"locked"`
+			Tool           string           `json:"tool"`
+			ProfileID      string           `json:"profileId"`
+			Kind           interaction.Kind `json:"kind"`
+			Fingerprint    string           `json:"approvalFingerprint"`
+			TargetRevision string           `json:"targetRevision"`
+			EnvRevision    string           `json:"envRevision"`
+		}
+		if json.Unmarshal(pending.Params, &p) != nil || p.Origin != "devkit_gate" || p.Locked {
+			return nil, interaction.ErrInvalidInteractionID
+		}
+		req := interaction.ConfirmRequest{Env: p.Env, Tool: p.Tool, ProfileID: p.ProfileID, Kind: p.Kind, EnvBlocks: p.Locked, ApprovalFingerprint: p.Fingerprint, TargetRevision: p.TargetRevision, EnvRevision: p.EnvRevision}
+		if s.container.Environments == nil {
+			return nil, interaction.ErrInvalidInteractionID
+		}
+		currentEnvRevision, envRevisionErr := s.container.Environments.PolicyRevision(p.Env)
+		if envRevisionErr != nil || currentEnvRevision != p.EnvRevision || s.container.Environments.RequiresConfirmation(p.Env) {
+			return nil, interaction.ErrInvalidInteractionID
+		}
+		approval, err := s.container.Interaction.CreateScopedApprovalForAgent(pending.SessionID, req, uses, time.Duration(lifetimeMinutes)*time.Minute)
+		if err != nil {
+			return nil, err
+		}
+		if err := waiter.Complete(id, json.RawMessage(`{"outcome":{"outcome":"selected","optionId":"allow_scoped"}}`)); err != nil {
+			_ = s.container.Interaction.RevokeScopedApproval(approval.ID)
+			return nil, err
+		}
+		return approval, nil
+	})
+	if err != nil {
+		return interaction.ScopedApproval{}, err
+	}
+	return result.(interaction.ScopedApproval), nil
 }
 
 // AgentHubPendingPermissions lists every ACP permission prompt awaiting the

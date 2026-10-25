@@ -528,6 +528,15 @@ export function AgentHubConfigCatalog(agent: string): $CancellablePromise<agenth
     return $Call.ByID(810199431, agent);
 }
 
+/**
+ * AgentHubCreateScopedApproval creates a bounded scope from the exact live
+ * Agent Hub gate card and answers that request once. The bridge never accepts
+ * target, environment, caller or fingerprint from the frontend.
+ */
+export function AgentHubCreateScopedApproval(id: string, uses: number, lifetimeMinutes: number): $CancellablePromise<interaction$0.ScopedApproval> {
+    return $Call.ByID(2213247173, id, uses, lifetimeMinutes);
+}
+
 export function AgentHubCreateSession(input: agenthub$0.CreateInput): $CancellablePromise<agenthub$0.AgentSession> {
     return $Call.ByID(146979054, input);
 }
@@ -2005,6 +2014,18 @@ export function InteractionPendingList(): $CancellablePromise<interaction$0.Pend
     return $Call.ByID(770046737);
 }
 
+export function InteractionRevokeScopedApproval(id: string): $CancellablePromise<void> {
+    return $Call.ByID(299698483, id);
+}
+
+/**
+ * InteractionScopedApprovals lists the active, bounded approvals. The
+ * unauthenticated server bridge cannot inspect or manage them.
+ */
+export function InteractionScopedApprovals(): $CancellablePromise<interaction$0.ScopedApproval[] | null> {
+    return $Call.ByID(1192651402);
+}
+
 export function KafkaConnect(id: string): $CancellablePromise<void> {
     return $Call.ByID(955367566, id);
 }
@@ -2073,10 +2094,6 @@ export function McpUninstall(agent: string, scope: string, projectPath: string):
     return $Call.ByID(3773505192, agent, scope, projectPath);
 }
 
-/**
- * Version history is UI-only for the same reason the trash is: RestoreVersion
- * overwrites the note, and an agent should not be able to roll one back.
- */
 export function NotesCheckpoint(id: string): $CancellablePromise<notes$0.Version> {
     return $Call.ByID(296805781, id);
 }
@@ -2125,12 +2142,6 @@ export function NotesList(): $CancellablePromise<notes$0.Summary[] | null> {
     return $Call.ByID(3703031295);
 }
 
-/**
- * NotesListTrash, NotesRestore, NotesPurge and NotesEmptyTrash stay off the MCP
- * surface. Emptying a trash or deleting forever is the one place in this module
- * where a mistake cannot be walked back, so it is reachable from the Trash
- * screen and nowhere else.
- */
 export function NotesListBacklinks(id: string): $CancellablePromise<notes$0.Summary[] | null> {
     return $Call.ByID(2442974401, id);
 }
@@ -2178,6 +2189,8 @@ export function NotesUpdate(id: string, title: string, body: string): $Cancellab
 
 /**
  * PreferencesAgentSandboxStatus reads the cached host profile check; no probe.
+ * Kept with the legacy preferences bridge methods until that module migrates
+ * to the operation registry (testdata/legacy_ops_methods.json).
  */
 export function PreferencesAgentSandboxStatus(): $CancellablePromise<string> {
     return $Call.ByID(744341346);

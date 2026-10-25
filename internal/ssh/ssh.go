@@ -2,6 +2,8 @@ package ssh
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -223,6 +225,21 @@ func (s *Service) ListProfiles() ([]ProfileSummary, error) {
 		return summaries[i].Name < summaries[j].Name
 	})
 	return summaries, nil
+}
+
+// ApprovalRevision is an opaque generation for a saved SSH endpoint and
+// authentication binding. It uses only the record version; credentials never
+// enter an approval fingerprint.
+func (s *Service) ApprovalRevision(id string) (string, error) {
+	record, err := s.store.Get(id)
+	if err != nil {
+		return "", err
+	}
+	if record.Type != itemType {
+		return "", vaultitem.ErrNotFound
+	}
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s:%d", record.ID, record.UpdatedAt.UnixNano())))
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func (s *Service) DeleteProfile(id string) error {

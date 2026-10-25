@@ -22,10 +22,11 @@ var deniedPermissionOutcome = json.RawMessage(`{"outcome":{"outcome":"cancelled"
 
 // PendingPermission is a permission prompt awaiting UI resolution.
 type PendingPermission struct {
-	ID        string          `json:"id"`
-	SessionID string          `json:"sessionId"`
-	Params    json.RawMessage `json:"params"`
-	CreatedAt time.Time       `json:"createdAt"`
+	ID                     string          `json:"id"`
+	SessionID              string          `json:"sessionId"`
+	Params                 json.RawMessage `json:"params"`
+	ScopedApprovalEligible bool            `json:"scopedApprovalEligible,omitempty"`
+	CreatedAt              time.Time       `json:"createdAt"`
 	// ExpiresAt is when the gate closes on its own. It ships with the request
 	// because the UI cannot infer it: a toast may mount long after the request
 	// arrived — the rail was closed, the user was in another module, the lazy
@@ -135,6 +136,19 @@ func (w *PermissionWaiter) wait(ctx context.Context, sessionID string, params js
 		SessionID: sessionID,
 		Params:    append(json.RawMessage(nil), params...),
 		CreatedAt: now,
+	}
+	var eligibility struct {
+		Origin         string `json:"origin"`
+		Tool           string `json:"tool"`
+		ProfileID      string `json:"profileId"`
+		Env            string `json:"env"`
+		Locked         bool   `json:"locked"`
+		Fingerprint    string `json:"approvalFingerprint"`
+		TargetRevision string `json:"targetRevision"`
+		EnvRevision    string `json:"envRevision"`
+	}
+	if gate && json.Unmarshal(params, &eligibility) == nil {
+		p.ScopedApprovalEligible = eligibility.Origin == "devkit_gate" && eligibility.Tool == "db.query" && eligibility.ProfileID != "" && eligibility.Env != "" && !eligibility.Locked && eligibility.Fingerprint != "" && eligibility.TargetRevision != "" && eligibility.EnvRevision != ""
 	}
 	// Zero ExpiresAt when nothing expires; the card reads that as "no clock".
 	if timeout := w.timeout(); timeout > 0 {
@@ -307,6 +321,18 @@ func (w *PermissionWaiter) Pending() *PendingPermission {
 		return nil
 	}
 	return &list[0]
+}
+
+func (w *PermissionWaiter) PendingByID(id string) *PendingPermission {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	p := w.pending[id]
+	if p == nil || p.finished || p.ctx.Err() != nil {
+		return nil
+	}
+	cp := p.PendingPermission
+	cp.Params = append(json.RawMessage(nil), cp.Params...)
+	return &cp
 }
 
 // close takes a request out of the queue and announces it, once: only the call

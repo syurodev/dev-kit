@@ -327,7 +327,7 @@ func (s *Server) sshTarget() *sshTarget {
 }
 
 func (s *Server) databaseTarget() *databaseTarget {
-	return &databaseTarget{api: s.deps.DB, hub: s.deps.Hub}
+	return &databaseTarget{api: s.deps.DB, ssh: s.deps.SSH, hub: s.deps.Hub}
 }
 
 func (s *Server) kafkaTarget() *kafkaTarget {

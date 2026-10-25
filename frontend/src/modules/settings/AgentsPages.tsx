@@ -15,6 +15,7 @@ import { McpInstallPanel } from "./McpInstallPanel";
 import { TelegramSetting } from "./TelegramSetting";
 import { GroupLabel, SectionHeader, TabColumn } from "./SettingsPrimitives";
 import { readAgentVendor, writeAgentVendor } from "./agentVendorChoice";
+import { ScopedApprovalsSetting } from "./ScopedApprovalsSetting";
 
 /**
  * Claude | Codex, a mode switch inside one page. The choice is remembered
@@ -131,6 +132,10 @@ export function AgentSafetyPage() {
       <div className="flex flex-col gap-3">
         <GroupLabel>FILE CHECKPOINTS</GroupLabel>
         <AgentCheckpointSetting />
+      </div>
+      <div className="flex flex-col gap-3">
+        <GroupLabel>SCOPED APPROVALS</GroupLabel>
+        <ScopedApprovalsSetting />
       </div>
     </TabColumn>
   );

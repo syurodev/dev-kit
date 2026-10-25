@@ -332,6 +332,7 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "session:new"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "session:*"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "permission:complete"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "permission:scoped_approval"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "elicitation:respond"},
 		// File checkpoints. Listing is per session and covered by session:*;
 		// reading one changed file's two versions is named by the checkpoint,
@@ -374,6 +375,8 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:devices"},
 		{SubjectID: "builtin.interaction", Capability: "interaction:respond", Scope: "pending"},
 		{SubjectID: "builtin.interaction", Capability: "interaction:respond", Scope: "pending:complete"},
+		{SubjectID: "builtin.interaction", Capability: "interaction:respond", Scope: "approvals:list"},
+		{SubjectID: "builtin.interaction", Capability: "interaction:respond", Scope: "approval:revoke"},
 		{SubjectID: "builtin.mcpinstall", Capability: "mcp:install", Scope: "agent:list"},
 		{SubjectID: "builtin.mcpinstall", Capability: "mcp:install", Scope: "agent:claude-code"},
 		{SubjectID: "builtin.mcpinstall", Capability: "mcp:install", Scope: "agent:codex"},

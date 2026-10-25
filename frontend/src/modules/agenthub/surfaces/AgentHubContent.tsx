@@ -109,6 +109,7 @@ export type AgentHubContentProps = {
    */
   pendingPermission?: PendingPermission | null;
   onResolvePermission?: (optionId: string | null) => void | Promise<void>;
+  onApproveScopedPermission?: (uses: number, lifetimeMinutes: number) => void | Promise<void>;
   permissionBusy?: boolean;
   permissionError?: string;
   /**
@@ -238,6 +239,7 @@ export function AgentHubContent({
   onCompact,
   pendingPermission,
   onResolvePermission,
+  onApproveScopedPermission,
   permissionBusy = false,
   permissionError,
   pendingElicitation,
@@ -332,7 +334,7 @@ export function AgentHubContent({
       ) : undefined,
     permission:
       pendingPermission && onResolvePermission
-        ? { pending: pendingPermission, onResolve: onResolvePermission, busy: permissionBusy, error: permissionError }
+        ? { pending: pendingPermission, onResolve: onResolvePermission, onApproveScoped: onApproveScopedPermission, busy: permissionBusy, error: permissionError }
         : null,
     question:
       pendingElicitation && onRespondElicitation

@@ -167,6 +167,7 @@ export function AgentConversationSurface({ hub }: { hub: AgentHubController }) {
           onSetGoal={(objective) => void actions.handleSetGoal(objective)}
           pendingPermission={reads.activePending}
           onResolvePermission={reads.resolvePermission}
+          onApproveScopedPermission={reads.approveScopedPermission}
           permissionBusy={reads.permissionBusy}
           permissionError={reads.permissionError}
           pendingElicitation={reads.activeQuestion}

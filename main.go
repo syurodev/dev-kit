@@ -1006,6 +1006,12 @@ func main() {
 	// NoopPrompter is enough: InteractionHost polls InteractionPending every 500ms
 	// and Completes via the bridge. Share one Hub between MCP and bridge.
 	hub := interaction.NewHub(interaction.NoopPrompter{})
+	hub.SetVaultLocked(container.Vault.IsLocked())
+	hub.OnScopedApprovalEvent = func(e interaction.ScopedApprovalEvent) {
+		container.Audit.Record(audit.Event{Caller: e.Caller, SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "approval:" + e.ID, Outcome: audit.OutcomeAllowed, Metadata: map[string]any{
+			"action": e.Action, "tool": e.Tool, "profile_id": e.ProfileID, "env": e.Env,
+		}})
+	}
 	// Server mode: every bridge method, InteractionComplete included, is on
 	// unauthenticated loopback HTTP, so any local process — an agent in a
 	// terminal pointed at this MCP server — could answer its own prompt.
@@ -1123,9 +1129,9 @@ func main() {
 			defer func() { stopTelegram(); <-telegramDone }()
 		}
 	}
-	appService := bridge.NewAppService(container, func(theme preferences.Theme) error {
+	appService := bridge.NewAppServiceWithMode(container, func(theme preferences.Theme) error {
 		return applyNativeTheme(mainWindow, theme)
-	})
+	}, func() bool { return application.System.IsServer() })
 	// pr.*: the pull/merge request of an agent's branch. Assigned only when
 	// wired — a nil *prwatch.Service in this interface field would be the
 	// typed-nil trap (see CodexHook below).

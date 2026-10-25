@@ -152,6 +152,7 @@ export type PendingPermission = {
   id: string;
   sessionId: string;
   params: unknown;
+  scopedApprovalEligible?: boolean;
   caller: string;
   title: string;
   depth: number;
@@ -165,6 +166,8 @@ export type PendingPermission = {
   createdAt: string;
   expiresAt: string;
 };
+
+export type ScopedApproval = { id: string; caller: string; tool: string; profileId: string; env: string; fingerprint: string; createdAt: string; expiresAt: string; remaining: number };
 
 /**
  * A question an agent is waiting for the user to answer (ACP
@@ -633,6 +636,10 @@ export function agentHubResolvePermission(
   return callBridge(
     () => AppService.AgentHubResolvePermission(id, outcome) as Promise<void>,
   );
+}
+
+export function agentHubCreateScopedApproval(id: string, uses = 1, lifetimeMinutes = 30): Promise<ScopedApproval> {
+  return callBridge(() => AppService.AgentHubCreateScopedApproval(id, uses, lifetimeMinutes) as Promise<ScopedApproval>);
 }
 
 export function selectedPermissionOutcome(optionId: string): unknown {

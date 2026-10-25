@@ -56,18 +56,77 @@ func GateActiveMCP(
 	if err != nil {
 		return "", err
 	}
-	blocks := env.RequiresConfirmation(envName)
-	if err := effectiveHub(hub).Confirm(ctx, interaction.ConfirmRequest{
-		Env:       envName,
-		Tool:      tool,
-		ProfileID: id,
-		Summary:   summary,
-		Kind:      kind,
-		EnvBlocks: blocks,
-	}); err != nil {
-		return "", err
+	err = effectiveHub(hub).Confirm(ctx, interaction.ConfirmRequest{Env: envName, Tool: tool, ProfileID: id, Summary: summary, Kind: kind, EnvBlocks: env.RequiresConfirmation(envName)})
+	return id, err
+}
+
+type ActiveMCPDecision struct {
+	ProfileID, Env, TargetRevision, EnvRevision, ApprovalFingerprint, ReservationToken string
+	ApprovedByScope                                                                    bool
+}
+
+// GateActiveMCPWithApproval is used by a caller that can revalidate the saved
+// target immediately before execution. Other gate callers keep the historical
+// manual-confirmation behavior.
+func GateActiveMCPWithApproval(ctx context.Context, hub *interaction.Hub, env EnvConfirmer, profiles ProfileEnvReader, active ActiveTarget, tool, summary string, kind interaction.Kind, fingerprint string) (ActiveMCPDecision, error) {
+	id, err := active.EnsureActive(ctx)
+	if err != nil {
+		return ActiveMCPDecision{}, err
 	}
-	return id, nil
+	envName, err := profiles.EnvForProfile(id)
+	if err != nil {
+		return ActiveMCPDecision{}, err
+	}
+	blocks := env.RequiresConfirmation(envName)
+	envRevision := ""
+	if revisioner, ok := env.(interface{ PolicyRevision(string) (string, error) }); ok {
+		envRevision, _ = revisioner.PolicyRevision(envName) // empty disables this approval path fail-closed
+	}
+	targetRevision := ""
+	if tool == "db.query" && kind == interaction.KindDatabase {
+		if revisioner, ok := profiles.(interface{ ApprovalRevision(string) (string, error) }); ok {
+			targetRevision, _ = revisioner.ApprovalRevision(id) // unavailable means no scoped match; ordinary confirmation still works
+		}
+	}
+	if fingerprint != "" {
+		effectiveHub(hub).InvalidateChangedScopedApprovals(id, envName, targetRevision, envRevision)
+	}
+	confirmReq := interaction.ConfirmRequest{
+		Env:                 envName,
+		Tool:                tool,
+		ProfileID:           id,
+		Summary:             summary,
+		Kind:                kind,
+		EnvBlocks:           blocks,
+		ApprovalFingerprint: fingerprint,
+		TargetRevision:      targetRevision,
+		EnvRevision:         envRevision,
+	}
+	approvedByScope, reservationToken, err := effectiveHub(hub).ConfirmDecision(ctx, confirmReq)
+	if err != nil {
+		return ActiveMCPDecision{}, err
+	}
+	if approvedByScope {
+		// A scoped approval is invalidated by policy or target changes. A human
+		// confirmation remains authoritative for this captured profile as before.
+		currentEnv, err := profiles.EnvForProfile(id)
+		currentRevision := ""
+		if revisioner, ok := env.(interface{ PolicyRevision(string) (string, error) }); ok {
+			currentRevision, _ = revisioner.PolicyRevision(currentEnv)
+		}
+		if err != nil || currentEnv != envName || env.RequiresConfirmation(currentEnv) || envRevision == "" || currentRevision != envRevision {
+			effectiveHub(hub).RevokeMatchingScopedApproval(ctx, confirmReq)
+			return ActiveMCPDecision{}, interaction.ErrConfirmationDenied
+		}
+		if targetRevision != "" {
+			revision, err := profiles.(interface{ ApprovalRevision(string) (string, error) }).ApprovalRevision(id)
+			if err != nil || revision != targetRevision {
+				effectiveHub(hub).RevokeMatchingScopedApproval(ctx, confirmReq)
+				return ActiveMCPDecision{}, interaction.ErrConfirmationDenied
+			}
+		}
+	}
+	return ActiveMCPDecision{ProfileID: id, Env: envName, TargetRevision: targetRevision, EnvRevision: envRevision, ApprovalFingerprint: fingerprint, ReservationToken: reservationToken, ApprovedByScope: approvedByScope}, nil
 }
 
 // GateProfileMCP is GateActiveMCP for a tool that names its profile in its own
