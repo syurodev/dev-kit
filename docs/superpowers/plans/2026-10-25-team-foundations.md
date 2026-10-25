@@ -11,7 +11,7 @@ Started 2026-10-25 at the person's request. Implementation uses Codex Luna subag
 | Durable peer outbox | B5 / OPT-040960 | codex/peer-outbox-b5 @ `b61dd768` | Integrated `558c35fd`; tests passed; task in review |
 | Interrupted pending permission/question metadata | B6 / OPT-e67e8f | codex/pending-recovery-b6 @ `2d654717` | Integrated `26a7c4cc`; tests passed; task in review |
 | Conversation-centred shell | C1 / OPT-484f67 | design deliverable | Concrete spec in review; no C3–C6 implementation implied |
-| Unattended policy | D1 / OPT-0a45f5 | codex/scoped-approvals-d1 | Scope explicitly approved by the person on 2026-10-25; Luna implementing |
+| Unattended policy | D1 / OPT-0a45f5 | codex/scoped-approvals-d1 @ `f296604e` | Integrated `6eb277f9`; exact `db.query` slice in review; independent security/UI reviews passed |
 
 The active comment-paging, sandbox and conformance-follow-up tasks in other DevKit sessions remain with their current owners. External Codex subagents are not DevKit Agent Hub sessions: this MCP caller cannot claim tasks as an agent. Branch/status records are used without fabricating a session identity.
 
@@ -37,3 +37,21 @@ The initial implementation worktrees start at main 0601c248; D1 starts at integr
 - `TestSmokeSeatbeltDeveloperTools/cgo-process-info` also fails on the unchanged main baseline (`PROBE count=136 errno=0`, probe code 10). The remote PR316 sandbox follow-up is outside this branch's 0601c248 baseline; do not report this broad run as entirely green.
 - `go vet ./internal/agentwork ./internal/agenthub ./internal/mcp ./internal/storage` passed after phase0/B7 integration.
 - No runtime quota exhaustion experiment is needed; sanitized fixture shapes and ACP pipes cover refusals.
+
+## D1 delivered scope and remaining work
+
+The person explicitly approved the v1 policy before implementation. The delivered operation is exact `db.query`, issued from its live Agent Hub permission card with a finite count/lifetime and revocable in Settings. SQL, caller, resolved profile (including inherited parent/tunnel generations), and environment policy revisions bind each approval. Per-call reservation tokens prevent a duplicate start/cancel from consuming another call's use. Production manual confirmation remains functional; missing grants, blocked environments, server mode, locked vault, revoked/expired approval and revision drift cannot use a pre-approval.
+
+The other operation classes in the approved matrix have not gained pre-approval support. This milestone does not implement the managed-work ledger/leases, context/result packages, scheduler batching or Team/Timeline UI, and does not prove a reduction in real model usage. C1 remains a design deliverable. No task was moved through a terminal acceptance gate; no push or main merge was performed.
+
+D1 author/reviewer checks passed: scoped Go tests including the real card/bridge/MCP/gateway path; per-token replay, expiry and profile/tunnel/env ABA regressions; architecture; frontend build; 15 isolated UI/bridge/navigation tests. A server-tag broad run triggers desktop-only bridge test failures, so the final integrated native run is recorded separately below.
+
+## Final integrated validation
+
+- Native `TMPDIR=/private/tmp go test ./internal/... ./cmd/... -count=1`: every package passed except `internal/sandbox`, whose existing `TestSmokeSeatbeltDeveloperTools/cgo-process-info` failure was reproduced on unchanged main. Desktop bridge tests passed in this native run. Full log: `/private/tmp/devkit-team-foundations-go-tests.log` (local diagnostic, not a committed artifact).
+- `go vet` passed for agentwork, agenthub, interaction, mcp, storage, database, ssh, environments, bridge and app.
+- `TMPDIR=/private/tmp go test -tags server . -count=1` passed for the integrated root/composition package.
+- `go test -race ./internal/interaction ./internal/mcp -run 'ScopedApproval|DBQueryManualProd' -count=1` passed. Earlier B5/B6 outbox/pending recovery race tests also passed.
+- Frontend build (TypeScript, Vite and performance budget) passed. The five-file isolated subscriber/scoped approval/navigation run passed **43 tests, 0 failures**.
+- Markdown local links/code fences and `git diff --check` passed.
+- No native app restart or live external database/model request was performed. Settings list/revoke UI was reviewed in code; the available component tests use SSR, so no claim of a live desktop interaction test is made.

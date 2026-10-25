@@ -2,7 +2,7 @@
 
 Ngày: 2026-10-24, Asia/Ho_Chi_Minh. Trạng thái: **bản thiết kế đề xuất để review, chưa triển khai và chưa được duyệt toàn bộ**.
 
-**Cập nhật triển khai 25/10:** người dùng đã yêu cầu triển khai các nền tảng bằng Luna subagents. Nhánh `codex/team-foundations` đã tích hợp sửa quota/typed failure Claude và B7 shared handoff; B5/B6 đang được kiểm thử/tích hợp. C1 có spec cụ thể; D1 v1 đã được người dùng duyệt phạm vi và đang triển khai vertical `db.query`. Các bảng hiện trạng ngày 24/10 bên dưới là ảnh chụp lịch sử, không phải trạng thái board trực tiếp. Theo dõi kết quả và giới hạn tại [implementation tracking](../plans/2026-10-25-team-foundations.md). Ledger/lease/context packages, batching và Team/Timeline UI vẫn là thiết kế; chưa có số đo chứng minh giảm token của toàn nhóm.
+**Cập nhật triển khai 25/10:** người dùng đã yêu cầu triển khai các nền tảng bằng Luna subagents. Nhánh `codex/team-foundations` đã tích hợp sửa quota/typed failure Claude và B7 shared handoff; B5/B6 đã tích hợp và qua kiểm thử. C1 có spec cụ thể đang review; D1 v1 đã được người dùng duyệt và tích hợp cho `db.query` với kiểm thử, review độc lập. Các loại thao tác khác vẫn dùng gate hiện có. Các bảng hiện trạng ngày 24/10 bên dưới là ảnh chụp lịch sử, không phải trạng thái board trực tiếp. Theo dõi kết quả và giới hạn tại [implementation tracking](../plans/2026-10-25-team-foundations.md). Ledger/lease/context packages, batching và Team/Timeline UI vẫn là thiết kế; chưa có số đo chứng minh giảm token của toàn nhóm.
 
 Tài liệu được yêu cầu sau khi kiểm tra session Claude mới nhất. Phần hiện trạng được đối chiếu với checkout `04d3fd9e` và dữ liệu chạy thực tế ngày 24/10; hai nguồn được phân biệt bên dưới. Những tên package, DTO, tool và ngưỡng mới đều là đề xuất.
 

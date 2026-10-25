@@ -200,6 +200,13 @@ as production-verified against a real Claude Code session in cloud CI.
   handoff is shared there, while MCP keeps capability checks, caller identity and model gates.
   Failed assignment/branch recording closes only the newly created child using bounded cleanup
   independent of the cancelled request; failed brief delivery keeps the assigned child available.
+- Scoped pre-approvals currently support **exact `db.query` only**. A live Agent Hub gate card
+  issues a finite, expiring approval through the desktop-only bridge; agents cannot issue one.
+  Each query reserves an opaque one-use token and consumes it immediately before the database
+  call, after capability authorization and profile/parent/tunnel/env revision rechecks. Environment
+  confirmation still wins. Vault lock and restart invalidate approvals; server mode cannot issue
+  or consume them. Other operations keep their existing gates. See
+  `docs/superpowers/specs/2026-10-25-unattended-policy-design.md` before extending eligibility.
 - The peer outbox (migration 47) stores peer bodies as local plaintext like the transcript; never
   log them. A crashed `dispatching` item is ambiguous and is not replayed. Recovered queued items
   remain held until that session's user queue is mirrored; scope and hop/rate guards are rechecked.
