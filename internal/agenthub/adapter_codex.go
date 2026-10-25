@@ -408,16 +408,11 @@ func (a *CodexAdapter) start(workDir string, l launch, spec OpenSpec, store stri
 	// Paths only: the env is never logged.
 	log.Printf("agenthub: codex: starting %s in %s (read-only %v, sockets %v)",
 		cmd.Path, pol.WorkDir, pol.ReadOnlyPaths, pol.AllowUnixSockets)
-	proc, err := a.runner().StartPiped(context.Background(), pol, cmd)
+	started, err := (Launcher{Runner: a.runner()}).Start(context.Background(), pol, cmd)
 	if err != nil {
-		return nil, mapSandboxErr(err)
+		return nil, err
 	}
-	stdin, stdout := proc.StdinWriter(), proc.StdoutReader()
-	if stdin == nil || stdout == nil {
-		_ = proc.Kill()
-		_ = proc.Wait()
-		return nil, fmt.Errorf("%w: StartPiped missing stdio pipes", ErrProcessFailed)
-	}
+	proc, stdin, stdout := started.Proc, started.Stdin, started.Stdout
 	owned = false
 	spec.Cwd = workDir
 	p := &codexProcess{proc: proc, serveDone: make(chan struct{}), environment: captureEnvironment(AgentTypeCodex, spec, pol.Env, cmd.Path, pol.Env["CODEX_HOME"])}

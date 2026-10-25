@@ -630,25 +630,17 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, plan openPlan) 
 	// SIGKILL the agent (exec.CommandContext) while its session row stays
 	// alive. Lifetime belongs to the runtime/Close, so start detached; only
 	// the handshake below still honors the caller's ctx.
-	proc, err := a.runner().StartPiped(context.Background(), pol, cmd)
+	started, err := (Launcher{Runner: a.runner()}).Start(context.Background(), pol, cmd)
 	if err != nil {
-		return nil, mapSandboxErr(err)
+		return nil, err
 	}
+	proc, stdin, stdout := started.Proc, started.Stdin, started.Stdout
 	// Confirms the jail actually exec'd the agent, not just that bwrap itself
 	// forked — a "starting" that never leaves that state and never logs
 	// anything else again is otherwise indistinguishable from bwrap silently
 	// failing to reach the exec at all.
 	log.Printf("agenthub: claude: sandboxed process started, pid=%d", proc.PID())
 	owned = false
-
-	stdin := proc.StdinWriter()
-	stdout := proc.StdoutReader()
-	if stdin == nil || stdout == nil {
-		_ = proc.Kill()
-		_ = proc.Wait()
-		l.releaseLease()
-		return nil, fmt.Errorf("%w: StartPiped missing stdio pipes", ErrProcessFailed)
-	}
 
 	rw := &stdioPipe{r: stdout, w: stdin}
 	rt := &acpRuntime{
@@ -992,16 +984,11 @@ func (a *ClaudeAdapter) initialize(ctx context.Context, l launch) (acp.Initializ
 	}
 
 	pol, cmd := sandboxFor(workDir, l, OpenSpec{})
-	proc, err := a.runner().StartPiped(ctx, pol, cmd)
+	started, err := (Launcher{Runner: a.runner()}).Start(ctx, pol, cmd)
 	if err != nil {
-		return acp.InitializeResult{}, mapSandboxErr(err)
+		return acp.InitializeResult{}, err
 	}
-	stdin, stdout := proc.StdinWriter(), proc.StdoutReader()
-	if stdin == nil || stdout == nil {
-		_ = proc.Kill()
-		_ = proc.Wait()
-		return acp.InitializeResult{}, fmt.Errorf("%w: StartPiped missing stdio pipes", ErrProcessFailed)
-	}
+	proc, stdin, stdout := started.Proc, started.Stdin, started.Stdout
 
 	conn := acp.NewConn(&stdioPipe{r: stdout, w: stdin}, &acpConnHandler{rt: &acpRuntime{}})
 	serveCtx, cancelServe := context.WithCancel(context.Background())
@@ -1080,54 +1067,6 @@ func rpcErrorKind(err error) string {
 		return ""
 	}
 	return data.ErrorKind
-}
-
-// logStderrTail writes the end of a dead agent's stderr to the log. The reason
-// that reaches the error is one line; the lines around it are usually what
-// explains it — a stack, the path that could not be opened.
-func logStderrTail(stage string, proc *sandbox.Proc) {
-	_, stderr := proc.Output()
-	tail := strings.TrimSpace(string(stderr))
-	if tail == "" {
-		log.Printf("agenthub: %s: agent exited with nothing on stderr", stage)
-		return
-	}
-	if len(tail) > 2000 {
-		tail = "…" + tail[len(tail)-2000:]
-	}
-	log.Printf("agenthub: %s: agent stderr:\n%s", stage, tail)
-}
-
-// stderrReason is the line of a dead agent's stderr that says why, or "".
-// Node ends an uncaught exception with a "Node.js v24…" banner, so the last
-// line naming an error is wanted, not the last line.
-func stderrReason(proc *sandbox.Proc) string {
-	_ = proc.Kill()
-	waited := make(chan struct{})
-	go func() {
-		_ = proc.Wait()
-		close(waited)
-	}()
-	select {
-	case <-waited:
-	case <-time.After(2 * time.Second):
-		return "" // the buffer is still being written; reading it would race
-	}
-	_, stderr := proc.Output()
-	var reason string
-	for _, line := range strings.Split(string(stderr), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.Contains(line, "Error") || strings.Contains(line, "error") {
-			reason = line
-		}
-	}
-	if reason == "" {
-		return ""
-	}
-	if len(reason) > 200 {
-		reason = reason[:200]
-	}
-	return ": " + reason
 }
 
 type claudeMetaRoot struct {

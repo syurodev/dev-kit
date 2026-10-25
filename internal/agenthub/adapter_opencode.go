@@ -503,18 +503,12 @@ func (a *OpenCodeAdapter) open(ctx context.Context, spec OpenSpec, resume string
 
 	// The process outlives the caller's request, as Claude's does: lifetime
 	// belongs to the runtime. Only the handshake below honours ctx.
-	proc, err := a.runner().StartPiped(context.Background(), pol, cmd)
+	started, err := (Launcher{Runner: a.runner()}).Start(context.Background(), pol, cmd)
 	if err != nil {
-		return nil, mapSandboxErr(err)
+		return nil, err
 	}
+	proc, stdin, stdout := started.Proc, started.Stdin, started.Stdout
 	owned = false
-	stdin, stdout := proc.StdinWriter(), proc.StdoutReader()
-	if stdin == nil || stdout == nil {
-		_ = proc.Kill()
-		_ = proc.Wait()
-		l.releaseLease()
-		return nil, fmt.Errorf("%w: StartPiped missing stdio pipes", ErrProcessFailed)
-	}
 
 	base := &acpRuntime{
 		hooks:       acpRuntimeHooks{Type: AgentTypeOpenCode},
@@ -930,16 +924,11 @@ func (a *OpenCodeAdapter) initialize(ctx context.Context, l launch) (acp.Initial
 	if err != nil {
 		return acp.InitializeResult{}, err
 	}
-	proc, err := a.runner().StartPiped(ctx, pol, cmd)
+	started, err := (Launcher{Runner: a.runner()}).Start(ctx, pol, cmd)
 	if err != nil {
-		return acp.InitializeResult{}, mapSandboxErr(err)
+		return acp.InitializeResult{}, err
 	}
-	stdin, stdout := proc.StdinWriter(), proc.StdoutReader()
-	if stdin == nil || stdout == nil {
-		_ = proc.Kill()
-		_ = proc.Wait()
-		return acp.InitializeResult{}, fmt.Errorf("%w: StartPiped missing stdio pipes", ErrProcessFailed)
-	}
+	proc, stdin, stdout := started.Proc, started.Stdin, started.Stdout
 	conn := acp.NewConn(&stdioPipe{r: stdout, w: stdin}, &acpConnHandler{rt: &acpRuntime{hooks: acpRuntimeHooks{Type: AgentTypeOpenCode}}})
 	serveCtx, cancelServe := context.WithCancel(context.Background())
 	serveDone := make(chan struct{})
