@@ -118,6 +118,7 @@
   "tasks.claim",
   "tasks.comment.add",
   "tasks.comment.list",
+  "tasks.comment.get",
   "tasks.create",
   "tasks.createFromPlan",
   "tasks.get",

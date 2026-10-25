@@ -2,9 +2,13 @@ package mcp
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"devkit/internal/identity"
 	"devkit/internal/storage"
@@ -20,6 +24,98 @@ import (
 type fakeTaskScope struct {
 	sessionWorkspaces map[string][]string
 	workspaces        map[string]bool // workspace IDs that exist
+}
+
+func TestTasksCommentListPagingAndGet(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+	if err := storage.Migrate(t.Context(), db); err != nil {
+		t.Fatal(err)
+	}
+	v := vault.NewService(vault.NewMemoryKeyringStore())
+	if _, err := v.Setup("correct-horse"); err != nil {
+		t.Fatal(err)
+	}
+	tasksSvc := tasks.NewService(vaultitem.NewStore(vaultitem.NewMemoryRepository(), v))
+	board, err := tasksSvc.CreateBoard("Comments", "CM", "blue", tasks.DefaultWorkflow())
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := tasksSvc.Create(tasks.Caller{}, tasks.CreateInput{BoardID: board.ID, Title: "Paging"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := NewServer(Deps{Caller: &fakeCaller{}, Notes: &fakeNotes{}, Vault: &fakeVault{state: vault.StateUnlocked}, Search: &fakeSearch{}, Tools: fakeTools{}, Envs: &fakeEnvs{}, Tasks: tasksSvc})
+	ctx := context.Background()
+	ids := make([]string, 0, 205)
+	for i := 0; i < 205; i++ {
+		body := fmt.Sprintf("comment-%02d", i)
+		c, err := tasksSvc.AddComment(tasks.Caller{}, task.ID, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, c.ID)
+	}
+	call := func(in taskCommentListInput) map[string]any {
+		t.Helper()
+		_, v, err := srv.toolTasksCommentList(ctx, &sdk.CallToolRequest{}, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v.(map[string]any)
+	}
+	first := call(taskCommentListInput{TaskID: task.ID, Limit: 50})
+	rows := first["comments"].([]compactTaskComment)
+	if len(rows) != 50 || rows[0].ID != ids[204] || first["nextBeforeId"] != ids[155] {
+		t.Fatalf("first page shape/order: rows=%d first=%s cursor=%v", len(rows), rows[0].ID, first["nextBeforeId"])
+	}
+	second := call(taskCommentListInput{TaskID: task.ID, Limit: 50, BeforeID: first["nextBeforeId"].(string)})
+	rows2 := second["comments"].([]compactTaskComment)
+	if len(rows2) != 50 || rows2[0].ID != ids[154] || rows2[49].ID != ids[105] || rows2[0].ID == rows[49].ID {
+		t.Fatalf("second page: %#v", second)
+	}
+	last := call(taskCommentListInput{TaskID: task.ID, Limit: 50, BeforeID: second["nextBeforeId"].(string)})
+	if len(last["comments"].([]compactTaskComment)) != 50 || last["nextBeforeId"] == "" {
+		t.Fatal("third page should continue")
+	}
+	final := call(taskCommentListInput{TaskID: task.ID, Limit: 50, BeforeID: last["nextBeforeId"].(string)})
+	if len(final["comments"].([]compactTaskComment)) != 50 || final["nextBeforeId"] == "" {
+		t.Fatal("fourth page should continue")
+	}
+	end := call(taskCommentListInput{TaskID: task.ID, Limit: 50, BeforeID: final["nextBeforeId"].(string)})
+	if len(end["comments"].([]compactTaskComment)) != 5 || end["nextBeforeId"] != "" {
+		t.Fatal("last page cursor should be empty")
+	}
+	clamped := call(taskCommentListInput{TaskID: task.ID, Limit: 999})
+	if len(clamped["comments"].([]compactTaskComment)) != 200 {
+		t.Fatal("limit clamp should allow 200 comments")
+	}
+	if _, _, err := srv.toolTasksCommentList(ctx, &sdk.CallToolRequest{}, taskCommentListInput{TaskID: task.ID, BeforeID: "missing"}); !errors.Is(err, tasks.ErrNotFound) {
+		t.Fatalf("unknown cursor err=%v", err)
+	}
+	long := strings.Repeat("a", 2047) + "é" + strings.Repeat("b", 20)
+	longComment, err := tasksSvc.AddComment(tasks.Caller{}, task.ID, long)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := call(taskCommentListInput{TaskID: task.ID, Limit: 1})["comments"].([]compactTaskComment)[0]
+	if p.ID != longComment.ID || !p.BodyTruncated || !utf8.ValidString(p.Body) {
+		t.Fatalf("bad multibyte preview: truncated=%v valid=%v", p.BodyTruncated, utf8.ValidString(p.Body))
+	}
+	_, full, err := srv.toolTasksCommentGet(ctx, &sdk.CallToolRequest{}, taskCommentGetInput{TaskID: task.ID, CommentID: longComment.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if full.(tasks.Comment).Body != long {
+		t.Fatal("comment.get did not return full body")
+	}
+	if _, _, err := srv.toolTasksCommentGet(ctx, &sdk.CallToolRequest{}, taskCommentGetInput{TaskID: task.ID, CommentID: "missing"}); !errors.Is(err, tasks.ErrNotFound) {
+		t.Fatalf("unknown comment err=%v", err)
+	}
 }
 
 func (f *fakeTaskScope) ServicePath(workspaceID, service string) (string, bool) {
