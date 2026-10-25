@@ -91,7 +91,7 @@ func TestSessionTempReachesEveryVendorAfterOverrides(t *testing.T) {
 	t.Setenv("TMPDIR", hostTemp)
 	t.Setenv("GOTMPDIR", hostGoTemp)
 	shared := false
-	spec := OpenSpec{PrivateHome: &shared, SessionTempDir: "/private/tmp/dk-12345678", ExtraEnv: map[string]string{"TMPDIR": "/override/tmp", "GOTMPDIR": "/override/go"}}
+	spec := OpenSpec{PrivateHome: &shared, SessionTempDir: "/private/tmp/dk-12345678", ExtraEnv: map[string]string{"TMPDIR": "/override/tmp", "GOTMPDIR": "/override/go", "CLAUDE_CODE_TMPDIR": "/override/claude"}}
 	claude, _ := sandboxFor(t.TempDir(), launch{}, spec)
 	for vendor, env := range map[string]map[string]string{
 		"claude":   claude.Env,
@@ -104,6 +104,15 @@ func TestSessionTempReachesEveryVendorAfterOverrides(t *testing.T) {
 	}
 	if claude.SessionTempDir != spec.SessionTempDir {
 		t.Fatal("session temp missing from policy")
+	}
+	// Claude Code ignores TMPDIR and falls back to a literal /tmp, which the
+	// jail does not grant a session that has its own directory.
+	if claude.Env["CLAUDE_CODE_TMPDIR"] != spec.SessionTempDir {
+		t.Fatalf("CLAUDE_CODE_TMPDIR = %q, want the session temp directory", claude.Env["CLAUDE_CODE_TMPDIR"])
+	}
+	noTemp, _ := sandboxFor(t.TempDir(), launch{}, OpenSpec{PrivateHome: &shared})
+	if _, ok := noTemp.Env["CLAUDE_CODE_TMPDIR"]; ok {
+		t.Fatal("without a session temp directory Claude keeps its default")
 	}
 }
 
