@@ -10,7 +10,6 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"devkit/internal/acp"
@@ -87,12 +86,8 @@ var (
 type ClaudeAdapter struct {
 	opts ClaudeOptions
 
-	// The last AuthMethods probe, keyed by the launch it ran: sign-in lists
-	// the methods and then starts one, and a second node start in between buys
-	// nothing. A new install or version changes the key.
-	authMu      sync.Mutex
-	authKey     string
-	authMethods []AuthMethod
+	// The last AuthMethods probe (see authMethodCache).
+	auth authMethodCache
 
 	// cliTimeout and cliGrace override claudeCLITimeout / claudeCLIExitGrace (tests).
 	cliTimeout time.Duration
@@ -639,7 +634,7 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, plan openPlan) 
 	if err != nil {
 		return nil, err
 	}
-	proc, stdin, stdout := started.Proc, started.Stdin, started.Stdout
+	proc := started.Proc
 	// Confirms the jail actually exec'd the agent, not just that bwrap itself
 	// forked — a "starting" that never leaves that state and never logs
 	// anything else again is otherwise indistinguishable from bwrap silently
@@ -647,7 +642,6 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, plan openPlan) 
 	log.Printf("agenthub: claude: sandboxed process started, pid=%d", proc.PID())
 	owned = false
 
-	rw := &stdioPipe{r: stdout, w: stdin}
 	rt := &acpRuntime{
 		hooks:       acpRuntimeHooks{Type: AgentTypeClaude, PromptFailure: claudePromptFailure},
 		environment: captureEnvironment(AgentTypeClaude, spec, pol.Env, cmd.Path, ""),
@@ -655,111 +649,20 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, plan openPlan) 
 		cwd:         pol.WorkDir,
 		killer:      &procKiller{proc: proc},
 	}
-	handler := &acpConnHandler{rt: rt, onUnknownMethod: a.opts.OnUnknownMethod}
-	conn := acp.NewConn(rw, handler)
-	rt.conn = conn
+	hs := startACPHandshake(ctx, AgentTypeClaude, rt, started, a.opts.OnUnknownMethod, l.releaseLease)
+	defer hs.end()
 
-	serveCtx, cancelServe := context.WithCancel(context.Background())
-	rt.cancelServe = cancelServe
-	rt.serveDone = make(chan struct{})
-	go func() {
-		defer close(rt.serveDone)
-		serveErr := conn.Serve(serveCtx)
-		_ = conn.Close()
-		_ = proc.Kill()
-		_ = proc.Wait()
-		l.releaseLease()
-		rt.noteServeExit(serveErr)
-	}()
-
-	cleanup := func() {
-		cancelServe()
-		_ = conn.Close()
-		_ = proc.Kill()
-		<-rt.serveDone
+	initRes, err := hs.initialize(devkitClientCapabilities(a.fileChangeReports()))
+	if err != nil {
+		return nil, err
 	}
 
-	// The handshake must not be able to outlive the process it is talking to.
-	//
-	// acp.Conn.Call blocks in a select on ctx.Done() and the response channel.
-	// The caller's ctx has no deadline here (Open deliberately detaches the
-	// process from the request that started it), so a vendor that dies without
-	// closing stdout left both calls below parked forever: no error, no log,
-	// nothing for the UI to render but a spinner. Every ErrProcessFailed branch
-	// in this function was unreachable in exactly the case it was written for.
-	//
-	// serveDone closes when conn.Serve returns, which is what process death and
-	// pipe EOF both look like from here, so it is the real signal. The timeout
-	// is only a backstop for a process that is alive but never answers.
-	hsCtx, cancelHandshake := context.WithTimeout(ctx, handshakeTimeout)
-	defer cancelHandshake()
-	go func() {
-		select {
-		case <-rt.serveDone:
-			cancelHandshake()
-		case <-hsCtx.Done():
-		}
-	}()
-	// Reports what actually went wrong: a cancelled handshake reads as a
-	// context error, which says nothing about the process having exited.
-	handshakeErr := func(stage string, err error) error {
-		// A signed-out agent answers session/new or session/load with an error
-		// and stays alive; that is a sign-in to offer, not a crash.
-		if isAuthRequired(err) {
-			return vendorError(AgentTypeClaude, fmt.Errorf("%w: %s: %v", ErrAgentAuthRequired, stage, err))
-		}
-		// A grace period rather than a peek. A vendor that died mid-handshake
-		// fails this call two ways at once — the write hits a closed pipe, and
-		// the serve loop notices EOF — and which arrives first is a race the
-		// scheduler decides. Checking serveDone instantaneously lost that race
-		// often enough to report "write |1: broken pipe", which tells the user
-		// nothing about their agent binary having exited. The two are the same
-		// event microseconds apart, so waiting briefly for the one that can
-		// explain itself costs nothing on a path that has already failed.
-		select {
-		case <-rt.serveDone:
-			reason := stderrReason(proc)
-			logStderrTail("claude "+stage, proc)
-			return fmt.Errorf("%w: %s: agent process exited during handshake%s", ErrProcessFailed, stage, reason)
-		case <-time.After(serveExitGrace):
-			// The process is still alive: this is handshakeTimeout firing on a
-			// vendor that started but never answered, or a failure that is
-			// genuinely not about the process at all. Whatever it wrote to
-			// stderr before going silent — a keyring/D-Bus error, a missing
-			// path inside the jail — is otherwise lost the moment cleanup()
-			// kills it below, and "starting" forever with no further log line
-			// is exactly what that loss looks like from the outside.
-			logStderrTail("claude "+stage+" (still running, "+err.Error()+")", proc)
-			return fmt.Errorf("%w: %s: %v", ErrProcessFailed, stage, err)
-		}
-	}
-
-	var initRes acp.InitializeResult
-	if err := conn.Call(hsCtx, "initialize", acp.InitializeRequest{
-		ProtocolVersion:    1,
-		ClientCapabilities: devkitClientCapabilities(a.fileChangeReports()),
-		ClientInfo:         map[string]any{"name": "devkit", "version": "0.0.0"},
-	}, &initRes); err != nil {
-		herr := handshakeErr("initialize", err)
-		cleanup()
-		return nil, herr
-	}
-
-	rt.steering, rt.goalControl = parseAgentExtensions(initRes.Meta)
-
-	// Non-nil even with no endpoints: mcpServers is a required field.
-	mcpServers := make([]any, 0, len(spec.McpServers))
-	for _, srv := range spec.McpServers {
-		if srv.Env == nil {
-			srv.Env = []acp.EnvVariable{} // schema requires env; nil would serialise as null
-		}
-		mcpServers = append(mcpServers, srv)
-	}
+	mcpServers := acpMCPServers(spec.McpServers)
 	for _, server := range customization.Servers {
 		if server.Enabled && server.URL != "" {
 			caps, _ := initRes.AgentCapabilities["mcpCapabilities"].(map[string]any)
 			if supported, _ := caps["http"].(bool); !supported {
-				cleanup()
+				hs.abort()
 				return nil, invalidCustomization("This Claude runtime does not support HTTP MCP servers. Update the runtime or use a stdio server.")
 			}
 		}
@@ -769,81 +672,40 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, plan openPlan) 
 
 	if plan.forkFrom != "" {
 		var forkRes acp.SessionForkResult
-		if err := conn.Call(hsCtx, "session/fork", acp.SessionForkRequest{
+		if err := hs.conn.Call(hs.ctx, "session/fork", acp.SessionForkRequest{
 			SessionID:  plan.forkFrom,
 			Cwd:        pol.WorkDir,
 			McpServers: mcpServers,
 			Meta:       withForkMeta(meta, plan.forkAt),
 		}, &forkRes); err != nil {
-			herr := handshakeErr("session/fork", err)
-			cleanup()
-			return nil, herr
+			return nil, hs.fail("session/fork", err)
 		}
 		if forkRes.SessionID == "" || forkRes.SessionID == plan.forkFrom {
 			// A vendor that answered with the source id has not branched
 			// anything, and loading it would attach this session to the
 			// conversation the rewind is trying to leave behind.
-			cleanup()
+			hs.abort()
 			return nil, fmt.Errorf("%w: session/fork returned %q", ErrProcessFailed, forkRes.SessionID)
 		}
 		resume = forkRes.SessionID
 	}
 
-	if resume != "" {
-		var loadRes acp.SessionLoadResult
-		if err := conn.Call(hsCtx, "session/load", acp.SessionLoadRequest{
-			SessionID:  resume,
-			Cwd:        pol.WorkDir,
-			McpServers: mcpServers,
-			Meta:       meta,
-		}, &loadRes); err != nil {
-			// Judged before cleanup: cleanup kills the process, after which every
-			// failure read as "exited during handshake" — including an error the
-			// agent answered with while it was still running.
-			herr := handshakeErr("session/load", err)
-			cleanup()
-			return nil, herr
-		}
-		// The id is ours to begin with, so a vendor that echoes a different one
-		// has resumed something else; better to fail than to attach a session
-		// to the wrong conversation.
-		if loadRes.SessionID != "" && loadRes.SessionID != resume {
-			cleanup()
-			return nil, fmt.Errorf("%w: session/load returned %q, asked for %q",
-				ErrProcessFailed, loadRes.SessionID, resume)
-		}
-		rt.mu.Lock()
-		rt.acpSessionID = resume
-		rt.modes = loadRes.Modes
-		rt.mu.Unlock()
-		rt.setHandshakeOptions(loadRes.ConfigOptions)
-		return rt, nil
+	answer, err := hs.session(acpSessionRequest{Resume: resume, Cwd: pol.WorkDir, McpServers: mcpServers, Meta: meta})
+	if err != nil {
+		return nil, err
 	}
-
-	var newRes acp.SessionNewResult
-	if err := conn.Call(hsCtx, "session/new", acp.SessionNewRequest{
-		Cwd:        pol.WorkDir,
-		McpServers: mcpServers,
-		Meta:       meta,
-	}, &newRes); err != nil {
-		herr := handshakeErr("session/new", err)
-		cleanup()
-		return nil, herr
+	if resume == "" {
+		// The handshake is the half of "starting" DevKit can see. Without this
+		// line, a UI still showing "Starting" is unreadable: a session that never
+		// opened and one that opened and is waiting on its first prompt reply
+		// look identical in the log.
+		log.Printf("agenthub: claude: session ready (acp session %s)", answer.ID)
 	}
-	if newRes.SessionID == "" {
-		cleanup()
-		return nil, fmt.Errorf("%w: empty sessionId from session/new", ErrProcessFailed)
-	}
-	// The handshake is the half of "starting" DevKit can see. Without this
-	// line, a UI still showing "Starting" is unreadable: a session that never
-	// opened and one that opened and is waiting on its first prompt reply
-	// look identical in the log.
-	log.Printf("agenthub: claude: session ready (acp session %s)", newRes.SessionID)
 	rt.mu.Lock()
-	rt.acpSessionID = newRes.SessionID
-	rt.modes = newRes.Modes
+	rt.acpSessionID = answer.ID
+	rt.modes = answer.Modes
 	rt.mu.Unlock()
-	rt.setHandshakeOptions(newRes.ConfigOptions)
+	rt.setHandshakeOptions(answer.Options)
 	return rt, nil
 }
 
@@ -961,20 +823,7 @@ func (a *ClaudeAdapter) signInCommand(ctx context.Context, methodID, home string
 }
 
 func (a *ClaudeAdapter) authMethodsFor(ctx context.Context, l launch) ([]AuthMethod, error) {
-	key := l.path + "\x00" + strings.Join(l.args, "\x00")
-	// Held across the probe on purpose: two callers asking at once should
-	// start one node, not two.
-	a.authMu.Lock()
-	defer a.authMu.Unlock()
-	if a.authKey == key && a.authMethods != nil {
-		return a.authMethods, nil
-	}
-	res, err := a.initialize(ctx, l)
-	if err != nil {
-		return nil, err
-	}
-	a.authKey, a.authMethods = key, resolveAuthMethods(res.AuthMethods, l)
-	return a.authMethods, nil
+	return a.auth.methodsFor(l, func() (acp.InitializeResult, error) { return a.initialize(ctx, l) })
 }
 
 // initialize starts l under the probe jail, sends ACP initialize and stops it.
@@ -993,53 +842,7 @@ func (a *ClaudeAdapter) initialize(ctx context.Context, l launch) (acp.Initializ
 	if err != nil {
 		return acp.InitializeResult{}, err
 	}
-	proc, stdin, stdout := started.Proc, started.Stdin, started.Stdout
-
-	conn := acp.NewConn(&stdioPipe{r: stdout, w: stdin}, &acpConnHandler{rt: &acpRuntime{}})
-	serveCtx, cancelServe := context.WithCancel(context.Background())
-	serveDone := make(chan struct{})
-	go func() {
-		defer close(serveDone)
-		_ = conn.Serve(serveCtx)
-	}()
-	defer func() {
-		cancelServe()
-		_ = conn.Close()
-		_ = proc.Kill()
-		<-serveDone
-		_ = proc.Wait()
-	}()
-
-	// Same shape as open's handshake: the process exiting ends the wait at
-	// once, the timeout is only for one that runs and never answers.
-	callCtx, cancelCall := context.WithTimeout(ctx, probeTimeout)
-	defer cancelCall()
-	go func() {
-		select {
-		case <-serveDone:
-			cancelCall()
-		case <-callCtx.Done():
-		}
-	}()
-
-	var res acp.InitializeResult
-	err = conn.Call(callCtx, "initialize", acp.InitializeRequest{
-		ProtocolVersion:    1,
-		ClientCapabilities: devkitClientCapabilities(a.fileChangeReports()),
-		ClientInfo:         map[string]any{"name": "devkit", "version": "0.0.0"},
-	}, &res)
-	if err == nil {
-		return res, nil
-	}
-	if ctx.Err() != nil {
-		return acp.InitializeResult{}, ctx.Err()
-	}
-	select {
-	case <-serveDone:
-		return acp.InitializeResult{}, fmt.Errorf("%w: the agent exited before answering initialize%s", ErrProcessFailed, stderrReason(proc))
-	default:
-		return acp.InitializeResult{}, fmt.Errorf("%w: initialize: %v", ErrProcessFailed, err)
-	}
+	return probeACP(ctx, AgentTypeClaude, started, devkitClientCapabilities(a.fileChangeReports()))
 }
 
 // acpAuthRequiredCode is RequestError.authRequired() in the ACP SDK: what a

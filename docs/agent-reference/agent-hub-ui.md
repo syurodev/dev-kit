@@ -37,6 +37,15 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   `adapter_claude.go` holds only what Claude adds (jail and `_meta`, `_claude/*`, customization). A vendor adapter
   sets `acpRuntimeHooks{Type, PermissionBefore, PermissionAfter}`; the zero value is Claude. Anything a vendor alone
   needs belongs in its adapter, not here and not behind a new `if` in the runtime.
+- **The ACP handshake is shared too** (`internal/agenthub/acp_handshake.go`, B4). `startACPHandshake` wires the
+  launched process to an `acpRuntime`, bounds the handshake by the process's life and explains a failed call
+  (`fail`/`explain`: auth required, exited during handshake, still running); `initialize`, `acpMCPServers` and
+  `session` (`session/new`, or `session/load`/`session/resume` with the id-mismatch check) are the calls both
+  adapters make; `probeACP` is the probe `initialize`; `authMethodCache` (`auth.go`) is the `AuthMethods` cache.
+  Claude keeps `session/fork`, its `_meta` and customization; opencode keeps its load method choice and extra
+  directories. Which of Open and Load to call, and restoring model, effort and mode afterwards, live once in
+  `Service.resumeRuntime`; stop classification is `StopFromError` plus `StopHint`. Codex speaks its own protocol
+  and keeps its own handshake.
 
 - **Adapter conformance** (`internal/agenthub/conformance_test.go`) runs shared lifecycle and turn cases against the mock and scripted vendor wires. When adding a vendor, reuse its adapter fake, add a `VendorQuirks` entry and `TestConformance_<Vendor>` wrapper, then run `CGO_ENABLED=0 GOFLAGS='-buildvcs=false -tags=server' go test ./internal/agenthub/ -run Conformance -count=2`. Capability flags must name vendor limitations with a concrete reason; do not disable a case because its harness is incomplete. Codex and opencode live checks are opt-in with `DEVKIT_CODEX_COMMAND` and `DEVKIT_OPENCODE_COMMAND`.
 

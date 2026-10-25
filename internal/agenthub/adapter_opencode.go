@@ -109,9 +109,7 @@ type OpenCodeAdapter struct {
 	// not reset it under each other.
 	homeMu sync.Mutex
 
-	authMu      sync.Mutex
-	authKey     string
-	authMethods []AuthMethod
+	auth authMethodCache
 }
 
 // NewOpenCodeAdapter returns the opencode adapter. Every process it starts goes
@@ -507,7 +505,7 @@ func (a *OpenCodeAdapter) open(ctx context.Context, spec OpenSpec, resume string
 	if err != nil {
 		return nil, err
 	}
-	proc, stdin, stdout := started.Proc, started.Stdin, started.Stdout
+	proc := started.Proc
 	owned = false
 
 	base := &acpRuntime{
@@ -520,116 +518,35 @@ func (a *OpenCodeAdapter) open(ctx context.Context, spec OpenSpec, resume string
 	rt := &openCodeRuntime{acpRuntime: base, mode: openCodeModeAsk}
 	base.hooks.PermissionBefore = rt.permissionBeforeAsk
 	base.hooks.PermissionAfter = openCodeNeverAlways
-	conn := acp.NewConn(&stdioPipe{r: stdout, w: stdin}, &acpConnHandler{rt: base, onUnknownMethod: a.opts.OnUnknownMethod})
-	base.conn = conn
+	hs := startACPHandshake(ctx, AgentTypeOpenCode, base, started, a.opts.OnUnknownMethod, l.releaseLease)
+	defer hs.end()
 
-	serveCtx, cancelServe := context.WithCancel(context.Background())
-	base.cancelServe = cancelServe
-	base.serveDone = make(chan struct{})
-	go func() {
-		defer close(base.serveDone)
-		serveErr := conn.Serve(serveCtx)
-		_ = conn.Close()
-		_ = proc.Kill()
-		_ = proc.Wait()
-		l.releaseLease()
-		base.noteServeExit(serveErr)
-	}()
-	cleanup := func() {
-		cancelServe()
-		_ = conn.Close()
-		_ = proc.Kill()
-		<-base.serveDone
+	initRes, err := hs.initialize(openCodeClientCapabilities())
+	if err != nil {
+		return nil, err
 	}
 
-	// The handshake must not outlive the process it talks to (see Claude's open).
-	hsCtx, cancelHandshake := context.WithTimeout(ctx, handshakeTimeout)
-	defer cancelHandshake()
-	go func() {
-		select {
-		case <-base.serveDone:
-			cancelHandshake()
-		case <-hsCtx.Done():
-		}
-	}()
-	handshakeErr := func(stage string, err error) error {
-		if isAuthRequired(err) {
-			return vendorError(AgentTypeOpenCode, fmt.Errorf("%w: %s: %v", ErrAgentAuthRequired, stage, err))
-		}
-		select {
-		case <-base.serveDone:
-			reason := stderrReason(proc)
-			logStderrTail("opencode "+stage, proc)
-			return fmt.Errorf("%w: %s: agent process exited during handshake%s", ErrProcessFailed, stage, reason)
-		case <-time.After(serveExitGrace):
-			logStderrTail("opencode "+stage+" (still running, "+err.Error()+")", proc)
-			return fmt.Errorf("%w: %s: %v", ErrProcessFailed, stage, err)
-		}
-	}
-
-	var initRes acp.InitializeResult
-	if err := conn.Call(hsCtx, "initialize", acp.InitializeRequest{
-		ProtocolVersion:    1,
-		ClientCapabilities: openCodeClientCapabilities(),
-		ClientInfo:         map[string]any{"name": "devkit", "version": "0.0.0"},
-	}, &initRes); err != nil {
-		herr := handshakeErr("initialize", err)
-		cleanup()
-		return nil, herr
-	}
-	base.steering, base.goalControl = parseAgentExtensions(initRes.Meta)
-
-	mcpServers := make([]any, 0, len(spec.McpServers))
-	for _, srv := range spec.McpServers {
-		if srv.Env == nil {
-			srv.Env = []acp.EnvVariable{} // schema requires env; nil would serialise as null
-		}
-		mcpServers = append(mcpServers, srv)
-	}
+	mcpServers := acpMCPServers(spec.McpServers)
 	dirs := []string(nil)
 	if openCodeHas(initRes.AgentCapabilities, "sessionCapabilities", "additionalDirectories") {
 		dirs = openCodeDirs(spec, pol.WorkDir)
 	}
 
-	var options json.RawMessage
-	if resume != "" {
-		method := "session/load"
-		if openCodeHas(initRes.AgentCapabilities, "sessionCapabilities", "resume") {
-			method = "session/resume"
-		}
-		var loadRes acp.SessionLoadResult
-		if err := conn.Call(hsCtx, method, acp.SessionLoadRequest{
-			SessionID: resume, Cwd: pol.WorkDir, McpServers: mcpServers, AdditionalDirectories: dirs,
-		}, &loadRes); err != nil {
-			herr := handshakeErr(method, err)
-			cleanup()
-			return nil, herr
-		}
-		if loadRes.SessionID != "" && loadRes.SessionID != resume {
-			cleanup()
-			return nil, fmt.Errorf("%w: %s returned %q, asked for %q", ErrProcessFailed, method, loadRes.SessionID, resume)
-		}
-		log.Printf("agenthub: opencode: session resumed (acp session %s)", resume)
-		base.acpSessionID = resume
-		options = loadRes.ConfigOptions
-	} else {
-		var newRes acp.SessionNewResult
-		if err := conn.Call(hsCtx, "session/new", acp.SessionNewRequest{
-			Cwd: pol.WorkDir, McpServers: mcpServers, AdditionalDirectories: dirs,
-		}, &newRes); err != nil {
-			herr := handshakeErr("session/new", err)
-			cleanup()
-			return nil, herr
-		}
-		if newRes.SessionID == "" {
-			cleanup()
-			return nil, fmt.Errorf("%w: empty sessionId from session/new", ErrProcessFailed)
-		}
-		log.Printf("agenthub: opencode: session ready (acp session %s)", newRes.SessionID)
-		base.acpSessionID = newRes.SessionID
-		options = newRes.ConfigOptions
+	request := acpSessionRequest{Resume: resume, Cwd: pol.WorkDir, McpServers: mcpServers, AdditionalDirectories: dirs}
+	if resume != "" && openCodeHas(initRes.AgentCapabilities, "sessionCapabilities", "resume") {
+		request.LoadMethod = "session/resume"
 	}
-	base.setHandshakeOptions(openCodeOptionsJSON(options))
+	answer, err := hs.session(request)
+	if err != nil {
+		return nil, err
+	}
+	if resume != "" {
+		log.Printf("agenthub: opencode: session resumed (acp session %s)", resume)
+	} else {
+		log.Printf("agenthub: opencode: session ready (acp session %s)", answer.ID)
+	}
+	base.acpSessionID = answer.ID
+	base.setHandshakeOptions(openCodeOptionsJSON(answer.Options))
 	if len(mcpServers) > 0 {
 		rt.readyAt = time.Now().Add(openCodeMCPSettle)
 	}
@@ -928,48 +845,7 @@ func (a *OpenCodeAdapter) initialize(ctx context.Context, l launch) (acp.Initial
 	if err != nil {
 		return acp.InitializeResult{}, err
 	}
-	proc, stdin, stdout := started.Proc, started.Stdin, started.Stdout
-	conn := acp.NewConn(&stdioPipe{r: stdout, w: stdin}, &acpConnHandler{rt: &acpRuntime{hooks: acpRuntimeHooks{Type: AgentTypeOpenCode}}})
-	serveCtx, cancelServe := context.WithCancel(context.Background())
-	serveDone := make(chan struct{})
-	go func() {
-		defer close(serveDone)
-		_ = conn.Serve(serveCtx)
-	}()
-	defer func() {
-		cancelServe()
-		_ = conn.Close()
-		_ = proc.Kill()
-		<-serveDone
-		_ = proc.Wait()
-	}()
-	callCtx, cancelCall := context.WithTimeout(ctx, probeTimeout)
-	defer cancelCall()
-	go func() {
-		select {
-		case <-serveDone:
-			cancelCall()
-		case <-callCtx.Done():
-		}
-	}()
-	var res acp.InitializeResult
-	err = conn.Call(callCtx, "initialize", acp.InitializeRequest{
-		ProtocolVersion:    1,
-		ClientCapabilities: openCodeClientCapabilities(),
-		ClientInfo:         map[string]any{"name": "devkit", "version": "0.0.0"},
-	}, &res)
-	if err == nil {
-		return res, nil
-	}
-	if ctx.Err() != nil {
-		return acp.InitializeResult{}, ctx.Err()
-	}
-	select {
-	case <-serveDone:
-		return acp.InitializeResult{}, fmt.Errorf("%w: the agent exited before answering initialize%s", ErrProcessFailed, stderrReason(proc))
-	default:
-		return acp.InitializeResult{}, fmt.Errorf("%w: initialize: %v", ErrProcessFailed, err)
-	}
+	return probeACP(ctx, AgentTypeOpenCode, started, openCodeClientCapabilities())
 }
 
 // AuthMethods lists the terminal sign-ins opencode offers. opencode has one,
@@ -1024,18 +900,7 @@ func (a *OpenCodeAdapter) SignInCommand(ctx context.Context, methodID string) (S
 }
 
 func (a *OpenCodeAdapter) authMethodsFor(ctx context.Context, l launch) ([]AuthMethod, error) {
-	key := l.path + "\x00" + strings.Join(l.args, "\x00")
-	a.authMu.Lock()
-	defer a.authMu.Unlock()
-	if a.authKey == key && a.authMethods != nil {
-		return a.authMethods, nil
-	}
-	res, err := a.initialize(ctx, l)
-	if err != nil {
-		return nil, err
-	}
-	a.authKey, a.authMethods = key, resolveAuthMethods(res.AuthMethods, l)
-	return a.authMethods, nil
+	return a.auth.methodsFor(l, func() (acp.InitializeResult, error) { return a.initialize(ctx, l) })
 }
 
 // ConfigCatalog reads the model and effort choices before there is a
