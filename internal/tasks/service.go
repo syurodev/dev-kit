@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -48,15 +49,23 @@ type SessionLiveness interface {
 	Alive(sessionID string) bool
 }
 
+// TerminalPolicy is an optional, task-owned decision point for terminal
+// transitions. It runs before the existing verify/confirmation gate.
+type TerminalPolicy interface {
+	CheckTerminal(ctx context.Context, caller Caller, task Task, targetStatus string) error
+}
+
 // Service is the module.
 type Service struct {
 	// dependencyMu serializes expected-state replacements within this process;
 	// the local SQLite store is single-process.
-	dependencyMu sync.Mutex
-	items        ItemStore
-	live         SessionLiveness
-	gate         *verifyGate
-	now          func() time.Time
+	dependencyMu     sync.Mutex
+	terminalPolicyMu sync.RWMutex
+	items            ItemStore
+	live             SessionLiveness
+	gate             *verifyGate
+	terminalPolicy   TerminalPolicy
+	now              func() time.Time
 
 	// scope and binds decide which boards an agent sees. Both nil is the
 	// behaviour from before bindings: every board, to everyone. See binding.go.
@@ -95,6 +104,46 @@ func (s *Service) SetGate(g *verifyGate) {
 	if g != nil {
 		g.svc = s
 	}
+}
+
+// SetTerminalPolicy wires additional managed-work rules for terminal changes.
+// Nil preserves the existing close-gate behavior.
+func (s *Service) SetTerminalPolicy(policy TerminalPolicy) {
+	s.terminalPolicyMu.Lock()
+	s.terminalPolicy = policy
+	s.terminalPolicyMu.Unlock()
+}
+
+// HasTerminalPolicy reports whether the exact policy instance installed by
+// the composition root is still present. Feature enablement can use this to
+// fail closed if another wiring path replaces its guard.
+func (s *Service) HasTerminalPolicy(policy TerminalPolicy) bool {
+	if s == nil || policy == nil {
+		return false
+	}
+	current := s.terminalPolicySnapshot()
+	if current == nil || reflect.TypeOf(current) != reflect.TypeOf(policy) {
+		return false
+	}
+	t := reflect.TypeOf(current)
+	if !t.Comparable() {
+		return false
+	}
+	currentValue, policyValue := reflect.ValueOf(current), reflect.ValueOf(policy)
+	if (currentValue.Kind() == reflect.Pointer && currentValue.IsNil()) || (policyValue.Kind() == reflect.Pointer && policyValue.IsNil()) {
+		return false
+	}
+	return currentValue.Interface() == policyValue.Interface()
+}
+
+func (s *Service) terminalPolicySnapshot() TerminalPolicy {
+	if s == nil {
+		return nil
+	}
+	s.terminalPolicyMu.RLock()
+	policy := s.terminalPolicy
+	s.terminalPolicyMu.RUnlock()
+	return policy
 }
 
 // Gate exposes the queue for the bridge (run history, cancel, recovery).

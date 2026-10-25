@@ -1592,7 +1592,39 @@ CREATE TABLE IF NOT EXISTS workspace_memory_revisions (
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38, m39, m40, m41, m42, m43, m44, m45, m46, m47, m48, m49})
+	// m50 adds versioned, board-bound lifecycle metadata and durable tombstones.
+	m50 := Migration{
+		Version: 50,
+		Name:    "managed work status maps and tombstones",
+		Up: func(ctx context.Context) error {
+			for _, col := range []struct{ table, name, definition string }{
+				{TableAgentWorkGroups, "schema_version", "INTEGER NOT NULL DEFAULT 1"},
+				{TableAgentWorkGroups, "status_map_json", "TEXT NOT NULL DEFAULT '{}'"},
+				{TableAgentWorkGroups, "ended_at", "TEXT"},
+				{TableAgentWorkGroups, "tombstone_reason", "TEXT NOT NULL DEFAULT ''"},
+				{TableAgentWorkItems, "host_status_id", "TEXT NOT NULL DEFAULT ''"},
+				{TableAgentWorkItems, "schema_version", "INTEGER NOT NULL DEFAULT 1"},
+				{TableAgentWorkItems, "ended_at", "TEXT"},
+				{TableAgentWorkItems, "tombstone_reason", "TEXT NOT NULL DEFAULT ''"},
+				{TableAgentWorkAttempts, "schema_version", "INTEGER NOT NULL DEFAULT 1"},
+			} {
+				if err := addColumnIfNotExists(ctx, db, col.table, col.name, col.definition); err != nil {
+					return err
+				}
+			}
+			// Existing m49 groups had no lifecycle map. Quarantine them until a
+			// human explicitly configures a real map and passes current host gates.
+			if _, err := db.ExecContext(ctx, `UPDATE agent_work_groups SET enabled=0,paused=1 WHERE status_map_json='{}'`); err != nil {
+				return err
+			}
+			if _, err := db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS agent_work_groups_page_idx ON agent_work_groups(ended_at, id)`); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38, m39, m40, m41, m42, m43, m44, m45, m46, m47, m48, m49, m50})
 	if err != nil {
 		return err
 	}

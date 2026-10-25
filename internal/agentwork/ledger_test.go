@@ -28,3 +28,19 @@ func TestManagedWorkScopeRequiresDistinctTaskAndParent(t *testing.T) {
 		}
 	}
 }
+
+func TestStatusMapUsesRealCategoriesAndAllowsOneActiveColumnForRunningAndReview(t *testing.T) {
+	statuses := []BoardStatus{{ID: "todo", Category: "open"}, {ID: "doing", Category: "active"}, {ID: "shipped", Category: "terminal"}, {ID: "wont_do", Category: "terminal", WontDo: true}}
+	if err := (StatusMap{Ready: "todo", Running: "doing", AwaitingReview: "doing", Accepted: "shipped"}).Validate(statuses); err != nil {
+		t.Fatalf("explicit one-active-column map rejected: %v", err)
+	}
+	for _, m := range []StatusMap{{Ready: "missing", Running: "doing", AwaitingReview: "doing", Accepted: "shipped"}, {Ready: "todo", Running: "todo", AwaitingReview: "doing", Accepted: "shipped"}, {Ready: "todo", Running: "doing", AwaitingReview: "doing", Accepted: "wont_do"}} {
+		if err := m.Validate(statuses); err == nil {
+			t.Errorf("invalid map accepted: %+v", m)
+		}
+	}
+	unknown := append(append([]BoardStatus{}, statuses...), BoardStatus{ID: "mystery", Category: "unknown"})
+	if err := (StatusMap{Ready: "todo", Running: "doing", AwaitingReview: "mystery", Accepted: "shipped"}).Validate(unknown); err == nil {
+		t.Fatal("unknown board status category accepted")
+	}
+}

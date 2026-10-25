@@ -81,7 +81,8 @@ const (
 	// A task move that lost its race: the card was moved somewhere else
 	// between being drawn and being dropped. Its own code because the board's
 	// answer is to show where the task is now, not to report a failure.
-	codeTaskStatusChanged = "task_status_changed"
+	codeTaskStatusChanged       = "task_status_changed"
+	codeManagedTerminalNotReady = "tasks.managedTerminalNotReady"
 	// The three states of an agent runtime the UI answers with an action of
 	// its own: offer the install, show what Node is missing, show the log.
 	codeAgentNotInstalled  = "agent_not_installed"
@@ -214,6 +215,8 @@ func publicError(subject string, err error) *apperrors.AppError {
 	// what a board said when two people moved the same card.
 	if subject == "builtin.tasks" {
 		switch {
+		case errors.Is(err, tasks.ErrManagedTerminalNotReady):
+			return apperrors.New(codeManagedTerminalNotReady, "This task belongs to managed work. Agent closure is waiting for the host's revision-bound acceptance checks; ask the person to review it.", true)
 		case errors.Is(err, tasks.ErrStatusChanged):
 			return apperrors.New(codeTaskStatusChanged, "This task was moved somewhere else in the meantime.", true)
 		case errors.Is(err, tasks.ErrDependenciesChanged):
@@ -750,14 +753,15 @@ func logPDFCause(subject string, existing *apperrors.AppError) {
 // fails for a code in internal/mcp that is neither here, mapped above, nor on
 // its explicit redacted-on-purpose list.
 var keptCodes = map[string]bool{
-	"pdf.notFound":            true,
-	"pdf.sessionDenied":       true,
-	"pdf.pageRange":           true,
-	"pdf.timeout":             true,
-	"pdf.unreadable":          true,
-	"memory.notFound":         true,
-	"memory.revisionConflict": true,
-	"memory.workspaceDenied":  true,
+	codeManagedTerminalNotReady: true,
+	"pdf.notFound":              true,
+	"pdf.sessionDenied":         true,
+	"pdf.pageRange":             true,
+	"pdf.timeout":               true,
+	"pdf.unreadable":            true,
+	"memory.notFound":           true,
+	"memory.revisionConflict":   true,
+	"memory.workspaceDenied":    true,
 	// internal/prwatch words these itself (account missing, token refused, the
 	// host's own message); a token is never part of any of them.
 	"pullrequests.attachFailed": true,

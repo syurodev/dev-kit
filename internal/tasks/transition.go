@@ -49,11 +49,24 @@ func (s *Service) Transition(ctx context.Context, caller Caller, in TransitionIn
 		return TransitionResult{}, ErrStatusChanged
 	}
 	category, _ := board.Workflow.CategoryOf(in.To)
-	if category == CategoryTerminal && caller.IsAgent() {
-		return s.closeThroughGate(ctx, caller, board, task, in.To)
+	if category == CategoryTerminal {
+		if err := s.checkTerminalPolicy(ctx, caller, task, in.To); err != nil {
+			return TransitionResult{}, err
+		}
+		if caller.IsAgent() {
+			return s.closeThroughGate(ctx, caller, board, task, in.To)
+		}
 	}
 	moved, err := s.applyTransition(task.ID, caller, in.To)
 	return TransitionResult{Task: moved}, err
+}
+
+func (s *Service) checkTerminalPolicy(ctx context.Context, caller Caller, task Task, targetStatus string) error {
+	policy := s.terminalPolicySnapshot()
+	if policy == nil {
+		return nil
+	}
+	return policy.CheckTerminal(ctx, caller, task, targetStatus)
 }
 
 // applyTransition writes the new status and appends to the bounded history.
