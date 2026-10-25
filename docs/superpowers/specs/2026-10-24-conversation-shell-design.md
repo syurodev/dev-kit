@@ -22,8 +22,8 @@ Proposed defaults requiring review:
 
 | Situation | Proposed behavior |
 | --- | --- |
-| Fresh window with no restored session | Show an empty conversation draft scoped to the selected workspace, with recent sessions/work groups available. Do not spawn a vendor or send a prompt. |
-| Restore existing window | Restore document groups and the last focused document by stable IDs. Restore drafts according to their existing privacy/lifecycle rules; never auto-send. |
+| Fresh window with no restored session | Show an empty conversation draft scoped to the selected workspace, with recent sessions/work groups available. Do not spawn a vendor or send a user-initiated prompt. |
+| Restore existing window | Restore document groups and the last focused document by stable IDs. Restore drafts according to their existing privacy/lifecycle rules; never auto-send user-initiated work. Already accepted peer-outbox messages may drain in the background after restore only after the current scope, user-queue, rate and hop checks pass. A dispatch whose outcome was ambiguous at crash time is never replayed. |
 | Open resource from conversation | Default to an inspector group beside it; focus the selected resource without closing the conversation. The user can choose Open in current group. |
 | Open another session | Use the session document helper and existing tab identity. Never reuse an inspector's entity ID as a session ID. |
 | Narrow window | Keep the same workbench documents; show the focused group with a visible route back to the conversation and other groups through shell navigation. Do not create a second responsive tab store. |
@@ -37,6 +37,10 @@ Proposed defaults requiring review:
 Extend the existing compile-time module registrations with a small owner contract for each supported entity kind. Prefer composing current intents and palette search before adding a second registry. A proposed capability record says whether the owner can resolve/open/attach/search that kind. Components, loaders and routes remain locally registered code; backend text cannot name a component to import.
 
 `EntityRef` stays the shared identity: owning module/kind/id plus workspace/folder/project qualifiers where needed. Labels are display hints, not identity. A resolved entity has a current label, availability and a stable document target; opening calls the owning module's `documents.ts` helper. The host rechecks permissions when an action reads/writes data. A navigation intent never grants resource access.
+
+The resolver contract is distinct from the existing navigation-intent result. It returns a typed result such as `{ status: "available", ref, label }` or `{ status: "unavailable", reason }`. `dispatchIntent` currently returns only `"ok" | "unavailable"`; that generic result cannot satisfy a request for a readable reason and must not be presented as one. An adapter may reuse an intent for navigation, but entity resolution must use an owner resolver that can supply the reason.
+
+Opening also preserves the identity mapping: `EntityRef.id` is the owner's entity ID; the owner document helper returns the workbench `tabId`. The shell associates the canonical entity key with that returned `tabId`. It passes `tabId`, never an assumed entity ID, to `closeTab`.
 
 | Operation | Contract |
 | --- | --- |
@@ -53,6 +57,8 @@ Inspectors are real documents mounted in workbench groups. Their selection is de
 
 Permission/question UI uses the existing interaction owner and `useModuleVisibility`: inline in the visible conversation, shell prompt elsewhere, one answerable request per request ID. An inspector cannot clone an Allow button or approve on behalf of the conversation. Changing focus does not create another waiter.
 
+Persisted permission/question recovery is metadata-only. After the vendor process has stopped, recovery records the interruption and permanently invalidates the old request ID and its answerability; it never restores an actionable Allow or answer form. A later vendor request is a new request with a new ID. Metadata may retain the old ID only to track its interrupted lifecycle, never to make it answerable again.
+
 Group Team/Timeline is one entity keyed by `groupId`. Its two modes are internal shadcn Tabs in one document. The group read model and details are independent of their mount position, so the temporary `agenthub.workgroups` document proposed in the team design can later open beside the conversation without rewriting orchestration or selection.
 
 ## Migration and compatibility
@@ -67,12 +73,14 @@ C0's Ubuntu/WebKitGTK baseline informs performance validation. The new home is n
 
 ## Acceptance criteria for C3–C6 implementation
 
-- Fresh startup/restore does not start or send work without an explicit action.
+- Fresh startup/restore does not start a draft or send user-initiated vendor work without an explicit action. Already queued peer-outbox messages are the exception: they may drain after restore only after current scope, user-queue, rate and hop checks; ambiguous dispatches are not replayed.
 - Session opened from rail, notification, palette or inspector resolves to one stable tab and one session controller.
 - Split groups, sidebar highlight, pin/close/reopen and title changes follow the existing shell contract.
 - An entity's open and attach paths agree on identity/scope, including a file with the same name in two workspace folders.
+- An unavailable entity resolver returns a readable reason; a bare `dispatchIntent` result of `"unavailable"` is not treated as that reason.
 - Permission prompts remain correctly scoped during tab/module/window changes; hidden documents do not open their own dialogs.
-- Closing a deleted entity uses `closeTab(id, { remember: false })`; missing restore IDs show unavailable, not another entity.
+- Closing a deleted entity uses its associated helper-returned `tabId` with `closeTab(tabId, { remember: false })`; a restore test confirms a deleted entity shows unavailable with a reason and never resolves to another entity.
+- Recovering a stopped session exposes the interruption, not the old permission/question action or request ID; any later prompt has a new request ID.
 - Wide/narrow, light/dark, keyboard navigation and reduced motion are covered in gallery and regression tests.
 - UI profiling includes the native Ubuntu target; browser/gallery evidence is labeled as such.
 

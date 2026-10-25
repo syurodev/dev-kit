@@ -463,18 +463,7 @@ func main() {
 		container.AgentNotifications = agentNotifier
 	}
 	agentWaiter := agenthub.NewPermissionWaiter(func(p agenthub.PendingPermission) {
-		payload := map[string]any{
-			"id":        p.ID,
-			"sessionId": p.SessionID,
-			"params":    rawJSON(p.Params),
-			"caller":    identity.Agent(p.SessionID).String(),
-			// The UI shows the deadline; it must not invent one. A countdown
-			// started when a toast mounts is wrong whenever the toast mounts
-			// late, which is the normal case for a request that arrives while
-			// the rail is closed.
-			"createdAt": p.CreatedAt.Format(time.RFC3339Nano),
-			"expiresAt": p.ExpiresAt.Format(time.RFC3339Nano),
-		}
+		payload := agentPermissionEvent(p)
 		// Title/depth let the prompt say which agent is asking; the hub
 		// service is assigned a few lines below and exists by prompt time.
 		if container.AgentHub != nil {
@@ -1007,8 +996,9 @@ func main() {
 	// and Completes via the bridge. Share one Hub between MCP and bridge.
 	hub := interaction.NewHub(interaction.NoopPrompter{})
 	hub.SetVaultLocked(container.Vault.IsLocked())
+	approvalAudit := audit.NewTee(container.Audit, auditSQL)
 	hub.OnScopedApprovalEvent = func(e interaction.ScopedApprovalEvent) {
-		container.Audit.Record(audit.Event{Caller: e.Caller, SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "approval:" + e.ID, Outcome: audit.OutcomeAllowed, Metadata: map[string]any{
+		approvalAudit.Record(audit.Event{Caller: e.Caller, At: time.Now().UTC(), SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "approval:" + e.ID, Outcome: audit.OutcomeAllowed, Metadata: map[string]any{
 			"action": e.Action, "tool": e.Tool, "profile_id": e.ProfileID, "env": e.Env,
 		}})
 	}

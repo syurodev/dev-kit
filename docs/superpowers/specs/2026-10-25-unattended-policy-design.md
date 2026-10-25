@@ -34,11 +34,11 @@ These defaults narrow the first release to reviewed, target-bound operations. Th
 
 ## Approval record and lifetime
 
-Proposed record: opaque ID; schema/policy revision; user-created provenance; selected workspace/group or session principal; exact operation; resource/profile/repo/branch/remote identity; resolved env-policy revision; optional immutable revision/action-argument fingerprint; created/expires/revoked timestamps; maximum and consumed uses; issuer audit ID. No credential or full SQL/command body is logged as approval metadata.
+The implemented v1 is the exact `db.query` slice described above. Its opaque record lives in memory only and binds caller, tool, profile, environment, SQL fingerprint, target revision and environment-policy revision, with a finite remaining-use count and expiry. The SQL body is not kept in the approval record. Restart or vault lock invalidates every record; approvals are not persisted or restored.
 
-Proposed defaults: one use, expires after 30 minutes; person may choose a shorter duration or an explicit finite use count, with an 8-hour hard cap for the first release. No wildcard operation, all-workspace, all-profile, unknown caller or unbounded-use record. These numerical defaults require approval; they are not an implementation commitment yet.
+Approved first-release limits: one use by default, expires after 30 minutes by default; the person may choose an explicit finite use count or shorter/longer lifetime, with an 8-hour hard cap. No wildcard operation, all-workspace, all-profile, unknown caller or unbounded-use record.
 
-Store records locally with content protected according to the vault's policy. On restart, first-release approvals are invalidated rather than resurrected automatically. Locking the vault or pausing/revoking a group stops new approval-backed dispatch. An in-flight external effect cannot be undone by revocation; UI says which call already started.
+The current v1 has no persisted approval store or work-group pause/revoke integration. Vault lock invalidates approvals. An in-flight external effect cannot be undone by revocation; the UI identifies a call that already started. Any future persisted or group-scoped approval design needs a separate explicit scope review and storage/privacy contract.
 
 ## Evaluation order
 
@@ -54,9 +54,9 @@ Normal tool authorization and action confirmation remain separate. Approvals can
 
 ## Local UI and service boundaries
 
-UI offers a preview of operation, target, workspace/principal, duration, use count and data/revision fingerprint before approval. Settings/group details show active approvals, last use and Revoke. UI-only methods create/revoke; agents may see only a scoped eligibility/status summary, never issue/extend an approval.
+The v1 permission card previews the exact SQL and resolved database target before approval; Settings lists active approvals, last use, expiry and Revoke. The UI-only bridge creates/revokes them; agents cannot issue or extend approvals. Group-level listing or revocation is not part of this v1.
 
-`interaction.Hub` consumes an injected approval evaluator. Policy matching lives in a leaf/domain service with locally declared interfaces; composition wires the store and current env resolver. Registry metadata declares eligibility and confirmation reason. Do not duplicate matching in DB, SSH, Kafka and Git handlers.
+For v1, `interaction.Hub` owns the central exact-`db.query` eligibility/matching check. The MCP gate returns one captured target/environment/revision decision with a per-call reservation token; the query path rechecks it after capability authorization and immediately before the database call. Other operations remain outside this matcher and keep their current gates. Any broader policy registry/evaluator must be designed before eligibility expands; do not duplicate ad hoc matching across DB, SSH, Kafka and Git handlers.
 
 Server mode never accepts approval creation via its unauthenticated bridge. Supporting approved background work requires a trusted identity-bound desktop/session path; do not set `Headless=false` or install a fake prompter to make tests pass. If that trusted path is unavailable, refuse with a readable reason.
 
@@ -66,7 +66,7 @@ Server mode never accepts approval creation via its unauthenticated bridge. Supp
 - Crashed reserved uses become consumed/unknown; human reconciliation is required for ambiguous writes.
 - Approval decisions are auditable by opaque IDs, caller/operation/target and outcome; no tokens, SQL, command bodies or peer message text.
 - “Needs you” only appears if a real confirmation/selection/decision is waiting; a failed pre-approval match does not auto-create a model turn.
-- Work group pause stops dispatch, not already-running external effects. No auto-renewal or recurring model heartbeat is added.
+- Future group-scoped approval integration must make pause stop new dispatches without claiming to undo already-running external effects. Group pause/revoke is outside this v1. No auto-renewal or recurring model heartbeat is added.
 
 ## Required implementation tests after approval
 

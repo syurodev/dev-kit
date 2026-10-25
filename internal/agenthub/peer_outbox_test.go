@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +15,35 @@ import (
 type failPeerClaimStore struct {
 	*agenthub.SQLStore
 	fail bool
+}
+
+type failPeerReadStore struct {
+	*agenthub.SQLStore
+	mu            sync.Mutex
+	listErr       error
+	getSessionErr error
+}
+
+func (s *failPeerReadStore) ListSessions(ctx context.Context) ([]agenthub.AgentSession, error) {
+	s.mu.Lock()
+	err := s.listErr
+	s.listErr = nil
+	s.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return s.SQLStore.ListSessions(ctx)
+}
+
+func (s *failPeerReadStore) GetSession(ctx context.Context, id string) (agenthub.AgentSession, error) {
+	s.mu.Lock()
+	err := s.getSessionErr
+	s.getSessionErr = nil
+	s.mu.Unlock()
+	if err != nil {
+		return agenthub.AgentSession{}, err
+	}
+	return s.SQLStore.GetSession(ctx, id)
 }
 
 func (s *failPeerClaimStore) TransitionPeerOutbox(ctx context.Context, id, from, to, code string, at time.Time) (bool, error) {
@@ -320,8 +350,23 @@ func TestPeerOutboxFailedClaimDoesNotStartTurn(t *testing.T) {
 	if err := restarted.RecoverPeerOutbox(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := restarted.WaitQuiet(ctx); err != nil {
+			t.Errorf("restarted service did not become quiet: %v", err)
+		}
+		if err := restarted.Shutdown(ctx); err != nil {
+			t.Errorf("shutdown restarted service: %v", err)
+		}
+	}()
 	restarted.SetPromptQueue(r.b.ID, 1, true)
 	restarted.SetPromptQueue(r.b.ID, 0, false)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := restarted.WaitQuiet(ctx); err != nil {
+		t.Fatalf("drain did not finish: %v", err)
+	}
 	got, err := r.store.ListPeerOutboxStatuses(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -334,4 +379,119 @@ func TestPeerOutboxFailedClaimDoesNotStartTurn(t *testing.T) {
 	if status, err := restarted.GetStatus(uiCtx(), r.b.ID); err != nil || status.Status != agenthub.SessionStatusIdle {
 		t.Fatalf("claim failure started target: status=%v err=%v", status.Status, err)
 	}
+}
+
+func TestPeerOutboxStoreReadErrorsPreserveQueuedMessages(t *testing.T) {
+	t.Run("recovery retries session listing", func(t *testing.T) {
+		r := newPeerRig(t)
+		r.svc.SetPromptQueue(r.b.ID, 1, true)
+		queued := r.send(r.a, r.b, "recovery read failure", "")
+
+		store := &failPeerReadStore{SQLStore: r.store, listErr: errors.New("injected list failure")}
+		reg := agenthub.NewRegistry()
+		reg.Register(r.mock)
+		restarted := agenthub.NewService(reg, store, nil)
+		defer restarted.Shutdown(context.Background())
+		if err := restarted.RecoverPeerOutbox(context.Background()); err == nil {
+			t.Fatal("expected injected recovery read error")
+		}
+		assertPeerOutboxState(t, r.store, queued.MessageID, "queued")
+		if err := restarted.RecoverPeerOutbox(context.Background()); err != nil {
+			t.Fatalf("retry recovery: %v", err)
+		}
+		assertPeerOutboxState(t, r.store, queued.MessageID, "queued")
+	})
+
+	t.Run("drain retries scope read", func(t *testing.T) {
+		r := newPeerRig(t)
+		r.svc.SetPromptQueue(r.b.ID, 1, true)
+		queued := r.send(r.a, r.b, "drain read failure", "")
+
+		store := &failPeerReadStore{SQLStore: r.store}
+		reg := agenthub.NewRegistry()
+		reg.Register(r.mock)
+		restarted := agenthub.NewService(reg, store, nil)
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := restarted.WaitQuiet(ctx); err != nil {
+				t.Errorf("restarted service did not become quiet: %v", err)
+			}
+			_ = restarted.Shutdown(ctx)
+		}()
+		if err := restarted.RecoverPeerOutbox(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		store.mu.Lock()
+		store.listErr = errors.New("injected drain scope read failure")
+		store.mu.Unlock()
+		restarted.SetPromptQueue(r.b.ID, 0, false)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := restarted.WaitQuiet(ctx); err != nil {
+			t.Fatalf("first drain did not finish: %v", err)
+		}
+		assertPeerOutboxState(t, r.store, queued.MessageID, "queued")
+		if status, err := restarted.GetStatus(uiCtx(), r.b.ID); err != nil || status.Status != agenthub.SessionStatusIdle {
+			t.Fatalf("scope read failure started target: status=%v err=%v", status.Status, err)
+		}
+		// A fresh user queue mirror is the next explicit drain opportunity.
+		restarted.SetPromptQueue(r.b.ID, 0, false)
+		waitForPeerOutboxState(t, r.store, queued.MessageID, "started")
+	})
+}
+
+func TestPeerOutboxKnownPreDispatchErrorIsRefused(t *testing.T) {
+	r := newPeerRig(t)
+	store := &failPeerReadStore{SQLStore: r.store, getSessionErr: errors.New("injected target read failure")}
+	reg := agenthub.NewRegistry()
+	reg.Register(r.mock)
+	svc := agenthub.NewService(reg, store, nil)
+	defer svc.Shutdown(context.Background())
+	result, err := svc.SendMessage(identity.WithCaller(context.Background(), identity.UserTerminal()), agenthub.SendMessageInput{SessionID: r.b.ID, Message: "known pre-dispatch failure"})
+	if err == nil {
+		t.Fatalf("expected target read failure, got result %+v", result)
+	}
+	statuses, listErr := r.store.ListPeerOutboxStatuses(context.Background())
+	if listErr != nil {
+		t.Fatal(listErr)
+	}
+	if len(statuses) != 1 || statuses[0].State != "refused" || statuses[0].Code != agenthub.PeerUndelivery {
+		t.Fatalf("known pre-dispatch failure was not durably refused: %+v", statuses)
+	}
+}
+
+func assertPeerOutboxState(t *testing.T, store *agenthub.SQLStore, id, want string) {
+	t.Helper()
+	statuses, err := store.ListPeerOutboxStatuses(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, status := range statuses {
+		if status.ID == id {
+			if status.State != want {
+				t.Fatalf("outbox state = %q, want %q: %+v", status.State, want, status)
+			}
+			return
+		}
+	}
+	t.Fatalf("outbox row %q not found", id)
+}
+
+func waitForPeerOutboxState(t *testing.T, store *agenthub.SQLStore, id, want string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		statuses, err := store.ListPeerOutboxStatuses(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, status := range statuses {
+			if status.ID == id && status.State == want {
+				return
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("outbox row %q did not reach %q", id, want)
 }

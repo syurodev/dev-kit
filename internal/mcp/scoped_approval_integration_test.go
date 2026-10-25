@@ -221,7 +221,7 @@ func TestScopedApprovalRechecksEnvironmentDatabaseAndTunnelRevisionsBeforeEffect
 		edit func(*fakeDB, *revisionedFakeSSH, *mutablePolicyEnvs)
 	}{
 		{name: "environment generation ABA", edit: func(_ *fakeDB, _ *revisionedFakeSSH, env *mutablePolicyEnvs) { env.revision = "policy-v2" }},
-		{name: "environment now requires confirmation", edit: func(_ *fakeDB, _ *revisionedFakeSSH, env *mutablePolicyEnvs) { env.fakeEnvs.req["dev"] = true }},
+		{name: "environment now requires confirmation", edit: func(_ *fakeDB, _ *revisionedFakeSSH, env *mutablePolicyEnvs) { env.req["dev"] = true }},
 		{name: "database profile generation", edit: func(db *fakeDB, _ *revisionedFakeSSH, _ *mutablePolicyEnvs) { db.revision = "db-v2" }},
 		{name: "SSH tunnel generation", edit: func(_ *fakeDB, ssh *revisionedFakeSSH, _ *mutablePolicyEnvs) { ssh.revision = "ssh-v2" }},
 	} {

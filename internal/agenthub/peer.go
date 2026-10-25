@@ -743,6 +743,9 @@ func (s *Service) SendMessage(ctx context.Context, in SendMessageInput) (SendMes
 		s.peers.unallow(pairKey)
 		s.peers.unallow(targetKey)
 		s.peers.mu.Unlock()
+		if transitionErr := s.transitionPeerState(msg.id, "dispatching", "refused", PeerUndelivery); transitionErr != nil && s.OnRecordError != nil {
+			s.OnRecordError(msg.to, transitionErr)
+		}
 		return SendMessageResult{}, err
 	}
 	if delivery != DeliveryQueued {
@@ -1194,7 +1197,14 @@ func (s *Service) drainPeers(sessionID string) {
 	if s.isInvoking(sessionID) || s.questionPending(sessionID) || s.peers.held(sessionID) {
 		return
 	}
-	if code := s.validatePeerScope(ctx, msg); code != "" {
+	code, scopeErr := s.validatePeerScope(ctx, msg)
+	if scopeErr != nil {
+		if s.OnRecordError != nil {
+			s.OnRecordError(sessionID, scopeErr)
+		}
+		return // keep the accepted message queued; a later drain can retry the read
+	}
+	if code != "" {
 		s.dropQueuedPeer(sessionID, msg, code)
 		return
 	}
@@ -1296,27 +1306,27 @@ func (s *Service) refuseQueued(sessionID, code string) {
 	}
 }
 
-func (s *Service) validatePeerScope(ctx context.Context, msg *peerMessage) string {
+func (s *Service) validatePeerScope(ctx context.Context, msg *peerMessage) (string, error) {
 	if msg.from.Kind != "session" && msg.from.Kind != MessageKindDevKit {
-		return ""
+		return "", nil
 	}
 	byID, err := s.sessionsByID(ctx)
 	if err != nil {
-		return PeerUnavail
+		return "", err
 	}
 	sender, ok := byID[msg.from.SessionID]
 	if !ok || sender.WorkspaceID != msg.fromWorkspace {
-		return PeerNotFound
+		return PeerNotFound, nil
 	}
 	target, ok := byID[msg.to]
 	if !ok || target.WorkspaceID != msg.toWorkspace {
-		return PeerNotFound
+		return PeerNotFound, nil
 	}
 	relation, visible := peerRelationOf(byID, sender, target)
 	if relation != msg.relation || relation == PeerOtherBranch || (!visible && !msg.approved) {
-		return PeerNotFound
+		return PeerNotFound, nil
 	}
-	return ""
+	return "", nil
 }
 
 func (s *Service) dropQueuedPeer(sessionID string, msg *peerMessage, code string) {

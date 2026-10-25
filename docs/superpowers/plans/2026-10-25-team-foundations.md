@@ -57,3 +57,13 @@ PR #317 follow-up (OPT-67e0a0): merged `origin/main` at `b1c1ea3f` (#316) in `f6
 - Frontend build (TypeScript, Vite and performance budget) passed. The five-file isolated subscriber/scoped approval/navigation run passed **43 tests, 0 failures**.
 - Markdown local links/code fences and `git diff --check` passed.
 - No native app restart or live external database/model request was performed. Settings list/revoke UI was reviewed in code; the available component tests use SSR, so no claim of a live desktop interaction test is made.
+
+## PR review corrections (OPT-c83ef1)
+
+- CI regressions: remove the redundant embedded-field selector flagged by staticcheck; use query-cache loading/mutation state for scoped approvals without raising the smoothness baseline.
+- Restore host-owned scoped eligibility through the Go live event and both frontend event/pending-list paths, with serialization and bridge regressions. Scoped-approval audit events now use the persistent audit tee and UTC timestamps.
+- Keep queued outbox work on transient scope-read errors; settle known pre-vendor failures as refused, and wait for asynchronous failed-claim tests to finish. Preserve ambiguous dispatch behavior where vendor acceptance really is unknown.
+- Cancellation during pending-record persistence makes bounded best-effort cleanup, ignores only absent rows during cancellation, and never releases an answer after a failed persistence step. Tests use controlled expiry/barriers instead of 30 ms scheduling assumptions.
+- Reconcile the shell's typed resolver/tab identity/startup/recovery contracts, historical team snapshots and approved memory-only D1 semantics.
+
+Validation: full frontend suite **5,014 passed**, TypeScript/Vite/performance build passed; golangci-lint on the declared Go 1.27.1 toolchain reports **0 issues**. AgentHub, MCP, audit, interaction, storage and architecture suites passed. Root server-mode event serialization regression passed; focused peer and waiter race suites passed. New GitHub CI is checked after pushing this correction.

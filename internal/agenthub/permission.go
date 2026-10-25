@@ -170,16 +170,16 @@ func (w *PermissionWaiter) wait(ctx context.Context, sessionID string, params js
 	if w.PersistOpen != nil {
 		if err := w.PersistOpen(ctx, permissionRecord(p)); err != nil {
 			w.mu.Unlock()
+			if reason := permissionEndReason(ctx, p.ExpiresAt); reason != "" {
+				w.reportPersistenceError(bestEffortPendingRequestClose(w.PersistClose, PendingRequestResolution{ID: id, Reason: reason, ResolvedAt: time.Now().UTC()}))
+				return append(json.RawMessage(nil), deniedPermissionOutcome...), ErrPermissionDenied
+			}
 			w.reportPersistenceError(err)
 			return append(json.RawMessage(nil), deniedPermissionOutcome...), ErrPermissionDenied
 		}
 	}
 	if reason := permissionEndReason(ctx, p.ExpiresAt); reason != "" {
-		if w.PersistClose != nil {
-			if err := w.PersistClose(context.Background(), PendingRequestResolution{ID: id, Reason: reason, ResolvedAt: time.Now().UTC()}); err != nil {
-				w.reportPersistenceError(err)
-			}
-		}
+		w.reportPersistenceError(bestEffortPendingRequestClose(w.PersistClose, PendingRequestResolution{ID: id, Reason: reason, ResolvedAt: time.Now().UTC()}))
 		w.mu.Unlock()
 		return append(json.RawMessage(nil), deniedPermissionOutcome...), ErrPermissionDenied
 	}
@@ -226,18 +226,16 @@ func (w *PermissionWaiter) Complete(id string, outcome json.RawMessage) error {
 		return ErrPermissionNotWaiting
 	}
 	if w.PersistClose != nil {
-		if err := w.PersistClose(context.Background(), PendingRequestResolution{ID: id, Reason: PermissionAnswered, ResolvedAt: time.Now().UTC()}); err != nil {
+		if err := persistPendingRequestClose(w.PersistClose, PendingRequestResolution{ID: id, Reason: PermissionAnswered, ResolvedAt: time.Now().UTC()}, false); err != nil {
 			w.reportPersistenceError(err)
 			return err
 		}
 		p.persistedClose = true
 	}
 	if reason := permissionEndReason(p.ctx, p.ExpiresAt); reason != "" {
-		if w.PersistClose != nil {
-			err := w.PersistClose(context.Background(), PendingRequestResolution{ID: id, Reason: reason, ResolvedAt: time.Now().UTC()})
-			w.reportPersistenceError(err)
-			p.persistedClose = err == nil
-		}
+		err := bestEffortPendingRequestClose(w.PersistClose, PendingRequestResolution{ID: id, Reason: reason, ResolvedAt: time.Now().UTC()})
+		w.reportPersistenceError(err)
+		p.persistedClose = err == nil
 		return ErrPermissionNotWaiting
 	}
 	select {
@@ -281,7 +279,7 @@ func (w *PermissionWaiter) CancelSession(sessionID string) int {
 		}
 		closed := PermissionClosed{ID: id, SessionID: p.SessionID, Reason: PermissionTurnEnded}
 		if w.PersistClose != nil {
-			persistErr := w.PersistClose(context.Background(), PendingRequestResolution{ID: id, Reason: closed.Reason, ResolvedAt: time.Now().UTC()})
+			persistErr := bestEffortPendingRequestClose(w.PersistClose, PendingRequestResolution{ID: id, Reason: closed.Reason, ResolvedAt: time.Now().UTC()})
 			p.persistedClose = persistErr == nil
 			w.reportPersistenceError(persistErr)
 		}
@@ -342,7 +340,9 @@ func (w *PermissionWaiter) close(id, reason string) {
 	p, ok := w.pending[id]
 	if ok {
 		if !p.persistedClose && w.PersistClose != nil {
-			w.reportPersistenceError(w.PersistClose(context.Background(), PendingRequestResolution{ID: id, Reason: reason, ResolvedAt: time.Now().UTC()}))
+			closeErr := bestEffortPendingRequestClose(w.PersistClose, PendingRequestResolution{ID: id, Reason: reason, ResolvedAt: time.Now().UTC()})
+			w.reportPersistenceError(closeErr)
+			p.persistedClose = closeErr == nil
 		}
 		p.finished = true
 		delete(w.pending, id)
@@ -351,6 +351,29 @@ func (w *PermissionWaiter) close(id, reason string) {
 	if ok {
 		w.announceClosed(p, PermissionClosed{ID: id, SessionID: p.SessionID, Reason: reason})
 	}
+}
+
+const pendingRequestPersistTimeout = 2 * time.Second
+
+// persistPendingRequestClose detaches lifecycle cleanup from a caller that may
+// already be canceled while keeping SQL work bounded. User answers use
+// ignoreNotFound=false and remain fail-closed; cancellation cleanup may ignore
+// a missing row because a canceled PersistOpen may never have committed.
+func persistPendingRequestClose(persist func(context.Context, PendingRequestResolution) error, resolution PendingRequestResolution, ignoreNotFound bool) error {
+	if persist == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), pendingRequestPersistTimeout)
+	defer cancel()
+	err := persist(ctx, resolution)
+	if ignoreNotFound && errors.Is(err, ErrPendingRequestNotFound) {
+		return nil
+	}
+	return err
+}
+
+func bestEffortPendingRequestClose(persist func(context.Context, PendingRequestResolution) error, resolution PendingRequestResolution) error {
+	return persistPendingRequestClose(persist, resolution, true)
 }
 
 // announceClosed fires the close after the request's open was published. When

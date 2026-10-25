@@ -14,6 +14,44 @@ import (
 	"devkit/internal/storage"
 )
 
+type controllableDeadlineContext struct {
+	context.Context
+	done     chan struct{}
+	deadline time.Time
+	mu       sync.Mutex
+	err      error
+}
+
+func newControllableDeadlineContext() *controllableDeadlineContext {
+	return &controllableDeadlineContext{Context: context.Background(), done: make(chan struct{}), deadline: time.Now().Add(time.Hour)}
+}
+
+func (c *controllableDeadlineContext) Deadline() (time.Time, bool) { return c.deadline, true }
+func (c *controllableDeadlineContext) Done() <-chan struct{}       { return c.done }
+func (c *controllableDeadlineContext) Err() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.err
+}
+func (c *controllableDeadlineContext) expire() {
+	c.mu.Lock()
+	c.err = context.DeadlineExceeded
+	close(c.done)
+	c.mu.Unlock()
+}
+
+func awaitPendingTest[T any](t *testing.T, ch <-chan T, what string) T {
+	t.Helper()
+	select {
+	case value := <-ch:
+		return value
+	case <-time.After(5 * time.Second):
+		var zero T
+		t.Fatalf("timed out waiting for %s", what)
+		return zero
+	}
+}
+
 func pendingSQLStore(t *testing.T) (*SQLStore, *sql.DB) {
 	t.Helper()
 	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
@@ -51,8 +89,7 @@ func TestWaiterPersistenceStoresMetadataOnlyAndTerminalReasons(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	expiringCtx, expire := context.WithTimeout(ctx, 30*time.Millisecond)
-	defer expire()
+	expiringCtx := newControllableDeadlineContext()
 	expiredOpen := make(chan PendingPermission, 1)
 	expired := NewPermissionWaiter(func(p PendingPermission) { expiredOpen <- p })
 	expired.PersistOpen = store.RecordPendingRequest
@@ -62,8 +99,11 @@ func TestWaiterPersistenceStoresMetadataOnlyAndTerminalReasons(t *testing.T) {
 		_, err := expired.Wait(expiringCtx, "session-expired", json.RawMessage(`{"password":"SECRET VALUE"}`))
 		expiredDone <- err
 	}()
-	expiredPermission := <-expiredOpen
-	<-expiredDone
+	expiredPermission := awaitPendingTest(t, expiredOpen, "expired permission open")
+	expiringCtx.expire()
+	if err := awaitPendingTest(t, expiredDone, "expired permission completion"); !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("expired permission error = %v", err)
+	}
 
 	withdrawCtx, withdraw := context.WithCancel(ctx)
 	withdrawnOpen := make(chan PendingPermission, 1)
@@ -467,10 +507,10 @@ func TestWaitersRecheckCancellationAfterBlockedPersistence(t *testing.T) {
 		w.PersistOpen = func(context.Context, PendingRequestRecord) error { close(started); <-release; return nil }
 		done := make(chan json.RawMessage, 1)
 		go func() { out, _ := w.Wait(ctx, "s", json.RawMessage(`{"secret":"never persist"}`)); done <- out }()
-		<-started
+		awaitPendingTest(t, started, "permission PersistOpen start")
 		cancel()
 		close(release)
-		if out := <-done; !isDeniedPermissionOutcome(out) {
+		if out := awaitPendingTest(t, done, "permission open cancellation"); !isDeniedPermissionOutcome(out) {
 			t.Fatalf("permission open after cancel = %s", out)
 		}
 		select {
@@ -501,16 +541,16 @@ func TestWaitersRecheckCancellationAfterBlockedPersistence(t *testing.T) {
 		}
 		waitDone := make(chan json.RawMessage, 1)
 		go func() { out, _ := w.Wait(ctx, "s", json.RawMessage(`{}`)); waitDone <- out }()
-		p := <-opened
+		p := awaitPendingTest(t, opened, "permission open")
 		completeDone := make(chan error, 1)
 		go func() { completeDone <- w.Complete(p.ID, json.RawMessage(`{"outcome":{"outcome":"selected"}}`)) }()
-		<-closeStarted
+		awaitPendingTest(t, closeStarted, "permission answer persistence start")
 		cancel()
 		close(release)
-		if err := <-completeDone; !errors.Is(err, ErrPermissionNotWaiting) {
+		if err := awaitPendingTest(t, completeDone, "permission completion after cancel"); !errors.Is(err, ErrPermissionNotWaiting) {
 			t.Fatalf("complete after cancel = %v", err)
 		}
-		if out := <-waitDone; !isDeniedPermissionOutcome(out) {
+		if out := awaitPendingTest(t, waitDone, "permission wait after cancel"); !isDeniedPermissionOutcome(out) {
 			t.Fatalf("permission answer escaped after cancel: %s", out)
 		}
 		mu.Lock()
@@ -521,8 +561,7 @@ func TestWaitersRecheckCancellationAfterBlockedPersistence(t *testing.T) {
 	})
 
 	t.Run("permission deadline", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
-		defer cancel()
+		ctx := newControllableDeadlineContext()
 		opened := make(chan PendingPermission, 1)
 		closeStarted, release := make(chan struct{}), make(chan struct{})
 		var mu sync.Mutex
@@ -541,16 +580,16 @@ func TestWaitersRecheckCancellationAfterBlockedPersistence(t *testing.T) {
 		}
 		waitDone := make(chan json.RawMessage, 1)
 		go func() { out, _ := w.Wait(ctx, "s", json.RawMessage(`{}`)); waitDone <- out }()
-		p := <-opened
+		p := awaitPendingTest(t, opened, "permission with bounded deadline")
 		completeDone := make(chan error, 1)
 		go func() { completeDone <- w.Complete(p.ID, json.RawMessage(`{"outcome":{"outcome":"selected"}}`)) }()
-		<-closeStarted
-		<-ctx.Done()
+		awaitPendingTest(t, closeStarted, "permission answer persistence start")
+		ctx.expire()
 		close(release)
-		if err := <-completeDone; !errors.Is(err, ErrPermissionNotWaiting) {
+		if err := awaitPendingTest(t, completeDone, "permission completion after expiry"); !errors.Is(err, ErrPermissionNotWaiting) {
 			t.Fatalf("complete after expiry = %v", err)
 		}
-		if out := <-waitDone; !isDeniedPermissionOutcome(out) {
+		if out := awaitPendingTest(t, waitDone, "permission wait after expiry"); !isDeniedPermissionOutcome(out) {
 			t.Fatalf("permission answer escaped after expiry: %s", out)
 		}
 		mu.Lock()
@@ -568,10 +607,10 @@ func TestWaitersRecheckCancellationAfterBlockedPersistence(t *testing.T) {
 		w.PersistOpen = func(context.Context, PendingRequestRecord) error { close(started); <-release; return nil }
 		done := make(chan json.RawMessage, 1)
 		go func() { out, _ := w.Wait(ctx, "s", json.RawMessage(`{"message":"private"}`)); done <- out }()
-		<-started
+		awaitPendingTest(t, started, "elicitation PersistOpen start")
 		cancel()
 		close(release)
-		if out := <-done; string(out) != string(cancelledElicitation) {
+		if out := awaitPendingTest(t, done, "elicitation open cancellation"); string(out) != string(cancelledElicitation) {
 			t.Fatalf("elicitation open after cancel = %s", out)
 		}
 		select {
@@ -602,16 +641,16 @@ func TestWaitersRecheckCancellationAfterBlockedPersistence(t *testing.T) {
 		}
 		waitDone := make(chan json.RawMessage, 1)
 		go func() { out, _ := w.Wait(ctx, "s", json.RawMessage(`{"message":"private"}`)); waitDone <- out }()
-		p := <-opened
+		p := awaitPendingTest(t, opened, "elicitation open")
 		completeDone := make(chan error, 1)
 		go func() { completeDone <- w.Complete(p.ID, json.RawMessage(`{"action":"accept"}`)) }()
-		<-closeStarted
+		awaitPendingTest(t, closeStarted, "elicitation answer persistence start")
 		cancel()
 		close(release)
-		if err := <-completeDone; err == nil {
+		if err := awaitPendingTest(t, completeDone, "elicitation completion after cancel"); err == nil {
 			t.Fatal("elicitation completion succeeded after cancellation")
 		}
-		if out := <-waitDone; string(out) != string(cancelledElicitation) {
+		if out := awaitPendingTest(t, waitDone, "elicitation wait after cancel"); string(out) != string(cancelledElicitation) {
 			t.Fatalf("elicitation answer escaped after cancel: %s", out)
 		}
 		mu.Lock()

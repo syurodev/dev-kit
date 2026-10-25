@@ -150,14 +150,16 @@ func (w *ElicitationWaiter) Wait(ctx context.Context, sessionID string, params j
 	}
 	if w.PersistOpen != nil {
 		if err := w.PersistOpen(ctx, elicitationRecord(p)); err != nil {
+			if ctx.Err() != nil {
+				w.reportPersistenceError(bestEffortPendingRequestClose(w.PersistClose, PendingRequestResolution{ID: id, Reason: ElicitationCancelled, ResolvedAt: time.Now().UTC()}))
+				return append(json.RawMessage(nil), cancelledElicitation...), nil
+			}
 			w.reportPersistenceError(err)
 			return append(json.RawMessage(nil), declinedElicitation...), nil
 		}
 	}
 	if ctx.Err() != nil {
-		if w.PersistClose != nil {
-			w.reportPersistenceError(w.PersistClose(context.Background(), PendingRequestResolution{ID: id, Reason: ElicitationCancelled, ResolvedAt: time.Now().UTC()}))
-		}
+		w.reportPersistenceError(bestEffortPendingRequestClose(w.PersistClose, PendingRequestResolution{ID: id, Reason: ElicitationCancelled, ResolvedAt: time.Now().UTC()}))
 		return append(json.RawMessage(nil), cancelledElicitation...), nil
 	}
 	resCh := make(chan json.RawMessage, 1)
@@ -201,7 +203,7 @@ func (w *ElicitationWaiter) Complete(id string, response json.RawMessage) error 
 		return errors.New("agenthub: invalid elicitation id")
 	}
 	if w.PersistClose != nil {
-		if err := w.PersistClose(context.Background(), PendingRequestResolution{ID: id, Reason: ElicitationAnswered, ResolvedAt: time.Now().UTC()}); err != nil {
+		if err := persistPendingRequestClose(w.PersistClose, PendingRequestResolution{ID: id, Reason: ElicitationAnswered, ResolvedAt: time.Now().UTC()}, false); err != nil {
 			w.mu.Unlock()
 			w.reportPersistenceError(err)
 			return err
@@ -209,11 +211,9 @@ func (w *ElicitationWaiter) Complete(id string, response json.RawMessage) error 
 		p.persistedClose = true
 	}
 	if p.ctx.Err() != nil {
-		if w.PersistClose != nil {
-			err := w.PersistClose(context.Background(), PendingRequestResolution{ID: id, Reason: ElicitationCancelled, ResolvedAt: time.Now().UTC()})
-			w.reportPersistenceError(err)
-			p.persistedClose = err == nil
-		}
+		err := bestEffortPendingRequestClose(w.PersistClose, PendingRequestResolution{ID: id, Reason: ElicitationCancelled, ResolvedAt: time.Now().UTC()})
+		w.reportPersistenceError(err)
+		p.persistedClose = err == nil
 		w.mu.Unlock()
 		return errors.New("agenthub: elicitation no longer waiting")
 	}
@@ -242,7 +242,7 @@ func (w *ElicitationWaiter) CancelSession(sessionID string) int {
 		}
 		closed := ElicitationClosed{ID: id, SessionID: sessionID, Reason: ElicitationTurnStopped}
 		if w.PersistClose != nil {
-			persistErr := w.PersistClose(context.Background(), PendingRequestResolution{ID: id, Reason: closed.Reason, ResolvedAt: time.Now().UTC()})
+			persistErr := bestEffortPendingRequestClose(w.PersistClose, PendingRequestResolution{ID: id, Reason: closed.Reason, ResolvedAt: time.Now().UTC()})
 			p.persistedClose = persistErr == nil
 			w.reportPersistenceError(persistErr)
 		}
@@ -306,7 +306,7 @@ func (w *ElicitationWaiter) finish(id, reason string) bool {
 		return false
 	}
 	if w.PersistClose != nil && !p.persistedClose {
-		err := w.PersistClose(context.Background(), PendingRequestResolution{ID: id, Reason: reason, ResolvedAt: time.Now().UTC()})
+		err := bestEffortPendingRequestClose(w.PersistClose, PendingRequestResolution{ID: id, Reason: reason, ResolvedAt: time.Now().UTC()})
 		w.reportPersistenceError(err)
 		p.persistedClose = err == nil
 	}

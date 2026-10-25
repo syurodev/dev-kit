@@ -49,6 +49,8 @@ Các số liệu cho thấy context lớn, nhiều lượt phối hợp và vi�
 
 ### 2.2 Hiện trạng đã đọc trong source
 
+Bảng này ghi lại checkout `04d3fd9e` được đọc ngày 24/10/2026; đây là ảnh chụp lịch sử, không phải mô tả code trên nhánh/PR hiện tại. Trạng thái implementation sau các integration 25/10 được ghi tại §18.4.
+
 | Nền tảng hiện có | Nguồn | Giới hạn liên quan |
 | --- | --- | --- |
 | Peer messaging, steering, queue, hop/rate limits | `internal/agenthub/peer.go` | Queue nằm trong RAM; mỗi queued message thành một lượt; chưa có batch bền vững. |
@@ -61,8 +63,8 @@ Các số liệu cho thấy context lớn, nhiều lượt phối hợp và vi�
 
 Hai lỗi cần xử lý trước khi đo hiệu quả orchestration:
 
-- `acpRuntime.Prompt` trả thành công khi JSON-RPC thành công, dù prompt response có typed terminal failure. `Service.invoke` vì thế đi qua nhánh hoàn thành thay vì ghi stop. `parseSessionFailure` hiện đọc notification `session_info_update`; cần nhận thêm carrier trên prompt response.
-- `ClaudeAdapter.NormalizeUsage` đọc `claudeCode`, chưa đọc số liệu `quota.token_count` đã thấy trong runtime 0.95.0. Metadata gốc được giữ, nhưng số liệu chuẩn hóa mất thông tin.
+- **Quan sát lịch sử ở checkout `04d3fd9e`:** `acpRuntime.Prompt` trả thành công khi JSON-RPC thành công, dù prompt response có typed terminal failure; `Service.invoke` vì thế đi qua nhánh hoàn thành thay vì ghi stop. `parseSessionFailure` lúc đó chỉ đọc notification `session_info_update`, chưa đọc carrier trên prompt response. Đây không phải trạng thái hiện tại; hook của Claude adapter xử lý typed prompt-result failure ở `f2bfc440`, còn ACP runtime vẫn generic.
+- **Quan sát lịch sử ở checkout `04d3fd9e`:** `ClaudeAdapter.NormalizeUsage` chỉ đọc `claudeCode`, chưa đọc số liệu `quota.token_count` đã thấy trong runtime 0.95.0. Metadata gốc được giữ, nhưng số liệu chuẩn hóa mất thông tin. Đây không phải trạng thái hiện tại; fix ở `f2bfc440` chuẩn hóa các counter `quota.token_count` riêng biệt và giữ raw metadata.
 
 `idle` tự nó không phải lỗi: một session bị từ chối do usage vẫn có thể giữ process khỏe và ở trạng thái idle. Điều sai là thiếu stop/failure tương ứng và ghi nhận lượt như thành công. Account usage chỉ được lưu theo chính sách vendor đã cấu hình; một account row trống riêng lẻ chưa đủ kết luận lỗi.
 
@@ -253,7 +255,7 @@ Trong managed workflow, quyền chấp nhận kết quả phải được host t
 
 ## 10. Event inbox và chính sách đánh thức
 
-Managed work thêm event inbox bền vững, dùng nền delivery/outbox của B5 (`OPT-040960`) khi đã có; không xây một hệ thống durable delivery thứ hai. Generic peer messages và managed workflow events là các loại payload/consumer khác nhau trên hợp đồng delivery chung, có dedupe và watermark riêng. Trước khi B5 được triển khai, không thay nghĩa hoặc khẳng định độ bền của `sendMessage` hiện tại. Managed child báo kết quả qua ledger/task; một compatibility adapter chỉ chuyển các event đã biết, không suy đoán loại tin bằng model. Việc B5 nâng generic messaging thành durable là phạm vi của B5, không bị tài liệu này cấm hoặc triển khai lại.
+Managed work thêm event inbox bền vững, dùng nền delivery/outbox đã được B5 (`OPT-040960`) triển khai; không xây một hệ thống durable delivery thứ hai. Generic peer messages và managed workflow events là các loại payload/consumer khác nhau trên hợp đồng delivery chung, có dedupe và watermark riêng. **Ảnh chụp lịch sử trước B5:** `sendMessage` lúc đó chỉ có queue RAM. Nhánh hiện tại đã tích hợp durable peer outbox; phần team phải thêm là event type/consumer riêng, không triển khai lại generic durability. Managed child báo kết quả qua ledger/task; một compatibility adapter chỉ chuyển các event đã biết, không suy đoán loại tin bằng model.
 
 | Event | Hành vi mặc định |
 | --- | --- |
@@ -323,11 +325,11 @@ User sửa task đang chạy làm package cũ trở nên stale; scheduler giữ 
 - Sibling message, context reference và artifact phải theo workspace/granted-folder rules. Một vai trò quản lý không tự được đọc credential, data directory hoặc cấp quyền cho session khác.
 - Child báo done, reviewer accept, CI xanh hoặc integrator đề nghị merge đều không thay thế policy/gate. Board administration, model settings và policy changes vẫn UI-only theo quy tắc hiện có.
 
-D1 (`OPT-0a45f5`) đã ghi nhận hướng người dùng chọn: cho phép unattended ở môi trường không chặn auto, còn env yêu cầu confirmation tiếp tục thắng. Pre-approval cụ thể, expiry/revocation và các gate không gắn env (ví dụ model-cost hoặc PR merge/close) chưa được chốt. Orchestrator phải hỏi effective policy/gate chung tại thời điểm thực thi: hiện tại cần tương tác thì giữ waiting; sau khi D1 được duyệt và triển khai, approval hợp lệ có thể cho bước đó tiếp tục mà không cần người trực. Không hard-code “mọi merge luôn cần click thủ công” thành luật orchestration vĩnh viễn, cũng không tự tạo approval từ việc group được bật. Khi không có approval hợp lệ hoặc env chặn auto, vẫn hỏi/fail fast theo policy. Managed-task acceptance theo vai trò và đúng revision là điều kiện riêng, không được pre-approval xóa bỏ.
+D1 (`OPT-0a45f5`) được triển khai ở commit `6eb277f9` cho đúng `db.query` với approval hữu hạn, expiry/revocation và revision checks. Chỉ operation này có pre-approval trong v1; các gate khác, gồm model-cost và PR merge/close, tiếp tục theo effective policy hiện hành. Orchestrator phải hỏi policy/gate chung tại thời điểm thực thi: approval `db.query` không mở rộng sang operation khác. Không hard-code “mọi merge luôn cần click thủ công” thành luật orchestration vĩnh viễn, cũng không tự tạo approval từ việc group được bật. Khi không có approval hợp lệ hoặc env chặn auto, vẫn hỏi/fail fast theo policy. Managed-task acceptance theo vai trò và đúng revision là điều kiện riêng, không được pre-approval xóa bỏ.
 
 ## 13. Kiến trúc tích hợp đề xuất
 
-Đề xuất `internal/agentwork` để giữ state machine, scheduler, inbox, package/result contracts và budget policy; vị trí cuối cùng phải chốt cùng B7 (`OPT-828dec`) trước khi mở implementation. B7 đã có phạm vi chuyển check → create → assign → brief → rollback ra khỏi MCP handler: mở rộng hoặc dùng đúng dịch vụ đó, không tạo một orchestrator thứ hai. Nếu chọn package nhỏ tách riêng, package khai báo các interface cho task snapshots/assignment, session dispatch/status, verified revisions và vault codec; không import `tasks`, `agenthub`, `git`, `bridge`, `mcp`, `app`, `storage` hoặc crypto implementation.
+Đề xuất `internal/agentwork` để giữ state machine, scheduler, inbox, package/result contracts và budget policy; vị trí cuối cùng phải chốt cùng B7 (`OPT-828dec`) trước khi mở implementation. B7 đã chuyển check → create → assign → brief → rollback ra khỏi MCP handler trong commit `7d13ef73`; phần team nên mở rộng hoặc dùng đúng dịch vụ đó, không tạo một orchestrator thứ hai. Nếu chọn package nhỏ tách riêng, package khai báo các interface cho task snapshots/assignment, session dispatch/status, verified revisions và vault codec; không import `tasks`, `agenthub`, `git`, `bridge`, `mcp`, `app`, `storage` hoặc crypto implementation.
 
 Wiring ở `internal/app` và `main.go`, đúng ranh giới composition hiện tại. Tasks không import agent runtime. Agent Hub tiếp tục là nơi duy nhất chạy vendor và xử lý session lifecycle. Không có `exec` hoặc sandbox policy thứ hai trong scheduler. `tasks.gate` vẫn là nơi đóng task; exact-revision verification là phần mở rộng riêng, không thêm một lối bỏ qua gate.
 
@@ -543,11 +545,11 @@ Các mục phải chốt trước phase tương ứng, không phải lý do trì
 - Người dùng có muốn auto-dispatch review/integration theo policy đã chọn hay chỉ đề nghị bước tiếp theo.
 - Ngưỡng context, số worker và batch latency sau khi có baseline thực tế.
 
-Tên/vị trí orchestration service, delivery contracts, shell host và unattended approvals không được chốt riêng trong các mục mở trên; chúng phải thống nhất với B5/B7/C1/D1 theo §18.
+Tên/vị trí orchestration service, delivery contracts và shell host phải thống nhất với các contract của B5/B7/C1 theo §18. Phần unattended v1 đã được chốt/triển khai cho đúng `db.query`; mở rộng approval sang operation khác vẫn cần scope, target và gate rules riêng.
 
 ## 17. Liên hệ tài liệu hiện có
 
-- [Peer messages](2026-10-16-agent-hub-peer-messages-design.md): giữ API và hop/rate guards; generic durability do B5 mở rộng. Managed inbox dùng consumer/schema riêng trên delivery substrate chung, không tạo hệ thống outbox cạnh tranh hoặc tuyên bố `queued` hiện tại đã durable.
+- [Peer messages](2026-10-16-agent-hub-peer-messages-design.md): giữ API và hop/rate guards; B5 đã làm generic peer outbox bền vững. Managed inbox dùng consumer/schema riêng trên delivery substrate chung, không tạo hệ thống outbox cạnh tranh.
 - [Multi-account policy](2026-10-22-agent-multi-account-failover-design.md): sử dụng cơ chế chọn account/stop hiện có; thiết kế này không cấp quyền rotation hoặc resend mới.
 - [Wide layout](2026-10-13-agent-hub-wide-layout-design.md), [many children](2026-10-21-agent-hub-many-children-design.md): giữ shell và session tree, không nhân bản navigation.
 - [Module shell integration](../../design/module-shell-integration.md): quy tắc áp dụng khi triển khai UI.
@@ -559,7 +561,7 @@ Tên/vị trí orchestration service, delivery contracts, shell host và unatten
 
 Đối chiếu qua DevKit MCP read-only `tasks.list`, `tasks.get` và comments liên quan ngày 24/10/2026, sau khi người dùng gửi ảnh board. Snapshot đọc được: **28 task: 19 todo, 2 in progress, 6 in review, 1 done**. Đây là trạng thái board, không phải xác nhận PR đã merge hoặc code đã chạy; metadata task/dependency có thể chưa cập nhật theo merge thực tế.
 
-Không có xung đột về mục tiêu agent-first. Có **trùng phạm vi nền** ở B5/B7 và **điểm phải đồng bộ quyết định** ở C1/D1. Triển khai spec team độc lập ngay sẽ dễ tạo delivery/saga thứ hai, sửa chồng runtime/view và đóng băng một shell/policy đang được thiết kế lại. Bản spec này là extension dựa trên các contract chung; không hủy hoặc thay đổi ownership của task đang làm.
+Không có xung đột về mục tiêu agent-first. B5/B7 đã tích hợp các contract nền mà team cần dùng; C1 là thiết kế shell, còn D1 v1 hiện chỉ bao phủ `db.query`. Tạo delivery/saga thứ hai hoặc mở rộng approval ra ngoài D1 hiện có sẽ làm trùng implementation hoặc vượt scope. Bản spec này là extension dựa trên các contract chung; không hủy hoặc thay đổi ownership của task đang làm.
 
 ### 18.2 Bảng mapping và trách nhiệm
 
@@ -570,15 +572,15 @@ Không có xung đột về mục tiêu agent-first. Có **trùng phạm vi nề
 | A1 `OPT-8a83b7`, A2 `OPT-fbd1f6`, A3 `OPT-17ff72`, A4 `OPT-e5dd50` | Done / Review / Todo / Todo | Registry là nơi khai báo operation/exposure/grants; team sẽ thêm operations mới. | A1 đã có spec; A2 chỉ pilot notes. Dùng schema/contract registry được chốt; thống nhất migration Agent Hub cùng A4, không làm bộ grants riêng trong team. Không bắt mọi module khác migrate xong mới viết domain team. |
 | B1 `OPT-73eb34` | Review | Tách ACP generic khỏi Claude hooks, cùng file sẽ cần sửa cho typed failure. | Lấy thay đổi B1 đã được review/merge làm base; giữ generic runtime và vendor-specific parsing đúng boundary, tránh đưa `if Claude` trở lại core. |
 | B2 `OPT-0205fd`, B3 `OPT-1a2b44`, B4 `OPT-5526b8` | Todo | Launcher, conformance, stop/lifecycle là nền thực thi. | Reuse runtime/launcher; đưa response failure/quota fixtures vào conformance chung. Không spawn vendor hoặc phân loại stop riêng từ scheduler. |
-| B5 `OPT-040960` | Todo | Trùng trực tiếp durable outbox, queued handoff và recovery. | Một delivery substrate có type/consumer rõ; B5 sở hữu generic peer durability, team thêm event batching/watermark trên contract đó. Không hai migrations/outbox/drain loops cho cùng delivery. |
-| B6 `OPT-e67e8f` | Todo | Needs you và inbox sau restart phụ thuộc pending interaction state chính xác. | Dùng state/recovery của B6; lưu request reference, không phục hồi permission đã mất vendor process thành một nút Allow còn hiệu lực. Trước B6 chỉ hiện interrupted/unavailable đúng khả năng. |
-| B7 `OPT-828dec` | Todo | Trùng trực tiếp dịch vụ orchestration và handoff saga. | Một service nhận check/create/assign/brief/rollback, dùng bởi MCP/UI/team; tên package và interfaces chốt ở B7 rồi team mở rộng. |
+| B5 `OPT-040960` | Todo trên board snapshot | Thời điểm lập bảng, durable peer outbox chưa tích hợp. | Hiện đã tích hợp ở `558c35fd`; team thêm event batching/watermark trên substrate này, không tạo migration/outbox/drain loop thứ hai. |
+| B6 `OPT-e67e8f` | Todo trên board snapshot | Thời điểm lập bảng, pending interaction recovery chưa tích hợp. | Hiện đã tích hợp ở `26a7c4cc`; dùng metadata-only recovery và không phục hồi permission/question cũ thành nút trả lời. |
+| B7 `OPT-828dec` | Todo trên board snapshot | Thời điểm lập bảng, shared handoff service chưa tích hợp. | Hiện đã tích hợp ở `7d13ef73`; team mở rộng service check/create/assign/brief/rollback hiện có. |
 | B8 `OPT-41a931` | Todo | Refactor facade đang chứa turn/runtime/auth/persistence mà team sẽ gọi. | Chốt API nhỏ theo các seam này, không tiếp tục thêm scheduler vào `agenthub.Service` nguyên khối hoặc refactor cùng phần ở hai nhánh. Không bắt hoàn tất toàn bộ refactor nếu facade contract đã ổn định. |
 | B10 `OPT-fe810e` | Todo | Worktree isolation là nền cho nhiều code-editing workers và verified target. | Dùng worktree tools/guards của B10. Chưa có thì chỉ dùng worktree đã được người dùng chuẩn bị và cấp quyền hoặc một writer; team không âm thầm tạo cơ chế Git worktree khác. |
 | C0 `OPT-43d18c` | Todo | Canvas/timeline có thể làm nặng WebKitGTK. | Tận dụng baseline Ubuntu; kiểm tra Team/Timeline với virtualization và reduced motion. Không coi demo browser là bằng chứng hết lag native. |
 | C1 `OPT-484f67`, C3–C6 `OPT-9fe020` | Todo / Todo | Hướng conversation-home đã được chọn; vị trí mount Team/Timeline phải tương thích. | Group entity + inspector/open contract dùng chung; tab hiện tại chỉ là adapter tạm. Không thiết kế shell cạnh tranh. |
 | C2 `OPT-6d4094` | Review | Đã tách data hooks/controller/view để surface có thể mount nơi khác. | UI team dựa trên seams sau C2; không thêm lại orchestration/data lifecycle vào `AgentHubView.tsx` cũ. |
-| D1 `OPT-0a45f5` | Todo | Hướng unattended ngoài môi trường chặn auto đã được chọn; chi tiết pre-approval vẫn mở. | Tất cả action hỏi effective policy chung. Group opt-in không tự cấp approval, và team không khóa vĩnh viễn những action mà D1 có thể cho unattended hợp lệ. |
+| D1 `OPT-0a45f5` | Todo trên board snapshot | Thời điểm lập bảng, D1 chưa được duyệt/triển khai. | Hiện đã tích hợp v1 exact `db.query` ở `6eb277f9`; operation khác tiếp tục hỏi theo gate/effective policy hiện có. Group opt-in không tự cấp approval. |
 | Permission bugs `OPT-46e73d`, `OPT-ebacfa`, mode inheritance `OPT-669d1b` | Review / Todo / Review | Badge/Needs you, dialog và grants của child cần nền đúng. | Dùng fixes đã được kiểm chứng; dashboard không sao chép pending queues hoặc tự map mode khác runtime. |
 | Sandbox `OPT-4b991b`, `OPT-3375a2` | In progress / In progress | Build/test thật và data-dir protection ảnh hưởng evidence/recovery. | Không sửa sandbox trong task team; khai báo nhu cầu qua interface, giữ hạn chế và dựa vào kết quả điều tra hiện có. |
 | B9 `OPT-7609d1` | Todo | Spike vendor oh-my-pi là tùy chọn, không cần cho v1. | Hợp đồng team vendor-neutral; không chờ vendor thứ tư hoặc tự mở rộng scope của spike. |
@@ -591,32 +593,43 @@ Một số dependency được mô tả trong task body nhưng chưa đặt tron
 2. **Chốt hợp đồng nền cùng backlog hiện tại:** B5 outbox, B7 handoff/service, B10 worktree, B3/B4 failure/usage/lifecycle; đưa lỗi đã quan sát vào cùng test contract. Thiết kế Team/Timeline và schema package/result có thể tiếp tục trong thời gian đó.
 3. **Bổ sung task team dưới cùng chương trình agent-first.** Liên kết với B5/B7 thay vì tạo lại “durable outbox” hay “orchestration service”. Ledger attempt/lease, context packages, result/review evidence, batch wake policy và hai chế độ UI là phần mở rộng riêng. Chỉ cập nhật board khi người dùng yêu cầu thực hiện bước đó.
 4. **Mount UI theo C1, consume hooks theo C2.** Nếu C1 chưa xong, giữ group component độc lập và adapter shell hiện tại; chưa chốt lại navigation toàn app trong task team.
-5. **Áp dụng D1 khi policy được duyệt/triển khai.** Team có thể chạy các bước đã được phép trước đó và chờ đúng gate; không cần chờ D1 hoàn tất để làm domain/read model, nhưng không quảng bá unattended đầy đủ khi còn gate cần người trực.
+5. **Dùng D1 đúng scope đã tích hợp.** Exact `db.query` có thể dùng pre-approval hợp lệ; operation khác vẫn theo gate hiện có. Team có thể chạy các bước đã được phép trước đó và chờ đúng gate; không quảng bá unattended đầy đủ khi còn gate cần người trực.
 
 Không cần đợi toàn bộ 28 task hoàn tất mới tiếp tục thiết kế hoặc làm phần team độc lập. Cần tránh chạy song song các implementation cùng sửa ownership/contract/delivery, và phải có dependency được ghi rõ trước khi bật tính năng tương ứng.
 
 ### 18.4 Cập nhật kiểm tra ngày 25/10/2026
 
-Đọc lại board trực tiếp qua MCP DevKit: **33 task, 12 done, 7 in progress, 14 todo** ở thời điểm kiểm tra. Bảng §18.2 giữ nguyên như snapshot lịch sử ngày 24/10; dùng cập nhật này khi đánh giá phần nào còn chặn triển khai. Không đổi trạng thái/ownership trên board trong lần kiểm tra này.
+Đọc lại board trực tiếp qua MCP DevKit: **33 task, 12 done, 7 in progress, 14 todo** ở thời điểm kiểm tra. Các `Todo`/`In progress` trong bảng bên dưới là trạng thái của board tại lần đọc này, không phải trạng thái branch hoặc PR; task board và Git integration có thể lệch nhau. Bảng §18.2 giữ nguyên như snapshot lịch sử ngày 24/10. Không đổi trạng thái/ownership trên board trong lần kiểm tra này.
 
 Đã đối chiếu lịch sử checkout đến `0601c248`: B1 (#305), C2 (#306), A2 (#307), mode inheritance (#309), sandbox toolchain (#310), P0.1 (#311), B10 (#312), B3 (#313) và permission fixes (#308/#315) đã có merge trong lịch sử. Board cũng đánh dấu các task tương ứng done. B3 vẫn có follow-up riêng, không đồng nghĩa mọi conformance case đã hoàn tất.
 
 | Phạm vi bị chặn | Task còn lại | Trạng thái / kết luận |
 | --- | --- | --- |
-| Handoff và dispatch dùng chung | B7 `OPT-828dec` | Todo, chưa có session/branch nhận. Cần chốt hoặc triển khai service này trước khi team bổ sung handoff tự động; không viết lại trong MCP hay service khác. |
-| Delivery bền vững và batching | B5 `OPT-040960` | Todo, chưa có session/branch nhận. Là phần nền trực tiếp cho outbox/inbox/recovery của team. |
-| Pending asks sau restart | B6 `OPT-e67e8f` | Todo, phụ thuộc B5 theo task body. Chặn cam kết Needs you/recovery đầy đủ, không chặn group read model ban đầu. |
+| Handoff và dispatch dùng chung | B7 `OPT-828dec` | Todo trong board snapshot; shared handoff service đã tích hợp ở `7d13ef73`. Team mở rộng service này, không viết lại trong MCP hay service khác. |
+| Delivery bền vững và batching | B5 `OPT-040960` | Todo trong board snapshot; durable peer outbox đã tích hợp ở `558c35fd`. Đây là nền cho event batching/watermark của team. |
+| Pending asks sau restart | B6 `OPT-e67e8f` | Todo trong board snapshot; metadata-only pending-request recovery đã tích hợp ở `26a7c4cc`, phụ thuộc trên B5 substrate. Dùng interrupted summary; không phục hồi request cũ thành answerable. |
 | Lifecycle/runtime seams | B2 `OPT-0205fd`, B4 `OPT-5526b8` | Todo; B4 phụ thuộc B2. Cần đồng bộ interface và tránh sửa chồng runtime, nhưng không bắt xong cả refactor mới viết domain/DTO độc lập. |
 | Conformance bổ sung | `OPT-51eda0` | In progress. Comments báo hai focused cases đã pass; broader suite còn gặp sandbox-policy failures. Đây là claim trong task, chưa phải lần chạy xác minh lại của chat này. |
 | Timeline phases | P0.2 `OPT-bd9cd6` | In progress. Dùng nguồn phase events của task này; không dựng collector song song. |
 | Đọc review đầy đủ qua MCP | `OPT-803263` | In progress. Thực tế đọc comments B10 vẫn bị `_truncated` ở 24 KB và schema tool đang dùng chưa có pagination. Cần sửa trước khi dựa vào comment history dài làm đầu vào review/acceptance. |
 | Mount UI vào shell đích | C1 `OPT-484f67` | Todo. Chặn chốt navigation/inspector cuối cùng; Team/Timeline component và read model vẫn có thể làm độc lập. |
-| Unattended qua các gate | D1 `OPT-0a45f5` | Todo. Chặn lời hứa vận hành đầy đủ không người trực; không chặn các bước đã được policy hiện tại cho phép. |
+| Unattended qua các gate | D1 `OPT-0a45f5` | Todo trong board snapshot; exact `db.query` v1 đã tích hợp ở `6eb277f9`. Chặn mở rộng unattended sang operation khác; không chặn các bước đã được policy hiện tại cho phép. |
+
+**Implementation status in `codex/team-foundations` (checked against integrated commits):**
+
+| Work | Integrated implementation | Validation evidence and scope |
+| --- | --- | --- |
+| Claude quota/typed prompt failures | `f2bfc440` | Current `ClaudeAdapter.NormalizeUsage` reads `quota.token_count` into separate counters and preserves raw metadata; its adapter hook classifies typed prompt-result failures while the generic runtime stays vendor-neutral. `TMPDIR=/private/tmp go test ./internal/... ./cmd/... -count=1` passed the Agent Hub/interaction packages; the broad run had only the separately documented sandbox process-info failure. |
+| B7 task-to-child handoff | `7d13ef73` | Shared `internal/agentwork` service integrated. `internal/agentwork`, `internal/agenthub`, `internal/storage` and `internal/arch` passed in the same native full-package run. Failed assignment/branch recording cleans up only the new child; failed brief delivery retains it. |
+| B5 durable peer outbox | `558c35fd` | Integrated with durable queue state, revalidation and ambiguous-dispatch recovery. `TMPDIR=/private/tmp go test ./internal/agentwork ./internal/agenthub ./internal/storage ./internal/mcp ./internal/arch -count=1` and `go vet` for those packages passed; targeted B5/B6 race tests passed. |
+| B6 pending-request recovery | `26a7c4cc` | Migration 48 retains lifecycle metadata only. On recovery old permission/question IDs are interrupted and cannot answer; the UI receives an interruption summary. The B5/B6 package, subscriber and race checks above passed. |
+| D1 scoped unattended approval | `6eb277f9` | Exact `db.query` only, with finite uses, expiry, per-call fencing and current profile/parent/tunnel/environment revision checks. Scoped Go, real card/bridge/MCP/gateway, architecture, build and 15 isolated UI/bridge/navigation tests passed. Other operation classes remain gated. |
+| C1 conversation-centred shell | Design deliverable | This document specifies C1; no C3–C6 shell implementation is implied. |
 
 Sandbox mới: `OPT-83522b` và `OPT-c74b5b` trên board vẫn in progress, nhưng `pr.get(316)` trả **merged** cho [PR #316](https://github.com/syurodev/dev-kit/pull/316), gồm metadata-only `/private`, session-temp test seam và process-info probes. Snapshot PR lúc kiểm tra báo 1 check passed, 3 running, 0 failed. Vì vậy không liệt kê “chờ merge #316” là blocker; vẫn cần xác minh checkout/build và process DevKit đang chạy thực sự có fix và chạy được các kiểm tra liên quan. Chưa fetch/pull, rebuild hoặc chạy host smoke trong lần kiểm tra này. Task/PR/source/app có thể cập nhật lệch thời điểm.
 
-Hai lỗi của team phase 0 vẫn thấy trong checkout được đọc: `NormalizeUsage` chỉ đọc `claudeCode`, và `acpRuntime.Prompt` vẫn trả outcome thành công nếu JSON-RPC thành công mà không phân loại typed failure trong response metadata. Board 33 task chưa có ticket riêng ghi rõ hai lỗi này; B3 done không phải bằng chứng chúng đã được sửa. Cần thêm phạm vi này vào kế hoạch triển khai phase 0 trước khi tin số liệu usage hoặc tự động quyết định recovery, qua task được người dùng cho phép tạo/cập nhật.
+**Quan sát lịch sử, không phải trạng thái hiện tại:** checkout `04d3fd9e` đọc ngày 24/10 chỉ chuẩn hóa usage từ `claudeCode` và xem JSON-RPC prompt thành công là turn thành công dù response metadata có typed failure. Cả hai lỗi được sửa ở `f2bfc440`: Claude usage đọc `quota.token_count`, giữ input/cache-read/cache-write/output riêng và raw metadata; Claude adapter hook phân loại `sessionFailure` nghiêm trọng, còn warning/cleared không kết thúc turn. Các ACP-pipe/Service fixture tests và Agent Hub package validation passed as recorded in the implementation tracking plan. B3 done trong board snapshot không phải bằng chứng của fix; commit hiện tại là bằng chứng.
 
-Ưu tiên tiếp theo cho team là **phase 0 token/typed-failure + B7/B5**, rồi B6 và tích hợp runtime/UI theo nhu cầu. A3 đang in progress, A4/B8 và các task khác tiếp tục theo backlog của chúng; không phải mọi task todo đều là hard blocker cho team. Chưa gửi tin, giao việc hoặc mở nhánh implementation cho bất kỳ task nào trong lần kiểm tra này.
+Các nền tảng phase 0, B5, B6, B7 và D1 v1 đã được tích hợp; phần team còn lại là ledger/lease, context/result packages, batching và Team/Timeline UI. A3 đang in progress, A4/B8 và các task khác tiếp tục theo backlog của chúng; không phải mọi task todo đều là hard blocker cho team. Chưa gửi tin, giao việc hoặc mở nhánh implementation cho bất kỳ task nào trong lần kiểm tra này.
 
 Tài liệu này không thay đổi code, prompt, session đang chạy, task board, model/account policy hoặc cấu hình automation.
