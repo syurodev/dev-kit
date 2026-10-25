@@ -98,7 +98,7 @@ func OpenCodeQuirks() VendorQuirks {
 	wireLog := ""
 	return VendorQuirks{
 		Name:     "opencode",
-		Supports: CapabilitySet{LoadResume: true, Elicitation: true, ProcessDeath: false, SetMode: true, SetConfigOption: true, StreamingUpdates: true, Permission: true, VendorRefusal: true, Cancel: true, UsageUpdate: true},
+		Supports: CapabilitySet{LoadResume: true, Elicitation: true, ProcessDeath: true, SetMode: true, SetConfigOption: true, StreamingUpdates: true, Permission: true, VendorRefusal: true, Cancel: true, UsageUpdate: true},
 		Open: func(t *testing.T, script []string) (SessionRuntime, error) {
 			scenario := "turn"
 			if len(script) > 0 {

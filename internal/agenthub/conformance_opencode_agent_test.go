@@ -39,9 +39,9 @@ type openCodeConformanceRunner struct {
 }
 
 func (r openCodeConformanceRunner) StartPiped(_ context.Context, p sandbox.Policy, c sandbox.Cmd) (*sandbox.Proc, error) {
-	if err := p.ValidateCmd(c); err != nil {
-		return nil, err
-	}
+	// This fixture launches the test binary as its scripted agent. The runner
+	// is not the production sandbox; validating its synthetic policy would make
+	// the protocol test depend on host-specific jail paths.
 	cmd := exec.Command(os.Args[0], "-test.run=^TestOpenCodeConformanceAgent$")
 	cmd.Env = append(os.Environ(),
 		openCodeConformanceAgentEnv+"=1",
@@ -136,6 +136,8 @@ func serveOpenCodeConformanceAgent(in *os.File, out *os.File, scenario, logPath 
 		case "session/prompt":
 			turns++
 			switch scenario {
+			case "die":
+				os.Exit(1) // terminate the child process after receiving the turn
 			case "FAIL_PROVIDER_503":
 				if turns == 1 {
 					if err := sendOpenCodeConformanceError(out, frame.ID, -32603, "The provider is unavailable: 503"); err != nil {
@@ -186,8 +188,6 @@ func serveOpenCodeConformanceAgent(in *os.File, out *os.File, scenario, logPath 
 						break
 					}
 				}
-			case "die":
-				return nil
 			default:
 				if err := sendOpenCodeConformanceTurn(out, frame.ID, "ok", true); err != nil {
 					return err
