@@ -126,9 +126,17 @@ func buildSeatbeltProfileWithUnixSockets(p Policy, unixSockets bool) string {
 			b.WriteString("(allow file-read-data (literal \"" + escapeSBPL(dir) + "\"))\n")
 		}
 	}
+	// /private is the symlink parent of /tmp on macOS. A path walk into the
+	// granted /private/tmp tree (including SQLite's file setup) needs to stat
+	// that directory, but must not read its contents.
+	b.WriteString("(allow file-read-metadata (literal \"/private\"))\n")
 
 	b.WriteString("(allow process-exec)\n")
 	b.WriteString("(allow process-fork)\n")
+	// Removing process-info* did not change host proc_pidinfo or proc_pidpath
+	// results. Removing sysctl-read prevents the Go runtime from starting
+	// (system page-size lookup); its connection to proc_pidinfo/proc_pidpath is
+	// unproven. KERN_PROC_PID sysctl data was readable in the jail.
 	b.WriteString(`(allow signal (target same-sandbox))
 (allow process-info* (target same-sandbox))
 (allow mach-lookup (global-name "com.apple.system.opendirectoryd.libinfo"))

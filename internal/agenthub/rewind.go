@@ -454,6 +454,7 @@ func (r *rewindRun) abandonSafety(ctx context.Context, cause error) {
 func (r *rewindRun) openForked(ctx context.Context) error {
 	s := r.service
 	spec := sessionOpenSpec(r.session)
+	spec.SessionTempRoot = s.SessionTempRoot
 	r.closeNew = func() {}
 	if s.MCPEndpoints != nil {
 		ep, err := s.MCPEndpoints.Open(r.session.ID)

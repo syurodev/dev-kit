@@ -32,7 +32,7 @@ var sessionTemps = struct {
 
 // Keep the approved short name; the full UUID marker and exclusive creation
 // prevent two sessions with the same eight-digit prefix from sharing scratch.
-func sessionTempPath(id string) string {
+func sessionTempPath(id string, roots ...string) string {
 	if runtime.GOOS != "darwin" {
 		return ""
 	}
@@ -40,7 +40,11 @@ func sessionTempPath(id string) string {
 	if err != nil {
 		return ""
 	}
-	return "/private/tmp/dk-" + parsed.String()[:8]
+	root := "/private/tmp"
+	if len(roots) > 0 && roots[0] != "" {
+		root = roots[0]
+	}
+	return filepath.Join(root, "dk-"+parsed.String()[:8])
 }
 func tempOwnerKey(owner string) string {
 	digest := sha256.Sum256([]byte(resolveTempOwner(owner)))
@@ -58,7 +62,7 @@ func resolveTempOwner(owner string) string {
 func tempMarker(dir string) string { return dir + ".owner" }
 
 func prepareSessionTemp(spec *OpenSpec, fresh bool) error {
-	dir := sessionTempPath(spec.SessionID)
+	dir := sessionTempPath(spec.SessionID, spec.SessionTempRoot)
 	if dir == "" {
 		return nil
 	}
@@ -142,7 +146,11 @@ func applySessionTempEnv(env map[string]string, spec OpenSpec) {
 	}
 }
 func removeSessionTemp(id string) {
-	dir := sessionTempPath(id)
+	removeSessionTempAt(id, "")
+}
+
+func removeSessionTempAt(id, root string) {
+	dir := sessionTempPath(id, root)
 	if dir == "" {
 		return
 	}

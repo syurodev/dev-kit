@@ -279,11 +279,13 @@ type MCPEndpoints interface {
 type Service struct {
 	// SessionTempOwner identifies this database for conservative scratch cleanup.
 	SessionTempOwner string
-	reg              *Registry
-	store            Store
-	recorder         *Recorder
-	recoveryID       string
-	unknownSeen      map[string]struct{}
+	// SessionTempRoot is a test seam; empty preserves the platform default.
+	SessionTempRoot string
+	reg             *Registry
+	store           Store
+	recorder        *Recorder
+	recoveryID      string
+	unknownSeen     map[string]struct{}
 	// retrying holds the sessions whose agent has an unanswered provider-retry
 	// notice on screen, so the turn that ends can clear it (see endProviderRetry).
 	retrying  map[string]struct{}
@@ -817,7 +819,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 	}
 
 	id := uuid.NewString()
-	spec := OpenSpec{SessionID: id, Cwd: cwd, WorkspaceID: workspaceID}
+	spec := OpenSpec{SessionID: id, Cwd: cwd, WorkspaceID: workspaceID, SessionTempRoot: s.SessionTempRoot}
 	// Belt: the MCP tool handler's own input struct has no field to carry
 	// paths, so an agent caller cannot reach it in practice. Suspenders: an
 	// agent caller's own list is ignored here too, so the guarantee holds even
@@ -2572,6 +2574,7 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 	sess.AccountID = row.AccountID
 
 	spec := sessionOpenSpec(sess)
+	spec.SessionTempRoot = s.SessionTempRoot
 	closeEndpoint := func() {}
 	if s.MCPEndpoints != nil {
 		ep, err := s.MCPEndpoints.Open(sess.ID)
