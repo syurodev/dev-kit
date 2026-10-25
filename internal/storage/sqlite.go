@@ -30,6 +30,9 @@ const (
 	TableAgentSessions        = "agent_sessions"
 	TableAgentAccounts        = "agent_accounts"
 	TableAgentPendingRequests = "agent_pending_requests"
+	TableAgentWorkGroups      = "agent_work_groups"
+	TableAgentWorkItems       = "agent_work_items"
+	TableAgentWorkAttempts    = "agent_work_attempts"
 	TableAgentDocuments       = "agent_documents"
 	// TableSessionChangeRequests ties a pull/merge request to an Agent Hub
 	// session by hand or by pr.create. Local like the session; not synced.
@@ -1510,7 +1513,86 @@ CREATE TABLE IF NOT EXISTS workspace_memory_revisions (
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38, m39, m40, m41, m42, m43, m44, m45, m46, m47, m48})
+	// m49: local managed-work execution ledger. It stores coordination metadata
+	// only; prompt, evidence, transcript and private-path bodies have no columns.
+	m49 := Migration{
+		Version: 49,
+		Name:    "agent managed work ledger",
+		Up: func(ctx context.Context) error {
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
+				id TEXT PRIMARY KEY,
+				workspace_id TEXT NOT NULL,
+				board_id TEXT NOT NULL,
+				parent_task_id TEXT NOT NULL,
+				coordinator_id TEXT NOT NULL,
+				enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0,1)),
+				paused INTEGER NOT NULL DEFAULT 1 CHECK (paused IN (0,1)),
+				policy_revision INTEGER NOT NULL CHECK (policy_revision > 0),
+				revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				UNIQUE(id, workspace_id, board_id, parent_task_id)
+			)`, TableAgentWorkGroups)); err != nil {
+				return err
+			}
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
+				id TEXT PRIMARY KEY,
+				group_id TEXT NOT NULL,
+				workspace_id TEXT NOT NULL,
+				board_id TEXT NOT NULL,
+				parent_task_id TEXT NOT NULL,
+				task_id TEXT NOT NULL,
+				task_revision INTEGER NOT NULL CHECK (task_revision > 0),
+				requirements_revision TEXT NOT NULL CHECK (length(requirements_revision) > 0),
+				role TEXT NOT NULL CHECK (role IN ('coordinator','implementer','reviewer','integrator')),
+				state TEXT NOT NULL DEFAULT 'planned',
+				current_attempt_id TEXT,
+				revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				UNIQUE(group_id, task_id),
+				UNIQUE(id, group_id, workspace_id, board_id, parent_task_id),
+				CHECK (task_id <> parent_task_id),
+				FOREIGN KEY(group_id, workspace_id, board_id, parent_task_id)
+					REFERENCES %s(id, workspace_id, board_id, parent_task_id),
+				FOREIGN KEY(current_attempt_id, id, group_id, workspace_id, board_id, parent_task_id)
+					REFERENCES agent_work_attempts(id, work_item_id, group_id, workspace_id, board_id, parent_task_id) DEFERRABLE INITIALLY DEFERRED
+			)`, TableAgentWorkItems, TableAgentWorkGroups)); err != nil {
+				return err
+			}
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
+				id TEXT PRIMARY KEY,
+				work_item_id TEXT NOT NULL,
+				group_id TEXT NOT NULL,
+				workspace_id TEXT NOT NULL,
+				board_id TEXT NOT NULL,
+				parent_task_id TEXT NOT NULL,
+				session_id TEXT NOT NULL DEFAULT '',
+				role TEXT NOT NULL CHECK (role IN ('coordinator','implementer','reviewer','integrator')),
+				task_revision INTEGER NOT NULL CHECK (task_revision > 0),
+				requirements_revision TEXT NOT NULL CHECK (length(requirements_revision) > 0),
+				generation INTEGER NOT NULL CHECK (generation > 0),
+				revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+				state TEXT NOT NULL,
+				dispatch_state TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				UNIQUE(work_item_id, generation),
+				UNIQUE(id, work_item_id, group_id, workspace_id, board_id, parent_task_id),
+				FOREIGN KEY(work_item_id, group_id, workspace_id, board_id, parent_task_id)
+					REFERENCES %s(id, group_id, workspace_id, board_id, parent_task_id)
+			)`, TableAgentWorkAttempts, TableAgentWorkItems)); err != nil {
+				return err
+			}
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(`CREATE INDEX IF NOT EXISTS agent_work_items_group_page_idx ON %s(group_id, id)`, TableAgentWorkItems)); err != nil {
+				return err
+			}
+			_, err := db.ExecContext(ctx, fmt.Sprintf(`CREATE INDEX IF NOT EXISTS agent_work_attempts_item_page_idx ON %s(work_item_id, id)`, TableAgentWorkAttempts))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38, m39, m40, m41, m42, m43, m44, m45, m46, m47, m48, m49})
 	if err != nil {
 		return err
 	}
