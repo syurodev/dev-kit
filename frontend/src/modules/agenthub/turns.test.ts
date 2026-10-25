@@ -295,6 +295,16 @@ describe("activityOf", () => {
       orb: "composing",
     });
   });
+
+  it("names the invoke phase before the first work row without changing the orb", () => {
+    for (const [phase, label] of [
+      ["saving_checkpoint", "Saving checkpoint…"],
+      ["opening_agent", "Opening agent…"],
+      ["waiting_for_model", "Waiting for the model…"],
+    ]) {
+      expect(live({ id: phase, kind: "turn_phase_update", phase })).toEqual({ label, orb: "breathing" });
+    }
+  });
 });
 
 describe("workSegments", () => {

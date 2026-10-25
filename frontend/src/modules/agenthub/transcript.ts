@@ -275,6 +275,25 @@ export function applySessionUpdates(
   for (const update of updates) {
     const kind = update.kind;
 
+    // Invoke progress is a live hint, not conversation history. Keep one
+    // in-memory item so activityOf can label a turn before the first work row.
+    if (kind === "turn_phase_update") {
+      const lastIndex = items.length - 1;
+      const last = lastIndex >= 0 ? items[lastIndex] : undefined;
+      copyItems();
+      const next: TranscriptItem = {
+        id: last?.kind === kind ? last.id : generateId(),
+        kind,
+        phase: update.phase,
+        createdAt: last?.kind === kind ? last.createdAt : now(),
+        updatedAt: now(),
+      };
+      if (last?.kind === kind) items[lastIndex] = next;
+      else items.push(next);
+      changed = true;
+      continue;
+    }
+
     if (kind === UpdateKind.UpdateUsage || kind === "usage_update") {
       if (update.usage) {
         usage = { ...update.usage };
@@ -375,7 +394,15 @@ export function applySessionUpdates(
       const chunkText = extractChunkText(update);
       const lastIndex = items.length - 1;
       const last = lastIndex >= 0 ? items[lastIndex] : null;
+      // Opening-agent can arrive before Invoke records the prompt echo. Carry
+      // that hint across the echo so it belongs to the new turn, not a phantom
+      // turn before it.
+      const pendingPhase =
+        (kind === UpdateKind.UpdateUserMessageChunk || kind === "user_message_chunk") && last?.kind === "turn_phase_update"
+          ? last
+          : null;
       copyItems();
+      if (pendingPhase) items.pop();
       if (last && last.kind === kind && isSameMessage(last.messageId, update.messageId)) {
         items[lastIndex] = {
           ...last,
@@ -395,6 +422,7 @@ export function applySessionUpdates(
           createdAt: now(),
           updatedAt: now(),
         });
+        if (pendingPhase) items.push(pendingPhase);
       }
       changed = true;
       continue;

@@ -216,6 +216,8 @@ export type SessionGoal = {
  */
 export type SessionUpdate = {
   kind: UpdateKind | string;
+  /** DevKit's live invoke phase; never persisted as a transcript row. */
+  phase?: string;
   content?: ContentBlock | null;
   toolCall?: ToolCall | null;
   plan?: PlanEntry[];
@@ -399,6 +401,7 @@ export type TranscriptItem = {
   source?: MessageSource;
   toolCallId?: string;
   toolCall?: ToolCall;
+  phase?: string;
   plan?: PlanEntry[];
   subagent?: Subagent;
   /** One row per background task, merged from the three async_task_* kinds. */
