@@ -82,6 +82,37 @@ func TestSeatbeltProfileNetworkHostAllowsOutbound(t *testing.T) {
 	}
 }
 
+// Host networking used to read all of /var and /private/var, which listed the
+// user's /var/folders temp and cache trees, /var/log and /var/db. DNS needs
+// only the path walk to the resolver socket, resolv.conf and the timezone
+// database (measured on a macOS host: without the metadata rule curl, Node and
+// Go fail to resolve; without the timezone rule the jail's clock is UTC).
+func TestSeatbeltProfileNetworkHostDoesNotReadAllOfVar(t *testing.T) {
+	host := buildSeatbeltProfile(Policy{WorkDir: "/work", Network: NetworkHost}.withDefaults())
+	for _, broad := range []string{
+		`(allow file-read* (subpath "/var"))`,
+		`(allow file-read* (subpath "/private/var"))`,
+	} {
+		if strings.Contains(host, broad) {
+			t.Fatalf("host networking must not read the whole of /var: %s", broad)
+		}
+	}
+	for _, rule := range []string{
+		`(allow file-read-metadata (literal "/private/var") (literal "/private/var/run") (literal "/var") (literal "/var/run"))`,
+		`(allow file-read* (literal "/private/var/run/resolv.conf") (literal "/var/run/resolv.conf"))`,
+		`(allow file-read* (subpath "/private/var/db/timezone") (subpath "/var/db/timezone"))`,
+		`(deny file-read* (subpath "/private/var/root"))`,
+		`(deny file-read* (subpath "/private/var/db/Keychains"))`,
+	} {
+		if !strings.Contains(host, rule) {
+			t.Fatalf("missing %s: %s", rule, host)
+		}
+	}
+	if none := buildSeatbeltProfile(Policy{WorkDir: "/work", Network: NetworkNone}.withDefaults()); strings.Contains(none, "resolv.conf") || strings.Contains(none, "db/timezone") {
+		t.Fatalf("a jail with no network must not gain the DNS and timezone reads: %s", none)
+	}
+}
+
 func TestSeatbeltPreferencesAreOptInAndReadOnly(t *testing.T) {
 	base := Policy{WorkDir: "/tmp/proj", Network: NetworkNone}
 	if prof := buildSeatbeltProfile(base); strings.Contains(prof, "cfprefsd") || strings.Contains(prof, "user-preference-read") {
