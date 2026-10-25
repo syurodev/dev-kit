@@ -113,6 +113,39 @@ func TestSeatbeltProfileNetworkHostDoesNotReadAllOfVar(t *testing.T) {
 	}
 }
 
+// A session with its own scratch directory gets no shared /tmp: it reaches the
+// directory by a stat of /private/tmp and nothing else there. A policy without
+// one keeps the shared tree, because its TMPDIR is /tmp.
+func TestSeatbeltProfileSharedTempOnlyWithoutSessionTemp(t *testing.T) {
+	const session = "/private/tmp/dk-12345678"
+	own := buildSeatbeltProfile(Policy{WorkDir: "/work", SessionTempDir: session, Network: NetworkHost}.withDefaults())
+	for _, shared := range []string{`(subpath "/tmp")`, `(subpath "/private/tmp")`} {
+		if strings.Contains(own, shared) {
+			t.Fatalf("a session with its own temp directory must not get the shared %s: %s", shared, own)
+		}
+	}
+	for _, rule := range []string{
+		`(allow file-read-metadata (literal "/private/tmp"))`,
+		`(allow file-read* file-write* (subpath "` + session + `"))`,
+	} {
+		if !strings.Contains(own, rule) {
+			t.Fatalf("missing %s: %s", rule, own)
+		}
+	}
+	if strings.Contains(own, `(allow file-read-data (literal "/private/tmp"))`) {
+		t.Fatal("the shared temp directory must not be listable")
+	}
+	shared := buildSeatbeltProfile(Policy{WorkDir: "/work", Network: NetworkHost}.withDefaults())
+	for _, rule := range []string{`(subpath "/tmp")`, `(subpath "/private/tmp")`} {
+		if !strings.Contains(shared, rule) {
+			t.Fatalf("without a session directory TMPDIR is /tmp and must stay writable, missing %s: %s", rule, shared)
+		}
+	}
+	if strings.Contains(shared, `(literal "/private/tmp"))`) {
+		t.Fatalf("no session directory, no extra stat rule: %s", shared)
+	}
+}
+
 func TestSeatbeltPreferencesAreOptInAndReadOnly(t *testing.T) {
 	base := Policy{WorkDir: "/tmp/proj", Network: NetworkNone}
 	if prof := buildSeatbeltProfile(base); strings.Contains(prof, "cfprefsd") || strings.Contains(prof, "user-preference-read") {

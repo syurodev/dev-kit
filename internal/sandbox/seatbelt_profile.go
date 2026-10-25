@@ -84,10 +84,15 @@ func buildSeatbeltProfileWithUnixSockets(p Policy, unixSockets bool) string {
 	for _, path := range p.ReadWritePaths {
 		writeSBPLPath(&b, path)
 	}
-	// /tmp whether or not home is shared: a CLI reaches for os.tmpdir()
-	// either way, and TMPDIR points there (withHomeEnv).
-	writeSBPLSubpath(&b, "/tmp")
-	writeSBPLSubpath(&b, "/private/tmp")
+	// The shared /tmp is read-write only for a policy without a session
+	// directory: such a policy's TMPDIR is /tmp (withHomeEnv), and a CLI reaches
+	// for os.tmpdir(). With SessionTempDir the process gets its own scratch
+	// directory below and the shared tree stays closed — every other app's temp
+	// files, and the other vendors' sessions, are not its to read or write.
+	if p.SessionTempDir == "" {
+		writeSBPLSubpath(&b, "/tmp")
+		writeSBPLSubpath(&b, "/private/tmp")
+	}
 	// A shared home is the whole of it, read-write. The deny rule emitted
 	// last still takes ~/.ssh and the rest back out: SBPL's later match wins.
 	if home := p.sharedHome(); home != "" {
@@ -130,6 +135,11 @@ func buildSeatbeltProfileWithUnixSockets(p Policy, unixSockets bool) string {
 	// granted /private/tmp tree (including SQLite's file setup) needs to stat
 	// that directory, but must not read its contents.
 	b.WriteString("(allow file-read-metadata (literal \"/private\"))\n")
+	if p.SessionTempDir != "" {
+		// Reaching the session directory walks /private/tmp: stat only, never a
+		// listing, so the other sessions' and apps' names there stay hidden.
+		b.WriteString("(allow file-read-metadata (literal \"/private/tmp\"))\n")
+	}
 
 	b.WriteString("(allow process-exec)\n")
 	b.WriteString("(allow process-fork)\n")

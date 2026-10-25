@@ -179,6 +179,11 @@ func sandboxFor(workDir string, l launch, spec OpenSpec) (sandbox.Policy, sandbo
 	}
 	completeToolPath(env, spec)
 	applySessionTempEnv(env, spec)
+	if spec.SessionTempDir != "" {
+		// Claude Code takes its scratch directory from this variable and falls
+		// back to a literal /tmp, ignoring TMPDIR; the jail has no shared /tmp.
+		env["CLAUDE_CODE_TMPDIR"] = spec.SessionTempDir
+	}
 	var readWrite, denyRead []string
 	if spec.AccountHome != "" {
 		// An added account is a config directory of its own. The machine's own

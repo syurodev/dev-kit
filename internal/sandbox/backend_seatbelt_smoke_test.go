@@ -5,8 +5,10 @@ package sandbox
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -90,5 +92,55 @@ func TestSmokeSeatbeltNetworkHostNarrowVar(t *testing.T) {
 		if out, err := run("/bin/ls", dir); err == nil {
 			t.Fatalf("jail listed %s: %s", dir, out)
 		}
+	}
+}
+
+// TestSmokeSeatbeltSessionTempClosesSharedTmp checks on a host that a session
+// with its own scratch directory can use it but gets no access to the shared
+// /tmp. Opt-in via DEVKIT_SANDBOX_SMOKE=1.
+func TestSmokeSeatbeltSessionTempClosesSharedTmp(t *testing.T) {
+	if os.Getenv("DEVKIT_SANDBOX_SMOKE") != "1" {
+		t.Skip("set DEVKIT_SANDBOX_SMOKE=1 to run the live sandbox smoke test")
+	}
+	requireHostSeatbelt(t)
+	runner := DefaultRunner()
+	if err := runner.Available(context.Background()); err != nil {
+		t.Skipf("sandbox backend unavailable: %v", err)
+	}
+	dir := filepath.Join("/private/tmp", fmt.Sprintf("dk-%08x", os.Getpid()))
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	marker := filepath.Join("/private/tmp", fmt.Sprintf("devkit-smoke-shared-%d", os.Getpid()))
+	t.Cleanup(func() { _ = os.Remove(marker) })
+	policy := Policy{WorkDir: t.TempDir(), SessionTempDir: dir, Network: NetworkHost, Env: map[string]string{"TMPDIR": dir}}
+	run := func(script string) error {
+		t.Helper()
+		proc, err := runner.Start(context.Background(), policy, Cmd{Path: "/bin/sh", Args: []string{"-c", script}})
+		if err != nil {
+			t.Fatalf("start: %v", err)
+		}
+		done := make(chan error, 1)
+		go func() { done <- proc.Wait() }()
+		select {
+		case <-time.After(20 * time.Second):
+			proc.Kill()
+			t.Fatalf("%q timed out", script)
+		case err = <-done:
+		}
+		return err
+	}
+	if err := run(`touch "$TMPDIR/inside" && /usr/bin/stat /private/tmp >/dev/null`); err != nil {
+		t.Fatalf("session directory must be usable and /private/tmp statable: %v", err)
+	}
+	if err := run(`touch ` + marker); err == nil {
+		t.Fatal("jail wrote to the shared /private/tmp")
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("shared /private/tmp file exists after the jail wrote it")
+	}
+	if err := run(`/bin/ls /private/tmp >/dev/null`); err == nil {
+		t.Fatal("jail listed the shared /private/tmp")
 	}
 }

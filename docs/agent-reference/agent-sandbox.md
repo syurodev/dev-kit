@@ -37,9 +37,12 @@ go test ./internal/sandbox/ -run 'TestSmokeAgentShapedProcess|TestBwrapCanWriteW
 ### Agent sandbox
 Host networking no longer reads all of `/var` and `/private/var`: DNS needs only
 metadata on the `/var` parents, `resolv.conf` and the timezone database (see
-`TestSmokeSeatbeltNetworkHostNarrowVar`). The shared `/tmp` and `/private/tmp`
-are still read-write (OPT-3375a2, in progress): Claude Code ignores `TMPDIR` and
-uses `/tmp` unless `CLAUDE_CODE_TMPDIR` is set.
+`TestSmokeSeatbeltNetworkHostNarrowVar`). A policy with a session temp directory
+gets no shared `/tmp` or `/private/tmp` (only a stat of `/private/tmp`); without
+one, `TMPDIR` is `/tmp` and the shared tree stays read-write
+(`TestSmokeSeatbeltSessionTempClosesSharedTmp`). Claude Code ignores `TMPDIR`,
+so its adapter also sets `CLAUDE_CODE_TMPDIR`; without it Claude fails with
+`EPERM: mkdir '/tmp/claude-<uid>'`.
 Agent Hub gives macOS sessions a private, short `/private/tmp/dk-<session-prefix>`
 (0700), with `TMPDIR` and `GOTMPDIR` set after environment inheritance. Unix
 listeners are limited to that directory; PTYs and process signals/info are
