@@ -48,6 +48,8 @@ D1 author/reviewer checks passed: scoped Go tests including the real card/bridge
 
 ## Final integrated validation
 
+PR #317 follow-up (OPT-67e0a0): merged `origin/main` at `b1c1ea3f` (#316) in `f6c84d6a`. The `Service` conflict retains both pending-recovery identity and the new session-temp test seam. Post-merge `TMPDIR=/private/tmp go test ./internal/agenthub ./internal/sandbox ./internal/storage ./internal/arch -count=1` passed all four packages, including the sandbox probe that failed on the earlier baseline below. Root `AGENTS.md` was reduced from 220,112 to 6,536 UTF-8 bytes (97.0% smaller). All 2,290 original lines were preserved across 23 focused `docs/agent-reference/` guides, with the module-shell relative link adjusted for its new location. The root has a 10 KiB maintenance budget and an on-demand task map. Independent review, line preservation, local link/fence checks and `git diff --check` passed. No fresh model session was run, so this is a measured instruction-byte reduction, not a measured token reduction.
+
 - Native `TMPDIR=/private/tmp go test ./internal/... ./cmd/... -count=1`: every package passed except `internal/sandbox`, whose existing `TestSmokeSeatbeltDeveloperTools/cgo-process-info` failure was reproduced on unchanged main. Desktop bridge tests passed in this native run. Full log: `/private/tmp/devkit-team-foundations-go-tests.log` (local diagnostic, not a committed artifact).
 - `go vet` passed for agentwork, agenthub, interaction, mcp, storage, database, ssh, environments, bridge and app.
 - `TMPDIR=/private/tmp go test -tags server . -count=1` passed for the integrated root/composition package.
