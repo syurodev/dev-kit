@@ -38,6 +38,9 @@ func TestRegistryContracts(t *testing.T) {
 		if d.Exposure != Both && d.Reason == "" {
 			t.Errorf("%s: exposure reason missing", d.Name)
 		}
+		if d.Exposure != UI && strings.TrimSpace(d.Agent.Description) == "" {
+			t.Errorf("%s: agent-exposed operation has no MCP description", d.Name)
+		}
 		if d.Confirm.Policy == AskOnce && d.Confirm.Reason == "" {
 			t.Errorf("%s: AskOnce reason missing", d.Name)
 		}

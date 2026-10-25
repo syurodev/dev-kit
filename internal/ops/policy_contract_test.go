@@ -10,6 +10,7 @@ import (
 	"devkit/internal/permissions"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -26,6 +27,34 @@ func fill(v reflect.Value) {
 		fill(v.Index(0))
 	}
 }
+
+func fillRecordIDs(v reflect.Value) {
+	if v.Kind() == reflect.Pointer {
+		if v.IsNil() && v.CanSet() {
+			v.Set(reflect.New(v.Type().Elem()))
+		}
+		if !v.IsNil() {
+			fillRecordIDs(v.Elem())
+		}
+		return
+	}
+	if v.Kind() != reflect.Struct {
+		return
+	}
+	for i := 0; i < v.NumField(); i++ {
+		field := v.Field(i)
+		name := v.Type().Field(i).Name
+		if strings.HasSuffix(name, "IDs") && field.Kind() == reflect.Slice && field.Type().Elem().Kind() == reflect.String {
+			field.Set(reflect.ValueOf([]string{"abcdef0123456789abcdef01"}))
+			continue
+		}
+		if strings.HasSuffix(name, "ID") && field.Kind() == reflect.String && field.CanSet() {
+			field.SetString("abcdef0123456789abcdef01")
+		}
+		fillRecordIDs(field)
+	}
+}
+
 func TestEveryOpIsGrantedByTheRealPolicy(t *testing.T) {
 	c := app.NewContainer()
 	for _, op := range ops.All() {
@@ -36,14 +65,7 @@ func TestEveryOpIsGrantedByTheRealPolicy(t *testing.T) {
 				fill(in)
 			}
 			if sample == "real-shaped" {
-				for _, name := range []string{"ID", "VersionID", "FolderID"} {
-					if field := in.FieldByName(name); field.IsValid() {
-						field.SetString("abcdef0123456789abcdef01")
-					}
-				}
-				if field := in.FieldByName("IDs"); field.IsValid() {
-					field.Set(reflect.ValueOf([]string{"abcdef0123456789abcdef01"}))
-				}
+				fillRecordIDs(in)
 			}
 			scope, err := op.Resolve(context.Background(), in.Interface())
 			if err != nil {
