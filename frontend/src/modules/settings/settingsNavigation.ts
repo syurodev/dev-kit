@@ -40,7 +40,7 @@ export const SETTINGS_GROUPS = [
     { id: "agents-models", label: "Models & subagents", keywords: "model effort reasoning profiles jobs subagent delegate limit max nesting depth concurrent cost" },
     { id: "agents-accounts", label: "Accounts & limits", keywords: "accounts several multiple subscription usage quota threshold switch failover order priority terms add claude codex" },
     { id: "agents-skills", label: "Skills & MCP", keywords: "tools skills mcp servers import folders override disable customization" },
-    { id: "agents-safety", label: "Safety", keywords: "sandbox checkpoints rollback docker home folder isolation permissions" },
+    { id: "agents-safety", label: "Safety", keywords: "sandbox checkpoints rollback docker home folder isolation permissions scoped approvals approval" },
     { id: "agents-notifications", label: "Notifications & remote", keywords: "notify alerts telegram bot pairing phone approvals remote control" },
     { id: "agents-mcp", label: "DevKit as MCP", keywords: "tools proxy install agent config claude code codex integration" },
   ] },

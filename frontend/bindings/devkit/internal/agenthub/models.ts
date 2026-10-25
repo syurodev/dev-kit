@@ -595,6 +595,7 @@ export interface PendingPermission {
     "id": string;
     "sessionId": string;
     "params": json$0.RawMessage;
+    "scopedApprovalEligible"?: boolean;
     "createdAt": string;
 
     /**

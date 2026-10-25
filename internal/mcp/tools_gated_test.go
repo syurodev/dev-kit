@@ -6,9 +6,11 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"devkit/internal/apperrors"
 	"devkit/internal/database"
+	"devkit/internal/identity"
 	"devkit/internal/interaction"
 	"devkit/internal/kafka"
 	sshservice "devkit/internal/ssh"
@@ -39,6 +41,7 @@ type fakeDB struct {
 	activeID string
 	queryOut database.QueryResult
 	queryErr error
+	revision string
 	// queriedID is the profile Query ran on; onQuery runs inside Query.
 	queriedID string
 	onQuery   func(f *fakeDB)
@@ -69,6 +72,14 @@ func (f *fakeDB) ListQueryHistory(string) ([]database.HistoryEntry, error) {
 
 func (f *fakeDB) ListSavedQueries(string) ([]database.SavedQuery, error) {
 	return nil, nil
+}
+
+func (f *fakeDB) ApprovalRevision(id string) (string, error) {
+	revision := f.revision
+	if revision == "" {
+		revision = "profile-v1"
+	}
+	return id + ":" + revision, nil
 }
 
 func (f *fakeDB) Query(_ context.Context, id string, _ string, _ int) (database.QueryResult, error) {
@@ -389,6 +400,69 @@ func newDBGateServer(env string, req map[string]bool, hub *interaction.Hub) (*Se
 		Hub:    hub,
 	})
 	return srv, caller
+}
+
+type revisionedFakeEnvs struct {
+	fakeEnvs
+	revision string
+}
+
+func (e *revisionedFakeEnvs) PolicyRevision(name string) (string, error) {
+	if e.RequiresConfirmation(name) {
+		return "", errors.New("blocked or unresolved policy")
+	}
+	return name + ":" + e.revision, nil
+}
+
+func TestDBQueryScopedApprovalFencesAndConsumesAtQueryBoundary(t *testing.T) {
+	const sql = "delete from records where id = 7"
+	dbAPI := &fakeDB{activeID: prodDBID, profiles: []database.ProfileSummary{{ID: prodDBID, Env: "dev"}}, revision: "generation-1"}
+	envs := &revisionedFakeEnvs{fakeEnvs: fakeEnvs{req: map[string]bool{"dev": false}}, revision: "policy-1"}
+	hub := interaction.NewHub(interaction.NoopPrompter{})
+	hub.ConfirmAgent = func(context.Context, interaction.ConfirmRequest) (string, error) {
+		t.Error("matching scope unexpectedly prompted")
+		return "", interaction.ErrConfirmationDenied
+	}
+	req := interaction.ConfirmRequest{Tool: "db.query", Kind: interaction.KindDatabase, ProfileID: prodDBID, Env: "dev", EnvRevision: "dev:policy-1", ApprovalFingerprint: interaction.Fingerprint([]byte(sql)), TargetRevision: interaction.Fingerprint([]byte(prodDBID + ":generation-1:ssh:"))}
+	if _, err := hub.CreateScopedApprovalForAgent("session-1", req, 1, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	srv := NewServer(Deps{Caller: &fakeCaller{}, Notes: &fakeNotes{}, Vault: &fakeVault{}, Search: &fakeSearch{}, Tools: fakeTools{}, Envs: envs, SSH: &fakeSSH{}, DB: dbAPI, Kafka: &fakeKafka{}, Hub: hub})
+	ctx := identity.WithCaller(context.Background(), identity.Agent("session-1"))
+	if _, _, err := srv.toolDBQuery(ctx, &sdk.CallToolRequest{}, dbQueryInput{SQL: sql}); err != nil {
+		t.Fatal(err)
+	}
+	if dbAPI.queriedID != prodDBID {
+		t.Fatalf("queried profile %q, want %q", dbAPI.queriedID, prodDBID)
+	}
+	if got := hub.ScopedApprovals(); len(got) != 0 {
+		t.Fatalf("one-use approval survived execution: %#v", got)
+	}
+}
+
+func TestDBQueryManualProdConfirmationStillRunsCapturedProfileEveryCall(t *testing.T) {
+	dbAPI := &fakeDB{activeID: prodDBID, profiles: []database.ProfileSummary{{ID: prodDBID, Env: "prod"}}}
+	hub := interaction.NewHub(interaction.NoopPrompter{})
+	srv := NewServer(Deps{Caller: &fakeCaller{}, Notes: &fakeNotes{}, Vault: &fakeVault{}, Search: &fakeSearch{}, Tools: fakeTools{}, Envs: &fakeEnvs{req: map[string]bool{"prod": true}}, SSH: &fakeSSH{}, DB: dbAPI, Kafka: &fakeKafka{}, Hub: hub})
+	for range 2 {
+		go func() {
+			waitForPending(t, hub)
+			p := hub.Pending()
+			if p.AllowAlwaysOffered {
+				t.Error("prod offered allow_always")
+			}
+			_ = hub.Complete(p.ID, "allow")
+		}()
+		if _, _, err := srv.toolDBQuery(context.Background(), &sdk.CallToolRequest{}, dbQueryInput{SQL: "select 1"}); err != nil {
+			t.Fatal(err)
+		}
+		if dbAPI.queriedID != prodDBID {
+			t.Fatalf("queried profile %q, want captured %q", dbAPI.queriedID, prodDBID)
+		}
+	}
+	if hub.Pending() != nil {
+		t.Fatal("manual prod confirmation left pending interaction")
+	}
 }
 
 // dbProfileTools runs each profile-scoped database tool the gate now covers.

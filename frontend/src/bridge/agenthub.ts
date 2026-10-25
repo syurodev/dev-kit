@@ -152,6 +152,7 @@ export type PendingPermission = {
   id: string;
   sessionId: string;
   params: unknown;
+  scopedApprovalEligible?: boolean;
   caller: string;
   title: string;
   depth: number;
@@ -165,6 +166,8 @@ export type PendingPermission = {
   createdAt: string;
   expiresAt: string;
 };
+
+export type ScopedApproval = { id: string; caller: string; tool: string; profileId: string; env: string; fingerprint: string; createdAt: string; expiresAt: string; remaining: number };
 
 /**
  * A question an agent is waiting for the user to answer (ACP
@@ -635,6 +638,10 @@ export function agentHubResolvePermission(
   );
 }
 
+export function agentHubCreateScopedApproval(id: string, uses = 1, lifetimeMinutes = 30): Promise<ScopedApproval> {
+  return callBridge(() => AppService.AgentHubCreateScopedApproval(id, uses, lifetimeMinutes) as Promise<ScopedApproval>);
+}
+
 export function selectedPermissionOutcome(optionId: string): unknown {
   return { outcome: { outcome: "selected", optionId } };
 }
@@ -711,6 +718,7 @@ function parsePermission(data: unknown): PendingPermission | null {
     id,
     sessionId,
     params: record.params ?? record.Params ?? null,
+    scopedApprovalEligible: record.scopedApprovalEligible === true,
     caller: typeof record.caller === "string" ? record.caller : `agent:${sessionId}`,
     title: typeof record.title === "string" ? record.title : "",
     depth: typeof record.depth === "number" ? record.depth : 0,
@@ -811,6 +819,7 @@ export function agentHubPendingPermissions(): Promise<PendingPermission[]> {
           id: (raw as any).ID ?? raw.id,
           sessionId: (raw as any).SessionID ?? raw.sessionId,
           params: (raw as any).Params ?? raw.params,
+          scopedApprovalEligible: (raw as any).scopedApprovalEligible,
           createdAt: (raw as any).CreatedAt ?? (raw as any).createdAt,
           expiresAt: (raw as any).ExpiresAt ?? (raw as any).expiresAt,
         }),

@@ -574,6 +574,9 @@ func (st *SQLStore) DeleteSessions(ctx context.Context, ids []string) error {
 		}
 	}
 	for _, id := range ids {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM agent_peer_outbox WHERE from_session = ? OR to_session = ?`, id, id); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx,
 			`DELETE FROM `+tableAgentSessions+` WHERE id = ?`, id); err != nil {
 			return err

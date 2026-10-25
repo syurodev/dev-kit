@@ -47,6 +47,7 @@ describe("Settings navigation", () => {
     expect(idsOf("skills")).toEqual(["agents-skills"]);
     expect(idsOf("proxy install")).toEqual(["agents-mcp"]);
     expect(idsOf("notifications")).toEqual(["agents-notifications"]);
+    expect(idsOf("scoped approvals")).toEqual(["agents-safety"]);
     expect(idsOf("agents")).toHaveLength(7);
   });
   test("accounts and their limits are found by what people call them", () => {

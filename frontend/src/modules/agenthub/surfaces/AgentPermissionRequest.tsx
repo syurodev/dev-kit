@@ -1,4 +1,5 @@
 import { ChevronDown, ShieldAlert } from "lucide-react";
+import { useState } from "react";
 
 import { usePermissionDeadline } from "./usePermissionDeadline";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
@@ -25,6 +26,7 @@ export type AgentPermissionRequestProps = {
   pending: PendingPermission;
   session?: AgentSession | null;
   onResolve: (optionId: string | null) => void | Promise<void>;
+  onApproveScoped?: (uses: number, lifetimeMinutes: number) => void | Promise<void>;
   busy?: boolean;
   /** Why the last answer failed, when it did; the buttons stay live so it can be retried. */
   error?: string;
@@ -105,6 +107,7 @@ export function AgentPermissionRequest({
   pending,
   session,
   onResolve,
+  onApproveScoped,
   busy = false,
   error,
   env: explicitEnv,
@@ -114,6 +117,8 @@ export function AgentPermissionRequest({
   waiting = 1,
   className,
 }: AgentPermissionRequestProps) {
+  const [scopedUses, setScopedUses] = useState(1);
+  const [scopedLifetime, setScopedLifetime] = useState(30);
   const gate = gatePermission(pending.params);
   const { secondsLeft, expired } = usePermissionDeadline(pending);
   const env = permissionEnv(pending.params, explicitEnv);
@@ -162,6 +167,17 @@ export function AgentPermissionRequest({
         >
           {allowAlwaysLabel(always)}
         </Button>
+      ) : null}
+      {pending.scopedApprovalEligible && onApproveScoped ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="text-caption-11 text-text-secondary">Total uses <select aria-label="Total uses" className="ml-1 rounded border border-border-subtle bg-background px-2 py-1" value={scopedUses} onChange={(e) => setScopedUses(Number(e.target.value))}>
+            {[1, 2, 5, 10].map((n) => <option key={n} value={n}>{n}</option>)}
+          </select></label>
+          <label className="text-caption-11 text-text-secondary">Expires <select aria-label="Approval lifetime" className="ml-1 rounded border border-border-subtle bg-background px-2 py-1" value={scopedLifetime} onChange={(e) => setScopedLifetime(Number(e.target.value))}>
+            {[10, 30, 60, 240, 480].map((n) => <option key={n} value={n}>{n === 480 ? "8 hours" : n < 60 ? `${n} minutes` : `${n / 60} hour${n === 60 ? "" : "s"}`}</option>)}
+          </select></label>
+          <Button type="button" variant="secondary" size="sm" disabled={busy || expired} data-testid="permission-approve-scoped" onClick={() => void onApproveScoped(scopedUses, scopedLifetime)}>Approve exact query</Button>
+        </div>
       ) : null}
       <Button
         type="button"

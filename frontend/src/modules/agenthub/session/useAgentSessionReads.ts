@@ -154,7 +154,7 @@ export function useAgentSessionReads(tabSessionId: string, draftOpen: boolean) {
     () => pendingForSession(pendingQueue, activeSession?.id),
     [pendingQueue, activeSession?.id],
   );
-  const { busy: permissionBusy, error: permissionError, resolve: resolvePermission } = useResolvePermission(activePending);
+  const { busy: permissionBusy, error: permissionError, resolve: resolvePermission, approveScoped: approveScopedPermission } = useResolvePermission(activePending);
   const activeQuestion = useMemo(
     () => elicitationForSession(elicitationQueue, activeSession?.id),
     [elicitationQueue, activeSession?.id],
@@ -192,6 +192,7 @@ export function useAgentSessionReads(tabSessionId: string, draftOpen: boolean) {
     permissionBusy,
     permissionError,
     resolvePermission,
+    approveScopedPermission,
     activeQuestion,
     elicitationBusy,
     elicitationError,

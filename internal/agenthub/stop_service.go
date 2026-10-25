@@ -76,13 +76,27 @@ func (s *Service) notifyParentOfStop(child AgentSession, stop SessionStop, invok
 		text := stopNoticeText(child, stop, time.Now())
 		id := uuid.NewString()
 		msg := &peerMessage{
-			id:     id,
-			from:   MessageSource{Kind: MessageKindDevKit, SessionID: child.ID, AgentType: child.AgentType, Name: sessionLabel(child), MessageID: id, Hop: 1},
-			to:     parentID,
-			text:   text,
-			at:     s.peers.clock(),
-			length: utf8.RuneCountInString(text),
-			limit:  MaxPeerHops,
+			id:            id,
+			from:          MessageSource{Kind: MessageKindDevKit, SessionID: child.ID, AgentType: child.AgentType, Name: sessionLabel(child), MessageID: id, Hop: 1},
+			to:            parentID,
+			text:          text,
+			at:            s.peers.clock(),
+			length:        utf8.RuneCountInString(text),
+			limit:         MaxPeerHops,
+			fromWorkspace: child.WorkspaceID,
+			toWorkspace:   parent.WorkspaceID,
+			relation:      PeerParent,
+		}
+		if outbox, ok := s.store.(PeerOutboxStore); ok {
+			if err := outbox.SavePeerOutbox(ctx, peerOutboxRecord(msg, "dispatching", "")); err != nil {
+				s.peers.mu.Lock()
+				if s.peers.stopNoticed[child.ID] == fingerprint {
+					delete(s.peers.stopNoticed, child.ID)
+				}
+				s.peers.mu.Unlock()
+				log.Printf("agenthub: saving stop notice for session %s: %v", parentID, err)
+				return
+			}
 		}
 		delivery, code, _, err := s.deliverPeer(ctx, msg)
 		if err != nil {
@@ -96,6 +110,11 @@ func (s *Service) notifyParentOfStop(child AgentSession, stop SessionStop, invok
 			}
 			s.peers.mu.Unlock()
 			log.Printf("agenthub: telling session %s that its child %s stopped: %s %v", parentID, child.ID, code, err)
+		}
+		if delivery != DeliveryQueued {
+			if transitionErr := s.transitionPeerState(id, "dispatching", string(delivery), code); transitionErr != nil && s.OnRecordError != nil {
+				s.OnRecordError(parentID, transitionErr)
+			}
 		}
 		s.peerEvent(PeerMessageEvent{MessageID: id, From: msg.from, To: parentID, Length: msg.length, Delivery: delivery, Code: code})
 	}()

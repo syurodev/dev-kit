@@ -12,24 +12,25 @@ import (
 // Table names for the key/value entity stores. They are constants (never user
 // input) so they are safe to interpolate into DDL/DML.
 const (
-	TableVaultKeyring       = "vault_keyring"
-	TableNotes              = "notes"
-	TableConnectionProfiles = "connection_profiles"
-	TableSSHProfiles        = "ssh_profiles"
-	TableVaultItems         = "vault_items"
-	TableSyncOutbox         = "sync_outbox"
-	TableSyncCursors        = "sync_cursors"
-	TableSyncAccountBinding = "sync_account_binding"
-	TableSyncEntityVersions = "sync_entity_versions"
-	TableSyncAppliedOps     = "sync_applied_operations"
-	TableSyncIdentity       = "sync_identity"
-	TableSyncLocalEntities  = "sync_local_entity_versions"
-	TableSyncLocalMutations = "sync_local_mutations"
-	TableSyncConflicts      = "sync_conflicts"
-	TableEnvTags            = "env_tags"
-	TableAgentSessions      = "agent_sessions"
-	TableAgentAccounts      = "agent_accounts"
-	TableAgentDocuments     = "agent_documents"
+	TableVaultKeyring         = "vault_keyring"
+	TableNotes                = "notes"
+	TableConnectionProfiles   = "connection_profiles"
+	TableSSHProfiles          = "ssh_profiles"
+	TableVaultItems           = "vault_items"
+	TableSyncOutbox           = "sync_outbox"
+	TableSyncCursors          = "sync_cursors"
+	TableSyncAccountBinding   = "sync_account_binding"
+	TableSyncEntityVersions   = "sync_entity_versions"
+	TableSyncAppliedOps       = "sync_applied_operations"
+	TableSyncIdentity         = "sync_identity"
+	TableSyncLocalEntities    = "sync_local_entity_versions"
+	TableSyncLocalMutations   = "sync_local_mutations"
+	TableSyncConflicts        = "sync_conflicts"
+	TableEnvTags              = "env_tags"
+	TableAgentSessions        = "agent_sessions"
+	TableAgentAccounts        = "agent_accounts"
+	TableAgentPendingRequests = "agent_pending_requests"
+	TableAgentDocuments       = "agent_documents"
 	// TableSessionChangeRequests ties a pull/merge request to an Agent Hub
 	// session by hand or by pr.create. Local like the session; not synced.
 	TableSessionChangeRequests = "session_change_requests"
@@ -1447,7 +1448,69 @@ CREATE TABLE IF NOT EXISTS workspace_memory_revisions (
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38, m39, m40, m41, m42, m43, m44, m45, m46})
+	// m47: durable Agent Hub peer delivery and guard state. The outbox is local
+	// application data and mirrors peer text already stored in the transcript.
+	m47 := Migration{
+		Version: 47,
+		Name:    "agent peer outbox",
+		Up: func(ctx context.Context) error {
+			if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS agent_peer_outbox (
+				message_id TEXT PRIMARY KEY,
+				from_session TEXT NOT NULL DEFAULT '',
+				to_session TEXT NOT NULL,
+				from_workspace TEXT NOT NULL DEFAULT '',
+				to_workspace TEXT NOT NULL DEFAULT '',
+				relation TEXT NOT NULL DEFAULT '',
+				source_json TEXT NOT NULL,
+				body TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				state TEXT NOT NULL,
+				code TEXT NOT NULL DEFAULT '',
+				hop INTEGER NOT NULL DEFAULT 1,
+				exchange_limit INTEGER NOT NULL DEFAULT 6,
+				sibling INTEGER NOT NULL DEFAULT 0,
+				cross_workspace_approved INTEGER NOT NULL DEFAULT 0
+			)`); err != nil {
+				return err
+			}
+			if _, err := db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS agent_peer_outbox_target_state ON agent_peer_outbox(to_session, state, created_at)`); err != nil {
+				return err
+			}
+			_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS agent_peer_guard_state (
+				state_key TEXT PRIMARY KEY,
+				state_json TEXT NOT NULL,
+				updated_at TEXT NOT NULL
+			)`)
+			return err
+		},
+	}
+
+	// m48: only metadata for Agent Hub permission and elicitation waits. The
+	// request payload is intentionally absent: it can contain questions, secrets,
+	// or authorization details and cannot be answered after a restart.
+	m48 := Migration{
+		Version: 48,
+		Name:    "agent pending request recovery",
+		Up: func(ctx context.Context) error {
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
+				id TEXT PRIMARY KEY,
+				session_id TEXT NOT NULL,
+				kind TEXT NOT NULL CHECK (kind IN ('permission', 'elicitation')),
+				created_at TEXT NOT NULL,
+				expires_at TEXT,
+				resolution TEXT NOT NULL DEFAULT 'pending',
+				reason TEXT NOT NULL DEFAULT '',
+				resolved_at TEXT
+			)`, TableAgentPendingRequests)); err != nil {
+				return err
+			}
+			_, err := db.ExecContext(ctx, fmt.Sprintf(`CREATE INDEX IF NOT EXISTS agent_pending_requests_session_idx ON %s(session_id, resolution)`, TableAgentPendingRequests))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24, m25, m26, m27, m28, m29, m30, m31, m32, m33, m34, m35, m36, m37, m38, m39, m40, m41, m42, m43, m44, m45, m46, m47, m48})
 	if err != nil {
 		return err
 	}

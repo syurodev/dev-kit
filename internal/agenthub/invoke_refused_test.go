@@ -21,21 +21,34 @@ func (a refusingAdapter) Open(context.Context, agenthub.OpenSpec) (agenthub.Sess
 	return a.rt, nil
 }
 func (a refusingAdapter) NormalizeUsage(json.RawMessage) (agenthub.NormalizedUsage, error) {
-	return agenthub.NormalizedUsage{}, nil
+	var meta struct {
+		Quota struct {
+			TokenCount struct {
+				Input  int `json:"inputTokens"`
+				Cached int `json:"cachedInputTokens"`
+			} `json:"token_count"`
+		} `json:"quota"`
+	}
+	_ = json.Unmarshal(a.rt.out.Meta, &meta)
+	cached := meta.Quota.TokenCount.Cached
+	return agenthub.NormalizedUsage{InputTokens: meta.Quota.TokenCount.Input, CachedInputTokens: &cached, RawMeta: append(json.RawMessage(nil), a.rt.out.Meta...)}, nil
 }
 func (a refusingAdapter) NormalizeToolSummary(json.RawMessage, json.RawMessage) ([]string, string, error) {
 	return nil, "", nil
 }
 func (a refusingAdapter) Extensions() []string { return nil }
 
-type refusingRuntime struct{ err error }
+type refusingRuntime struct {
+	err error
+	out agenthub.PromptOutcome
+}
 
 func (r *refusingRuntime) ACPSessionID() string                 { return "acp-refusing" }
 func (r *refusingRuntime) SetHandlers(agenthub.RuntimeHandlers) {}
 func (r *refusingRuntime) Cancel(context.Context) error         { return nil }
 func (r *refusingRuntime) Close(context.Context) error          { return nil }
 func (r *refusingRuntime) Prompt(context.Context, []acp.ContentBlock, json.RawMessage) (agenthub.PromptOutcome, error) {
-	return agenthub.PromptOutcome{}, r.err
+	return r.out, r.err
 }
 
 // A turn the vendor refused leaves a usable session behind, so it ends idle;
@@ -47,10 +60,11 @@ func TestInvokeRefusedTurnLeavesTheSessionIdle(t *testing.T) {
 		name string
 		err  error
 		want agenthub.SessionStatus
+		out  agenthub.PromptOutcome
 	}{
-		{"usage limit", fmt.Errorf("%w: try again at 3:10 PM", agenthub.ErrAgentUsageLimit), agenthub.SessionStatusIdle},
-		{"turn failed", fmt.Errorf("%w: context window", agenthub.ErrTurnFailed), agenthub.SessionStatusIdle},
-		{"process failed", fmt.Errorf("%w: codex exited", agenthub.ErrProcessFailed), agenthub.SessionStatusError},
+		{"usage limit", fmt.Errorf("%w: try again at 3:10 PM", agenthub.ErrAgentUsageLimit), agenthub.SessionStatusIdle, agenthub.PromptOutcome{Meta: json.RawMessage(`{"quota":{"token_count":{"inputTokens":14,"cachedInputTokens":9}}}`)}},
+		{"turn failed", fmt.Errorf("%w: context window", agenthub.ErrTurnFailed), agenthub.SessionStatusIdle, agenthub.PromptOutcome{}},
+		{"process failed", fmt.Errorf("%w: codex exited", agenthub.ErrProcessFailed), agenthub.SessionStatusError, agenthub.PromptOutcome{}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -65,7 +79,7 @@ func TestInvokeRefusedTurnLeavesTheSessionIdle(t *testing.T) {
 			}
 			store := agenthub.NewSQLStore(db)
 			reg := agenthub.NewRegistry()
-			reg.Register(refusingAdapter{rt: &refusingRuntime{err: tc.err}})
+			reg.Register(refusingAdapter{rt: &refusingRuntime{err: tc.err, out: tc.out}})
 			svc := agenthub.NewService(reg, store, func(string, json.RawMessage) {})
 
 			sess, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: "refusing", Cwd: t.TempDir()})
@@ -81,6 +95,25 @@ func TestInvokeRefusedTurnLeavesTheSessionIdle(t *testing.T) {
 			}
 			if got.Status != tc.want {
 				t.Fatalf("status = %s, want %s", got.Status, tc.want)
+			}
+			if tc.name == "usage limit" && (got.Stop == nil || got.Stop.Kind != agenthub.StopUsageLimit) {
+				t.Fatalf("stop = %+v, want usage_limit", got.Stop)
+			}
+			if tc.name == "usage limit" {
+				turns, err := store.ListTurns(ctx, sess.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(turns) != 1 || string(turns[0].RawMeta) != string(tc.out.Meta) {
+					t.Fatalf("turns = %+v, want failed turn with raw quota metadata", turns)
+				}
+				var usage agenthub.NormalizedUsage
+				if err := json.Unmarshal(turns[0].UsageJSON, &usage); err != nil {
+					t.Fatal(err)
+				}
+				if usage.InputTokens != 14 || usage.CachedInputTokens == nil || *usage.CachedInputTokens != 9 {
+					t.Fatalf("usage = %+v", usage)
+				}
 			}
 		})
 	}

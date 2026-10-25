@@ -2,6 +2,8 @@ package database
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -375,6 +377,46 @@ func (s *Service) ListProfiles() ([]ProfileSummary, error) {
 		return summaries[i].Name < summaries[j].Name
 	})
 	return summaries, nil
+}
+
+// ApprovalRevision is an opaque generation for the saved endpoint and options.
+// UpdatedAt changes on metadata or encrypted credential edits, without exposing
+// the profile body or secret to the approval store.
+func (s *Service) ApprovalRevision(id string) (string, error) {
+	record, err := s.store.Get(id)
+	if err != nil {
+		return "", err
+	}
+	if record.Type != itemType {
+		return "", vaultitem.ErrNotFound
+	}
+	meta, err := decodeMetadata(record)
+	if err != nil {
+		return "", err
+	}
+	parentRevision := ""
+	if meta.ParentProfileID != "" {
+		parent, err := s.store.Get(meta.ParentProfileID)
+		if err != nil {
+			return "", err
+		}
+		parentRevision = fmt.Sprintf("%s:%d", parent.ID, parent.UpdatedAt.UnixNano())
+	}
+	profiles, err := s.ListProfiles()
+	if err != nil {
+		return "", err
+	}
+	for _, profile := range profiles {
+		if profile.ID == id {
+			canonical, err := json.Marshal(profile)
+			if err != nil {
+				return "", err
+			}
+			sum := sha256.Sum256([]byte(fmt.Sprintf("%s:%d:%s:%s", record.ID, record.UpdatedAt.UnixNano(), parentRevision, canonical)))
+			return hex.EncodeToString(sum[:]), nil
+		}
+	}
+	return "", vaultitem.ErrNotFound
 }
 
 func (s *Service) UpdateProfileOptions(id string, opts UpdateProfileOptionsInput) (ProfileSummary, error) {

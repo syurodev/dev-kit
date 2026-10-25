@@ -64,6 +64,7 @@ func TestNewContainerGrantsAgentHubScopes(t *testing.T) {
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "session:new"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "session:abc"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "permission:complete"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "permission:scoped_approval"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "permission:list"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "elicitation:respond"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "elicitation:list"},

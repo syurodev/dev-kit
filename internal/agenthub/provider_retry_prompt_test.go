@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"testing"
@@ -179,5 +180,190 @@ func TestPromptAuthFailureIsStillASignIn(t *testing.T) {
 	_, err := promptAgent(t, nil, rpcFailure(-32603, "Internal error", `{"errorKind":"authentication_failed"}`))
 	if !errors.Is(err, ErrAgentAuthRequired) || errors.Is(err, ErrTurnFailed) {
 		t.Fatalf("err = %v, want ErrAgentAuthRequired", err)
+	}
+}
+
+func TestClaudeTypedPromptFailureFromResultMetaIsATurnRefusal(t *testing.T) {
+	meta := `{"jetbrains":{"air":{"sessionFailure":{"id":"limit-1","revision":3,"category":"limit","severity":"error","title":"You've hit your session limit. resets 9:40pm","actions":[]}}}}`
+	updates, err := promptAgent(t, func(rt *acpRuntime) {
+		rt.hooks = acpRuntimeHooks{Type: AgentTypeClaude, PromptFailure: claudePromptFailure}
+	}, func(id any) *acp.Response {
+		return &acp.Response{JSONRPC: "2.0", ID: id, Result: json.RawMessage(`{"stopReason":"end_turn","_meta":` + meta + `}`)}
+	})
+	if !errors.Is(err, ErrAgentUsageLimit) || errors.Is(err, ErrProcessFailed) {
+		t.Fatalf("err = %v, want a usage-limit refusal", err)
+	}
+	if got := ErrorVendorMessage(err); got != "You've hit your session limit. resets 9:40pm" {
+		t.Fatalf("vendor message = %q", got)
+	}
+	stop := StopFromError(err, time.Now(), false)
+	if stop.Kind != StopUsageLimit || stop.RetryAfter != nil {
+		t.Fatalf("stop = %+v", stop)
+	}
+	if len(updates) != 1 {
+		t.Fatalf("updates = %d, want one failure update", len(updates))
+	}
+	got := ParseSessionUpdate(updates[0]).Failure
+	if got == nil || got.ID != "limit-1" || got.Title != "You've hit your session limit. resets 9:40pm" {
+		t.Fatalf("failure = %+v", got)
+	}
+}
+
+func TestClaudeTypedFailureUsesRejectedUsageResetAndDeduplicatesNotification(t *testing.T) {
+	client, agent := net.Pipe()
+	t.Cleanup(func() { client.Close(); agent.Close() })
+	rt := &acpRuntime{hooks: acpRuntimeHooks{Type: AgentTypeClaude, PromptFailure: claudePromptFailure}, acpSessionID: "acp-1", serveDone: make(chan struct{})}
+	var mu sync.Mutex
+	var updates []json.RawMessage
+	rt.handlers.OnUpdate = func(update json.RawMessage, _ json.RawMessage) {
+		mu.Lock()
+		defer mu.Unlock()
+		updates = append(updates, update)
+	}
+	rt.conn = acp.NewConn(client, &acpConnHandler{rt: rt})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(cancel)
+	go rt.conn.Serve(ctx)
+	reset := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
+	weeklyReset := reset.Add(5 * 24 * time.Hour)
+	failureMeta := `{"jetbrains":{"air":{"sessionFailure":{"id":"limit-2","revision":4,"category":"limit","severity":"error","title":"You've hit your session limit. resets 9:40pm"}}}}`
+	go func() {
+		msg, err := acp.ReadMessage(agent)
+		if err != nil {
+			return
+		}
+		var id any
+		_ = json.Unmarshal(msg.ID, &id)
+		_ = acp.WriteMessage(agent, acp.Notification{JSONRPC: "2.0", Method: "session/update", Params: json.RawMessage(`{"sessionId":"acp-1","update":{"sessionUpdate":"usage_update","used":1,"size":2,"_meta":{"_claude/rateLimit":{"status":"rejected","resetsAt":` + fmt.Sprint(reset.Unix()) + `},"_devkit":{"limits":[{"label":"5-hour","usedPercent":100,"resetsAt":` + fmt.Sprint(reset.Unix()) + `,"status":"reached"},{"label":"Weekly","usedPercent":20,"resetsAt":` + fmt.Sprint(weeklyReset.Unix()) + `,"status":"reached"}]}}}}`)})
+		_ = acp.WriteMessage(agent, acp.Notification{JSONRPC: "2.0", Method: "session/update", Params: json.RawMessage(`{"sessionId":"acp-1","update":{"sessionUpdate":"session_info_update","_meta":` + failureMeta + `}}`)})
+		_ = acp.WriteMessage(agent, acp.Response{JSONRPC: "2.0", ID: id, Result: json.RawMessage(`{"stopReason":"end_turn","_meta":` + failureMeta + `}`)})
+	}()
+	_, err := rt.Prompt(ctx, []acp.ContentBlock{{Type: "text", Text: "go"}}, nil)
+	if !errors.Is(err, ErrAgentUsageLimit) {
+		t.Fatalf("Prompt err = %v", err)
+	}
+	stop := StopFromError(err, time.Now(), false)
+	if stop.RetryAfter == nil || !stop.RetryAfter.Equal(reset) {
+		t.Fatalf("stop = %+v, want reset %s", stop, reset)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	count := 0
+	for _, update := range updates {
+		if ParseSessionUpdate(update).Failure != nil {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("failure updates = %d, want one; updates=%s", count, updates)
+	}
+}
+
+func TestRejectedUsageResetFallbackUsesBlockingWindowAndAllowedSnapshotClearsIt(t *testing.T) {
+	now := time.Now()
+	short := now.Add(time.Hour).Truncate(time.Second)
+	long := now.Add(5 * 24 * time.Hour).Truncate(time.Second)
+	rt := &acpRuntime{}
+	rt.noteRejectedUsageLimit(&Usage{
+		RateLimit: &RateLimit{Status: "rejected"},
+		Limits: []LimitWindow{
+			{Label: "5-hour", UsedPercent: 100, ResetsAt: short.Unix(), Status: "reached"},
+			{Label: "Weekly", UsedPercent: 20, ResetsAt: long.Unix(), Status: "reached"},
+		},
+	})
+	if rt.limitRetryAfter == nil || !rt.limitRetryAfter.Equal(short.UTC()) {
+		t.Fatalf("fallback reset = %v, want blocking window %s", rt.limitRetryAfter, short.UTC())
+	}
+	rt.noteRejectedUsageLimit(&Usage{RateLimit: &RateLimit{Status: "allowed"}})
+	if rt.limitRetryAfter != nil {
+		t.Fatalf("allowed usage snapshot left stale reset %s", rt.limitRetryAfter)
+	}
+}
+
+type claudePipeAdapter struct {
+	runtime *acpRuntime
+	usage   *ClaudeAdapter
+}
+
+func (a *claudePipeAdapter) Type() AgentType { return AgentTypeClaude }
+func (a *claudePipeAdapter) Open(context.Context, OpenSpec) (SessionRuntime, error) {
+	return a.runtime, nil
+}
+func (a *claudePipeAdapter) NormalizeUsage(meta json.RawMessage) (NormalizedUsage, error) {
+	return a.usage.NormalizeUsage(meta)
+}
+func (a *claudePipeAdapter) NormalizeToolSummary(meta, update json.RawMessage) ([]string, string, error) {
+	return a.usage.NormalizeToolSummary(meta, update)
+}
+func (a *claudePipeAdapter) Extensions() []string { return nil }
+
+func TestClaudeTypedFailureACPResultFlowsThroughServiceWithUsage(t *testing.T) {
+	store := newInternalStore(t)
+	client, agent := net.Pipe()
+	t.Cleanup(func() { client.Close(); agent.Close() })
+	rt := &acpRuntime{hooks: acpRuntimeHooks{Type: AgentTypeClaude, PromptFailure: claudePromptFailure}, acpSessionID: "acp-service", serveDone: make(chan struct{})}
+	rt.conn = acp.NewConn(client, &acpConnHandler{rt: rt})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(cancel)
+	go rt.conn.Serve(ctx)
+	failureMeta := `{"jetbrains":{"air":{"sessionFailure":{"id":"limit-service","revision":1,"category":"limit","severity":"error","title":"You've hit your session limit. resets 9:40pm"}}},"quota":{"token_count":{"totalTokens":155,"inputTokens":100,"cachedInputTokens":30,"cachedWriteTokens":5,"outputTokens":20,"reasoningOutputTokens":4},"model_usage":[{"model":"claude-opus-5-5","token_count":{"totalTokens":155,"inputTokens":100,"cachedInputTokens":30,"cachedWriteTokens":5,"outputTokens":20,"reasoningOutputTokens":4}}]}}`
+	go func() {
+		msg, err := acp.ReadMessage(agent)
+		if err != nil {
+			return
+		}
+		var id any
+		_ = json.Unmarshal(msg.ID, &id)
+		_ = acp.WriteMessage(agent, acp.Response{JSONRPC: "2.0", ID: id, Result: json.RawMessage(`{"stopReason":"end_turn","_meta":` + failureMeta + `}`)})
+	}()
+	reg := NewRegistry()
+	reg.Register(&claudePipeAdapter{runtime: rt, usage: NewClaudeAdapter(ClaudeOptions{})})
+	svc := NewService(reg, store, nil)
+	session, err := svc.CreateSession(ctx, CreateInput{AgentType: AgentTypeClaude, Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.Invoke(ctx, InvokeInput{SessionID: session.ID, Prompt: "go"})
+	if !errors.Is(err, ErrAgentUsageLimit) {
+		t.Fatalf("Invoke err = %v", err)
+	}
+	got, err := store.GetSession(ctx, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != SessionStatusIdle || got.Stop == nil || got.Stop.Kind != StopUsageLimit {
+		t.Fatalf("session = status %s stop %+v; want idle usage_limit", got.Status, got.Stop)
+	}
+	turns, err := store.ListTurns(ctx, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 1 || string(turns[0].RawMeta) != failureMeta || turns[0].StopReason != "failed" {
+		t.Fatalf("turns = %+v", turns)
+	}
+	var usage NormalizedUsage
+	if err := json.Unmarshal(turns[0].UsageJSON, &usage); err != nil {
+		t.Fatal(err)
+	}
+	if intValue(usage.TotalTokens) != 155 || usage.InputTokens != 100 || usage.OutputTokens != 20 || intValue(usage.CachedInputTokens) != 30 || intValue(usage.CachedWriteTokens) != 5 || intValue(usage.ReasoningOutputTokens) != 4 {
+		t.Fatalf("usage = %+v", usage)
+	}
+}
+
+func TestClaudeWarningOrClearedPromptFailureDoesNotFailTurn(t *testing.T) {
+	for _, meta := range []string{
+		`{"jetbrains":{"air":{"sessionFailure":{"id":"notice","revision":1,"category":"limit","severity":"warning","title":"Approaching your limit"}}}}`,
+		`{"jetbrains":{"air":{"sessionFailure":null}}}`,
+	} {
+		t.Run(meta, func(t *testing.T) {
+			updates, err := promptAgent(t, func(rt *acpRuntime) {
+				rt.hooks = acpRuntimeHooks{Type: AgentTypeClaude, PromptFailure: claudePromptFailure}
+			}, func(id any) *acp.Response {
+				return &acp.Response{JSONRPC: "2.0", ID: id, Result: json.RawMessage(`{"stopReason":"end_turn","_meta":` + meta + `}`)}
+			})
+			if err != nil || len(updates) != 0 {
+				t.Fatalf("updates=%v err=%v; warning/clear should not fail", updates, err)
+			}
+		})
 	}
 }

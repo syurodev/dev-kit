@@ -6,6 +6,8 @@ package environments
 
 import (
 	"errors"
+	"fmt"
+	"sync/atomic"
 
 	"devkit/internal/vaultitem"
 )
@@ -57,8 +59,9 @@ type Repository interface {
 
 // Service applies tag policy (locked/builtin rules) on top of a Repository.
 type Service struct {
-	repo  Repository
-	usage ProfileEnvUsage
+	repo           Repository
+	usage          ProfileEnvUsage
+	policyRevision atomic.Uint64
 }
 
 // NewService wires the registry. usage may be nil in unit tests that do not
@@ -91,6 +94,7 @@ func (s *Service) CreateTag(name string, requiresConfirmation bool) (Tag, error)
 	if err := s.repo.Create(tag); err != nil {
 		return Tag{}, err
 	}
+	s.policyRevision.Add(1)
 	return tag, nil
 }
 
@@ -108,6 +112,7 @@ func (s *Service) UpdateTag(id string, requiresConfirmation bool) (Tag, error) {
 	if err := s.repo.Update(tag); err != nil {
 		return Tag{}, err
 	}
+	s.policyRevision.Add(1)
 	return tag, nil
 }
 
@@ -135,7 +140,11 @@ func (s *Service) DeleteTag(id string) error {
 			return ErrTagInUse
 		}
 	}
-	return s.repo.Delete(id)
+	if err := s.repo.Delete(id); err != nil {
+		return err
+	}
+	s.policyRevision.Add(1)
+	return nil
 }
 
 // Exists reports whether name is a known tag. It satisfies the EnvLookup
@@ -157,4 +166,15 @@ func (s *Service) RequiresConfirmation(name string) bool {
 		return true
 	}
 	return tag.RequiresConfirmation
+}
+
+// PolicyRevision changes after any in-process environment policy mutation.
+// Scoped approvals are intentionally in-memory and die on restart, so this
+// process-local generation also invalidates away-and-back policy edits.
+func (s *Service) PolicyRevision(name string) (string, error) {
+	tag, err := s.repo.Get(name)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s:%d:%t", tag.ID, s.policyRevision.Load(), tag.RequiresConfirmation), nil
 }

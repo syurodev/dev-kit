@@ -9,7 +9,9 @@ import {
   handleAgentTurnStarted,
   handleSessionUpdateTabs,
   isPeerMessage,
+  mirrorPromptQueueInOrder,
   promptQueueChanges,
+  promptQueueSnapshot,
   statusAnnouncement,
   statusTransitionAnnouncement,
   turnFinishedAnnouncement,
@@ -282,6 +284,40 @@ describe("messages from other sessions and the person's own queue", () => {
     expect(promptQueueChanges(none, one)).toEqual([{ sessionId: "s1", waiting: 0, paused: false }]);
     // One more prompt waiting is a change.
     expect(promptQueueChanges({ ...one, queuedPromptsBySession: { s1: queued(3) } }, one)).toEqual([{ sessionId: "s1", waiting: 3, paused: true }]);
+  });
+
+  it("mirrors every startup session, including empty queues, so recovered peer work can resume", () => {
+    const state = {
+      queuedPromptsBySession: { paused: queued(2) },
+      queuePausedBySession: { paused: true },
+    };
+    expect(promptQueueSnapshot(["empty", "paused"], state)).toEqual([
+      { sessionId: "empty", waiting: 0, paused: false },
+      { sessionId: "paused", waiting: 2, paused: true },
+    ]);
+  });
+
+  it("does not let a late startup mirror overwrite a newer queue pause", async () => {
+    const calls: [string, number, boolean][] = [];
+    let release!: () => void;
+    let started!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const entered = new Promise<void>((resolve) => { started = resolve; });
+    const send = async (sessionId: string, waiting: number, paused: boolean) => {
+      calls.push([sessionId, waiting, paused]);
+      if (calls.length === 1) {
+        started();
+        await blocked;
+      }
+    };
+
+    const initial = mirrorPromptQueueInOrder("s1", 0, false, send);
+    await entered;
+    const newer = mirrorPromptQueueInOrder("s1", 2, true, send);
+    expect(calls).toEqual([["s1", 0, false]]);
+    release();
+    await Promise.all([initial, newer]);
+    expect(calls).toEqual([["s1", 0, false], ["s1", 2, true]]);
   });
 
   it("counts them on the session until it is looked at, and never as needing the person", () => {

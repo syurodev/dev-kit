@@ -148,10 +148,13 @@ func (s *Server) toolDBQuery(ctx context.Context, _ *sdk.CallToolRequest, in dbQ
 	target := s.databaseTarget()
 	// Execute against the exact profile the confirmation covered — re-reading
 	// the sticky active target here would race a concurrent SetActiveProfile.
-	id, err := GateActiveMCP(ctx, s.deps.Hub, s.deps.Envs, target, target, "db.query", in.SQL, interaction.KindDatabase)
+	decision, err := GateActiveMCPWithApproval(ctx, s.deps.Hub, s.deps.Envs, target, target, "db.query", in.SQL, interaction.KindDatabase, interaction.Fingerprint([]byte(in.SQL)))
 	if err != nil {
 		return nil, nil, mapInteractErr(err)
 	}
+	id := decision.ProfileID
+	approvalReq := interaction.ConfirmRequest{Env: decision.Env, Tool: "db.query", Kind: interaction.KindDatabase, ProfileID: id, ApprovalFingerprint: decision.ApprovalFingerprint, TargetRevision: decision.TargetRevision, EnvRevision: decision.EnvRevision}
+	approvalStarted := false
 	v, err := s.deps.Caller.Call(ctx, "builtin.database", "db:query", "profile:active", meta("query", map[string]any{
 		"profile_id": recordID(id),
 	}), func(callCtx context.Context) (any, error) {
@@ -159,6 +162,22 @@ func (s *Server) toolDBQuery(ctx context.Context, _ *sdk.CallToolRequest, in dbQ
 		// no deadline because Stop ends them, and an agent has no Stop.
 		callCtx, cancel := context.WithTimeout(callCtx, agentQueryTimeout)
 		defer cancel()
+		if decision.ApprovedByScope {
+			currentEnv, envErr := target.EnvForProfile(id)
+			currentRevision, revisionErr := target.ApprovalRevision(id)
+			currentEnvRevision := ""
+			if revisioner, ok := s.deps.Envs.(interface{ PolicyRevision(string) (string, error) }); ok {
+				currentEnvRevision, _ = revisioner.PolicyRevision(currentEnv)
+			}
+			if envErr != nil || currentEnv != decision.Env || currentEnv == "" || s.deps.Envs.RequiresConfirmation(currentEnv) || revisionErr != nil || currentRevision != decision.TargetRevision || currentEnvRevision == "" || currentEnvRevision != decision.EnvRevision {
+				effectiveHub(s.deps.Hub).RevokeMatchingScopedApproval(callCtx, approvalReq)
+				return nil, interaction.ErrConfirmationDenied
+			}
+			if !effectiveHub(s.deps.Hub).StartScopedApproval(callCtx, approvalReq, decision.ReservationToken) {
+				return nil, interaction.ErrConfirmationDenied
+			}
+			approvalStarted = true
+		}
 		// 0: the service default. An MCP client reads a result, it does not
 		// page a grid, so there is no page size to honour here.
 		res, err := s.deps.DB.Query(callCtx, id, in.SQL, 0)
@@ -168,6 +187,9 @@ func (s *Server) toolDBQuery(ctx context.Context, _ *sdk.CallToolRequest, in dbQ
 		return dbQueryResult{QueryResult: res, ProfileID: id}, nil
 	})
 	if err != nil {
+		if decision.ApprovedByScope && !approvalStarted {
+			effectiveHub(s.deps.Hub).CancelScopedApproval(ctx, approvalReq, decision.ReservationToken)
+		}
 		return nil, nil, err
 	}
 	return nil, structured(v), nil

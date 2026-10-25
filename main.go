@@ -463,18 +463,7 @@ func main() {
 		container.AgentNotifications = agentNotifier
 	}
 	agentWaiter := agenthub.NewPermissionWaiter(func(p agenthub.PendingPermission) {
-		payload := map[string]any{
-			"id":        p.ID,
-			"sessionId": p.SessionID,
-			"params":    rawJSON(p.Params),
-			"caller":    identity.Agent(p.SessionID).String(),
-			// The UI shows the deadline; it must not invent one. A countdown
-			// started when a toast mounts is wrong whenever the toast mounts
-			// late, which is the normal case for a request that arrives while
-			// the rail is closed.
-			"createdAt": p.CreatedAt.Format(time.RFC3339Nano),
-			"expiresAt": p.ExpiresAt.Format(time.RFC3339Nano),
-		}
+		payload := agentPermissionEvent(p)
 		// Title/depth let the prompt say which agent is asking; the hub
 		// service is assigned a few lines below and exists by prompt time.
 		if container.AgentHub != nil {
@@ -610,6 +599,15 @@ func main() {
 	agentSvc.Documents = agentDocuments
 	agentSvc.ResolvePermission = agentWaiter.Resolve
 	agentSvc.ResolveGatePermission = agentWaiter.ResolveGate
+	if pendingStore, ok := any(agentStore).(agenthub.PendingRequestStore); ok {
+		agentWaiter.PersistOpen = func(ctx context.Context, p agenthub.PendingRequestRecord) error {
+			return pendingStore.RecordPendingRequest(ctx, p)
+		}
+		agentWaiter.PersistClose = func(ctx context.Context, r agenthub.PendingRequestResolution) error {
+			return pendingStore.ResolvePendingRequest(ctx, r)
+		}
+		agentWaiter.OnPersistenceError = func(err error) { log.Printf("agenthub: permission request metadata: %v", err) }
+	}
 	agentSvc.CancelPendingPermissions = agentWaiter.CancelSession
 	// The person's "which model for which job" list, read on every call so an
 	// edit in Settings reaches the next session an agent starts.
@@ -653,6 +651,15 @@ func main() {
 	accountSignInDone = agentSvc.AfterAccountSignIn
 	agentSvc.ResolveElicitation = agentElicitations.Resolve
 	agentSvc.CancelPendingElicitations = agentElicitations.CancelSession
+	if pendingStore, ok := any(agentStore).(agenthub.PendingRequestStore); ok {
+		agentElicitations.PersistOpen = func(ctx context.Context, p agenthub.PendingRequestRecord) error {
+			return pendingStore.RecordPendingRequest(ctx, p)
+		}
+		agentElicitations.PersistClose = func(ctx context.Context, r agenthub.PendingRequestResolution) error {
+			return pendingStore.ResolvePendingRequest(ctx, r)
+		}
+		agentElicitations.OnPersistenceError = func(err error) { log.Printf("agenthub: elicitation request metadata: %v", err) }
+	}
 	// Read fresh on every spawn/resume/fork (see Service.SandboxExtras), so a
 	// change in Settings applies to the next session without a restart.
 	agentSvc.SandboxExtras = func() preferences.AgentSandboxSettings {
@@ -687,6 +694,11 @@ func main() {
 	// sessions refusing prompts, which is no reason to refuse to start DevKit.
 	if err := agentSvc.RecoverStaleSessions(context.Background()); err != nil {
 		log.Printf("agenthub: recover stale sessions: %v", err)
+	}
+	// Restore durable accepted peer messages after stale turns are idle. Recovery
+	// only queues items; delivery waits for the ordinary queue mirror/drain path.
+	if err := agentSvc.RecoverPeerOutbox(context.Background()); err != nil {
+		log.Printf("agenthub: recover peer outbox: %v", err)
 	}
 	// Codex and opencode never name their sessions; the first prompt does.
 	if err := agentSvc.BackfillSessionTitles(context.Background()); err != nil {
@@ -983,6 +995,13 @@ func main() {
 	// NoopPrompter is enough: InteractionHost polls InteractionPending every 500ms
 	// and Completes via the bridge. Share one Hub between MCP and bridge.
 	hub := interaction.NewHub(interaction.NoopPrompter{})
+	hub.SetVaultLocked(container.Vault.IsLocked())
+	approvalAudit := audit.NewTee(container.Audit, auditSQL)
+	hub.OnScopedApprovalEvent = func(e interaction.ScopedApprovalEvent) {
+		approvalAudit.Record(audit.Event{Caller: e.Caller, At: time.Now().UTC(), SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "approval:" + e.ID, Outcome: audit.OutcomeAllowed, Metadata: map[string]any{
+			"action": e.Action, "tool": e.Tool, "profile_id": e.ProfileID, "env": e.Env,
+		}})
+	}
 	// Server mode: every bridge method, InteractionComplete included, is on
 	// unauthenticated loopback HTTP, so any local process — an agent in a
 	// terminal pointed at this MCP server — could answer its own prompt.
@@ -1100,9 +1119,9 @@ func main() {
 			defer func() { stopTelegram(); <-telegramDone }()
 		}
 	}
-	appService := bridge.NewAppService(container, func(theme preferences.Theme) error {
+	appService := bridge.NewAppServiceWithMode(container, func(theme preferences.Theme) error {
 		return applyNativeTheme(mainWindow, theme)
-	})
+	}, func() bool { return application.System.IsServer() })
 	// pr.*: the pull/merge request of an agent's branch. Assigned only when
 	// wired — a nil *prwatch.Service in this interface field would be the
 	// typed-nil trap (see CodexHook below).

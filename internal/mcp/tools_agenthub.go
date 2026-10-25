@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"devkit/internal/agenthub"
+	"devkit/internal/agentwork"
 	"devkit/internal/apperrors"
 	gitservice "devkit/internal/git"
 	"devkit/internal/identity"
@@ -222,20 +223,7 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 		}
 	}
 	profile := strings.TrimSpace(in.Profile)
-	// A task is checked before anything is created, so a task that cannot be
-	// given away leaves no session behind.
 	taskID := strings.TrimSpace(in.TaskID)
-	var task tasks.Task
-	if taskID != "" {
-		var err error
-		if task, err = s.prepareTaskForChild(ctx, taskID); err != nil {
-			return nil, nil, err
-		}
-		if in.Title == nil {
-			title := clipText(oneLine(task.Title), 60)
-			in.Title = &title
-		}
-	}
 	// The audit line says which profile the choice came from and what was
 	// asked — names and values, never a prompt.
 	audit := map[string]any{"agent_type": in.AgentType}
@@ -256,97 +244,120 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 		audit["effort"] = clipAudit(effort)
 	}
 	var createdWorktree *gitservice.Worktree
-	v, err := s.deps.Caller.Call(ctx, "builtin.agenthub", "agenthub:execute", "session:new", meta("create_session", audit), func(callCtx context.Context) (any, error) {
-		cwd := in.Cwd
-		var worktreeGit GitAPI
-		var worktreeRepo string
-		if branch != "" {
-			parent, err := s.deps.AgentHub.GetStatus(callCtx, in.CallerSessionID)
-			if err != nil {
-				return nil, err
-			}
-			worktreeGit, worktreeRepo, err = s.gitFor(callCtx, parent.ProjectPath, true)
-			if err != nil {
-				return nil, err
-			}
-			root, target, err := worktreeGit.WorktreeTarget(callCtx, branch)
-			if err != nil {
-				return nil, err
-			}
-			if err := s.requireGitWritePaths(callCtx, root, target); err != nil {
-				return nil, err
-			}
-			value, err := s.deps.Caller.Call(callCtx, "builtin.git", "git:write", "repo:worktree", meta("worktree_add", repoMeta(worktreeRepo, map[string]any{"branch": clipAudit(branch)})), func(ctx context.Context) (any, error) {
-				return worktreeGit.WorktreeAdd(ctx, gitservice.WorktreeAddInput{Branch: branch})
-			})
-			if err != nil {
-				return nil, err
-			}
-			wt, ok := value.(gitservice.Worktree)
-			if !ok {
-				return nil, apperrors.New("internal_error", "Git did not return the new worktree.", true)
-			}
-			createdWorktree = &wt
-			cwd = wt.Path
+	createChild := func(task tasks.Task) (agenthub.AgentSession, string, error) {
+		if taskID != "" && in.Title == nil {
+			title := clipText(oneLine(task.Title), 60)
+			in.Title = &title
 		}
-		cleanupWorktree := func() {
-			if createdWorktree == nil {
-				return
+		v, err := s.deps.Caller.Call(ctx, "builtin.agenthub", "agenthub:execute", "session:new", meta("create_session", audit), func(callCtx context.Context) (any, error) {
+			cwd := in.Cwd
+			var worktreeGit GitAPI
+			var worktreeRepo string
+			if branch != "" {
+				parent, err := s.deps.AgentHub.GetStatus(callCtx, in.CallerSessionID)
+				if err != nil {
+					return nil, err
+				}
+				worktreeGit, worktreeRepo, err = s.gitFor(callCtx, parent.ProjectPath, true)
+				if err != nil {
+					return nil, err
+				}
+				root, target, err := worktreeGit.WorktreeTarget(callCtx, branch)
+				if err != nil {
+					return nil, err
+				}
+				if err := s.requireGitWritePaths(callCtx, root, target); err != nil {
+					return nil, err
+				}
+				value, err := s.deps.Caller.Call(callCtx, "builtin.git", "git:write", "repo:worktree", meta("worktree_add", repoMeta(worktreeRepo, map[string]any{"branch": clipAudit(branch)})), func(ctx context.Context) (any, error) {
+					return worktreeGit.WorktreeAdd(ctx, gitservice.WorktreeAddInput{Branch: branch})
+				})
+				if err != nil {
+					return nil, err
+				}
+				wt, ok := value.(gitservice.Worktree)
+				if !ok {
+					return nil, apperrors.New("internal_error", "Git did not return the new worktree.", true)
+				}
+				createdWorktree = &wt
+				cwd = wt.Path
 			}
-			_, _ = s.deps.Caller.Call(callCtx, "builtin.git", "git:write", "repo:worktree", meta("worktree_remove", repoMeta(worktreeRepo, nil)), func(ctx context.Context) (any, error) {
-				return nil, worktreeGit.WorktreeRemove(ctx, createdWorktree.Path)
-			})
-		}
-		create := agenthub.CreateInput{
-			AgentType:       agenthub.AgentType(in.AgentType),
-			Cwd:             cwd,
-			WorkspaceID:     in.WorkspaceID,
-			ParentSessionID: in.CallerSessionID,
-			Title:           in.Title,
-			InitialConfig:   config,
-			Profile:         profile,
-		}
-		// Ask before creating when the choice goes beyond the caller's own.
-		// CreateSession repeats the check and refuses without this answer.
-		plan, err := s.deps.AgentHub.PlanModelChoice(callCtx, agenthub.ModelChoiceInput{Vendor: create.AgentType, Config: config, Profile: profile})
-		if err != nil {
-			cleanupWorktree()
-			return nil, err
-		}
-		if plan.NeedsApproval {
-			summary := fmt.Sprintf("This agent wants to start a %s session with %s. That goes beyond what it runs on now, so DevKit is asking. %s",
-				in.AgentType, strings.Join(plan.Why, " and "), "A model profile in Settings → Agents would pre-approve a choice like this.")
-			if err := mapInteractErr(effectiveHub(s.deps.Hub).Confirm(callCtx, interaction.ConfirmRequest{
-				Tool: "agenthub.createAgentSession", Summary: summary, Kind: interaction.KindAgent, EnvBlocks: true,
-			})); err != nil {
+			cleanupWorktree := func() {
+				if createdWorktree == nil {
+					return
+				}
+				_, _ = s.deps.Caller.Call(callCtx, "builtin.git", "git:write", "repo:worktree", meta("worktree_remove", repoMeta(worktreeRepo, nil)), func(ctx context.Context) (any, error) {
+					return nil, worktreeGit.WorktreeRemove(ctx, createdWorktree.Path)
+				})
+			}
+			create := agenthub.CreateInput{
+				AgentType:       agenthub.AgentType(in.AgentType),
+				Cwd:             cwd,
+				WorkspaceID:     in.WorkspaceID,
+				ParentSessionID: in.CallerSessionID,
+				Title:           in.Title,
+				InitialConfig:   config,
+				Profile:         profile,
+			}
+			// Ask before creating when the choice goes beyond the caller's own.
+			// CreateSession repeats the check and refuses without this answer.
+			plan, err := s.deps.AgentHub.PlanModelChoice(callCtx, agenthub.ModelChoiceInput{Vendor: create.AgentType, Config: config, Profile: profile})
+			if err != nil {
 				cleanupWorktree()
 				return nil, err
 			}
-			create.ModelChoiceApproved = true
-		}
-		sess, err := s.deps.AgentHub.CreateSession(callCtx, create)
+			if plan.NeedsApproval {
+				summary := fmt.Sprintf("This agent wants to start a %s session with %s. That goes beyond what it runs on now, so DevKit is asking. %s",
+					in.AgentType, strings.Join(plan.Why, " and "), "A model profile in Settings → Agents would pre-approve a choice like this.")
+				if err := mapInteractErr(effectiveHub(s.deps.Hub).Confirm(callCtx, interaction.ConfirmRequest{
+					Tool: "agenthub.createAgentSession", Summary: summary, Kind: interaction.KindAgent, EnvBlocks: true,
+				})); err != nil {
+					cleanupWorktree()
+					return nil, err
+				}
+				create.ModelChoiceApproved = true
+			}
+			sess, err := s.deps.AgentHub.CreateSession(callCtx, create)
+			if err != nil {
+				cleanupWorktree()
+				return nil, err
+			}
+			return forAgent(sess), nil
+		})
 		if err != nil {
-			cleanupWorktree()
-			return nil, err
+			return agenthub.AgentSession{}, "", err
 		}
-		return forAgent(sess), nil
-	})
+		sess, ok := v.(agenthub.AgentSession)
+		if !ok {
+			return agenthub.AgentSession{}, "", apperrors.New("internal_error", "Agent Hub did not return the new session.", true)
+		}
+		branchName := ""
+		if createdWorktree != nil {
+			branchName = createdWorktree.Branch
+		}
+		return sess, branchName, nil
+	}
+	if taskID == "" {
+		sess, _, err := createChild(tasks.Task{})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, structured(sess), nil
+	}
+	out, err := agentwork.Handoff(ctx, taskID, taskHandoffOps{server: s, create: createChild})
 	if err != nil {
 		return nil, nil, err
 	}
-	if taskID != "" {
-		if sess, ok := v.(agenthub.AgentSession); ok {
-			branchName := ""
-			if createdWorktree != nil {
-				branchName = createdWorktree.Branch
-			}
-			v, err = s.giveChildItsTask(ctx, sess, task, branchName)
-			if err != nil {
-				return nil, nil, err
-			}
-		}
+	sess, ok := out.Child.(agenthub.AgentSession)
+	if !ok {
+		return nil, nil, apperrors.New("internal_error", "Agent Hub did not return the new session.", true)
 	}
-	return nil, structured(v), nil
+	return nil, structured(childOnTask{
+		AgentSession: sess,
+		Task:         taskRef{ID: out.Task.ID, Key: out.Task.Key, Title: oneLine(out.Task.Title)},
+		Delivery:     agenthub.PeerDelivery(out.Delivery.State),
+		Code:         out.Delivery.Code, Reason: out.Delivery.Reason, MessageID: out.Delivery.MessageID,
+	}), nil
 }
 
 func clipAudit(s string) string {

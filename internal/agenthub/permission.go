@@ -22,10 +22,11 @@ var deniedPermissionOutcome = json.RawMessage(`{"outcome":{"outcome":"cancelled"
 
 // PendingPermission is a permission prompt awaiting UI resolution.
 type PendingPermission struct {
-	ID        string          `json:"id"`
-	SessionID string          `json:"sessionId"`
-	Params    json.RawMessage `json:"params"`
-	CreatedAt time.Time       `json:"createdAt"`
+	ID                     string          `json:"id"`
+	SessionID              string          `json:"sessionId"`
+	Params                 json.RawMessage `json:"params"`
+	ScopedApprovalEligible bool            `json:"scopedApprovalEligible,omitempty"`
+	CreatedAt              time.Time       `json:"createdAt"`
 	// ExpiresAt is when the gate closes on its own. It ships with the request
 	// because the UI cannot infer it: a toast may mount long after the request
 	// arrived — the rail was closed, the user was in another module, the lazy
@@ -72,6 +73,16 @@ type PermissionWaiter struct {
 	// request that stops waiting. It is called without the lock held and must
 	// not block.
 	OnClosed func(PermissionClosed)
+	// PersistOpen runs before a request is published to the UI. A failure denies
+	// the request without creating an answerable card.
+	PersistOpen func(context.Context, PendingRequestRecord) error
+	// PersistClose runs before a user answer is released to the agent. A failure
+	// leaves the answer pending and cannot turn a failed write into approval.
+	PersistClose func(context.Context, PendingRequestResolution) error
+	// OnPersistenceError reports metadata durability failures without including
+	// the permission params or any request payload. It must be nonblocking and
+	// must not re-enter the waiter; some paths report while holding its lock.
+	OnPersistenceError func(error)
 
 	mu      sync.Mutex
 	pending map[string]*permissionWait // by ID; independent gated calls may queue
@@ -79,10 +90,11 @@ type PermissionWaiter struct {
 
 type permissionWait struct {
 	PendingPermission
-	result   chan json.RawMessage
-	finished bool
-	gate     bool
-	ctx      context.Context
+	result         chan json.RawMessage
+	finished       bool
+	gate           bool
+	ctx            context.Context
+	persistedClose bool
 	// opened is closed once notify has returned, i.e. the request's opening
 	// has been published. A close that happens earlier waits for it, so for
 	// one id the window never sees the close before the open.
@@ -125,6 +137,19 @@ func (w *PermissionWaiter) wait(ctx context.Context, sessionID string, params js
 		Params:    append(json.RawMessage(nil), params...),
 		CreatedAt: now,
 	}
+	var eligibility struct {
+		Origin         string `json:"origin"`
+		Tool           string `json:"tool"`
+		ProfileID      string `json:"profileId"`
+		Env            string `json:"env"`
+		Locked         bool   `json:"locked"`
+		Fingerprint    string `json:"approvalFingerprint"`
+		TargetRevision string `json:"targetRevision"`
+		EnvRevision    string `json:"envRevision"`
+	}
+	if gate && json.Unmarshal(params, &eligibility) == nil {
+		p.ScopedApprovalEligible = eligibility.Origin == "devkit_gate" && eligibility.Tool == "db.query" && eligibility.ProfileID != "" && eligibility.Env != "" && !eligibility.Locked && eligibility.Fingerprint != "" && eligibility.TargetRevision != "" && eligibility.EnvRevision != ""
+	}
 	// Zero ExpiresAt when nothing expires; the card reads that as "no clock".
 	if timeout := w.timeout(); timeout > 0 {
 		p.ExpiresAt = now.Add(timeout)
@@ -132,7 +157,6 @@ func (w *PermissionWaiter) wait(ctx context.Context, sessionID string, params js
 	if deadline, ok := ctx.Deadline(); gate && ok && (p.ExpiresAt.IsZero() || deadline.Before(p.ExpiresAt)) {
 		p.ExpiresAt = deadline
 	}
-
 	opened := make(chan struct{})
 	w.mu.Lock()
 	for _, other := range w.pending {
@@ -142,6 +166,22 @@ func (w *PermissionWaiter) wait(ctx context.Context, sessionID string, params js
 			w.mu.Unlock()
 			return append(json.RawMessage(nil), deniedPermissionOutcome...), ErrPermissionDenied
 		}
+	}
+	if w.PersistOpen != nil {
+		if err := w.PersistOpen(ctx, permissionRecord(p)); err != nil {
+			w.mu.Unlock()
+			if reason := permissionEndReason(ctx, p.ExpiresAt); reason != "" {
+				w.reportPersistenceError(bestEffortPendingRequestClose(w.PersistClose, PendingRequestResolution{ID: id, Reason: reason, ResolvedAt: time.Now().UTC()}))
+				return append(json.RawMessage(nil), deniedPermissionOutcome...), ErrPermissionDenied
+			}
+			w.reportPersistenceError(err)
+			return append(json.RawMessage(nil), deniedPermissionOutcome...), ErrPermissionDenied
+		}
+	}
+	if reason := permissionEndReason(ctx, p.ExpiresAt); reason != "" {
+		w.reportPersistenceError(bestEffortPendingRequestClose(w.PersistClose, PendingRequestResolution{ID: id, Reason: reason, ResolvedAt: time.Now().UTC()}))
+		w.mu.Unlock()
+		return append(json.RawMessage(nil), deniedPermissionOutcome...), ErrPermissionDenied
 	}
 	w.pending[id] = &permissionWait{PendingPermission: p, result: resCh, gate: gate, ctx: ctx, opened: opened}
 	w.mu.Unlock()
@@ -185,6 +225,19 @@ func (w *PermissionWaiter) Complete(id string, outcome json.RawMessage) error {
 	if !ok || p.finished || p.ctx.Err() != nil || (!p.ExpiresAt.IsZero() && !time.Now().Before(p.ExpiresAt)) {
 		return ErrPermissionNotWaiting
 	}
+	if w.PersistClose != nil {
+		if err := persistPendingRequestClose(w.PersistClose, PendingRequestResolution{ID: id, Reason: PermissionAnswered, ResolvedAt: time.Now().UTC()}, false); err != nil {
+			w.reportPersistenceError(err)
+			return err
+		}
+		p.persistedClose = true
+	}
+	if reason := permissionEndReason(p.ctx, p.ExpiresAt); reason != "" {
+		err := bestEffortPendingRequestClose(w.PersistClose, PendingRequestResolution{ID: id, Reason: reason, ResolvedAt: time.Now().UTC()})
+		w.reportPersistenceError(err)
+		p.persistedClose = err == nil
+		return ErrPermissionNotWaiting
+	}
 	select {
 	case p.result <- append(json.RawMessage(nil), outcome...):
 		p.finished = true
@@ -224,6 +277,12 @@ func (w *PermissionWaiter) CancelSession(sessionID string) int {
 		if p.SessionID != sessionID || p.finished {
 			continue
 		}
+		closed := PermissionClosed{ID: id, SessionID: p.SessionID, Reason: PermissionTurnEnded}
+		if w.PersistClose != nil {
+			persistErr := bestEffortPendingRequestClose(w.PersistClose, PendingRequestResolution{ID: id, Reason: closed.Reason, ResolvedAt: time.Now().UTC()})
+			p.persistedClose = persistErr == nil
+			w.reportPersistenceError(persistErr)
+		}
 		select {
 		case p.result <- append(json.RawMessage(nil), deniedPermissionOutcome...):
 			cancelled++
@@ -262,12 +321,29 @@ func (w *PermissionWaiter) Pending() *PendingPermission {
 	return &list[0]
 }
 
+func (w *PermissionWaiter) PendingByID(id string) *PendingPermission {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	p := w.pending[id]
+	if p == nil || p.finished || p.ctx.Err() != nil {
+		return nil
+	}
+	cp := p.PendingPermission
+	cp.Params = append(json.RawMessage(nil), cp.Params...)
+	return &cp
+}
+
 // close takes a request out of the queue and announces it, once: only the call
 // that finds it still there fires.
 func (w *PermissionWaiter) close(id, reason string) {
 	w.mu.Lock()
 	p, ok := w.pending[id]
 	if ok {
+		if !p.persistedClose && w.PersistClose != nil {
+			closeErr := bestEffortPendingRequestClose(w.PersistClose, PendingRequestResolution{ID: id, Reason: reason, ResolvedAt: time.Now().UTC()})
+			w.reportPersistenceError(closeErr)
+			p.persistedClose = closeErr == nil
+		}
 		p.finished = true
 		delete(w.pending, id)
 	}
@@ -275,6 +351,29 @@ func (w *PermissionWaiter) close(id, reason string) {
 	if ok {
 		w.announceClosed(p, PermissionClosed{ID: id, SessionID: p.SessionID, Reason: reason})
 	}
+}
+
+const pendingRequestPersistTimeout = 2 * time.Second
+
+// persistPendingRequestClose detaches lifecycle cleanup from a caller that may
+// already be canceled while keeping SQL work bounded. User answers use
+// ignoreNotFound=false and remain fail-closed; cancellation cleanup may ignore
+// a missing row because a canceled PersistOpen may never have committed.
+func persistPendingRequestClose(persist func(context.Context, PendingRequestResolution) error, resolution PendingRequestResolution, ignoreNotFound bool) error {
+	if persist == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), pendingRequestPersistTimeout)
+	defer cancel()
+	err := persist(ctx, resolution)
+	if ignoreNotFound && errors.Is(err, ErrPendingRequestNotFound) {
+		return nil
+	}
+	return err
+}
+
+func bestEffortPendingRequestClose(persist func(context.Context, PendingRequestResolution) error, resolution PendingRequestResolution) error {
+	return persistPendingRequestClose(persist, resolution, true)
 }
 
 // announceClosed fires the close after the request's open was published. When
@@ -454,4 +553,24 @@ func (s *Service) mediatePermissionWith(ctx context.Context, sessionID string, p
 	}
 
 	return outcome, nil
+}
+
+func permissionRecord(p PendingPermission) PendingRequestRecord {
+	return PendingRequestRecord{ID: p.ID, SessionID: p.SessionID, Kind: PendingRequestPermission, CreatedAt: p.CreatedAt, ExpiresAt: p.ExpiresAt}
+}
+
+func (w *PermissionWaiter) reportPersistenceError(err error) {
+	if err != nil && w.OnPersistenceError != nil {
+		w.OnPersistenceError(err)
+	}
+}
+
+func permissionEndReason(ctx context.Context, expiresAt time.Time) string {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) || (!expiresAt.IsZero() && !time.Now().Before(expiresAt)) {
+		return PermissionExpired
+	}
+	if ctx.Err() != nil {
+		return PermissionWithdrawn
+	}
+	return ""
 }

@@ -284,6 +284,7 @@ type Service struct {
 	reg             *Registry
 	store           Store
 	recorder        *Recorder
+	recoveryID      string
 	unknownSeen     map[string]struct{}
 	// retrying holds the sessions whose agent has an unanswered provider-retry
 	// notice on screen, so the turn that ends can clear it (see endProviderRetry).
@@ -484,7 +485,8 @@ type Service struct {
 	rewinds  rewindPlans
 
 	// peers is the state of messages between sessions (peer.go).
-	peers peerState
+	peers          peerState
+	peerRecoveryMu sync.Mutex
 	// turnWork counts what is still working on the database after a turn: each
 	// invoke for its whole length, and the queue drains peer.go starts. For
 	// WaitQuiet.
@@ -512,6 +514,7 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 		reg:             reg,
 		store:           store,
 		recorder:        NewRecorder(store),
+		recoveryID:      uuid.NewString(),
 		runtimes:        make(map[string]SessionRuntime),
 		endpoints:       make(map[string]func()),
 		invoking:        make(map[string]struct{}),
@@ -566,6 +569,46 @@ func (s *Service) CheckpointsEnabled() bool {
 	return s.checkpoints.Enabled()
 }
 
+func (s *Service) interruptionNoticeID(sessionID string) string {
+	if s.recoveryID == "" {
+		s.recoveryID = uuid.NewString()
+	}
+	return "interrupted:" + s.recoveryID + ":" + sessionID
+}
+
+func (s *Service) hasInterruptedNotice(ctx context.Context, sessionID, noticeID string) (bool, error) {
+	if finder, ok := s.store.(interface {
+		HasInterruptedNotice(context.Context, string, string) (bool, error)
+	}); ok {
+		return finder.HasInterruptedNotice(ctx, sessionID, noticeID)
+	}
+	entries, err := s.store.ListTranscript(ctx, sessionID)
+	if err != nil {
+		return false, err
+	}
+	for _, entry := range entries {
+		if entry.Kind != UpdateSessionInfo {
+			continue
+		}
+		var update SessionUpdate
+		if json.Unmarshal(entry.Payload, &update) == nil && update.Failure != nil && update.Failure.ID == noticeID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func interruptedPendingRequestMessage(summary PendingRequestSummary) string {
+	var waiting []string
+	if summary.Permissions > 0 {
+		waiting = append(waiting, "permission approval")
+	}
+	if summary.Questions > 0 {
+		waiting = append(waiting, "a question")
+	}
+	return "The app restarted while this session was waiting for " + strings.Join(waiting, " and ") + ". That request can no longer be answered; resume the conversation and send a new instruction. No prompt or response was replayed."
+}
+
 // Shutdown lands every session's buffered transcript and stops the recorder.
 // The app calls it on quit, before the database closes: the recorder batches
 // its writes, so without it a quit mid-stream lost the last cadence of text
@@ -585,27 +628,98 @@ func (s *Service) Shutdown(ctx context.Context) error {
 // Startup-only by contract, mirroring outbox.RecoverStaleSyncing: calling it
 // while turns are actually running would reset live sessions.
 func (s *Service) RecoverStaleSessions(ctx context.Context) error {
+	pendingBySession := map[string]PendingRequestSummary{}
+	pendingStore, hasPendingStore := s.store.(PendingRequestStore)
+	if hasPendingStore {
+		if err := pendingStore.PrunePendingRequests(ctx, time.Now().UTC().Add(-30*24*time.Hour)); err != nil {
+			return err
+		}
+		summaries, err := pendingStore.ListPendingRequestSummaries(ctx)
+		if err != nil {
+			return err
+		}
+		for _, summary := range summaries {
+			pendingBySession[summary.SessionID] = summary
+		}
+	}
 	list, err := s.store.ListSessions(ctx)
 	if err != nil {
 		return err
 	}
+	if hasPendingStore {
+		byID := make(map[string]AgentSession, len(list))
+		for _, sess := range list {
+			byID[sess.ID] = sess
+		}
+		for sessionID := range pendingBySession {
+			sess, exists := byID[sessionID]
+			if !exists {
+				if err := pendingStore.MarkPendingRequestsInterrupted(ctx, sessionID, time.Now().UTC(), "session_missing"); err != nil {
+					return err
+				}
+				delete(pendingBySession, sessionID)
+				continue
+			}
+			if sess.Status == SessionStatusClosed {
+				if err := pendingStore.MarkPendingRequestsInterrupted(ctx, sessionID, time.Now().UTC(), "session_closed"); err != nil {
+					return err
+				}
+				delete(pendingBySession, sessionID)
+			}
+		}
+	}
 	for _, sess := range list {
-		if sess.Status != SessionStatusRunning && sess.Status != SessionStatusAwaitingPermission {
+		summary, hadPendingRequest := pendingBySession[sess.ID]
+		wasInFlight := sess.Status == SessionStatusRunning || sess.Status == SessionStatusAwaitingPermission
+		if !wasInFlight && !hadPendingRequest {
 			continue
 		}
 		interrupted := InterruptedStop(time.Now())
+		if hadPendingRequest {
+			interrupted.Message = interruptedPendingRequestMessage(summary)
+		}
 		if err := s.store.UpdateSessionStop(ctx, sess.ID, &interrupted, time.Now().UTC()); err != nil {
 			return err
 		}
 		notice := SessionUpdate{Kind: UpdateSessionInfo, Failure: &SessionFailure{
-			ID: "interrupted:" + sess.ID, Revision: 1, Category: "interrupted", Severity: "warning", Title: "Previous turn was interrupted",
+			ID: s.interruptionNoticeID(sess.ID), Revision: 1, Category: "interrupted", Severity: "warning", Title: "Previous turn was interrupted",
 			Details: "The app stopped before this turn finished. Its earlier changes may already exist. Resume this conversation, then send your next instruction; no prompt or command is replayed automatically.", Actions: []string{"resume"},
 		}}
-		if err := s.recorder.Record(ctx, sess.ID, notice); err != nil {
+		alreadyNoticed, err := s.hasInterruptedNotice(ctx, sess.ID, s.interruptionNoticeID(sess.ID))
+		if err != nil {
 			return err
 		}
-		if err := s.store.UpdateSessionStatus(ctx, sess.ID, SessionStatusIdle, time.Now().UTC()); err != nil {
-			return err
+		if !alreadyNoticed {
+			if err := s.recorder.Record(ctx, sess.ID, notice); err != nil {
+				return err
+			}
+		}
+		if hadPendingRequest {
+			if err := pendingStore.MarkPendingRequestsInterrupted(ctx, sess.ID, time.Now().UTC(), "app_restarted"); err != nil {
+				// Leave the session busy until the old request ID is durably
+				// unanswerable; startup can retry this write next time. An idle row
+				// with pending metadata is inconsistent, so hold it at the status
+				// implied by the request kind while persistence is unavailable.
+				busy := sess.Status
+				if !wasInFlight {
+					busy = SessionStatusRunning
+					if summary.Permissions > 0 {
+						busy = SessionStatusAwaitingPermission
+					}
+				}
+				_ = s.store.UpdateSessionStatus(context.WithoutCancel(ctx), sess.ID, busy, time.Now().UTC())
+				return err
+			}
+		}
+		if wasInFlight {
+			if err := s.store.UpdateSessionStatus(ctx, sess.ID, SessionStatusIdle, time.Now().UTC()); err != nil {
+				return err
+			}
+		}
+		if hadPendingRequest {
+			if err := pendingStore.AcknowledgePendingRequestRecovery(ctx, sess.ID); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -1464,6 +1578,7 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	if closeErr != nil {
 		return closeErr
 	}
+	s.refuseQueued(id, PeerClosed)
 	if s.CancelPendingPermissions != nil {
 		s.CancelPendingPermissions(id)
 	}
@@ -1677,7 +1792,7 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 	if peer == nil && invokeUnbounded(ctx) {
 		// The person is talking to this session: whatever exchange with other
 		// sessions it was in is over, and its replies start counting afresh.
-		s.peers.resetChain(in.SessionID)
+		s.resetPeerChain(in.SessionID)
 	}
 	// PDFs are not read into the prompt: they are kept in the session's document
 	// store and the agent reads them with DevKit's PDF tools. The prompt carries
@@ -2001,6 +2116,30 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 		// A cancel is recorded too (kind "cancelled"; the parent is not told: the
 		// one who cancelled knows). A busy refusal ran nothing, so it stops nothing.
 		if !errors.Is(promptErr, ErrSessionBusy) {
+			// Some ACP vendors return quota/token accounting alongside a typed
+			// refusal. Keep that billed work in the turn history even though the
+			// turn did not complete. Runtime errors without result metadata keep
+			// their existing behavior.
+			if len(outcome.Meta) > 0 {
+				usage, usageErr := adapter.NormalizeUsage(outcome.Meta)
+				if usageErr != nil {
+					log.Printf("agenthub: invoke %s session %s: normalize usage from failed turn: %v", sess.AgentType, in.SessionID, usageErr)
+					usage = NormalizedUsage{}
+				}
+				usage.RawMeta = append(json.RawMessage(nil), outcome.Meta...)
+				usageJSON, marshalErr := json.Marshal(usage)
+				if marshalErr != nil {
+					log.Printf("agenthub: invoke %s session %s: marshal usage from failed turn: %v", sess.AgentType, in.SessionID, marshalErr)
+				} else {
+					turn := TurnRecord{ID: uuid.NewString(), SessionID: in.SessionID, PromptMessageID: promptMessageID, StopReason: "failed", UsageJSON: usageJSON, RawMeta: append(json.RawMessage(nil), outcome.Meta...), CreatedAt: time.Now().UTC()}
+					if err := s.store.InsertTurn(recordCtx, turn); err != nil {
+						log.Printf("agenthub: invoke %s session %s: save usage from failed turn: %v", sess.AgentType, in.SessionID, err)
+						if s.OnRecordError != nil {
+							s.OnRecordError(in.SessionID, err)
+						}
+					}
+				}
+			}
 			s.recordStop(recordCtx, sess, promptErr, timedOut, invoker)
 		}
 		_ = s.setSessionStatus(recordCtx, in.SessionID, finalStatus)
@@ -2641,6 +2780,7 @@ func (s *Service) PrepareSession(ctx context.Context, id string) error {
 			return vendorError(sess.AgentType, fmt.Errorf("%w: %w", ErrModelsUnavailable, err))
 		}
 	}
+	s.savePeerGuardState()
 	return nil
 }
 
@@ -2701,7 +2841,7 @@ func (s *Service) Steer(ctx context.Context, id, text string) (SteerOutcome, err
 	}
 	s.emit(id, userEchoUpdate(text, echo.MessageID, nil, nil))
 	if invokeUnbounded(ctx) {
-		s.peers.resetChain(id) // the person spoke to it: see invoke
+		s.resetPeerChain(id) // the person spoke to it: see invoke
 	}
 	return SteerOutcome(outcome), nil
 }

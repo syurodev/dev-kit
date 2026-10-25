@@ -44,7 +44,13 @@ func (s *AppService) SetupVault(masterPassword string) (string, error) {
 	result, err := s.call(context.Background(), "builtin.vault", "vault:manage", "vault", map[string]any{
 		"action": "setup",
 	}, func(context.Context) (any, error) {
-		return s.container.Vault.Setup(masterPassword)
+		s.vaultLifecycleMu.Lock()
+		defer s.vaultLifecycleMu.Unlock()
+		recoveryKey, err := s.container.Vault.Setup(masterPassword)
+		if err == nil && s.container.Interaction != nil {
+			s.container.Interaction.SetVaultLocked(false)
+		}
+		return recoveryKey, err
 	})
 	if err != nil {
 		return "", err
@@ -58,7 +64,13 @@ func (s *AppService) UnlockVault(masterPassword string) error {
 	_, err := s.call(context.Background(), "builtin.vault", "vault:manage", "vault", map[string]any{
 		"action": "unlock",
 	}, func(context.Context) (any, error) {
-		return nil, s.container.Vault.Unlock(masterPassword)
+		s.vaultLifecycleMu.Lock()
+		defer s.vaultLifecycleMu.Unlock()
+		err := s.container.Vault.Unlock(masterPassword)
+		if err == nil && s.container.Interaction != nil {
+			s.container.Interaction.SetVaultLocked(false)
+		}
+		return nil, err
 	})
 	if err == nil {
 		s.auditVaultLifecycle("unlock")
@@ -71,7 +83,13 @@ func (s *AppService) UnlockVaultWithRecovery(recoveryKey string) error {
 	_, err := s.call(context.Background(), "builtin.vault", "vault:manage", "vault", map[string]any{
 		"action": "recovery_unlock",
 	}, func(context.Context) (any, error) {
-		return nil, s.container.Vault.UnlockWithRecovery(recoveryKey)
+		s.vaultLifecycleMu.Lock()
+		defer s.vaultLifecycleMu.Unlock()
+		err := s.container.Vault.UnlockWithRecovery(recoveryKey)
+		if err == nil && s.container.Interaction != nil {
+			s.container.Interaction.SetVaultLocked(false)
+		}
+		return nil, err
 	})
 	if err == nil {
 		s.auditVaultLifecycle("recovery_unlock")
@@ -96,8 +114,13 @@ func (s *AppService) LockVault() error {
 	_, err := s.call(context.Background(), "builtin.vault", "vault:manage", "vault", map[string]any{
 		"action": "lock",
 	}, func(context.Context) (any, error) {
+		s.vaultLifecycleMu.Lock()
+		defer s.vaultLifecycleMu.Unlock()
 		if s.container.Telegram != nil {
 			s.container.Telegram.Suspend()
+		}
+		if s.container.Interaction != nil {
+			s.container.Interaction.SetVaultLocked(true)
 		}
 		s.container.Vault.Lock()
 		return nil, nil
