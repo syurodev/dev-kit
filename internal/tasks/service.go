@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"devkit/internal/vaultitem"
@@ -49,10 +50,13 @@ type SessionLiveness interface {
 
 // Service is the module.
 type Service struct {
-	items ItemStore
-	live  SessionLiveness
-	gate  *verifyGate
-	now   func() time.Time
+	// dependencyMu serializes expected-state replacements within this process;
+	// the local SQLite store is single-process.
+	dependencyMu sync.Mutex
+	items        ItemStore
+	live         SessionLiveness
+	gate         *verifyGate
+	now          func() time.Time
 
 	// scope and binds decide which boards an agent sees. Both nil is the
 	// behaviour from before bindings: every board, to everyone. See binding.go.
@@ -481,14 +485,31 @@ type Fields struct {
 	Assignee  *string
 	ParentID  *string
 	BlockedBy *[]string
-	Branch    *string
-	BoardID   *string
+	// ExpectedBlockedBy is required by callers that want compare-and-set semantics.
+	ExpectedBlockedBy *[]string
+	Branch            *string
+	BoardID           *string
 	// PlanNodeID links the task to a Code Graph plan node, or clears it.
 	PlanNodeID *string
 }
 
 // SetFields applies metadata-only changes.
 func (s *Service) SetFields(caller Caller, id string, fields Fields) (Task, error) {
+	if fields.BlockedBy != nil {
+		// Serialize dependency replacements through this service instance so
+		// concurrent MCP updates cannot both pass the expected-state check.
+		s.dependencyMu.Lock()
+		defer s.dependencyMu.Unlock()
+		if fields.ExpectedBlockedBy != nil {
+			current, err := s.Get(caller, id)
+			if err != nil {
+				return Task{}, err
+			}
+			if !sameIDs(current.BlockedBy, *fields.ExpectedBlockedBy) {
+				return Task{}, ErrDependenciesChanged
+			}
+		}
+	}
 	return s.mutateAs(caller, id, func(meta *taskMetadata) error {
 		if fields.Priority != nil {
 			meta.Priority = *fields.Priority
@@ -538,6 +559,31 @@ func (s *Service) SetFields(caller Caller, id string, fields Fields) (Task, erro
 		}
 		return nil
 	})
+}
+
+func sameIDs(a, b []string) bool {
+	clean := func(in []string) []string {
+		seen := map[string]bool{}
+		out := make([]string, 0, len(in))
+		for _, id := range in {
+			if id != "" && !seen[id] {
+				seen[id] = true
+				out = append(out, id)
+			}
+		}
+		sort.Strings(out)
+		return out
+	}
+	x, y := clean(a), clean(b)
+	if len(x) != len(y) {
+		return false
+	}
+	for i := range x {
+		if x[i] != y[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // mutate reads, changes and writes a task's metadata, as the service itself:

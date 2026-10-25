@@ -153,6 +153,100 @@ func TestTasksWorkspaceScopedAccessMCP(t *testing.T) {
 	if vGet == nil {
 		t.Fatal("expected task result")
 	}
+	blockerA, err := tasksService.Create(tasks.Caller{}, tasks.CreateInput{BoardID: boardA.ID, Title: "Blocker in A"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, setResult, err := srv.toolTasksSetFields(ctx, &sdk.CallToolRequest{}, tasksSetFieldsInput{
+		TaskID: taskA.ID, BlockedBy: []string{blockerA.ID, blockerA.ID}, ExpectedBlockedBy: []string{},
+	})
+	if err != nil {
+		t.Fatalf("tasks.setFields blockedBy: %v", err)
+	}
+	if got := unwrap(setResult).(taskOut).BlockedBy; len(got) != 1 || got[0] != blockerA.ID {
+		t.Fatalf("set result blockedBy = %v", got)
+	}
+	_, omittedResult, err := srv.toolTasksSetFields(ctx, &sdk.CallToolRequest{}, tasksSetFieldsInput{TaskID: taskA.ID, Priority: "high"})
+	if err != nil || len(unwrap(omittedResult).(taskOut).BlockedBy) != 1 {
+		t.Fatalf("omitted blockedBy changed dependencies: %#v, err=%v", unwrap(omittedResult), err)
+	}
+	_, _, missingExpectedErr := srv.toolTasksSetFields(ctx, &sdk.CallToolRequest{}, tasksSetFieldsInput{TaskID: taskA.ID, BlockedBy: []string{}})
+	if !errors.Is(missingExpectedErr, tasks.ErrExpectedDependenciesRequired) {
+		t.Fatalf("missing expectedBlockedBy err = %v", missingExpectedErr)
+	}
+	_, _, selfErr := srv.toolTasksSetFields(ctx, &sdk.CallToolRequest{}, tasksSetFieldsInput{
+		TaskID: taskA.ID, BlockedBy: []string{taskA.ID}, ExpectedBlockedBy: []string{blockerA.ID},
+	})
+	if !errors.Is(selfErr, tasks.ErrDependencyCycle) {
+		t.Fatalf("self dependency err = %v", selfErr)
+	}
+	_, _, cycleErr := srv.toolTasksSetFields(ctx, &sdk.CallToolRequest{}, tasksSetFieldsInput{
+		TaskID: blockerA.ID, BlockedBy: []string{taskA.ID}, ExpectedBlockedBy: []string{},
+	})
+	if !errors.Is(cycleErr, tasks.ErrDependencyCycle) {
+		t.Fatalf("cycle dependency err = %v", cycleErr)
+	}
+	ctxTerminal := identity.WithCaller(context.Background(), identity.UserTerminal())
+	_, _, crossBoardErr := srv.toolTasksSetFields(ctxTerminal, &sdk.CallToolRequest{}, tasksSetFieldsInput{
+		TaskID: taskA.ID, BlockedBy: []string{taskB.ID}, ExpectedBlockedBy: []string{blockerA.ID},
+	})
+	if !errors.Is(crossBoardErr, tasks.ErrInvalid) {
+		t.Fatalf("cross-board dependency err = %v", crossBoardErr)
+	}
+	_, _, inaccessibleErr := srv.toolTasksSetFields(ctx, &sdk.CallToolRequest{}, tasksSetFieldsInput{
+		TaskID: taskA.ID, BlockedBy: []string{taskB.ID}, ExpectedBlockedBy: []string{blockerA.ID},
+	})
+	_, _, missingTargetErr := srv.toolTasksSetFields(ctx, &sdk.CallToolRequest{}, tasksSetFieldsInput{
+		TaskID: taskA.ID, BlockedBy: []string{"not-a-task"}, ExpectedBlockedBy: []string{blockerA.ID},
+	})
+	if !errors.Is(inaccessibleErr, tasks.ErrNotFound) || !errors.Is(missingTargetErr, tasks.ErrNotFound) {
+		t.Fatalf("inaccessible target err=%v, missing target err=%v", inaccessibleErr, missingTargetErr)
+	}
+	competingA, err := tasksService.Create(tasks.Caller{}, tasks.CreateInput{BoardID: boardA.ID, Title: "Competing blocker"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for _, replacement := range [][]string{{}, {competingA.ID}} {
+		replacement := replacement
+		go func() {
+			<-start
+			_, _, err := srv.toolTasksSetFields(ctx, &sdk.CallToolRequest{}, tasksSetFieldsInput{
+				TaskID: taskA.ID, BlockedBy: replacement, ExpectedBlockedBy: []string{blockerA.ID},
+			})
+			results <- err
+		}()
+	}
+	close(start)
+	first, second := <-results, <-results
+	wins := 0
+	for _, err := range []error{first, second} {
+		if err == nil {
+			wins++
+		} else if !errors.Is(err, tasks.ErrDependenciesChanged) {
+			t.Fatalf("concurrent replacement err = %v", err)
+		}
+	}
+	if wins != 1 {
+		t.Fatalf("concurrent replacement successes = %d, want 1", wins)
+	}
+	_, readResult, err := srv.toolTasksGet(ctx, &sdk.CallToolRequest{}, taskIDInput{TaskID: taskA.ID})
+	if err != nil {
+		t.Fatalf("tasks.get dependency = %#v, err=%v", unwrap(readResult), err)
+	}
+	_, errResult, staleErr := srv.toolTasksSetFields(ctx, &sdk.CallToolRequest{}, tasksSetFieldsInput{
+		TaskID: taskA.ID, BlockedBy: []string{}, ExpectedBlockedBy: []string{"stale-snapshot"},
+	})
+	if staleErr == nil || errResult != nil || !errors.Is(staleErr, tasks.ErrDependenciesChanged) {
+		t.Fatalf("stale replacement result=%v err=%v", errResult, staleErr)
+	}
+	_, clearResult, err := srv.toolTasksSetFields(ctx, &sdk.CallToolRequest{}, tasksSetFieldsInput{
+		TaskID: taskA.ID, BlockedBy: []string{}, ExpectedBlockedBy: unwrap(readResult).(tasks.Task).BlockedBy,
+	})
+	if err != nil || len(unwrap(clearResult).(taskOut).BlockedBy) != 0 {
+		t.Fatalf("clear blockedBy = %#v, err=%v", unwrap(clearResult), err)
+	}
 
 	// Test 3: agent in workspace A calls tasks.board.list
 	// → should only see board A, not board B
@@ -167,7 +261,6 @@ func TestTasksWorkspaceScopedAccessMCP(t *testing.T) {
 
 	// Test 4: user terminal (unscoped) calls tasks.board.list
 	// → should see all boards
-	ctxTerminal := identity.WithCaller(context.Background(), identity.UserTerminal())
 	_, vTerminal, err := srv.toolTasksBoardList(ctxTerminal, &sdk.CallToolRequest{}, struct{}{})
 	if err != nil {
 		t.Fatalf("tasks.board.list for terminal: %v", err)

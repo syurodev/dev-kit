@@ -134,6 +134,12 @@ func TestPublicErrorMapsTaskStatusChanged(t *testing.T) {
 	if got := publicError("builtin.tasks", tasks.ErrParentHasParent); got == nil || got.Code != codeValidationFailed {
 		t.Fatalf("parent-has-parent = %v", got)
 	}
+	if got := publicError("builtin.tasks", tasks.ErrExpectedDependenciesRequired); got == nil || got.Code != codeValidationFailed || !strings.Contains(got.Message, "tasks.get") || !strings.Contains(got.Message, "expectedBlockedBy") {
+		t.Fatalf("missing expected dependency state = %v, want actionable validation message", got)
+	}
+	if got := publicError("builtin.tasks", tasks.ErrDependenciesChanged); got == nil || got.Code != codeTaskStatusChanged {
+		t.Fatalf("stale dependencies = %v, want published taskStatusChanged", got)
+	}
 }
 
 // pdf.* and memory.* AppErrors are raised inside Caller.Call by tools whose

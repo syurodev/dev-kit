@@ -43,6 +43,10 @@ var (
 	// refusal rather than an overwrite: two agents on one task must not
 	// silently clobber each other.
 	ErrStatusChanged = errors.New("tasks.statusChanged")
+	// ErrDependenciesChanged is an optimistic dependency replacement losing its race.
+	ErrDependenciesChanged = errors.New("tasks.dependenciesChanged")
+	// ErrExpectedDependenciesRequired tells a caller to read the current edge set before replacing it.
+	ErrExpectedDependenciesRequired = errors.New("tasks.expectedDependenciesRequired")
 	// ErrClaimed is a task another live session holds.
 	ErrClaimed = errors.New("tasks.claimed")
 	// ErrNotAssignable is a task that is finished or archived: it is not

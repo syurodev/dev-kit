@@ -156,7 +156,7 @@ func (s *Server) registerTasks(ms *sdk.Server) {
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "tasks.setFields",
-		Description: "Set metadata: priority, assignee, parent, or the branch this task's work is on",
+		Description: "Set task metadata. For blockedBy, pass expectedBlockedBy from tasks.get; [] clears it",
 		Annotations: &sdk.ToolAnnotations{DestructiveHint: boolPtr(false)},
 	}, s.toolTasksSetFields)
 
@@ -353,12 +353,14 @@ func (s *Server) toolTasksUpdate(ctx context.Context, _ *sdk.CallToolRequest, in
 }
 
 type tasksSetFieldsInput struct {
-	TaskID   string   `json:"taskId"`
-	Priority string   `json:"priority,omitempty"`
-	Assignee string   `json:"assignee,omitempty"`
-	ParentID string   `json:"parentId,omitempty"`
-	Branch   string   `json:"branch,omitempty"`
-	Labels   []string `json:"labels,omitempty"`
+	TaskID            string   `json:"taskId"`
+	Priority          string   `json:"priority,omitempty"`
+	Assignee          string   `json:"assignee,omitempty"`
+	ParentID          string   `json:"parentId,omitempty"`
+	Branch            string   `json:"branch,omitempty"`
+	Labels            []string `json:"labels,omitempty"`
+	BlockedBy         []string `json:"blockedBy,omitempty"`
+	ExpectedBlockedBy []string `json:"expectedBlockedBy,omitempty"`
 }
 
 func (s *Server) toolTasksSetFields(ctx context.Context, _ *sdk.CallToolRequest, in tasksSetFieldsInput) (*sdk.CallToolResult, any, error) {
@@ -378,6 +380,13 @@ func (s *Server) toolTasksSetFields(ctx context.Context, _ *sdk.CallToolRequest,
 		}
 		if in.Labels != nil {
 			fields.Labels = &in.Labels
+		}
+		if in.BlockedBy != nil {
+			fields.BlockedBy = &in.BlockedBy
+			if in.ExpectedBlockedBy == nil {
+				return nil, tasks.ErrExpectedDependenciesRequired
+			}
+			fields.ExpectedBlockedBy = &in.ExpectedBlockedBy
 		}
 		return compactTaskResult(s.deps.Tasks.SetFields(taskCaller(ctx), in.TaskID, fields))
 	})
