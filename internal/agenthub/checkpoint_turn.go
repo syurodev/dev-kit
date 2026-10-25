@@ -90,6 +90,15 @@ func (c *EngineCheckpoints) Begin(ctx context.Context, spec TurnCheckpointSpec) 
 
 func (t *turnCheckpoint) ID() string { return t.id }
 
+func (t *turnCheckpoint) Ready() bool {
+	select {
+	case <-t.done:
+		return true
+	default:
+		return false
+	}
+}
+
 // Wait joins the opening snapshot. It cannot outrun its budget: the context it
 // runs under kills git when the budget is gone, so this returns either with a
 // tree or with the reason there is none.

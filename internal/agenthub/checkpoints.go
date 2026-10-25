@@ -85,6 +85,8 @@ type TurnCheckpoint interface {
 	// is also the requestId the prompt tells the vendor to tag its report with.
 	// Empty when no checkpoint is being taken.
 	ID() string
+	// Ready reports whether the opening snapshot has finished without waiting.
+	Ready() bool
 	// Wait joins the opening snapshot, killing it if it has run past its
 	// budget. Called just before the prompt goes out.
 	Wait()
@@ -107,6 +109,7 @@ func (noCheckpoints) Begin(context.Context, TurnCheckpointSpec) TurnCheckpoint {
 type noTurnCheckpoint struct{}
 
 func (noTurnCheckpoint) ID() string                         { return "" }
+func (noTurnCheckpoint) Ready() bool                        { return true }
 func (noTurnCheckpoint) Wait()                              {}
 func (noTurnCheckpoint) Finish(context.Context, TurnResult) {}
 

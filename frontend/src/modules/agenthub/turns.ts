@@ -384,7 +384,15 @@ export function workedFor(turn: Turn): string {
 export function activityOf(turn: Turn): { label: string; orb: OrbState } {
   if (turn.answer.length > 0) return { label: "Writing", orb: "composing" };
   const last = turn.work[turn.work.length - 1];
-  if (!last) return { label: "Starting", orb: "breathing" };
+  if (!last) {
+    const phase = turn.notes[turn.notes.length - 1]?.phase;
+    const labels: Record<string, string> = {
+      saving_checkpoint: "Saving checkpoint…",
+      opening_agent: "Opening agent…",
+      waiting_for_model: "Waiting for the model…",
+    };
+    return { label: (phase && labels[phase]) || "Starting", orb: "breathing" };
+  }
 
   switch (String(last.kind)) {
     case "agent_thought_chunk":

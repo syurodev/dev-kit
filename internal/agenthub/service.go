@@ -1876,6 +1876,7 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 	// replaces: whether that had to be opened or was already live is part of
 	// the timing, and a resume is the phase that costs seconds.
 	runtimeStart := time.Now()
+	s.emitTurnPhase(in.SessionID, "opening_agent")
 	rt, resumed, err := s.runtimeForTurn(ctx, sess)
 	timing.addRuntime(time.Since(runtimeStart), resumed)
 	if err != nil {
@@ -2051,6 +2052,11 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 		}
 		s.emit(in.SessionID, userEchoUpdate(in.Prompt, promptMessageID, attachments, nil))
 	}
+	// The checkpoint ran concurrently with the runtime open. Only show this
+	// phase if it is still running; completed snapshots need no transient label.
+	if !cp.Ready() {
+		s.emitTurnPhase(in.SessionID, "saving_checkpoint")
+	}
 
 	// Join the opening snapshot. Past this line the prompt is about to go out,
 	// so a snapshot still running is one the turn would be waiting on.
@@ -2059,6 +2065,7 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 	timing.addCheckpointWait(time.Since(checkpointStart))
 
 	timing.markPromptSent()
+	s.emitTurnPhase(in.SessionID, "waiting_for_model")
 	outcome, promptErr := rt.Prompt(ctx, prompt, fileChangeReportRequest(cp.ID()))
 
 	// The closing snapshot, before anything below decides the session's status.
@@ -2261,6 +2268,12 @@ func (s *Service) handleUpdate(ctx context.Context, sessionID string, update jso
 		s.OnRecordError(sessionID, err)
 	}
 	return parsed
+}
+
+// emitTurnPhase sends the invoke lifecycle to the live transcript without
+// adding rows to the conversation. These hints are intentionally ephemeral.
+func (s *Service) emitTurnPhase(sessionID, phase string) {
+	s.emit(sessionID, marshalUpdate(SessionUpdate{Kind: UpdateTurnPhase, Phase: phase}))
 }
 
 // attachUpdates gives a runtime its update handler the moment the service
