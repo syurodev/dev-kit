@@ -18,6 +18,8 @@ import (
 	"devkit/internal/acp"
 	"devkit/internal/agentruntime"
 	"devkit/internal/sandbox"
+
+	"github.com/google/uuid"
 )
 
 // The tests in this file run the real opencode under the real jail against a
@@ -403,6 +405,20 @@ func TestOpenCodeLiveProbeAndSignIn(t *testing.T) {
 	}
 }
 
+// withSessionTemp gives spec the private scratch directory every Agent Hub
+// session has on macOS. A shared-home spec without one inherits the host's
+// TMPDIR, which sits under /var/folders — outside what the jail grants, so
+// opencode cannot create its temp directory there.
+func withSessionTemp(t *testing.T, spec OpenSpec) OpenSpec {
+	t.Helper()
+	spec.SessionID = uuid.NewString()
+	if err := prepareSessionTemp(&spec, true); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { removeSessionTemp(spec.SessionID) })
+	return spec
+}
+
 // Sharing the real $HOME is Agent Hub's default. opencode looks in ~/.claude and
 // ~/.agents when it opens a session, so a host that has them is the case worth
 // running.
@@ -410,7 +426,7 @@ func TestOpenCodeLiveSharedHomeSessionWorks(t *testing.T) {
 	a, _, _ := openCodeForReal(t)
 	shared := false
 	cwd := t.TempDir()
-	s := openLive(t, a, OpenSpec{Cwd: cwd, PrivateHome: &shared})
+	s := openLive(t, a, withSessionTemp(t, OpenSpec{Cwd: cwd, PrivateHome: &shared}))
 	s.prompt(t, "SHELL: printf shared > shared.txt")
 	if len(s.questions()) != 1 || !exists(filepath.Join(cwd, "shared.txt")) {
 		t.Fatalf("shared home: %d questions, ran=%v", len(s.questions()), exists(filepath.Join(cwd, "shared.txt")))
@@ -488,7 +504,7 @@ func TestOpenCodeLiveProjectUnderHome(t *testing.T) {
 				}
 				return
 			}
-			s := openLive(t, a, OpenSpec{Cwd: project, PrivateHome: &priv})
+			s := openLive(t, a, withSessionTemp(t, OpenSpec{Cwd: project, PrivateHome: &priv}))
 			s.prompt(t, "SHELL: printf here > from-home.txt")
 			if !exists(filepath.Join(project, "from-home.txt")) {
 				t.Fatalf("%s: the session opened but the command did not run", name)
