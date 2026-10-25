@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -83,6 +86,47 @@ func TestRulesReadCategoryNotStatusName(t *testing.T) {
 	svc.SetGate(nil)
 	if _, err := svc.Transition(context.Background(), agent, TransitionInput{TaskID: task.ID, To: "shipped"}); !errors.Is(err, ErrConfirmationRequired) {
 		t.Fatalf("closing a renamed terminal column = %v", err)
+	}
+}
+
+type denyTerminalPolicy struct{ calls int }
+
+func (p *denyTerminalPolicy) CheckTerminal(_ context.Context, caller Caller, task Task, target string) error {
+	p.calls++
+	if task.ID == "" || target == "" {
+		return ErrInvalid
+	}
+	if caller.IsAgent() {
+		return ErrManagedTerminalNotReady
+	}
+	return nil
+}
+
+func TestTerminalPolicyRunsBeforeGateAndObservesHuman(t *testing.T) {
+	svc, db := newService(t)
+	board := newBoard(t, svc)
+	task, err := svc.Create(user, CreateInput{BoardID: board.ID, Title: "managed work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := &denyTerminalPolicy{}
+	svc.SetTerminalPolicy(policy)
+	// The managed policy refusal wins before any existing verify/confirmation
+	// path can accept the agent's own close request.
+	svc.SetGate(NewGate(db, storage.TableTaskVerifyRuns, &stubConfirm{allow: true}, nil))
+	if _, err := svc.Transition(context.Background(), agent, TransitionInput{TaskID: task.ID, To: "done"}); !errors.Is(err, ErrManagedTerminalNotReady) {
+		t.Fatalf("agent close = %v, want managed-review refusal", err)
+	}
+	if policy.calls != 1 {
+		t.Fatalf("policy calls = %d, want 1", policy.calls)
+	}
+	// Human UI closure remains on its existing path; policy observes it but
+	// does not insert an approval step.
+	if _, err := svc.Transition(context.Background(), user, TransitionInput{TaskID: task.ID, To: "done"}); err != nil {
+		t.Fatalf("human close = %v", err)
+	}
+	if policy.calls != 2 {
+		t.Fatalf("terminal actions consulted policy %d times, want 2", policy.calls)
 	}
 }
 
@@ -282,6 +326,68 @@ func TestUserClosesWithoutTheGate(t *testing.T) {
 	}
 }
 
+func TestConfirmationPathRechecksTerminalPolicyBeforeMoving(t *testing.T) {
+	svc, db := newService(t)
+	confirm := &stubConfirm{allow: true}
+	svc.SetGate(NewGate(db, storage.TableTaskVerifyRuns, confirm, nil))
+	policy := &denyAfterFirstTerminalPolicy{}
+	svc.SetTerminalPolicy(policy)
+	board := newBoard(t, svc)
+	task, err := svc.Create(user, CreateInput{BoardID: board.ID, Title: "managed during confirmation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Transition(context.Background(), agent, TransitionInput{TaskID: task.ID, To: "done"}); !errors.Is(err, ErrManagedTerminalNotReady) {
+		t.Fatalf("terminal transition = %v, want rechecked policy refusal", err)
+	}
+	if confirm.asked != 1 {
+		t.Fatalf("confirmation prompts = %d, want one", confirm.asked)
+	}
+	after, err := svc.Get(user, task.ID)
+	if err != nil || after.Status != "todo" {
+		t.Fatalf("task after changed policy = %+v, %v", after, err)
+	}
+	policy.mu.Lock()
+	calls := policy.calls
+	policy.mu.Unlock()
+	if calls != 2 {
+		t.Fatalf("terminal policy calls = %d, want request and post-confirmation checks", calls)
+	}
+}
+
+type taskMovingConfirm struct {
+	svc    *Service
+	taskID string
+	asked  int
+}
+
+func (c *taskMovingConfirm) Confirm(ctx context.Context, _, _ string) (bool, error) {
+	c.asked++
+	_, err := c.svc.Transition(ctx, user, TransitionInput{TaskID: c.taskID, To: "review"})
+	return err == nil, err
+}
+
+func TestConfirmationPathRefusesWhenTaskMovedWhileWaiting(t *testing.T) {
+	svc, db := newService(t)
+	board := newBoard(t, svc)
+	task, err := svc.Create(user, CreateInput{BoardID: board.ID, Title: "changed during confirmation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	confirm := &taskMovingConfirm{svc: svc, taskID: task.ID}
+	svc.SetGate(NewGate(db, storage.TableTaskVerifyRuns, confirm, nil))
+	if _, err := svc.Transition(context.Background(), agent, TransitionInput{TaskID: task.ID, To: "done"}); !errors.Is(err, ErrStatusChanged) {
+		t.Fatalf("close after concurrent move = %v, want status-changed refusal", err)
+	}
+	if confirm.asked != 1 {
+		t.Fatalf("confirmation prompts = %d, want one", confirm.asked)
+	}
+	after, err := svc.Get(user, task.ID)
+	if err != nil || after.Status != "review" {
+		t.Fatalf("task after concurrent move = %+v, %v", after, err)
+	}
+}
+
 type stubConfirm struct {
 	allow bool
 	asked int
@@ -345,6 +451,149 @@ func TestVerifyPassCloses(t *testing.T) {
 		t.Fatalf("runs = %+v (%v)", runs, err)
 	}
 	assertSystemComment(t, svc, task.ID, "exited 0")
+}
+
+type denyAfterFirstTerminalPolicy struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (p *denyAfterFirstTerminalPolicy) CheckTerminal(context.Context, Caller, Task, string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.calls++
+	if p.calls > 1 {
+		return ErrManagedTerminalNotReady
+	}
+	return nil
+}
+
+func waitForTerminalGateDrain(t *testing.T, gate *verifyGate) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		gate.mu.Lock()
+		quiet := len(gate.draining) == 0
+		gate.mu.Unlock()
+		if quiet {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("terminal gate did not drain")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestVerifyPassRechecksTerminalPolicyBeforeApplying(t *testing.T) {
+	svc, db := newService(t)
+	svc.SetGate(NewGate(db, storage.TableTaskVerifyRuns, nil, nil))
+	policy := &denyAfterFirstTerminalPolicy{}
+	svc.SetTerminalPolicy(policy)
+	board := newBoard(t, svc)
+	project := t.TempDir()
+	if _, err := svc.UpdateBoard(board.ID, func(b *Board) {
+		b.Verify = &Verify{Command: "true", TimeoutSec: 30}
+		b.ProjectPath = project
+	}); err != nil {
+		t.Fatal(err)
+	}
+	task, err := svc.Create(user, CreateInput{BoardID: board.ID, Title: "managed after queue"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.Transition(context.Background(), agent, TransitionInput{TaskID: task.ID, To: "done"})
+	if err != nil || !result.Verifying {
+		t.Fatalf("queued transition = %+v, %v", result, err)
+	}
+	waitForTerminalGateDrain(t, svc.Gate())
+	runs, err := svc.Gate().Runs(task.ID, 1)
+	if err != nil || len(runs) != 1 || runs[0].State != RunPassed {
+		t.Fatalf("verify did not pass: %+v, %v", runs, err)
+	}
+	after, err := svc.Get(user, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Status != "todo" {
+		t.Fatalf("a policy change during verification closed the task: %q", after.Status)
+	}
+	policy.mu.Lock()
+	calls := policy.calls
+	policy.mu.Unlock()
+	if calls != 2 {
+		t.Fatalf("terminal policy calls = %d, want request and verifier-completion checks", calls)
+	}
+}
+
+func TestCallerFromAuthorFailsClosedForMalformedVerifyRequest(t *testing.T) {
+	for _, author := range []string{"", "user", "agent:", "unknown:session"} {
+		if caller, ok := callerFromAuthor(author); ok || caller.IsAgent() {
+			t.Fatalf("callerFromAuthor(%q) = %+v, %v; want refusal", author, caller, ok)
+		}
+	}
+	if caller, ok := callerFromAuthor("agent:session-1"); !ok || caller.SessionID != "session-1" {
+		t.Fatalf("valid agent author = %+v, %v", caller, ok)
+	}
+}
+
+type sliceTerminalPolicy struct{ state []string }
+
+func (sliceTerminalPolicy) CheckTerminal(context.Context, Caller, Task, string) error { return nil }
+
+func TestHasTerminalPolicyHandlesNonComparableImplementations(t *testing.T) {
+	svc, _ := newService(t)
+	policy := sliceTerminalPolicy{state: []string{"managed"}}
+	svc.SetTerminalPolicy(policy)
+	if svc.HasTerminalPolicy(policy) {
+		t.Fatal("non-comparable policy was reported as an exact installed guard")
+	}
+}
+
+type denyAllTerminalPolicy struct{}
+
+func (denyAllTerminalPolicy) CheckTerminal(context.Context, Caller, Task, string) error {
+	return ErrManagedTerminalNotReady
+}
+
+type allowAllTerminalPolicy struct{}
+
+func (allowAllTerminalPolicy) CheckTerminal(context.Context, Caller, Task, string) error { return nil }
+
+func TestVerifyCompletionUsesCurrentPolicyAfterReplacement(t *testing.T) {
+	svc, db := newService(t)
+	svc.SetGate(NewGate(db, storage.TableTaskVerifyRuns, nil, nil))
+	svc.SetTerminalPolicy(allowAllTerminalPolicy{})
+	board := newBoard(t, svc)
+	project := t.TempDir()
+	if _, err := svc.UpdateBoard(board.ID, func(b *Board) {
+		b.Verify = &Verify{Command: "while [ ! -f release-verify ]; do sleep 0.01; done; true", TimeoutSec: 30}
+		b.ProjectPath = project
+	}); err != nil {
+		t.Fatal(err)
+	}
+	task, err := svc.Create(user, CreateInput{BoardID: board.ID, Title: "policy replaced during verify"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.Transition(context.Background(), agent, TransitionInput{TaskID: task.ID, To: "done"})
+	if err != nil || !result.Verifying {
+		t.Fatalf("queued transition = %+v, %v", result, err)
+	}
+	newPolicy := denyAllTerminalPolicy{}
+	svc.SetTerminalPolicy(newPolicy)
+	if err := os.WriteFile(filepath.Join(project, "release-verify"), []byte("ready"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	waitForTerminalGateDrain(t, svc.Gate())
+	runs, err := svc.Gate().Runs(task.ID, 1)
+	if err != nil || len(runs) != 1 || runs[0].State != RunPassed {
+		t.Fatalf("verify did not pass: %+v, %v", runs, err)
+	}
+	after, err := svc.Get(user, task.ID)
+	if err != nil || after.Status != "todo" {
+		t.Fatalf("task after policy replacement = %+v, %v", after, err)
+	}
 }
 
 // A red suite refuses and does NOT fall back to asking a person: the answer

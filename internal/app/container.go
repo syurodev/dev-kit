@@ -8,6 +8,7 @@ import (
 	"devkit/internal/accounts"
 	"devkit/internal/agenthub"
 	"devkit/internal/agentruntime"
+	"devkit/internal/agentwork"
 	"devkit/internal/apiclient"
 	"devkit/internal/audit"
 	"devkit/internal/auth"
@@ -160,6 +161,11 @@ type Container struct {
 	// AgentHub is optional: nil in ephemeral NewContainer tests until main (or a
 	// test helper) wires SQLStore + vendor registry from the opened SQLite DB.
 	AgentHub *agenthub.Service
+	// ManagedTeams persists task-group coordination metadata locally. It is
+	// wired by main after opening the database; no public bridge surface is
+	// installed in this increment.
+	ManagedTeams          *agentwork.ManagedService
+	managedTerminalPolicy *managedTerminalPolicy
 	// AgentHubPermissions completes UI permission prompts for AgentHub.
 	// Nil when AgentHub is unset.
 	AgentHubPermissions *agenthub.PermissionWaiter

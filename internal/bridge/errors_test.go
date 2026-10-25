@@ -142,6 +142,16 @@ func TestPublicErrorMapsTaskStatusChanged(t *testing.T) {
 	}
 }
 
+func TestPublicErrorExplainsManagedTaskClosureRefusal(t *testing.T) {
+	got := publicError("builtin.tasks", fmt.Errorf("transition: %w", tasks.ErrManagedTerminalNotReady))
+	if got == nil || got.Code != codeManagedTerminalNotReady || !got.Recoverable || !strings.Contains(got.Message, "acceptance") {
+		t.Fatalf("managed terminal refusal = %+v", got)
+	}
+	if !keptCodes[got.Code] {
+		t.Fatal("managed terminal refusal must be published to MCP callers")
+	}
+}
+
 // pdf.* and memory.* AppErrors are raised inside Caller.Call by tools whose
 // messages are written for the reader. They used to be redacted to
 // internal_error, hiding the one thing an agent or a result view can act on.

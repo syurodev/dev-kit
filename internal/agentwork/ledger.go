@@ -9,6 +9,10 @@ import (
 // Ledger state names are deliberately independent of task-board status labels.
 type GroupState struct {
 	ID, WorkspaceID, BoardID, ParentTaskID, CoordinatorID string
+	StatusMap                                             StatusMap
+	SchemaVersion                                         int
+	EndedAt                                               *time.Time
+	TombstoneReason                                       string
 	Enabled, Paused                                       bool
 	PolicyRevision                                        int64
 	Revision                                              int64
@@ -18,16 +22,71 @@ type GroupState struct {
 type WorkItem struct {
 	ID, GroupID, WorkspaceID, BoardID, ParentTaskID, TaskID string
 	Role, State                                             string
+	HostStatusID, TombstoneReason                           string
+	SchemaVersion                                           int
+	EndedAt                                                 *time.Time
 	TaskRevision, Revision                                  int64
 	RequirementsRevision                                    string
 	CurrentAttemptID                                        string
 	CreatedAt, UpdatedAt                                    time.Time
 }
 
+// StatusMap binds the four lifecycle meanings to real status IDs on the
+// task board. Review is explicit; it is never inferred from a status category.
+type StatusMap struct {
+	Ready, Running, AwaitingReview, Accepted string
+}
+
+const ManagedSchemaVersion = 1
+
+const (
+	TombstoneUserEnded       = "user_ended"
+	TombstoneOperatorStopped = "operator_stopped"
+	TombstoneParentDeleted   = "parent_deleted"
+	TombstoneParentArchived  = "parent_archived"
+	TombstoneParentTerminal  = "parent_terminal"
+	TombstoneDeleted         = "deleted"
+	TombstoneArchived        = "archived"
+	TombstoneTerminal        = "terminal"
+)
+
+func (m StatusMap) Validate(statuses []BoardStatus) error {
+	if m.Ready == "" || m.Running == "" || m.AwaitingReview == "" || m.Accepted == "" {
+		return errors.New("managed status map requires ready, running, awaitingReview and accepted IDs")
+	}
+	byID := make(map[string]BoardStatus, len(statuses))
+	for _, status := range statuses {
+		byID[status.ID] = status
+	}
+	for _, id := range []string{m.Ready, m.Running, m.AwaitingReview, m.Accepted} {
+		if _, ok := byID[id]; !ok {
+			return fmt.Errorf("managed status %q is not on the board", id)
+		}
+	}
+	if byID[m.Ready].Category != "open" || byID[m.Running].Category != "active" || byID[m.AwaitingReview].Category != "active" {
+		return errors.New("ready must be open and running/awaitingReview must be active board statuses")
+	}
+	if byID[m.Accepted].Category != "terminal" || byID[m.Accepted].WontDo || m.Accepted == "wont_do" {
+		return errors.New("accepted status must be a real terminal status other than won't do")
+	}
+	return nil
+}
+
+type BoardStatus struct {
+	ID, Category string
+	WontDo       bool
+}
+
+type GroupPage struct {
+	Items []GroupState
+	Next  string
+}
+
 type Attempt struct {
 	ID, WorkItemID, GroupID, WorkspaceID, BoardID, ParentTaskID string
 	SessionID, Role, State, DispatchState                       string
 	TaskRevision, Generation, Revision                          int64
+	SchemaVersion                                               int
 	RequirementsRevision                                        string
 	CreatedAt, UpdatedAt                                        time.Time
 }

@@ -102,7 +102,24 @@ func (s *Service) closeThroughGate(ctx context.Context, caller Caller, board Boa
 		if !allowed {
 			return TransitionResult{}, ErrPermissionDenied
 		}
-		moved, err := s.applyTransition(task.ID, caller, to)
+		current, err := s.Get(caller, task.ID)
+		if err != nil {
+			return TransitionResult{}, err
+		}
+		if current.Status != task.Status {
+			return TransitionResult{}, ErrStatusChanged
+		}
+		currentBoard, err := s.boardFor(caller, current.BoardID)
+		if err != nil {
+			return TransitionResult{}, err
+		}
+		if category, ok := currentBoard.Workflow.CategoryOf(to); !ok || category != CategoryTerminal {
+			return TransitionResult{}, ErrInvalid
+		}
+		if err := s.checkTerminalPolicy(ctx, caller, current, to); err != nil {
+			return TransitionResult{}, err
+		}
+		moved, err := s.applyTransition(current.ID, caller, to)
 		return TransitionResult{Task: moved}, err
 	}
 	dir, err := s.verifyDir(board)
@@ -375,6 +392,35 @@ func (g *verifyGate) execute(run Run) {
 	_ = g.finish(run, state, exitCode, tail)
 
 	if state == RunPassed && g.svc != nil {
+		// A policy decision can change while the durable verifier is running
+		// (for example, the task may become part of a managed group). Recheck
+		// before applying the queued terminal transition; verifier success alone
+		// must not bypass the current managed-work review policy.
+		if policy := g.svc.terminalPolicySnapshot(); policy != nil {
+			caller, ok := callerFromAuthor(run.RequestedBy)
+			if !ok {
+				g.comment(run, "Verify passed but the task was not moved because its requesting caller could not be rechecked.")
+				return
+			}
+			if task, err := g.svc.Get(caller, run.TaskID); err != nil {
+				g.comment(run, "Verify passed but the task could not be moved: task state could not be rechecked.")
+				return
+			} else {
+				board, boardErr := g.svc.boardFor(caller, task.BoardID)
+				if boardErr != nil {
+					g.comment(run, "Verify passed but the task could not be moved: task scope could not be rechecked.")
+					return
+				}
+				if category, ok := board.Workflow.CategoryOf(run.Target); !ok || category != CategoryTerminal {
+					g.comment(run, "Verify passed but the task was not moved because its target status is no longer terminal.")
+					return
+				}
+				if err := policy.CheckTerminal(ctx, caller, task, run.Target); err != nil {
+					g.comment(run, "Verify passed but the task was not moved because managed work is waiting for its result and review phase.")
+					return
+				}
+			}
+		}
 		// The close is recorded as the service, not as the agent: it is the
 		// exit code that opened the gate.
 		if _, err := g.svc.applyTransition(run.TaskID, Caller{}, run.Target); err != nil {
@@ -384,6 +430,15 @@ func (g *verifyGate) execute(run Run) {
 	}
 	g.comment(run, verifySummary(run, state, exitCode, tail))
 	g.raise(run, state)
+}
+
+func callerFromAuthor(author string) (Caller, bool) {
+	if strings.HasPrefix(author, "agent:") {
+		if sessionID := strings.TrimPrefix(author, "agent:"); sessionID != "" {
+			return Caller{SessionID: sessionID}, true
+		}
+	}
+	return Caller{}, false
 }
 
 func verifySummary(run Run, state RunState, exitCode int, tail string) string {

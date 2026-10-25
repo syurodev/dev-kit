@@ -1078,6 +1078,10 @@ func main() {
 	// Separate because the hub is built above, after the vendor registry and
 	// the sandbox runner.
 	app.WireAgentLiveness(container, db, storage.TableTaskBoardBindings)
+	// Managed-team rows are local coordination metadata. Keep the constructor
+	// at the root, which owns the database; app depends only on agentwork's
+	// storage interface.
+	app.WireManagedTeams(container, storage.NewManagedLedger(db))
 	// One-time, idempotent: a board written before workspaces existed has no
 	// binding yet, and without this it would simply vanish from every agent
 	// the moment the scope wiring above takes effect. Run after

@@ -54,7 +54,10 @@ var (
 	ErrNotAssignable = errors.New("tasks.notAssignable")
 	// ErrConfirmationRequired is a terminal transition with nobody to ask.
 	ErrConfirmationRequired = errors.New("tasks.confirmationRequired")
-	ErrPermissionDenied     = errors.New("tasks.permissionDenied")
+	// ErrManagedTerminalNotReady is returned while a managed agent's reported
+	// result has not passed the product's managed-work review phase.
+	ErrManagedTerminalNotReady = errors.New("tasks.managedTerminalNotReady")
+	ErrPermissionDenied        = errors.New("tasks.permissionDenied")
 	// ErrVerifying is a close already in flight for this task.
 	ErrVerifying = errors.New("tasks.verifying")
 	// ErrParentHasParent guards the one-level rule.
