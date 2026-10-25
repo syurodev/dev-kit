@@ -216,6 +216,10 @@ func publicError(subject string, err error) *apperrors.AppError {
 		switch {
 		case errors.Is(err, tasks.ErrStatusChanged):
 			return apperrors.New(codeTaskStatusChanged, "This task was moved somewhere else in the meantime.", true)
+		case errors.Is(err, tasks.ErrDependenciesChanged):
+			return apperrors.New(codeTaskStatusChanged, "This task's dependencies changed. Read it again before replacing them.", true)
+		case errors.Is(err, tasks.ErrExpectedDependenciesRequired):
+			return apperrors.New(codeValidationFailed, "Read this task with tasks.get, then pass its blockedBy list as expectedBlockedBy when setting blockedBy.", true)
 		case errors.Is(err, tasks.ErrNotFound):
 			return apperrors.New(codeValidationFailed, "That task or board no longer exists.", true)
 		case errors.Is(err, tasks.ErrDependencyCycle):

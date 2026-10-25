@@ -725,6 +725,47 @@ func TestSetFieldsRefusesBlockersFromAnotherBoard(t *testing.T) {
 	}
 }
 
+func TestSetFieldsExpectedDependenciesRejectStaleAndSerializeConcurrentReplacements(t *testing.T) {
+	svc, board := newDependencyBoard(t)
+	a := mustCreate(t, svc, board.ID, "A")
+	b := mustCreate(t, svc, board.ID, "B")
+	c := mustCreate(t, svc, board.ID, "C")
+	empty := []string{}
+	if _, err := svc.SetFields(Caller{}, a.ID, Fields{BlockedBy: &[]string{b.ID}, ExpectedBlockedBy: &empty}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SetFields(Caller{}, a.ID, Fields{BlockedBy: &[]string{c.ID}, ExpectedBlockedBy: &empty}); !errors.Is(err, ErrDependenciesChanged) {
+		t.Fatalf("stale expected state: %v", err)
+	}
+
+	current := []string{b.ID}
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	for _, replacement := range [][]string{{}, {c.ID}} {
+		replacement := replacement
+		go func() {
+			<-start
+			_, err := svc.SetFields(Caller{}, a.ID, Fields{BlockedBy: &replacement, ExpectedBlockedBy: &current})
+			errs <- err
+		}()
+	}
+	close(start)
+	first, second := <-errs, <-errs
+	successes, conflicts := 0, 0
+	for _, err := range []error{first, second} {
+		if err == nil {
+			successes++
+		} else if errors.Is(err, ErrDependenciesChanged) {
+			conflicts++
+		} else {
+			t.Fatalf("unexpected result: %v", err)
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("successes=%d conflicts=%d", successes, conflicts)
+	}
+}
+
 func newDependencyBoard(t *testing.T) (*Service, Board) {
 	t.Helper()
 	svc, _ := newService(t)
