@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"devkit/internal/acp"
 )
@@ -82,6 +83,34 @@ type terminalAuthMeta struct {
 		Args    []string `json:"args"`
 		Label   string   `json:"label"`
 	} `json:"terminal-auth"`
+}
+
+// authMethodCache is the last AuthMethods probe of an ACP adapter, keyed by the
+// launch it ran: sign-in lists the methods and then starts one, and a second
+// node start in between buys nothing. A new install or version changes the key.
+type authMethodCache struct {
+	mu      sync.Mutex
+	key     string
+	methods []AuthMethod
+}
+
+// methodsFor is the terminal sign-ins l's agent offers, probing with initialize
+// unless the cache already holds them for this launch. The lock is held across
+// the probe on purpose: two callers asking at once should start one node, not
+// two.
+func (c *authMethodCache) methodsFor(l launch, initialize func() (acp.InitializeResult, error)) ([]AuthMethod, error) {
+	key := l.path + "\x00" + strings.Join(l.args, "\x00")
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.key == key && c.methods != nil {
+		return c.methods, nil
+	}
+	res, err := initialize()
+	if err != nil {
+		return nil, err
+	}
+	c.key, c.methods = key, resolveAuthMethods(res.AuthMethods, l)
+	return c.methods, nil
 }
 
 // resolveAuthMethods turns initialize's authMethods into what DevKit will run.
