@@ -327,7 +327,10 @@ func TestGitCommitThroughMCPKeepsParentGuardInLinkedWorktree(t *testing.T) {
 	if _, err := git.Commit(ctx, gitservice.CommitInput{Message: "base"}); err != nil {
 		t.Fatal(err)
 	}
-	git.SetGuards(mcpGitGuards{repo: {{Pattern: "feature/*", Env: "prod"}}})
+	// Guard keys use the canonical repository identity. On macOS, t.TempDir
+	// may be under /var/folders while Git resolves the repository through
+	// /private/var, so key this fixture the same way the guard store does.
+	git.SetGuards(mcpGitGuards{git.PolicyProject(): {{Pattern: "feature/*", Env: "prod"}}})
 	git.SetEnvs(mcpGitEnvs{"prod": true})
 	allow := &mcpGitConfirmer{allow: true}
 	git.SetConfirmer(allow)

@@ -110,7 +110,13 @@ func TestSessionHostWithoutProxyFailsClosed(t *testing.T) {
 }
 
 func TestSweepStaleSocketsRemovesDeadOnes(t *testing.T) {
-	dir := t.TempDir()
+	// Unix socket paths have a small platform limit (103 bytes on Darwin).
+	// Go's t.TempDir can live under a long /var/folders/... path on macOS.
+	dir, err := os.MkdirTemp("/tmp", "dk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	dead := filepath.Join(dir, "dead.sock")
 	ln, err := net.Listen("unix", dead)
 	if err != nil {
