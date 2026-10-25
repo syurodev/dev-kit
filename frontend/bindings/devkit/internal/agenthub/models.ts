@@ -1140,6 +1140,12 @@ export enum UpdateKind {
     UpdateProviderRetry = "provider_retry_update",
 
     /**
+     * UpdateTurnPhase is a live, DevKit-owned notice about the work Invoke is
+     * waiting on. It is emitted to the window but never recorded as transcript.
+     */
+    UpdateTurnPhase = "turn_phase_update",
+
+    /**
      * UpdateUnknown is a kind this build does not model. The raw blob is kept
      * so a vendor that ships a new kind degrades to "not rendered" rather than
      * "silently dropped" — the Meta Inspector surface reads Raw.
