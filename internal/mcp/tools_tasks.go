@@ -2,7 +2,9 @@ package mcp
 
 import (
 	"context"
+	"sort"
 	"time"
+	"unicode/utf8"
 
 	"devkit/internal/identity"
 	"devkit/internal/tasks"
@@ -192,6 +194,10 @@ func (s *Server) registerTasks(ms *sdk.Server) {
 		Description: "List a task's comments",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolTasksCommentList)
+	sdk.AddTool(ms, &sdk.Tool{
+		Name: "tasks.comment.get", Description: "Read one task comment in full by taskId and commentId",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolTasksCommentGet)
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "tasks.progress",
@@ -444,9 +450,113 @@ func (s *Server) toolTasksCommentAdd(ctx context.Context, _ *sdk.CallToolRequest
 	return nil, structured(v), nil
 }
 
-func (s *Server) toolTasksCommentList(ctx context.Context, _ *sdk.CallToolRequest, in taskIDInput) (*sdk.CallToolResult, any, error) {
+type taskCommentListInput struct {
+	TaskID   string `json:"taskId"`
+	Limit    int    `json:"limit,omitempty"`
+	BeforeID string `json:"beforeId,omitempty"`
+}
+
+type compactTaskComment struct {
+	ID            string            `json:"id"`
+	Author        string            `json:"author"`
+	Kind          tasks.CommentKind `json:"kind"`
+	CreatedAt     time.Time         `json:"createdAt"`
+	Body          string            `json:"body"`
+	BodyTruncated bool              `json:"bodyTruncated,omitempty"`
+	BodyHint      string            `json:"bodyHint,omitempty"`
+}
+
+func (s *Server) toolTasksCommentList(ctx context.Context, _ *sdk.CallToolRequest, in taskCommentListInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:read", "task:"+in.TaskID, meta("comment_list", nil), func(context.Context) (any, error) {
-		return s.deps.Tasks.Comments(taskCaller(ctx), in.TaskID)
+		comments, err := s.deps.Tasks.Comments(taskCaller(ctx), in.TaskID)
+		if err != nil {
+			return nil, err
+		}
+		newest := true
+		// Storage order is chronological; sort explicitly for stable paging.
+		sort.Slice(comments, func(i, j int) bool {
+			if comments[i].CreatedAt.Equal(comments[j].CreatedAt) {
+				return comments[i].ID < comments[j].ID
+			}
+			return comments[i].CreatedAt.Before(comments[j].CreatedAt)
+		})
+		if in.BeforeID != "" {
+			idx := -1
+			for i := range comments {
+				if comments[i].ID == in.BeforeID {
+					idx = i
+					break
+				}
+			}
+			if idx < 0 {
+				return nil, tasks.ErrNotFound
+			}
+			comments = comments[:idx]
+		}
+		if newest {
+			for i, j := 0, len(comments)-1; i < j; i, j = i+1, j-1 {
+				comments[i], comments[j] = comments[j], comments[i]
+			}
+		}
+		limit := in.Limit
+		if limit <= 0 {
+			limit = 50
+		}
+		if limit > 200 {
+			limit = 200
+		}
+		more := len(comments) > limit
+		if more {
+			comments = comments[:limit]
+		}
+		rows := make([]compactTaskComment, 0, len(comments))
+		for _, c := range comments {
+			body := c.Body
+			truncated := len(body) > 2048
+			hint := ""
+			if truncated {
+				cut := 0
+				for cut < len(body) {
+					_, size := utf8.DecodeRuneInString(body[cut:])
+					if cut+size > 2048 {
+						break
+					}
+					cut += size
+				}
+				body = body[:cut]
+				hint = "Read the complete body with tasks.comment.get using taskId and commentId."
+			}
+			rows = append(rows, compactTaskComment{ID: c.ID, Author: c.Author, Kind: c.Kind, CreatedAt: c.CreatedAt, Body: body, BodyTruncated: truncated, BodyHint: hint})
+		}
+		var next string
+		if more && len(rows) > 0 {
+			next = rows[len(rows)-1].ID
+		}
+		return map[string]any{"comments": rows, "nextBeforeId": next, "order": "newest"}, nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+type taskCommentGetInput struct {
+	TaskID    string `json:"taskId"`
+	CommentID string `json:"commentId"`
+}
+
+func (s *Server) toolTasksCommentGet(ctx context.Context, _ *sdk.CallToolRequest, in taskCommentGetInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.tasks", "tasks:read", "task:"+in.TaskID, meta("comment_get", nil), func(context.Context) (any, error) {
+		comments, err := s.deps.Tasks.Comments(taskCaller(ctx), in.TaskID)
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range comments {
+			if c.ID == in.CommentID {
+				return c, nil
+			}
+		}
+		return nil, tasks.ErrNotFound
 	})
 	if err != nil {
 		return nil, nil, err

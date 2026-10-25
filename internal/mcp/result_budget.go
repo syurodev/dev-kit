@@ -55,6 +55,7 @@ var resultHints = map[string]string{
 	"codegraph.getBlastRadius": "Name a narrower file or folder.",
 	"git.diff":                 "Name one commit with rev, or read a single file with the shell.",
 	"git.log":                  "Repeat with a smaller limit.",
+	"tasks.comment.list":       "Pass nextBeforeId as beforeId for older comments; use tasks.comment.get with taskId and commentId for a full comment body.",
 	"db.query":                 "Repeat with a smaller maxRows, fewer columns, or a WHERE/LIMIT.",
 	"kafka.peekMessages":       "Repeat with a smaller limit.",
 	"workspace.memory.list":    "Pass nextCursor from the previous page, or a smaller limit.",

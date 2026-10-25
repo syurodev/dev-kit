@@ -180,7 +180,7 @@ shows the memory.
   you write nothing more and do not claim it yourself. (A session that already
   exists is told the task's id — the id, not the KEY-12 label — with
   {{agenthub.sendMessage}} and claims it itself.) When it is done you read
-  {{tasks.get}} and {{tasks.comment.list}}, check the work, and only then move
+  {{tasks.get}} and {{tasks.comment.list}} (newest first; page older comments with beforeId, and read a clipped comment with {{tasks.comment.get}}), check the work, and only then move
   the task to a terminal status — the board's gate runs then, and your own word
   that tests passed does not close it. Children that edit code get one task
   each, each on its own branch ({{git.push}} only pushes a branch recorded on a
