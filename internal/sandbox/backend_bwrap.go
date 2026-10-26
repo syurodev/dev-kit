@@ -46,11 +46,18 @@ func (BwrapBackend) Start(ctx context.Context, p Policy, c Cmd) (*Proc, error) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	proc := NewProcWithBuffers(cmd, stdout, stderr)
+	proc.contained = bwrapContainsDescendants
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
 	return proc, nil
 }
+
+// bwrapContainsDescendants holds because buildBwrapArgs always passes
+// --unshare-pid (bwrap_args_test pins it). It is a reasoned claim about kernel
+// PID-namespace semantics, exercised only by a smoke test that needs a Linux
+// host with bwrap.
+const bwrapContainsDescendants = true
 
 func (BwrapBackend) StartPiped(ctx context.Context, p Policy, c Cmd) (*Proc, error) {
 	if err := p.ValidateCmd(c); err != nil {
@@ -77,6 +84,7 @@ func (BwrapBackend) StartPiped(ctx context.Context, p Policy, c Cmd) (*Proc, err
 	}
 	stderr := &bytes.Buffer{}
 	proc := NewProcPiped(cmd, stdin, stdout, stderr)
+	proc.contained = bwrapContainsDescendants
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()

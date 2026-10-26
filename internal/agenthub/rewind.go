@@ -488,7 +488,7 @@ func (r *rewindRun) openForked(ctx context.Context) error {
 	// conversation rather than a branch of one.
 	if r.held.cut.ForkMessageID == "" {
 		adapter, _ := s.reg.Get(r.session.AgentType)
-		rt, err := adapter.Open(ctx, spec)
+		rt, err := s.openTracked(r.session.ID, func() (SessionRuntime, error) { return adapter.Open(ctx, spec) })
 		if err != nil {
 			r.closeNew()
 			return err
@@ -502,7 +502,9 @@ func (r *rewindRun) openForked(ctx context.Context) error {
 	// tried in turn rather than the rewind failing on the vendor's first no.
 	var lastErr error
 	for _, messageID := range append([]string{r.held.cut.ForkMessageID}, r.held.cut.Fallbacks...) {
-		rt, err := r.forker.Fork(ctx, spec, r.session.ACPSessionID, messageID)
+		rt, err := s.openTracked(r.session.ID, func() (SessionRuntime, error) {
+			return r.forker.Fork(ctx, spec, r.session.ACPSessionID, messageID)
+		})
 		if err == nil {
 			r.newRuntime = rt
 			return nil

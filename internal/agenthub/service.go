@@ -292,8 +292,13 @@ type Service struct {
 	unknownSeen     map[string]struct{}
 	// retrying holds the sessions whose agent has an unanswered provider-retry
 	// notice on screen, so the turn that ends can clear it (see endProviderRetry).
-	retrying  map[string]struct{}
-	runtimes  map[string]SessionRuntime
+	retrying map[string]struct{}
+	runtimes map[string]SessionRuntime
+	// stops remembers, per session, every runtime this process opened and how
+	// its process was seen to end (see WriterStopProof).
+	stops *runtimeTracker
+	// admission orders a pause against a start (see writerAdmission).
+	admission *writerAdmission
 	endpoints map[string]func() // per-session MCP socket close
 	invoking  map[string]struct{}
 	// workspaceSent is the workspace context block each session's agent last
@@ -558,6 +563,8 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 		recorder:        NewRecorder(store),
 		recoveryID:      uuid.NewString(),
 		runtimes:        make(map[string]SessionRuntime),
+		stops:           newRuntimeTracker(),
+		admission:       newWriterAdmission(),
 		endpoints:       make(map[string]func()),
 		invoking:        make(map[string]struct{}),
 		resuming:        make(map[string]*resumeCall),
@@ -900,7 +907,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 			removeSessionTemp(id)
 		}
 	}()
-	rt, err := adapter.Open(ctx, spec)
+	rt, err := s.openTracked(id, func() (SessionRuntime, error) { return adapter.Open(ctx, spec) })
 	if err != nil {
 		// The bridge redacts this to one sentence; the log keeps the cause.
 		log.Printf("agenthub: open %s session in %s: %v", in.AgentType, cwd, err)
@@ -1923,6 +1930,15 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 	// The whole resolve is one phase, including closing a dead process it
 	// replaces: whether that had to be opened or was already live is part of
 	// the timing, and a resume is the phase that costs seconds.
+	// Registered from before a runtime can start until just before the prompt is
+	// handed to it, with the fence rechecked at both ends (see writerAdmission).
+	leaveAdmission, err := s.enterWriterAdmission(ctx, in.SessionID)
+	if err != nil {
+		cp.Finish(context.WithoutCancel(ctx), TurnResult{Cancelled: true})
+		release()
+		return InvokeResult{}, err
+	}
+	defer leaveAdmission()
 	runtimeStart := time.Now()
 	s.emitTurnPhase(in.SessionID, "opening_agent")
 	rt, resumed, err := s.runtimeForTurn(ctx, sess)
@@ -2112,6 +2128,13 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 	cp.Wait()
 	timing.addCheckpointWait(time.Since(checkpointStart))
 
+	// The last check before the prompt leaves. A pause that won the barrier since
+	// the first one is refused here; one that comes after finds the prompt sent.
+	if err := s.authorizeManagedWriter(ctx, in.SessionID); err != nil {
+		cp.Finish(context.WithoutCancel(ctx), TurnResult{Cancelled: true})
+		return InvokeResult{}, err
+	}
+	leaveAdmission()
 	timing.markPromptSent()
 	s.emitTurnPhase(in.SessionID, "waiting_for_model")
 	attribution := s.turnAttribution(in.SessionID)
@@ -2664,11 +2687,12 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 		closeEndpoint()
 		return nil, err
 	}
-	if fresh {
-		rt, err = adapter.Open(ctx, spec)
-	} else {
-		rt, err = loader.Load(ctx, spec, sess.ACPSessionID)
-	}
+	rt, err = s.openTracked(sess.ID, func() (SessionRuntime, error) {
+		if fresh {
+			return adapter.Open(ctx, spec)
+		}
+		return loader.Load(ctx, spec, sess.ACPSessionID)
+	})
 	if err != nil {
 		log.Printf("agenthub: resume %s session %s: %v", sess.AgentType, sess.ID, err)
 		closeEndpoint()
@@ -2883,9 +2907,11 @@ func (s *Service) Steer(ctx context.Context, id, text string) (SteerOutcome, err
 	if err != nil {
 		return "", err
 	}
-	if err := s.authorizeManagedWriter(ctx, id); err != nil {
+	leaveAdmission, err := s.enterWriterAdmission(ctx, id)
+	if err != nil {
 		return "", err
 	}
+	defer leaveAdmission()
 	rt, err := s.runtimeFor(ctx, sess)
 	if err != nil {
 		return "", err
@@ -2893,6 +2919,9 @@ func (s *Service) Steer(ctx context.Context, id, text string) (SteerOutcome, err
 	steerer, ok := rt.(TurnSteerer)
 	if !ok {
 		return "", fmt.Errorf("%w: agent %q cannot take a message mid-turn", ErrUnsupported, sess.AgentType)
+	}
+	if err := s.authorizeManagedWriter(ctx, id); err != nil {
+		return "", err
 	}
 	outcome, err := steerer.Steer(ctx, []acp.ContentBlock{{Type: "text", Text: text}})
 	if err != nil {

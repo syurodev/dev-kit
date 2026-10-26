@@ -187,12 +187,50 @@ func (h *managedOwnershipHost) ResolveCurrentWriter(ctx context.Context, session
 	return agentwork.ManagedWriterResolution{Managed: true, Binding: binding}, nil
 }
 
-// No Agent Hub status or in-memory runtime lookup proves that an external
-// process has stopped writing. Until close completion is tied to a durable
-// runtime generation and no-resume fence (or real isolation is available),
-// ownership remains pinned.
-func (h *managedOwnershipHost) CheckManagedWriterQuiescence(context.Context, agentwork.ManagedWriterLease) (agentwork.ManagedWriterQuiescence, error) {
-	return agentwork.ManagedWriterQuiescence{}, agentwork.ErrManagedQuiescenceUnknown
+// writerStopProver is the Agent Hub's host-only account of how the runtimes it
+// opened in this process ended (agenthub.Service.WriterStopProof).
+type writerStopProver interface {
+	WriterStopProof(ctx context.Context, sessionID string) agenthub.WriterStopProof
+}
+
+// CheckManagedWriterQuiescence is positive only on evidence the Agent Hub
+// gathered itself: every runtime it opened for the lease's session during this
+// process's lifetime was reaped by the kernel (not merely asked to stop) and ran
+// in a jail that ends its descendants with the supervisor. Idle or closed
+// status, an expired lease, a missing map entry, a Kill or Close that returned
+// and a context that ended are not evidence, and no caller can supply any.
+//
+// The proof covers only this process. A lease created before it started could
+// have a writer that an earlier process left behind, so such a lease stays
+// pinned (restart never releases ownership). Anything short of a positive
+// answer is ErrManagedQuiescenceUnknown with a bounded reason code.
+func (h *managedOwnershipHost) CheckManagedWriterQuiescence(ctx context.Context, lease agentwork.ManagedWriterLease) (agentwork.ManagedWriterQuiescence, error) {
+	hub := h.hub()
+	if h == nil || hub == nil || lease.Binding.SessionID == "" || lease.Generation <= 0 {
+		return agentwork.ManagedWriterQuiescence{}, agentwork.ErrManagedQuiescenceUnknown
+	}
+	prover, ok := hub.(writerStopProver)
+	if !ok {
+		return agentwork.ManagedWriterQuiescence{}, quiescenceUnknown(agenthub.StopUnsupported)
+	}
+	proof := prover.WriterStopProof(ctx, lease.Binding.SessionID)
+	if !proof.Known {
+		return agentwork.ManagedWriterQuiescence{}, quiescenceUnknown(proof.Reason)
+	}
+	if lease.CreatedAt.IsZero() || proof.EpochStart.IsZero() || !lease.CreatedAt.After(proof.EpochStart) {
+		return agentwork.ManagedWriterQuiescence{}, quiescenceUnknown("lease_predates_process")
+	}
+	if !proof.Positive() {
+		return agentwork.ManagedWriterQuiescence{}, quiescenceUnknown(proof.Reason)
+	}
+	return agentwork.ManagedWriterQuiescence{
+		Binding: lease.Binding, Generation: lease.Generation, CheckedAt: proof.CheckedAt,
+		Known: true, Quiescent: true, Isolated: true,
+	}, nil
+}
+
+func quiescenceUnknown(reason string) error {
+	return fmt.Errorf("%w: %s", agentwork.ErrManagedQuiescenceUnknown, reason)
 }
 
 func managedFolderForCanonicalPaths(sessionPath, worktreeRoot string, scope []string) string {

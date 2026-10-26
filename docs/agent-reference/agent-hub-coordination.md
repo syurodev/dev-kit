@@ -109,3 +109,30 @@
     was added. Not run with any real model or against the native app: the tests use fakes for the hub and the board
     (`tools_agenthub_task_test.go`) and the real tasks service (`TestAssign…`, and `Assign`/`Assignable` are in the scope table
     `everyScopedMethod`).
+
+## Managed writer stop proof and admission barrier
+
+`OPT-b7e5f6` (plan slice B). Release of a managed writer lease asks the host for a fresh quiescence check
+(`managedOwnershipHost.CheckManagedWriterQuiescence`), and the only source is the Agent Hub:
+
+- **Evidence is the kernel's reap, not a request.** `sandbox.Proc` closes `Exited()` only when `Wait` returned; `Kill`, a signal, a
+  `Close` that returned, a timeout, idle/closed status, a missing map entry and an expired lease are not evidence. `acpRuntime.Close`
+  now also reaps the process it killed (and kills one whose serve loop ended on its own), so the exit becomes observable.
+- **Containment.** A reaped supervisor proves the *jail* is empty only if the backend says so: bwrap (`--unshare-pid`, Linux) sets
+  `ContainsDescendants`; Seatbelt, Landlock and unsandboxed runs do not, so on macOS the proof stays `Isolated=false` and release stays
+  unavailable. The bwrap claim is reasoning about PID-namespace semantics plus `TestBwrapReapedSupervisorLeavesNoDescendant`, which
+  skips unless run on Linux with bwrap; it has not been run on the development (macOS) host.
+- **Every incarnation, this process only.** `Service.WriterStopProof(session)` covers every runtime this process opened for the session
+  (create, resume/load, rewind fork), including a failed open (unknown for the epoch, sticky) and a runtime kind with no witness
+  (`unsupported_runtime`; Codex has none). It carries the process `Epoch`/`EpochStart`; the host also requires the lease to have been
+  created after `EpochStart`, so a restart never turns an earlier process's writer into a released one. A restart leaves the lease
+  pinned until a person resolves it. Reasons are bounded codes (`runtime_live`, `exit_unobserved`, `no_descendant_containment`,
+  `lease_predates_process`, …) appended to `ErrManagedQuiescenceUnknown`; no pid, path or payload.
+- **Pause vs start.** Invoke, Steer and resume register an admission (`enterWriterAdmission`), recheck the managed-writer fence while
+  registered, and Invoke/Steer recheck once more immediately before the prompt leaves. A pause flips its durable state and then calls
+  `Service.DrainWriterAdmission(ctx, sessionID)`; anything that checked earlier is either sent or refused when it returns. A prompt
+  already handed to the runtime is *sent* and is stopped through the existing cancellation policy; the slot is released just before
+  `Prompt`, so that last step counts as sent. No SQLite transaction is held while waiting on a runtime. No public pause API calls
+  the drain yet (`ManagedService.ConfigureGroup` has no caller); the dispatcher/pause owner must call flip → drain.
+- Other processes that write the same worktree outside the Agent Hub (an unmanaged session, a person) are outside this proof; the
+  single-writer resource slot is what excludes other *managed* sessions.
