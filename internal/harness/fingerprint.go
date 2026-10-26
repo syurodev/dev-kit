@@ -18,13 +18,20 @@ const fingerprintVersion = "sha256:v1:"
 // paths canonical, so ordering never causes a change. It holds names, shapes
 // and paths only: no environment values and no vendor error text. Vendor
 // files can still change after this is computed; it records what was seen.
+// registryFact keeps the name and the exemption as separate fields: joining them
+// into one string lets a tool named "a!" collide with an exempt tool "a".
+type registryFact struct {
+	Name   string
+	Exempt bool
+}
+
 func fingerprint(in Inputs, envSkills, folders, denied map[string]bool) string {
 	type serverFact struct{ Name, Shape string }
 	facts := struct {
 		Vendor    int64
 		Workspace *int64
 		Session   *int64
-		Registry  []string
+		Registry  []registryFact
 		Servers   []serverFact
 		Skills    []string
 		Folders   []string
@@ -39,13 +46,9 @@ func fingerprint(in Inputs, envSkills, folders, denied map[string]bool) string {
 		facts.Session = &r
 	}
 	for _, t := range in.Registry.Tools {
-		mark := t.Name
-		if t.BudgetExempt {
-			mark += "!"
-		}
-		facts.Registry = append(facts.Registry, mark)
+		facts.Registry = append(facts.Registry, registryFact{t.Name, t.BudgetExempt})
 	}
-	sort.Strings(facts.Registry)
+	sort.Slice(facts.Registry, func(i, j int) bool { return facts.Registry[i].Name < facts.Registry[j].Name })
 	for _, s := range in.Environment.Servers {
 		facts.Servers = append(facts.Servers, serverFact{s.Name, serverShape(s)})
 	}

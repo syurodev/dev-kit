@@ -790,3 +790,19 @@ func TestServersAreUnchangedByAStorageRoundTrip(t *testing.T) {
 		t.Error("a round trip moved the fingerprint")
 	}
 }
+
+// Joining name and exemption into one string made "a!" and an exempt "a" the
+// same fact.
+func TestFingerprintKeepsToolNamesAndExemptionsApart(t *testing.T) {
+	a := Inputs{Registry: Registry{Tools: []Tool{{Name: "a.x"}, {Name: "a.x!"}}}}
+	b := Inputs{Registry: Registry{Tools: []Tool{{Name: "a.x", BudgetExempt: true}, {Name: "a.x!"}}}}
+	c := Inputs{Registry: Registry{Tools: []Tool{{Name: "a.x", BudgetExempt: true}}}}
+	d := Inputs{Registry: Registry{Tools: []Tool{{Name: "a.x!"}, {Name: "a.x", BudgetExempt: false}}}}
+	fa, fb, fc, fd := resolve(t, a).Fingerprint, resolve(t, b).Fingerprint, resolve(t, c).Fingerprint, resolve(t, d).Fingerprint
+	if fa == fb || fb == fc || fa == fc {
+		t.Fatalf("distinct registries collided: %s %s %s", fa, fb, fc)
+	}
+	if fa != fd {
+		t.Error("tool order must not matter")
+	}
+}
