@@ -310,6 +310,24 @@ func (s *Service) evaluate(ctx context.Context, caller identity.Caller, req Requ
 			return ev, none, invalid(err)
 		}
 		class := harness.Classify(b, a)
+		if wChanged {
+			// A change to W reaches every session of the workspace, including the
+			// ones with no override of their own. The requesting session's S can
+			// hide it (W turns git on while S already had it on), so W is judged
+			// again with no session override on either side, and the stricter
+			// tier of the two wins.
+			wb, wa := before, after
+			wb.Session, wa.Session = nil, nil
+			rb, err := harness.Resolve(wb)
+			if err != nil {
+				return ev, none, invalid(err)
+			}
+			ra, err := harness.Resolve(wa)
+			if err != nil {
+				return ev, none, invalid(err)
+			}
+			class = mergeClassification(harness.Classify(rb, ra), class)
+		}
 		ev.Vendors = append(ev.Vendors, vendorDiff{Vendor: name, VendorRevision: vs.Vendor.Revision, FactsComplete: vs.FactsComplete,
 			Before: b.Fingerprint, After: a.Fingerprint, Tier: class.Tier, Changes: class.Changes})
 		if class.Tier > ev.Tier {
@@ -420,5 +438,37 @@ func nonEmpty(in []string) []string {
 			out = append(out, s)
 		}
 	}
+	return out
+}
+
+// mergeClassification keeps the strictest tier and every change of both, one
+// entry per (field, key) at its higher tier.
+func mergeClassification(a, b harness.Classification) harness.Classification {
+	out := harness.Classification{Tier: a.Tier}
+	if b.Tier > out.Tier {
+		out.Tier = b.Tier
+	}
+	index := map[[2]string]int{}
+	for _, c := range append(append([]harness.Change(nil), a.Changes...), b.Changes...) {
+		k := [2]string{c.Field, c.Key}
+		if i, ok := index[k]; ok {
+			if c.Tier > out.Changes[i].Tier {
+				out.Changes[i] = c
+			}
+			continue
+		}
+		index[k] = len(out.Changes)
+		out.Changes = append(out.Changes, c)
+	}
+	sort.SliceStable(out.Changes, func(i, j int) bool {
+		x, y := out.Changes[i], out.Changes[j]
+		if x.Tier != y.Tier {
+			return x.Tier > y.Tier
+		}
+		if x.Field != y.Field {
+			return x.Field < y.Field
+		}
+		return x.Key < y.Key
+	})
 	return out
 }
