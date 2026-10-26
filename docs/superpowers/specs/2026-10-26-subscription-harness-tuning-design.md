@@ -23,7 +23,8 @@ model (grants stay per subject, gates stay where they are).
 
 - **Usage rows.** 512 Claude turns (2026-09-17 .. 2026-10-26) in `agent_turns`. The structured fields of `usage_json` are zero for
   turns before ~2026-10-25 because `NormalizeUsage` did not read `quota.token_count`; the numbers are intact in
-  `RawMeta.quota.token_count`, which also carries a per-model `model_usage` for the same totals. Read from raw: about 961M tokens,
+  `RawMeta.quota.token_count`, which also carries a per-model `model_usage`. That split is not always the turn total: on 95 of the
+  512 turns it is larger, because helper models (for example Haiku) appear beside the main one. Read from raw: about 961M tokens,
   97.1% cache reads, ~25M cache writes, ~3.1M output. Per turn: p50 1.1M, p90 4.7M, p99 9.3M, max 20.9M. The heaviest 10% of turns
   are 39% of tokens. By workspace: `fsap-security` 824M (86%), `personal-finance` 118M (68 turns, one session), the rest small.
   Whether the subscription limit weighs cache reads is not known.
@@ -51,11 +52,15 @@ model (grants stay per subject, gates stay where they are).
    are plain numbers that `json.Marshal` always writes, so a row stored while the normalizer did not understand the meta carries
    0 beside real numbers in `RawMeta` (a real row: 0 input and 0 output next to `inputTokens: 8` and `outputTokens: 6781`). A
    present field therefore says nothing about provenance. The report re-derives usage from `RawMeta` with the current normalizer
-   of the turn's vendor, and uses the stored structured values only when `RawMeta` is empty. After that, a field is **known** only
-   if the raw meta had it (a real 0 is known); otherwise it is **unknown**. Unknown is not 0: reports count turns without data
-   separately and never add them as 0. The turn total is `totalTokens`. `model_usage` is the per-model split of the same totals,
-   so it is used only for the by-model view and never added to `token_count`; a split that does not match its total is shown as
-   partial. No migration; raw is preserved. New rows may also record a `usageVersion`, but the report does not depend on it.
+   of the turn's vendor, and uses the stored structured values only when `RawMeta` is empty. After that, a turn is **known** when
+   the normalizer's answer holds anything: a pointer field (cache read, cache write, reasoning, total) or a non-zero number. A turn
+   with none of these is **unknown**, not 0: reports count such turns separately and never add them as 0. Pointer fields stay
+   unknown when the meta omits them. `InputTokens` and `OutputTokens` are plain numbers and cannot say "absent", so within a known
+   turn they read as 0 when the meta omits them, and a turn whose meta really reports zeros everywhere cannot be told from no
+   data and counts as unknown. The turn total is `totalTokens`. `model_usage` is the per-model split. It can include helper models
+   that the turn total leaves out, so it is used only for the by-model view, never added to `token_count`, and the report counts
+   the turns where it differs from the total (`partialSplitTurns`). No migration; raw is preserved. New rows may also record a
+   `usageVersion`, but the report does not depend on it.
 2. **Report.** A Go service aggregates by workspace, session, model, account and day: turns, fresh input, cache read, cache write,
    output, and turns without data. UI-only bridge method (`uiOnly`, like the account methods), not an MCP tool. Numbers only.
 3. **What each turn and tool call records** (no content, no arguments):
@@ -68,8 +73,14 @@ model (grants stay per subject, gates stay where they are).
    fewer tokens does not show a smaller share of the subscription limit, because how limits weigh cache reads is not known.
 5. **Scope.** Claude only. Other vendors show "no data".
 
-Done when the report reproduces the §2 numbers and tests cover: a row whose stored fields are a false 0 next to real numbers in
-`RawMeta`; a real 0 in the raw meta; a field absent from the raw meta; and a row with no `RawMeta`.
+**Delivery.** Phase 1 ships as two plans. Plan 1a is items 1, 2, 4 and 5 (reading, the report, the table), grouped by workspace,
+session, model and day. Plan 1b is item 3 (the account id and profile revision on each turn, tool result sizes) and adds the
+account view to the report; it waits for phase 2 for the profile revision.
+
+Done when the report reproduces the §2 numbers (checked on 2026-10-26 against a copy of the real database: 512 turns, 960,683,040
+tokens, 932,811,339 cache reads, 95 partial splits, equal to a plain SQL sum of the raw meta) and tests cover: a row whose stored
+fields are a false 0 next to real numbers in `RawMeta`; a real 0 in the raw meta; a pointer field absent from the raw meta; a meta
+with no tokens; a row with no `RawMeta`; and a split that does not add up.
 
 ## 4. Phase 2: workspace harness profile
 
