@@ -15,21 +15,16 @@ import (
 	"strings"
 	"time"
 
+	"devkit/internal/agenthub"
 	_ "modernc.org/sqlite"
 )
 
-var counterFields = []string{"inputTokens", "outputTokens", "totalTokens", "cachedInputTokens", "cachedWriteTokens", "reasoningOutputTokens"}
+// semanticsVersion identifies how a token counter is read. Version 2 reads each
+// turn with agenthub.DeriveTurnUsage, the derivation the Agent Hub usage report
+// uses, instead of the allowlisted stored counters of version 1.
+const semanticsVersion = 2
 
-// NormalizedUsage currently uses Go's default exported-field JSON names. The
-// lower-camel spellings are accepted for historical/fixture compatibility.
-var usageFieldNames = map[string][2]string{
-	"inputTokens":           {"InputTokens", "inputTokens"},
-	"outputTokens":          {"OutputTokens", "outputTokens"},
-	"totalTokens":           {"TotalTokens", "totalTokens"},
-	"cachedInputTokens":     {"CachedInputTokens", "cachedInputTokens"},
-	"cachedWriteTokens":     {"CachedWriteTokens", "cachedWriteTokens"},
-	"reasoningOutputTokens": {"ReasoningOutputTokens", "reasoningOutputTokens"},
-}
+var counterFields = []string{"inputTokens", "outputTokens", "totalTokens", "cachedInputTokens", "cachedWriteTokens", "reasoningOutputTokens"}
 
 type fieldTotal struct {
 	KnownRows   int   `json:"knownRows"`
@@ -39,10 +34,16 @@ type fieldTotal struct {
 }
 
 type vendorUsage struct {
-	Sessions          int                   `json:"sessions"`
-	Turns             int                   `json:"turns"`
-	TurnsWithUsage    int                   `json:"turnsWithUsage"`
-	TurnsWithoutUsage int                   `json:"turnsWithoutUsage"`
+	Sessions          int `json:"sessions"`
+	Turns             int `json:"turns"`
+	TurnsWithUsage    int `json:"turnsWithUsage"`
+	TurnsWithoutUsage int `json:"turnsWithoutUsage"`
+	// TokenCoverage is "claude" where tokens are read and "unknown" for a vendor
+	// whose token accounting is not covered; its turns count as without usage.
+	TokenCoverage string `json:"tokenCoverage"`
+	// PartialSplitTurns counts turns whose per-model split is incomplete or
+	// differs from the turn total. A mismatch alone does not say why.
+	PartialSplitTurns int                   `json:"partialSplitTurns"`
 	Fields            map[string]fieldTotal `json:"fields"`
 }
 
@@ -58,11 +59,14 @@ type report struct {
 		From       string   `json:"from,omitempty"`
 		To         string   `json:"to,omitempty"`
 	} `json:"scope"`
-	Sessions    int                      `json:"sessions"`
-	Turns       int                      `json:"turns"`
-	UsageSource string                   `json:"usageSource"`
-	Vendors     map[string]*vendorUsage  `json:"vendors"`
-	Unknown     map[string]unknownMetric `json:"unknown"`
+	Sessions    int    `json:"sessions"`
+	Turns       int    `json:"turns"`
+	UsageSource string `json:"usageSource"`
+	// SemanticsVersion is 2 since the report reads usage with
+	// agenthub.DeriveTurnUsage; version 1 reports are not comparable.
+	SemanticsVersion int                      `json:"semanticsVersion"`
+	Vendors          map[string]*vendorUsage  `json:"vendors"`
+	Unknown          map[string]unknownMetric `json:"unknown"`
 }
 
 func main() {
@@ -128,7 +132,8 @@ func run(args []string, out, errOut io.Writer) error {
 		return e
 	}
 	r.Source = "DevKit local SQLite agent_sessions + agent_turns"
-	r.UsageSource = "agent_turns.usage_json allowlisted normalized counters; embedded RawMeta and raw_meta column are not inspected or emitted"
+	r.SemanticsVersion = semanticsVersion
+	r.UsageSource = "agenthub.DeriveTurnUsage over agent_turns.usage_json and raw_meta (Claude only; other vendors unknown); raw metadata is normalized in process and never emitted"
 	r.Scope.SessionIDs = sessions
 	if fromTime != nil {
 		r.Scope.From = fromTime.Format(time.RFC3339Nano)
@@ -182,7 +187,7 @@ func collect(db *sql.DB, sessionIDs []string, from, to *time.Time) (report, erro
 	if exists != 2 {
 		return r, errors.New("database is missing agent_sessions or agent_turns")
 	}
-	query := `SELECT s.id, s.agent_type, t.id, t.usage_json, t.created_at
+	query := `SELECT s.id, s.agent_type, t.id, t.usage_json, t.raw_meta, t.created_at
 		FROM agent_sessions s LEFT JOIN agent_turns t ON t.session_id=s.id`
 	where := []string{}
 	args := []any{}
@@ -206,8 +211,8 @@ func collect(db *sql.DB, sessionIDs []string, from, to *time.Time) (report, erro
 	seenSessions := map[string]bool{}
 	for rows.Next() {
 		var sid, vendor string
-		var turnID, usageJSON, createdAt sql.NullString
-		if e = rows.Scan(&sid, &vendor, &turnID, &usageJSON, &createdAt); e != nil {
+		var turnID, usageJSON, rawMeta, createdAt sql.NullString
+		if e = rows.Scan(&sid, &vendor, &turnID, &usageJSON, &rawMeta, &createdAt); e != nil {
 			return r, e
 		}
 		if !seenSessions[sid] {
@@ -235,32 +240,25 @@ func collect(db *sql.DB, sessionIDs []string, from, to *time.Time) (report, erro
 		}
 		v := getVendor(r.Vendors, vendor)
 		v.Turns++
-		values, invalid, hasUsage, parseErr := usageCounters(usageJSON)
-		if parseErr != nil {
-			return r, fmt.Errorf("invalid normalized usage JSON for a selected turn (row values are not displayed): %w", parseErr)
-		}
-		if !hasUsage {
+		usage := turnUsage(vendor, usageJSON, rawMeta)
+		if usage == nil {
 			v.TurnsWithoutUsage++
 			continue
 		}
 		v.TurnsWithUsage++
+		if usage.SplitPartial {
+			v.PartialSplitTurns++
+		}
 		for _, f := range counterFields {
 			current := v.Fields[f]
-			value, ok := values[f]
-			if invalid[f] {
+			if value := counterOf(*usage, f); value == nil {
+				current.UnknownRows++
+			} else if int64(*value) > 0 && current.Sum > int64(^uint64(0)>>1)-int64(*value) {
 				current.UnknownRows++
 				current.InvalidRows++
-			} else if ok {
-				if value > 0 && current.Sum > int64(^uint64(0)>>1)-value {
-					current.UnknownRows++
-					current.InvalidRows++
-					v.Fields[f] = current
-					continue
-				}
-				current.KnownRows++
-				current.Sum += value
 			} else {
-				current.UnknownRows++
+				current.KnownRows++
+				current.Sum += int64(*value)
 			}
 			v.Fields[f] = current
 		}
@@ -281,7 +279,10 @@ func collect(db *sql.DB, sessionIDs []string, from, to *time.Time) (report, erro
 func getVendor(vendors map[string]*vendorUsage, name string) *vendorUsage {
 	v := vendors[name]
 	if v == nil {
-		v = &vendorUsage{Fields: make(map[string]fieldTotal)}
+		v = &vendorUsage{Fields: make(map[string]fieldTotal), TokenCoverage: "unknown"}
+		if name == string(agenthub.AgentTypeClaude) {
+			v.TokenCoverage = name
+		}
 		for _, f := range counterFields {
 			v.Fields[f] = fieldTotal{}
 		}
@@ -290,58 +291,45 @@ func getVendor(vendors map[string]*vendorUsage, name string) *vendorUsage {
 	return v
 }
 
-// Only read known numeric keys from usage_json. In particular raw_meta and any
-// unrecognized strings/objects are never fetched or serialized.
-func usageCounters(raw sql.NullString) (map[string]int64, map[string]bool, bool, error) {
-	if !raw.Valid || strings.TrimSpace(raw.String) == "" || raw.String == "null" {
-		return nil, nil, false, nil
+// turnUsage derives one turn's usage with the Agent Hub's own derivation, so
+// this report and the Settings report agree on what is known. Token accounting
+// is Claude-only: any other vendor, an unusable raw meta and a vendor that
+// reported nothing all return nil, which is "unknown", never zero. The raw meta
+// is normalized in process and no part of it reaches the report.
+func turnUsage(vendor string, usageJSON, rawMeta sql.NullString) *agenthub.TurnUsage {
+	if vendor != string(agenthub.AgentTypeClaude) {
+		return nil
 	}
-	var obj map[string]json.RawMessage
-	if e := json.Unmarshal([]byte(raw.String), &obj); e != nil {
-		return nil, nil, false, e
+	var usage, meta json.RawMessage
+	if usageJSON.Valid {
+		usage = json.RawMessage(usageJSON.String)
 	}
-	if obj == nil {
-		return nil, nil, false, nil
+	if rawMeta.Valid {
+		meta = json.RawMessage(rawMeta.String)
 	}
-	out := make(map[string]int64)
-	invalid := make(map[string]bool)
-	for _, field := range counterFields {
-		primary, historical := usageFieldNames[field][0], usageFieldNames[field][1]
-		primaryRaw, hasPrimary := obj[primary]
-		historicalRaw, hasHistorical := obj[historical]
-		if !hasPrimary && !hasHistorical {
-			continue
-		}
-		primaryValue, primaryValid := parseCounter(primaryRaw, hasPrimary)
-		historicalValue, historicalValid := parseCounter(historicalRaw, hasHistorical)
-		if hasPrimary && hasHistorical {
-			// Two spellings are still one semantic counter. Accept equivalent
-			// duplicates once, but make any disagreement or invalid alias unknown.
-			if !primaryValid || !historicalValid || primaryValue != historicalValue {
-				invalid[field] = true
-				continue
-			}
-			out[field] = primaryValue
-			continue
-		}
-		if hasPrimary && primaryValid {
-			out[field] = primaryValue
-		} else if hasHistorical && historicalValid {
-			out[field] = historicalValue
-		} else {
-			invalid[field] = true
-		}
+	u := agenthub.DeriveTurnUsage(claudeAdapter, usage, meta)
+	if !u.Known() {
+		return nil
 	}
-	return out, invalid, true, nil
+	return &u
 }
 
-func parseCounter(raw json.RawMessage, present bool) (int64, bool) {
-	if !present || string(raw) == "null" {
-		return 0, !present
+var claudeAdapter = agenthub.NewClaudeAdapter(agenthub.ClaudeOptions{})
+
+func counterOf(u agenthub.TurnUsage, field string) *int {
+	switch field {
+	case "inputTokens":
+		return u.FreshInput
+	case "outputTokens":
+		return u.Output
+	case "totalTokens":
+		return u.Total
+	case "cachedInputTokens":
+		return u.CacheRead
+	case "cachedWriteTokens":
+		return u.CacheWrite
+	case "reasoningOutputTokens":
+		return u.Reasoning
 	}
-	var n int64
-	if err := json.Unmarshal(raw, &n); err != nil || n < 0 {
-		return 0, false
-	}
-	return n, true
+	return nil
 }

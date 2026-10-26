@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,235 +15,292 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func fixtureDB(t *testing.T) string {
+// claudeMeta is the raw meta of a real Claude turn: the numbers sit under
+// quota.token_count, with a per-model split of the same totals.
+const claudeMeta = `{"quota":{"token_count":{"totalTokens":2440835,"inputTokens":8,"cachedInputTokens":1832413,"cachedWriteTokens":601633,"outputTokens":6781,"reasoningOutputTokens":0},"model_usage":[{"model":"claude-opus-5-5","token_count":{"totalTokens":2440835,"inputTokens":8,"cachedInputTokens":1832413,"cachedWriteTokens":601633,"outputTokens":6781,"reasoningOutputTokens":0}}]}}`
+
+type turnRow struct {
+	id, session, usage, raw, created string
+}
+
+func exec(t *testing.T, path, stmt string, args ...any) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "fixture.db")
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = db.Exec(`CREATE TABLE agent_sessions (id TEXT PRIMARY KEY, agent_type TEXT NOT NULL);
+	defer db.Close()
+	if _, err = db.Exec(stmt, args...); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func nullable(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+func insertTurns(t *testing.T, path string, rows ...turnRow) {
+	t.Helper()
+	for _, r := range rows {
+		exec(t, path, `INSERT INTO agent_turns VALUES (?,?,?,?,?)`, r.id, r.session, nullable(r.usage), nullable(r.raw), r.created)
+	}
+}
+
+func emptyDB(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "fixture.db")
+	exec(t, path, `CREATE TABLE agent_sessions (id TEXT PRIMARY KEY, agent_type TEXT NOT NULL);
 CREATE TABLE agent_turns (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, usage_json TEXT, raw_meta TEXT, created_at TEXT NOT NULL);
-INSERT INTO agent_sessions VALUES ('s1','claude'),('s2','codex'),('empty','claude');
-INSERT INTO agent_turns VALUES
- ('t1','s1','{"inputTokens":100,"outputTokens":12,"totalTokens":112,"cachedInputTokens":40,"cachedWriteTokens":5}','{"privatePrompt":"DO_NOT_PRINT_9cb"}','2026-10-01T00:00:00Z'),
- ('t2','s1','{"inputTokens":0,"outputTokens":0,"totalTokens":0}','{"apiKey":"DO_NOT_PRINT_7aa"}','2026-10-02T00:00:00Z'),
- ('t3','s2',NULL,'{"body":"DO_NOT_PRINT_188"}','2026-10-03T00:00:00Z'),
- ('t4','s2','{"inputTokens":25,"outputTokens":7,"cachedInputTokens":25}','{}','2026-10-04T00:00:00Z')`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = db.Close(); err != nil {
-		t.Fatal(err)
-	}
+INSERT INTO agent_sessions VALUES ('s1','claude'),('s2','codex'),('empty','claude')`)
 	return path
 }
 
-func TestCollectReportsKnownAndUnknownWithoutAddingCacheTwice(t *testing.T) {
-	path := fixtureDB(t)
-	var out, stderr bytes.Buffer
-	if err := run([]string{"--db", path}, &out, &stderr); err != nil {
-		t.Fatalf("run: %v (%s)", err, stderr.String())
+func storedUsage(t *testing.T, n agenthub.NormalizedUsage, rawMeta string) string {
+	t.Helper()
+	if rawMeta != "" {
+		n.RawMeta = json.RawMessage(rawMeta)
+	}
+	b, err := json.Marshal(n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func runReport(t *testing.T, args ...string) (report, string) {
+	t.Helper()
+	var out, errOut bytes.Buffer
+	if err := run(args, &out, &errOut); err != nil {
+		t.Fatalf("run: %v (%s)", err, errOut.String())
 	}
 	var got report
 	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Sessions != 3 || got.Turns != 4 {
-		t.Fatalf("sessions/turns = %d/%d", got.Sessions, got.Turns)
+	return got, out.String() + errOut.String()
+}
+
+func wantField(t *testing.T, v *vendorUsage, field string, sum int64, known, unknown int) {
+	t.Helper()
+	got := v.Fields[field]
+	if got.Sum != sum || got.KnownRows != known || got.UnknownRows != unknown {
+		t.Errorf("%s = %+v, want sum %d known %d unknown %d", field, got, sum, known, unknown)
 	}
+}
+
+// A row stored while the normalizer did not understand the meta holds 0 next to
+// real numbers in the raw meta. The raw meta wins, as in the Settings report.
+func TestFalseStructuredZeroReadsTheRawMeta(t *testing.T) {
+	path := emptyDB(t)
+	insertTurns(t, path, turnRow{"t1", "s1", storedUsage(t, agenthub.NormalizedUsage{}, claudeMeta), claudeMeta, "2026-10-01T00:00:00Z"})
+	got, _ := runReport(t, "--db", path)
 	claude := got.Vendors["claude"]
-	if claude == nil || claude.Sessions != 2 || claude.TurnsWithUsage != 2 || claude.TurnsWithoutUsage != 0 {
+	if claude.TurnsWithUsage != 1 || claude.TurnsWithoutUsage != 0 {
 		t.Fatalf("claude = %+v", claude)
 	}
-	input := claude.Fields["inputTokens"]
-	if input.Sum != 100 || input.KnownRows != 2 || input.UnknownRows != 0 {
-		t.Fatalf("claude input = %+v", input)
+	wantField(t, claude, "inputTokens", 8, 1, 0)
+	wantField(t, claude, "outputTokens", 6781, 1, 0)
+	wantField(t, claude, "totalTokens", 2440835, 1, 0)
+	wantField(t, claude, "cachedInputTokens", 1832413, 1, 0)
+	wantField(t, claude, "cachedWriteTokens", 601633, 1, 0)
+	wantField(t, claude, "reasoningOutputTokens", 0, 1, 0)
+	if got.SemanticsVersion != semanticsVersion || claude.TokenCoverage != "claude" {
+		t.Fatalf("semantics = %d coverage = %q", got.SemanticsVersion, claude.TokenCoverage)
 	}
-	cached := claude.Fields["cachedInputTokens"]
-	if cached.Sum != 40 || cached.KnownRows != 1 || cached.UnknownRows != 1 {
-		t.Fatalf("claude cached = %+v", cached)
+}
+
+func TestRawMetaFromEitherPlaceAndStructuredOnlyFallback(t *testing.T) {
+	path := emptyDB(t)
+	total, cached := 42, 17
+	structured := storedUsage(t, agenthub.NormalizedUsage{InputTokens: 39, OutputTokens: 3, TotalTokens: &total, CachedInputTokens: &cached}, "")
+	insertTurns(t, path,
+		// Meta only inside the stored usage: the copy kept there is used.
+		turnRow{"t1", "s1", storedUsage(t, agenthub.NormalizedUsage{}, claudeMeta), "", "2026-10-01T00:00:00Z"},
+		// No raw meta anywhere: the stored fields are used, pointers stay absent.
+		turnRow{"t2", "s1", structured, "", "2026-10-02T00:00:00Z"},
+	)
+	got, _ := runReport(t, "--db", path)
+	claude := got.Vendors["claude"]
+	if claude.TurnsWithUsage != 2 {
+		t.Fatalf("claude = %+v", claude)
 	}
-	codex := got.Vendors["codex"]
-	if codex.TurnsWithUsage != 1 || codex.TurnsWithoutUsage != 1 {
-		t.Fatalf("codex = %+v", codex)
+	wantField(t, claude, "inputTokens", 47, 2, 0)
+	wantField(t, claude, "totalTokens", 2440877, 2, 0)
+	wantField(t, claude, "cachedInputTokens", 1832430, 2, 0)
+	wantField(t, claude, "cachedWriteTokens", 601633, 1, 1)
+}
+
+// A real 0 in a pointer field is known; a meta with no tokens, a null row and an
+// unreadable meta are unknown and never add zeros.
+func TestTrueZeroAbsentUnusableAndEmptyRows(t *testing.T) {
+	path := emptyDB(t)
+	zeros := `{"quota":{"token_count":{"totalTokens":0,"inputTokens":0,"outputTokens":0,"cachedInputTokens":0}}}`
+	noWrite := `{"quota":{"token_count":{"totalTokens":10,"inputTokens":4,"outputTokens":6,"cachedInputTokens":2}}}`
+	insertTurns(t, path,
+		turnRow{"t1", "s1", "", zeros, "2026-10-01T00:00:00Z"},
+		turnRow{"t2", "s1", "", noWrite, "2026-10-02T00:00:00Z"},
+		turnRow{"t3", "s1", "", `{"claude_code":{}}`, "2026-10-03T00:00:00Z"},
+		turnRow{"t4", "s1", "", `{not json`, "2026-10-04T00:00:00Z"},
+		turnRow{"t5", "s1", "", "", "2026-10-05T00:00:00Z"},
+	)
+	got, _ := runReport(t, "--db", path)
+	claude := got.Vendors["claude"]
+	if claude.Turns != 5 || claude.TurnsWithUsage != 2 || claude.TurnsWithoutUsage != 3 {
+		t.Fatalf("claude = %+v", claude)
 	}
-	if codex.Fields["inputTokens"].Sum != 25 || codex.Fields["cachedInputTokens"].Sum != 25 {
-		t.Fatalf("codex counters = %+v", codex.Fields)
+	wantField(t, claude, "totalTokens", 10, 2, 3)
+	wantField(t, claude, "cachedInputTokens", 2, 2, 3)
+	wantField(t, claude, "cachedWriteTokens", 0, 0, 5)
+}
+
+func TestHelperModelSplitMismatchIsCountedNotAdded(t *testing.T) {
+	path := emptyDB(t)
+	split := `{"quota":{"token_count":{"totalTokens":100,"inputTokens":1,"outputTokens":2},"model_usage":[{"model":"a","token_count":{"totalTokens":100}},{"model":"helper","token_count":{"totalTokens":30}}]}}`
+	insertTurns(t, path,
+		turnRow{"t1", "s1", "", split, "2026-10-01T00:00:00Z"},
+		turnRow{"t2", "s1", "", claudeMeta, "2026-10-02T00:00:00Z"},
+	)
+	got, _ := runReport(t, "--db", path)
+	claude := got.Vendors["claude"]
+	if claude.PartialSplitTurns != 1 {
+		t.Fatalf("partial split turns = %d, want 1", claude.PartialSplitTurns)
 	}
-	if strings.Contains(out.String(), "DO_NOT_PRINT") {
+	wantField(t, claude, "totalTokens", 2440935, 2, 0)
+}
+
+// Token accounting is Claude-only: other vendors keep their turns but never
+// report a token, even when their row holds counters.
+func TestOtherVendorsAreUnknown(t *testing.T) {
+	path := emptyDB(t)
+	exec(t, path, `INSERT INTO agent_sessions VALUES ('s3','gemini')`)
+	insertTurns(t, path,
+		turnRow{"t1", "s2", `{"InputTokens":25,"OutputTokens":7,"CachedInputTokens":25}`, `{"codex":{"turn":{"inputTokens":25}}}`, "2026-10-01T00:00:00Z"},
+		turnRow{"t2", "s3", `{"InputTokens":5}`, "", "2026-10-02T00:00:00Z"},
+	)
+	got, _ := runReport(t, "--db", path)
+	for _, name := range []string{"codex", "gemini"} {
+		v := got.Vendors[name]
+		if v.TokenCoverage != "unknown" || v.Turns != 1 || v.TurnsWithUsage != 0 || v.TurnsWithoutUsage != 1 {
+			t.Fatalf("%s = %+v", name, v)
+		}
+		for field, f := range v.Fields {
+			if f.KnownRows != 0 || f.Sum != 0 || f.UnknownRows != 1 {
+				t.Errorf("%s %s = %+v, want unknown", name, field, f)
+			}
+		}
+	}
+}
+
+// The CLI and the Settings report read the same rows the same way.
+func TestCLIAgreesWithAgentHubReport(t *testing.T) {
+	path := emptyDB(t)
+	total, cached, write := 42, 17, 3
+	structured := storedUsage(t, agenthub.NormalizedUsage{InputTokens: 39, OutputTokens: 3, TotalTokens: &total, CachedInputTokens: &cached, CachedWriteTokens: &write}, "")
+	rows := []turnRow{
+		{"t1", "s1", storedUsage(t, agenthub.NormalizedUsage{}, claudeMeta), claudeMeta, "2026-10-01T00:00:00Z"},
+		{"t2", "s1", "", `{"quota":{"token_count":{"totalTokens":0,"inputTokens":0,"outputTokens":0}}}`, "2026-10-02T00:00:00Z"},
+		{"t3", "s1", "", `{"quota":{"token_count":{"totalTokens":10,"inputTokens":4,"outputTokens":6}}}`, "2026-10-03T00:00:00Z"},
+		{"t4", "s1", "", `{broken`, "2026-10-04T00:00:00Z"},
+		{"t5", "s1", structured, "", "2026-10-05T00:00:00Z"},
+		{"t6", "s1", "", `{"claude_code":{}}`, "2026-10-06T00:00:00Z"},
+		{"t7", "s1", "", "", "2026-10-07T00:00:00Z"},
+	}
+	insertTurns(t, path, rows...)
+
+	var want []agenthub.TurnUsageRow
+	for _, r := range rows {
+		ts, err := time.Parse(time.RFC3339, r.created)
+		if err != nil {
+			t.Fatal(err)
+		}
+		row := agenthub.TurnUsageRow{TurnID: r.id, SessionID: r.session, CreatedAt: ts}
+		if r.usage != "" {
+			row.UsageJSON = []byte(r.usage)
+		}
+		if r.raw != "" {
+			row.RawMeta = []byte(r.raw)
+		}
+		want = append(want, row)
+	}
+	hub := agenthub.BuildUsageReport(agenthub.AgentTypeClaude, agenthub.NewClaudeAdapter(agenthub.ClaudeOptions{}), want)
+
+	got, _ := runReport(t, "--db", path, "--session", "s1")
+	claude := got.Vendors["claude"]
+	if claude.Turns != hub.Totals.Turns || claude.TurnsWithoutUsage != hub.Totals.TurnsWithoutData || claude.PartialSplitTurns != hub.PartialSplitTurns {
+		t.Fatalf("turns cli=%+v hub=%+v", claude, hub.Totals)
+	}
+	for _, c := range []struct {
+		field string
+		sum   int64
+		known int
+	}{
+		{"inputTokens", hub.Totals.FreshInput, hub.Totals.Known.FreshInput},
+		{"outputTokens", hub.Totals.Output, hub.Totals.Known.Output},
+		{"totalTokens", hub.Totals.Total, hub.Totals.Known.Total},
+		{"cachedInputTokens", hub.Totals.CacheRead, hub.Totals.Known.CacheRead},
+		{"cachedWriteTokens", hub.Totals.CacheWrite, hub.Totals.Known.CacheWrite},
+	} {
+		f := claude.Fields[c.field]
+		if f.Sum != c.sum || f.KnownRows != c.known || f.UnknownRows != hub.Totals.Turns-c.known {
+			t.Errorf("%s cli=%+v hub sum=%d known=%d turns=%d", c.field, f, c.sum, c.known, hub.Totals.Turns)
+		}
+	}
+}
+
+func TestReportNeverEmitsRawOrStoredContent(t *testing.T) {
+	path := emptyDB(t)
+	secretMeta := `{"privatePrompt":"DO_NOT_PRINT_9cb","quota":{"token_count":{"totalTokens":5,"inputTokens":2,"outputTokens":3},"model_usage":[{"model":"DO_NOT_PRINT_model","token_count":{"totalTokens":5}}]}}`
+	insertTurns(t, path,
+		turnRow{"t1", "s1", storedUsage(t, agenthub.NormalizedUsage{}, `{"secret":"DO_NOT_PRINT_EMBEDDED_84f"}`), secretMeta, "2026-10-01T00:00:00Z"},
+		turnRow{"t2", "s1", "", `{"apiKey":"DO_NOT_PRINT_7aa" broken`, "2026-10-02T00:00:00Z"},
+		turnRow{"t3", "s2", "", `{"body":"DO_NOT_PRINT_188"}`, "2026-10-03T00:00:00Z"},
+	)
+	_, text := runReport(t, "--db", path)
+	if strings.Contains(text, "DO_NOT_PRINT") || strings.Contains(text, "secret") || strings.Contains(text, "apiKey") {
 		t.Fatal("report exposed raw metadata")
-	}
-	if got.Unknown["coordinatorWakeups"].Value != "unknown" || got.Unknown["tokenSavings"].Value != "unknown" {
-		t.Fatalf("unknown metrics = %+v", got.Unknown)
 	}
 }
 
 func TestTimeBoundsCompareInstantsAtNanosecondPrecision(t *testing.T) {
-	path := fixtureDB(t)
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
+	path := emptyDB(t)
+	meta := func(n int) string {
+		return fmt.Sprintf(`{"quota":{"token_count":{"totalTokens":%d,"inputTokens":%d,"outputTokens":0}}}`, n, n)
 	}
-	_, err = db.Exec(`INSERT INTO agent_turns VALUES
- ('t5','s2','{"inputTokens":3}','{}','2026-10-01T00:00:00.000000001Z'),
- ('t6','s2','{"inputTokens":4}','{}','2026-10-01T01:00:00+01:00'),
- ('t7','s2','{"inputTokens":5}','{}','2026-10-01T00:00:00.000000002Z')`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	var out bytes.Buffer
-	err = run([]string{"--db", path, "--from", "2026-10-01T00:00:00Z", "--to", "2026-10-01T00:00:00.000000002+00:00"}, &out, &out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got report
-	if err = json.Unmarshal(out.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Turns != 3 || got.Vendors["claude"].Turns != 1 || got.Vendors["codex"].Turns != 2 {
-		t.Fatalf("instant-bounded report: sessions=%d turns=%d vendors=%+v", got.Sessions, got.Turns, got.Vendors)
-	}
-	if sum := got.Vendors["codex"].Fields["inputTokens"].Sum; sum != 7 {
-		t.Fatalf("codex input sum = %d, want 7; end bound must be exclusive", sum)
-	}
-}
-
-func TestCounterRejectsNegativeAndOverflowWithoutWrapping(t *testing.T) {
-	path := fixtureDB(t)
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec(`INSERT INTO agent_sessions VALUES ('s4','gemini'),('empty-gemini','gemini');
-INSERT INTO agent_turns VALUES
- ('g1','s4','{"inputTokens":9223372036854775807}','{}','2026-10-05T00:00:00Z'),
- ('g2','s4','{"inputTokens":1}','{}','2026-10-05T00:00:01Z'),
- ('g3','s4','{"inputTokens":-1,"outputTokens":9223372036854775808}','{}','2026-10-05T00:00:02Z')`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	var out bytes.Buffer
-	if err = run([]string{"--db", path}, &out, &out); err != nil {
-		t.Fatal(err)
-	}
-	var got report
-	if err = json.Unmarshal(out.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	gemini := got.Vendors["gemini"]
-	if gemini == nil || gemini.Sessions != 2 || gemini.Turns != 3 {
-		t.Fatalf("gemini coverage = %+v", gemini)
-	}
-	input := gemini.Fields["inputTokens"]
-	if input.Sum != 9223372036854775807 || input.KnownRows != 1 || input.UnknownRows != 2 || input.InvalidRows != 2 {
-		t.Fatalf("input counter did not preserve partial sum and mark invalid rows: %+v", input)
-	}
-	output := gemini.Fields["outputTokens"]
-	if output.KnownRows != 0 || output.UnknownRows != 3 || output.InvalidRows != 1 {
-		t.Fatalf("out-of-range JSON integer should be unknown: %+v", output)
-	}
-}
-
-func TestUsageFromNormalizedUsageMarshalUsesGoFieldNamesAndRedactsEmbeddedRawMeta(t *testing.T) {
-	path := fixtureDB(t)
-	total, cached, cachedWrite, reasoning := 42, 17, 3, 2
-	usage, err := json.Marshal(agenthub.NormalizedUsage{
-		InputTokens:           39,
-		OutputTokens:          3,
-		TotalTokens:           &total,
-		CachedInputTokens:     &cached,
-		CachedWriteTokens:     &cachedWrite,
-		ReasoningOutputTokens: &reasoning,
-		RawMeta:               json.RawMessage(`{"secret":"DO_NOT_PRINT_EMBEDDED_84f"}`),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec(`INSERT INTO agent_sessions VALUES ('s-real','claude');
-INSERT INTO agent_turns VALUES ('t-real','s-real',?,'{"secret":"DO_NOT_PRINT_COLUMN_84f"}','2026-10-06T00:00:00Z')`, string(usage))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	var out bytes.Buffer
-	if err = run([]string{"--db", path, "--session", "s-real"}, &out, &out); err != nil {
-		t.Fatal(err)
-	}
-	var got report
-	if err = json.Unmarshal(out.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
+	exec(t, path, `UPDATE agent_sessions SET agent_type='claude' WHERE id='s2'`)
+	insertTurns(t, path,
+		turnRow{"t5", "s2", "", meta(3), "2026-10-01T00:00:00.000000001Z"},
+		turnRow{"t6", "s2", "", meta(4), "2026-10-01T01:00:00+01:00"},
+		turnRow{"t7", "s2", "", meta(5), "2026-10-01T00:00:00.000000002Z"},
+	)
+	got, _ := runReport(t, "--db", path, "--from", "2026-10-01T00:00:00Z", "--to", "2026-10-01T00:00:00.000000002+00:00")
 	claude := got.Vendors["claude"]
-	if claude == nil || claude.TurnsWithUsage != 1 {
-		t.Fatalf("real NormalizedUsage row = %+v", claude)
+	if got.Turns != 2 || claude.Turns != 2 {
+		t.Fatalf("instant-bounded report: turns=%d vendors=%+v", got.Turns, got.Vendors)
 	}
-	wants := map[string]int64{"inputTokens": 39, "outputTokens": 3, "totalTokens": 42, "cachedInputTokens": 17, "cachedWriteTokens": 3, "reasoningOutputTokens": 2}
-	for field, want := range wants {
-		if value := claude.Fields[field]; value.Sum != want || value.KnownRows != 1 || value.UnknownRows != 0 {
-			t.Errorf("%s = %+v, want one known value %d", field, value, want)
-		}
-	}
-	if strings.Contains(out.String(), "DO_NOT_PRINT") || strings.Contains(out.String(), "secret") {
-		t.Fatal("report exposed embedded or column raw metadata")
-	}
-}
-
-func TestUsageCounterAliasesDoNotDoubleCountOrHideConflicts(t *testing.T) {
-	for _, tc := range []struct {
-		name        string
-		json        string
-		want        int64
-		wantKnown   bool
-		wantInvalid bool
-	}{
-		{name: "historical camelCase", json: `{"inputTokens":5}`, want: 5, wantKnown: true},
-		{name: "same aliases count once", json: `{"InputTokens":5,"inputTokens":5}`, want: 5, wantKnown: true},
-		{name: "conflicting aliases unknown", json: `{"InputTokens":5,"inputTokens":6}`, wantInvalid: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			values, invalid, hasUsage, err := usageCounters(sql.NullString{String: tc.json, Valid: true})
-			if err != nil || !hasUsage {
-				t.Fatalf("usageCounters = %v, %v, %v", values, hasUsage, err)
-			}
-			_, known := values["inputTokens"]
-			if known != tc.wantKnown || known && values["inputTokens"] != tc.want || invalid["inputTokens"] != tc.wantInvalid {
-				t.Fatalf("values=%v invalid=%v, want known=%v value=%d invalid=%v", values, invalid, tc.wantKnown, tc.want, tc.wantInvalid)
-			}
-		})
+	if sum := claude.Fields["inputTokens"].Sum; sum != 7 {
+		t.Fatalf("input sum = %d, want 7; end bound must be exclusive", sum)
 	}
 }
 
 func TestCLIExplicitSessionAndTimeBounds(t *testing.T) {
-	path := fixtureDB(t)
-	var out bytes.Buffer
-	err := run([]string{"--db", path, "--session", "s1", "--from", "2026-10-02T00:00:00Z", "--to", "2026-10-03T00:00:00Z"}, &out, &out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got report
-	if err = json.Unmarshal(out.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Sessions != 1 || got.Turns != 1 || got.Vendors["claude"].Fields["inputTokens"].Sum != 0 {
+	path := emptyDB(t)
+	insertTurns(t, path,
+		turnRow{"t1", "s1", "", claudeMeta, "2026-10-01T00:00:00Z"},
+		turnRow{"t2", "s1", "", claudeMeta, "2026-10-02T00:00:00Z"},
+		turnRow{"t3", "s2", "", claudeMeta, "2026-10-02T12:00:00Z"},
+	)
+	got, _ := runReport(t, "--db", path, "--session", "s1", "--from", "2026-10-02T00:00:00Z", "--to", "2026-10-03T00:00:00Z")
+	if got.Sessions != 1 || got.Turns != 1 || got.Vendors["claude"].Fields["inputTokens"].Sum != 8 {
 		t.Fatalf("bounded report: %+v", got)
 	}
 }
 
 func TestDatabaseOpenedReadOnlyAndDoesNotCreateMissingFile(t *testing.T) {
-	path := fixtureDB(t)
+	path := emptyDB(t)
+	insertTurns(t, path, turnRow{"t1", "s1", "", claudeMeta, "2026-10-01T00:00:00Z"})
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

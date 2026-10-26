@@ -90,7 +90,7 @@ func addMetric(sum *int64, known *int, value *int) {
 
 func (t *UsageTotals) add(u TurnUsage) {
 	t.Turns++
-	if !u.known() {
+	if !u.Known() {
 		t.TurnsWithoutData++
 		return
 	}
