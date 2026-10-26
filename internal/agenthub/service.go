@@ -340,6 +340,8 @@ type Service struct {
 	// Harness resolves the effective harness configuration each runtime opens
 	// with. Nil keeps today's behavior: nothing is resolved or recorded.
 	Harness HarnessSnapshots
+	// HarnessLifecycle removes a closed session's override. Nil: nothing to do.
+	HarnessLifecycle HarnessLifecycle
 	// SandboxExtras reads the user's sandbox settings — shared $HOME, Docker,
 	// extra read-only directories — beyond what a session grants on its own.
 	// Read fresh on every spawn, resume and fork, so a change in Settings
@@ -966,6 +968,12 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 	if err := s.store.InsertSession(ctx, sess); err != nil {
 		_ = rt.Close(ctx)
 		closeEndpoint()
+		return AgentSession{}, err
+	}
+	if err := s.recordHarnessApplied(ctx, sess.ID, launch); err != nil {
+		_ = rt.Close(ctx)
+		closeEndpoint()
+		_ = s.store.DeleteSessions(ctx, []string{sess.ID})
 		return AgentSession{}, err
 	}
 	keepTemp = true
@@ -1634,6 +1642,17 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	if s.OnSessionClosed != nil {
 		s.OnSessionClosed(id)
 	}
+	// The close is committed: nothing can add an override to this session any
+	// more (the store refuses closed sessions), so removing it now cannot race a
+	// late approval. A failure is reported, never swallowed; closing again retries.
+	if s.HarnessLifecycle != nil {
+		if err := s.HarnessLifecycle.SessionClosed(ctx, id); err != nil {
+			log.Printf("agenthub: harness override cleanup for session %s: %v", id, err)
+			return ErrHarnessCleanupFailed
+		}
+	}
+	// Close parks this conversation; Invoke can reopen the same session. Keep
+	// its last applied reference so that reopen still checks executable changes.
 	return nil
 }
 
@@ -1702,6 +1721,7 @@ func (s *Service) DeleteSession(ctx context.Context, id string) error {
 		s.peers.forget(target) // messages waiting for a session that no longer exists
 		s.mu.Lock()
 		s.forgetSessionAccountLocked(target)
+		delete(s.harnessApplied, target) // durable references cascade with the rows
 		s.mu.Unlock()
 	}
 	return nil
@@ -2668,7 +2688,11 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 
 	spec := sessionOpenSpec(sess)
 	spec.SessionTempRoot = s.SessionTempRoot
-	launch, err := s.prepareLaunch(ctx, &spec, sess.ID, sess.WorkspaceID, sess.AgentType, s.previousHarness(sess.ID))
+	previous, err := s.previousHarness(ctx, sess.ID)
+	if err != nil {
+		return nil, err
+	}
+	launch, err := s.prepareLaunch(ctx, &spec, sess.ID, sess.WorkspaceID, sess.AgentType, previous)
 	if err != nil {
 		return nil, err
 	}
@@ -2725,6 +2749,11 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 				_ = configurator.SetMode(ctx, saved.Mode)
 			}
 		}
+	}
+	if err := s.recordHarnessApplied(ctx, sess.ID, launch); err != nil {
+		_ = rt.Close(ctx)
+		closeEndpoint()
+		return nil, err
 	}
 	// Before the runtime is published, so a caller waiting on this resume
 	// never gets a runtime that cannot hear the agent.

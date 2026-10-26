@@ -166,9 +166,14 @@ func (s *HarnessStore) Apply(ctx context.Context, w harness.StoreWrite) (harness
 		return harness.Applied{}, err
 	}
 	if w.SessionID != "" {
+		// A closed session can never get an override: an approval that checked the
+		// session before it closed must not commit S after the close cleanup ran.
+		// Both statements run in this transaction, so the close either committed
+		// first (this is refused) or after (its cleanup removes what is written).
 		var sessionWorkspace sql.NullString
-		err := tx.QueryRowContext(ctx, `SELECT workspace_id FROM agent_sessions WHERE id=?`, w.SessionID).Scan(&sessionWorkspace)
-		if errors.Is(err, sql.ErrNoRows) || (err == nil && (!sessionWorkspace.Valid || sessionWorkspace.String != w.WorkspaceID)) {
+		var status string
+		err := tx.QueryRowContext(ctx, `SELECT workspace_id,status FROM agent_sessions WHERE id=?`, w.SessionID).Scan(&sessionWorkspace, &status)
+		if errors.Is(err, sql.ErrNoRows) || (err == nil && (!sessionWorkspace.Valid || sessionWorkspace.String != w.WorkspaceID || status == "closed")) {
 			return harness.Applied{}, harness.ErrStoreScope
 		}
 		if err != nil {
@@ -302,4 +307,41 @@ func writeHarnessRow(ctx context.Context, tx *sql.Tx, w harnessWrite) (harness.S
 		return harness.Stamp{}, err
 	}
 	return harness.Stamp{Revision: next, Present: !w.remove}, nil
+}
+
+// ClearOverride removes a session's override as part of the session's explicit
+// close or delete. It is the lifecycle-owned path: it needs no workspace and no
+// expected token, because whatever S exists at that moment is what must go. The
+// record becomes a tombstone with the next revision (a retry changes nothing and
+// keeps the token), so a late writer holding an older token cannot bring it back.
+// Reload, resume, rewind and account moves never call this.
+func (s *HarnessStore) ClearOverride(ctx context.Context, sessionID string) (harness.Stamp, error) {
+	if s == nil || s.db == nil || sessionID == "" {
+		return harness.Stamp{}, harness.ErrStoreScope
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return harness.Stamp{}, err
+	}
+	defer tx.Rollback()
+	row, found, err := readHarnessRow(ctx, tx, false, sessionID)
+	if err != nil {
+		return harness.Stamp{}, err
+	}
+	if !found || row.deleted {
+		return harness.Stamp{Revision: row.revision}, nil
+	}
+	next := row.revision + 1
+	res, err := tx.ExecContext(ctx, `UPDATE session_harness_overrides SET deleted=1,body='',revision=?,schema_version=?,updated_at=? WHERE session_id=? AND revision=?`,
+		next, harness.SchemaVersion, s.now().Format(time.RFC3339Nano), sessionID, row.revision)
+	if err != nil {
+		return harness.Stamp{}, err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return harness.Stamp{}, &harness.ConflictError{Target: "override"}
+	}
+	if err := tx.Commit(); err != nil {
+		return harness.Stamp{}, err
+	}
+	return harness.Stamp{Revision: next}, nil
 }

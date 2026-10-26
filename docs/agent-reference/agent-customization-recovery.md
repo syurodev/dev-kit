@@ -185,6 +185,64 @@ Nothing is published until the runtime opened.
   untouched.
 - No production code sets `Service.Harness` or an enforcing endpoint yet, so nothing changes at
   runtime.
+
+### Durable applied reference and session-override lifecycle (H3c)
+
+- **Applied reference (migration 55).** `agent_session_harness_applied` keeps, per session, the
+  `SnapshotRef` of what its runtime was last opened with (ids, revisions, fingerprint,
+  executable digest, whether the endpoint enforced it): no definition, path, command, env value,
+  prompt or token. It is written **before** a create/resume publishes its runtime; if it cannot
+  be written the launch is refused and the staged endpoint closed (a create also removes its
+  row). A rewind writes it in the **same transaction** as the vendor session id, transcript
+  cut, turn/checkpoint deletions and safety-row completion. A failed reference write rolls back
+  that transaction and discards the staged fork; it is never accepted with an older reference.
+  A crash after commit but before runtime publication still leaves the fork's reference on disk.
+- **What it is for.** After a restart (memory empty) a reload or resume still compares the new
+  snapshot with the stored reference: if W moved and the executable digest differs the reopen is
+  refused (`harness.newSessionRequired`). DevKit **cannot reconstruct** the old permitted
+  executables from a reference, so it refuses instead of restoring from today's different values.
+  An unreadable reference refuses the launch (`harness.snapshotUnavailable`).
+- **Explicit close.** `CloseSession` commits the status, then calls `HarnessLifecycle.SessionClosed`
+  (app adapter → `HarnessStore.ClearOverride`: a tombstone with the next revision, idempotent) and
+  keeps the applied reference in memory and on disk: Close parks a conversation, and the next
+  prompt can reopen the same session, so its executable guard must survive Close and restart.
+  Override cleanup failure is returned as `ErrHarnessCleanupFailed` (the session *is* closed);
+  closing again retries and keeps stamps monotonic. Delete closes each session first, then its
+  rows and durable references cascade; in-memory references are dropped only after deletion succeeds.
+- **Close vs approval.** `HarnessStore.Apply` refuses a closed session inside its transaction, so an
+  approval that checked scope before the close cannot commit S after it: either the close
+  committed first (the write is refused) or the write committed first (the cleanup removes it).
+  Reload, resume, rewind, account moves, crashes and runtime teardown do not call the cleanup.
+- Not yet: the read model (H3d), a real `HarnessLifecycle`/`Harness` wiring in the container, and an
+  end-to-end close-vs-apply test against the H2c `Apply` (H2c is not in this branch's base).
+
+### Status read model and attribution (H3d)
+
+`Service.HarnessStatus(ctx, sessionID)` is an internal read (no caller authorization; the
+transport that exposes it, H5, decides who may ask). It starts nothing and calls no model.
+
+| State | Meaning |
+| --- | --- |
+| `unconfigured` | no harness provider, or the session has no workspace |
+| `unavailable` | the saved configuration cannot be resolved now (applied record still shown) |
+| `not_applied` | no runtime has opened under a harness yet |
+| `current` | applied equals what the saved configuration resolves to now |
+| `reload_required` | saved ≠ applied and a reload would adopt it |
+| `new_session_required` | saved ≠ applied and the change brings in a new or altered executable from W |
+
+`Desired` (saved W/S/V resolved now) and `Applied` (what the runtime was opened with) are always
+separate references; `Enforced` says the applied endpoint serves the applied policy,
+`AppliedFactsComplete` says the vendor's own servers/skills were readable (false → the reference
+describes DevKit's configuration, not a verified account of the vendor's), and `Live` is always
+false until H4 publishes override changes to the running endpoint. A saved edit therefore reads as
+`reload_required`, never as applied. The status agrees with the reopen gate by construction (both
+use `SnapshotRef.AdoptsNewExecutables`).
+
+**Attribution.** Turn rows take their `ProfileRevision`/`OverrideRevision` from the runtime facts
+captured at turn start, and those carry W/S revisions only when the endpoint enforced the
+snapshot. A saved edit mid-session, a failed open or a refused reload changes nothing already
+recorded; an unenforced configuration stays NULL; historical rows are never rewritten. The MCP
+per-call observer reading the live serving snapshot is H4's.
 ### Confirm, recheck and commit (H2c)
 
 `Service.Apply(ctx, proposalID)` is the only way a prepared proposal becomes a write. Order:

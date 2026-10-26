@@ -1,6 +1,6 @@
 # H3 implementation: runtime harness snapshots and override lifecycle
 
-Date: 2026-10-27. Status: **in progress; H3a and H3b delivered (see Execution record)**.
+Date: 2026-10-27. Status: **in progress; H3a–H3d delivered (see Execution record)**.
 
 ## Objective and current evidence
 
@@ -123,3 +123,13 @@ Bases: H1 #344/#345 and H2a #346 are merged. H2b is PR #347 (`harness/h2b-prepar
 `agenthub.Service.Harness` + `harness_runtime.go`: `prepareLaunch`/`harnessGate`/`preflightHarness`/`publishHarnessLocked`, the optional `PolicyEndpoints` seam, the in-memory `appliedHarness` record and `HarnessApplied`. All five open sites (create, `resumeRuntime` with its Load/Open, rewind Open and Fork) use it. Tests (mock adapter, instrumented endpoints, real resolver snapshots): no harness, default compatibility, refusal before anything opens, unresolvable snapshot, policy staged before adapter open, revisions only when enforced, launch config only when profiled, failed open keeps the previous record, executable gate (moved W vs V-only vs fresh session), release seal vs reload, concurrent resume, workspace-less session, rewind. Mutation checks fail the matching tests.
 
 Not covered / mock-only: the account-switch reopen shares `resumeRuntime` and is not separately exercised; the endpoint fake stands in for the H4 session host; no process, vendor or live account is involved. Durable applied state, S lifecycle and the status read model are H3c/H3d.
+
+### H3c (branch `harness/h3c-lifecycle`, stacked on H3b #350)
+
+Migration 55 (`agent_session_harness_applied`), `agenthub.HarnessAppliedStore` on `SQLStore`, durable `previousHarness`/`recordHarnessApplied` in the create, resume and rewind paths, `HarnessLifecycle` called by `CloseSession`, `ErrHarnessCleanupFailed`, `HarnessStore.ClearOverride`, the closed-session refusal inside `HarnessStore.Apply`, and the app adapter `harnessLifecycle`. Tests: durable reference follows reopen, restart still refuses a changed executable set, unreadable reference, failed durable write (resume and create), close removes S and the reference, reload/crash never run the cleanup, cleanup failure reported and retried, delete subtree, ClearOverride tombstones / idempotence / injected failure, close vs apply in both orders and under contention. Mutation checks fail the matching tests.
+
+Decision: DevKit does not persist launch definitions. The permitted configuration is *not reconstructable*; a reopen that would change executables after W moved is refused and the person is pointed to a new session (the plan's allowed alternative). Mock-only / open: the container does not set `Harness`/`HarnessLifecycle` yet; the close-vs-`Apply` test against the real H2c service needs #348 in the base; a reload that is refused after a restart leaves the session without a runtime until a new session is opened (only the live-runtime reload is preflighted).
+
+### H3d (branch `harness/h3d-status`, stacked on H3c)
+
+`harness_status.go` (`HarnessStatus`, six states) and turn-attribution tests. Review fixes folded into the stack before H3d: #347 (a workspace change is judged without the caller's S), #348 (Cancel honored until the commit starts; the confirmation shows the whole diff or the proposal is refused), #350 (the reopen gate compares `WorkspaceDigest` and hashed executable entries instead of a revision; a default snapshot launches with the pinned V). Mock-only: all endpoints/harness providers are fakes; the container still sets neither `Harness` nor `HarnessLifecycle`; no public exposure. Open: the read model's authorization and transport (H5), the MCP per-call observer and live S publication (H4), the close-vs-`Apply` end-to-end test (needs #348 in the base), a reload refused after a restart leaves the session without a runtime until a new session.

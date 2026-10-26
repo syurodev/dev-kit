@@ -346,7 +346,6 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 		r.abandonSafety(ctx, err)
 		return RewindResult{}, err
 	}
-
 	// 6. The files.
 	var files *RestoreResult
 	if r.held.restoreToken != "" {
@@ -370,6 +369,10 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 		SafetyCheckpointID:      r.safetyID,
 		At:                      time.Now().UTC(),
 	}
+	if r.launch.snapshot != nil {
+		ref := r.launch.snapshot.Ref.Clone()
+		spec.HarnessRef, spec.HarnessEnforced = &ref, r.launch.enforced
+	}
 	if err := s.store.RewindSession(ctx, spec); err != nil {
 		r.discardFork(ctx)
 		r.abandonSafety(ctx, err)
@@ -380,6 +383,8 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 	// forked session comes up in the vendor's default mode, so the mode and
 	// model the user chose have to be re-applied or a rewind silently changes
 	// how the agent behaves.
+	// The cut and its applied reference have committed together. A crash before
+	// publication still leaves the restart gate comparing against this fork.
 	s.mu.Lock()
 	s.runtimes[r.session.ID] = r.newRuntime
 	s.runtimeUsage[r.session.ID] = r.usageFacts
@@ -468,7 +473,11 @@ func (r *rewindRun) openForked(ctx context.Context) error {
 	s := r.service
 	spec := sessionOpenSpec(r.session)
 	spec.SessionTempRoot = s.SessionTempRoot
-	launch, err := s.prepareLaunch(ctx, &spec, r.session.ID, r.session.WorkspaceID, r.session.AgentType, s.previousHarness(r.session.ID))
+	previous, err := s.previousHarness(ctx, r.session.ID)
+	if err != nil {
+		return err
+	}
+	launch, err := s.prepareLaunch(ctx, &spec, r.session.ID, r.session.WorkspaceID, r.session.AgentType, previous)
 	if err != nil {
 		return err
 	}

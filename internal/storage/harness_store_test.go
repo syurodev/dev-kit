@@ -459,3 +459,130 @@ func TestUnknownSchemaTombstonesAreCorruptNotAbsent(t *testing.T) {
 		t.Fatalf("a tombstone with a body: %v", err)
 	}
 }
+
+func closeSession(t *testing.T, s *HarnessStore, ctx context.Context, id string) {
+	t.Helper()
+	if _, err := s.db.ExecContext(ctx, `UPDATE agent_sessions SET status='closed' WHERE id=?`, id); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAClosedSessionCanNotReceiveAnOverride(t *testing.T) {
+	s, ctx := harnessFixture(t)
+	closeSession(t, s, ctx, "s1")
+	_, err := s.Apply(ctx, harness.StoreWrite{WorkspaceID: "w1", SessionID: "s1", Override: &harness.OverrideWrite{Value: ho("git")}})
+	if !errors.Is(err, harness.ErrStoreScope) {
+		t.Fatalf("a closed session accepted an override: %v", err)
+	}
+	// W is untouched by the same refused write.
+	_, err = s.Apply(ctx, harness.StoreWrite{WorkspaceID: "w1", SessionID: "s1",
+		Profile: &harness.ProfileWrite{Value: hp(nil)}, Override: &harness.OverrideWrite{Value: ho("git")}})
+	if !errors.Is(err, harness.ErrStoreScope) {
+		t.Fatal(err)
+	}
+	if p, _ := profileState(t, s, ctx, "w1"); p != nil {
+		t.Fatal("W was written beside a refused S")
+	}
+	// Other sessions of the workspace are unaffected.
+	if _, err := s.Apply(ctx, harness.StoreWrite{WorkspaceID: "w1", Profile: &harness.ProfileWrite{Value: hp(nil)}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestClearOverrideTombstonesMonotonicallyAndIsIdempotent(t *testing.T) {
+	s, ctx := harnessFixture(t)
+	if st, err := s.ClearOverride(ctx, "s1"); err != nil || st.Revision != 0 || st.Present {
+		t.Fatalf("clearing what is absent: %+v %v", st, err)
+	}
+	if _, err := s.Apply(ctx, harness.StoreWrite{WorkspaceID: "w1", SessionID: "s1", Override: &harness.OverrideWrite{Value: ho("git")}}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := s.ClearOverride(ctx, "s1")
+	if err != nil || st.Revision != 2 || st.Present {
+		t.Fatalf("clear: %+v %v", st, err)
+	}
+	if again, err := s.ClearOverride(ctx, "s1"); err != nil || again.Revision != 2 {
+		t.Fatalf("a retry must keep the token: %+v %v", again, err)
+	}
+	if o, got := overrideState(t, s, ctx, "s1", "w1"); o != nil || got.Revision != 2 {
+		t.Fatalf("after clear: %+v %+v", o, got)
+	}
+	// A writer that read the override before the close cannot bring it back.
+	if _, err := s.Apply(ctx, harness.StoreWrite{WorkspaceID: "w1", SessionID: "s1", Override: &harness.OverrideWrite{Expect: harness.Stamp{Revision: 1}, Value: ho("tasks")}}); !errors.Is(err, harness.ErrStoreConflict) {
+		t.Fatalf("a stale token resurrected the override: %v", err)
+	}
+	for _, id := range []string{""} {
+		if _, err := s.ClearOverride(ctx, id); !errors.Is(err, harness.ErrStoreScope) {
+			t.Errorf("%q: %v", id, err)
+		}
+	}
+}
+
+func TestAFailedClearReportsTheFailureAndChangesNothing(t *testing.T) {
+	s, ctx := harnessFixture(t)
+	if _, err := s.Apply(ctx, harness.StoreWrite{WorkspaceID: "w1", SessionID: "s1", Override: &harness.OverrideWrite{Value: ho("git")}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `CREATE TRIGGER fail_clear BEFORE UPDATE ON session_harness_overrides BEGIN SELECT RAISE(ABORT,'injected'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ClearOverride(ctx, "s1"); err == nil {
+		t.Fatal("a failed cleanup was reported as success")
+	}
+	if o, st := overrideState(t, s, ctx, "s1", "w1"); o == nil || st.Revision != 1 {
+		t.Fatalf("the override changed although the clear failed: %+v %+v", o, st)
+	}
+	if _, err := s.db.ExecContext(ctx, `DROP TRIGGER fail_clear`); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := s.ClearOverride(ctx, "s1"); err != nil || st.Revision != 2 {
+		t.Fatalf("a retry after the failure: %+v %v", st, err)
+	}
+}
+
+// Close versus a late approval, in both orders and under contention.
+func TestCloseAndApplyNeverLeaveAnOverrideOnAClosedSession(t *testing.T) {
+	for order := 0; order < 2; order++ {
+		s, ctx := harnessFixture(t)
+		write := func() error {
+			_, err := s.Apply(ctx, harness.StoreWrite{WorkspaceID: "w1", SessionID: "s1", Override: &harness.OverrideWrite{Value: ho("git")}})
+			return err
+		}
+		closeAndClear := func() {
+			closeSession(t, s, ctx, "s1")
+			if _, err := s.ClearOverride(ctx, "s1"); err != nil {
+				t.Error(err)
+			}
+		}
+		if order == 0 {
+			_ = write()
+			closeAndClear()
+		} else {
+			closeAndClear()
+			if err := write(); !errors.Is(err, harness.ErrStoreScope) {
+				t.Fatalf("apply after close: %v", err)
+			}
+		}
+		if o, _, _ := s.GetOverride(ctx, "s1", "w1"); o != nil {
+			t.Fatalf("order %d left an override on a closed session", order)
+		}
+	}
+	for i := 0; i < 3; i++ {
+		s, ctx := harnessFixture(t)
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, _ = s.Apply(ctx, harness.StoreWrite{WorkspaceID: "w1", SessionID: "s1", Override: &harness.OverrideWrite{Value: ho("git")}})
+		}()
+		go func() {
+			defer wg.Done()
+			_, _ = s.db.ExecContext(ctx, `UPDATE agent_sessions SET status='closed' WHERE id='s1'`)
+			_, _ = s.ClearOverride(ctx, "s1")
+		}()
+		wg.Wait()
+		if o, _, _ := s.GetOverride(ctx, "s1", "w1"); o != nil {
+			t.Fatalf("run %d: a racing apply outlived the close cleanup", i)
+		}
+	}
+}

@@ -219,8 +219,8 @@ func gitOffW(rev int64) func(*harness.Inputs) {
 }
 
 type launchEnv struct {
-	db      *sql.DB
 	t       *testing.T
+	db      *sql.DB
 	svc     *agenthub.Service
 	adapter *launchAdapter
 	harness *fakeHarness
@@ -246,7 +246,7 @@ func newLaunchEnv(t *testing.T, endpoints func(*events) agenthub.MCPEndpoints) *
 	reg.Register(adapter)
 	svc := agenthub.NewService(reg, agenthub.NewSQLStore(db), func(string, json.RawMessage) {})
 	svc.MatchingWorkspaces = func(string) ([]string, error) { return []string{"w1"}, nil }
-	e := &launchEnv{db: db, t: t, svc: svc, adapter: adapter, ev: ev, harness: &fakeHarness{ev: ev}}
+	e := &launchEnv{t: t, db: db, svc: svc, adapter: adapter, ev: ev, harness: &fakeHarness{ev: ev}}
 	e.harness.set(func(session, ws, vendor string) (harness.Snapshot, error) {
 		return snapshotFor(t, session, ws, vendor, nil), nil
 	})

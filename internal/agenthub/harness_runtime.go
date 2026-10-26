@@ -2,7 +2,9 @@ package agenthub
 
 import (
 	"context"
+	"errors"
 	"log"
+	"time"
 
 	"devkit/internal/acp"
 	"devkit/internal/harness"
@@ -44,6 +46,17 @@ type appliedHarness struct {
 	// it a W or S revision is not claimed in usage attribution.
 	Enforced bool
 }
+
+// HarnessLifecycle is told when a session is explicitly closed so the override
+// (S) it owned is removed through the owning service. Reload, resume, rewind,
+// an account move and a crashed process are not closes and never call it.
+type HarnessLifecycle interface {
+	SessionClosed(ctx context.Context, sessionID string) error
+}
+
+// ErrHarnessCleanupFailed is returned by CloseSession when the session closed
+// but its override could not be removed. Closing again retries the cleanup.
+var ErrHarnessCleanupFailed = errors.New("session closed, but its harness override could not be removed; close it again to retry")
 
 // harnessLaunch is the one prepared value a runtime opens with: the endpoint,
 // the snapshot it was built from and whether the endpoint enforces it.
@@ -182,13 +195,44 @@ func (s *Service) HarnessApplied(sessionID string) (ref harness.SnapshotRef, enf
 	return a.Ref.Clone(), a.Enforced, found
 }
 
-func (s *Service) previousHarness(sessionID string) *appliedHarness {
+// previousHarness is what the session's runtime was last opened with: the
+// in-memory record, else the durable reference (so a restart still knows). A
+// reference that cannot be read refuses the launch instead of being ignored.
+func (s *Service) previousHarness(ctx context.Context, sessionID string) (*appliedHarness, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if a, ok := s.harnessApplied[sessionID]; ok {
-		return &a
+		s.mu.Unlock()
+		return &a, nil
 	}
-	return nil
+	s.mu.Unlock()
+	durable, ok := s.store.(HarnessAppliedStore)
+	if !ok {
+		return nil, nil
+	}
+	ref, enforced, found, err := durable.GetHarnessApplied(ctx, sessionID)
+	if err != nil {
+		log.Printf("agenthub: harness reference for session %s: %v", sessionID, err)
+		return nil, ErrHarnessUnavailable
+	}
+	if !found {
+		return nil, nil
+	}
+	return &appliedHarness{Ref: ref, Enforced: enforced}, nil
+}
+
+// recordHarnessApplied writes the durable reference of a runtime that has just
+// opened, before the runtime is published. If it cannot be written the caller
+// closes the runtime: a launch the restart gate could not later recognise is not
+// accepted. With no snapshot the row is removed.
+func (s *Service) recordHarnessApplied(ctx context.Context, sessionID string, l harnessLaunch) error {
+	durable, ok := s.store.(HarnessAppliedStore)
+	if !ok {
+		return nil
+	}
+	if l.snapshot == nil {
+		return durable.DeleteHarnessApplied(ctx, sessionID)
+	}
+	return durable.SetHarnessApplied(ctx, sessionID, l.snapshot.Ref, l.enforced, time.Now().UTC())
 }
 
 // harnessGate refuses what cannot honestly be launched: a profile that needs the
@@ -225,6 +269,10 @@ func (s *Service) preflightHarness(ctx context.Context, sess AgentSession) error
 		log.Printf("agenthub: harness snapshot for session %s: %v", sess.ID, err)
 		return ErrHarnessUnavailable
 	}
+	previous, err := s.previousHarness(ctx, sess.ID)
+	if err != nil {
+		return err
+	}
 	_, canEnforce := s.MCPEndpoints.(PolicyEndpoints)
-	return s.harnessGate(&snap, s.previousHarness(sess.ID), canEnforce)
+	return s.harnessGate(&snap, previous, canEnforce)
 }
