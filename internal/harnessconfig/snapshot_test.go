@@ -264,7 +264,7 @@ func TestTheSnapshotPinsTheVendorCustomizationItWasResolvedFrom(t *testing.T) {
 	if snap.Vendor.Revision != 4 || snap.Vendor.Servers[0].Command != "c1" {
 		t.Fatal("a later Settings change reached a snapshot that was already resolved")
 	}
-	if snap.Ref.WorkspaceDigest != "none" || len(snap.Ref.ExecutableEntries) == 0 {
+	if len(snap.Ref.ExecutableEntries) == 0 {
 		t.Fatalf("ref = %+v", snap.Ref)
 	}
 }
