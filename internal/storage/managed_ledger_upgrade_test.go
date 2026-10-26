@@ -20,6 +20,9 @@ func TestManagedLedgerUpgradeFrom48PreservesExistingData(t *testing.T) {
 	// Build the exact previous schema by removing the new, still-empty tables.
 	// Keep a pre-existing key/value row to detect destructive upgrade behavior.
 	for _, statement := range []string{
+		`DROP TABLE agent_work_artifacts`,
+		`DROP TABLE agent_work_packages`,
+		`DROP TABLE agent_work_leases`,
 		`DROP TABLE agent_work_attempts`,
 		`DROP TABLE agent_work_items`,
 		`DROP TABLE agent_work_groups`,
@@ -47,8 +50,8 @@ func TestManagedLedgerUpgradeFrom48PreservesExistingData(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 51 {
-		t.Fatalf("schema version %d, want 51", version)
+	if version != 53 {
+		t.Fatalf("schema version %d, want 53", version)
 	}
 	var tables int
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('agent_work_groups','agent_work_items','agent_work_attempts')`).Scan(&tables); err != nil {
@@ -122,5 +125,42 @@ func TestManagedLedgerMigration50QuarantinesLegacyRowsWithoutLosingAttempt(t *te
 	}
 	if _, err = l.ListAttempts(ctx, "legacy-i", "", 10); !errors.Is(err, ErrManagedInvalid) {
 		t.Fatalf("future attempt schema read=%v", err)
+	}
+}
+
+func TestManagedOwnershipUpgradeFrom51PreservesUsageAttribution(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(filepath.Join(t.TempDir(), "upgrade51.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err = Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`DROP TABLE agent_work_artifacts`, `DROP TABLE agent_work_packages`, `DROP TABLE agent_work_leases`,
+		`DELETE FROM schema_migrations WHERE version>=52`,
+		`INSERT INTO agent_tool_usage_runs(id,started_at,batch_seq,dropped) VALUES('existing-run','2026-10-26T00:00:00Z',7,3)`,
+	} {
+		if _, err = db.ExecContext(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if err = Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	var batch, dropped, version int
+	if err = db.QueryRowContext(ctx, `SELECT batch_seq,dropped FROM agent_tool_usage_runs WHERE id='existing-run'`).Scan(&batch, &dropped); err != nil {
+		t.Fatal(err)
+	}
+	if batch != 7 || dropped != 3 {
+		t.Fatalf("usage attribution changed: %d %d", batch, dropped)
+	}
+	if err = db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil || version != 53 {
+		t.Fatalf("schema=%d, err=%v", version, err)
 	}
 }

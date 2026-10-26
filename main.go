@@ -1096,7 +1096,9 @@ func main() {
 	// Managed-team rows are local coordination metadata. Keep the constructor
 	// at the root, which owns the database; app depends only on agentwork's
 	// storage interface.
-	app.WireManagedTeams(container, storage.NewManagedLedger(db))
+	managedLedger := storage.NewManagedLedger(db)
+	app.WireManagedTeams(container, managedLedger)
+	app.WireManagedOwnership(container, managedLedger)
 	// One-time, idempotent: a board written before workspaces existed has no
 	// binding yet, and without this it would simply vanish from every agent
 	// the moment the scope wiring above takes effect. Run after

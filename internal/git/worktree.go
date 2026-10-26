@@ -326,8 +326,18 @@ func (s *Service) WorktreeRemove(ctx context.Context, name string) error {
 	}
 
 	var target *Worktree
+	canonicalName := ""
+	if filepath.IsAbs(name) {
+		if resolved, resolveErr := filepath.EvalSymlinks(name); resolveErr == nil {
+			canonicalName = filepath.Clean(resolved)
+		}
+	}
 	for _, wt := range worktrees {
-		if wt.Branch == name || wt.Path == name {
+		canonicalWorktree := ""
+		if resolved, resolveErr := filepath.EvalSymlinks(wt.Path); resolveErr == nil {
+			canonicalWorktree = filepath.Clean(resolved)
+		}
+		if wt.Branch == name || wt.Path == name || canonicalName != "" && canonicalWorktree == canonicalName {
 			target = &wt
 			break
 		}

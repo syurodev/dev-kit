@@ -54,6 +54,54 @@ func newTestServiceWith(t *testing.T, adapter *agenthub.MockAdapter) *agenthub.S
 	return agenthub.NewService(reg, agenthub.NewSQLStore(db), func(string, json.RawMessage) {})
 }
 
+type writerGuardFunc func(context.Context, string) error
+
+func (f writerGuardFunc) AuthorizeCurrentWriter(ctx context.Context, id string) error {
+	return f(ctx, id)
+}
+
+func TestManagedWriterGuardFencesInvokeSteerAndResume(t *testing.T) {
+	svc := newTestService(t)
+	cwd := t.TempDir()
+	sess, err := svc.CreateSession(context.Background(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	denied := errors.New("managed lease denied")
+	var calls []string
+	svc.SetManagedWriterGuard(writerGuardFunc(func(_ context.Context, id string) error {
+		if id != sess.ID {
+			t.Errorf("guard session = %q, want %q", id, sess.ID)
+		}
+		calls = append(calls, id)
+		return denied
+	}))
+	if _, err := svc.Invoke(context.Background(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "must not run"}); !errors.Is(err, denied) || !errors.Is(err, agenthub.ErrManagedWriterBlocked) || err.Error() != agenthub.ErrManagedWriterBlocked.Error() {
+		t.Fatalf("Invoke error = %v, want fixed managed-writer error and preserved cause", err)
+	}
+	if _, err := svc.Steer(context.Background(), sess.ID, "must not steer"); !errors.Is(err, denied) || !errors.Is(err, agenthub.ErrManagedWriterBlocked) || err.Error() != agenthub.ErrManagedWriterBlocked.Error() {
+		t.Fatalf("Steer error = %v", err)
+	}
+	if err := svc.ResumeSession(context.Background(), sess.ID, false); !errors.Is(err, denied) || !errors.Is(err, agenthub.ErrManagedWriterBlocked) || err.Error() != agenthub.ErrManagedWriterBlocked.Error() {
+		t.Fatalf("ResumeSession error = %v", err)
+	}
+	if len(calls) != 3 {
+		t.Fatalf("guard calls = %d, want invoke/steer/resume", len(calls))
+	}
+}
+
+func TestManagedWriterGuardCanConfirmUnmanagedSession(t *testing.T) {
+	svc := newTestService(t)
+	sess, err := svc.CreateSession(context.Background(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.SetManagedWriterGuard(writerGuardFunc(func(context.Context, string) error { return nil }))
+	if err := svc.ResumeSession(context.Background(), sess.ID, false); err != nil {
+		t.Fatalf("unmanaged resume: %v", err)
+	}
+}
+
 func TestSessionWorkspaceIdentityDoesNotFollowFolderOrUISelection(t *testing.T) {
 	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
 	if err != nil {

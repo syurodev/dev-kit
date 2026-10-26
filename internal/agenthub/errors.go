@@ -26,6 +26,10 @@ var (
 	ErrCycleDetected      = errors.New("agenthub.cycleDetected")
 	ErrVendorUnknown      = errors.New("agenthub.vendorUnknown")
 	ErrPermissionDenied   = errors.New("agenthub.permissionDenied")
+	// ErrManagedWriterBlocked is the safe public error for any denial at the
+	// managed ownership fence. The underlying cause is available through
+	// errors.Is on internal callers, while Error() stays fixed for bridge use.
+	ErrManagedWriterBlocked = errors.New("agenthub.managedWriterBlocked")
 	// ErrPermissionNotWaiting: the request answered is no longer waiting — the
 	// agent withdrew it, the turn ended or it expired. Nothing was sent.
 	ErrPermissionNotWaiting = errors.New("agenthub.permissionNotWaiting")
@@ -95,6 +99,21 @@ var (
 	// sentence (the vendor's) that said what to do.
 	ErrTurnFailed = errors.New("agenthub.turnFailed")
 )
+
+type managedWriterBlockedError struct{ cause error }
+
+func (e managedWriterBlockedError) Error() string { return ErrManagedWriterBlocked.Error() }
+func (e managedWriterBlockedError) Unwrap() error { return e.cause }
+func (e managedWriterBlockedError) Is(target error) bool {
+	return target == ErrManagedWriterBlocked || errors.Is(e.cause, target)
+}
+
+func managedWriterBlocked(cause error) error {
+	if cause == nil {
+		cause = ErrManagedWriterBlocked
+	}
+	return managedWriterBlockedError{cause: cause}
+}
 
 // VendorError is an error that is about one vendor rather than about Agent
 // Hub: which agent is not installed, whose sign-in expired. The error itself
