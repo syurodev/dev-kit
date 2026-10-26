@@ -43,13 +43,14 @@ type SnapshotRef struct {
 	// read in full. The snapshot is then an honest statement about DevKit's
 	// configuration only; it is not a verified account of what the vendor runs.
 	FactsComplete bool
-	// WorkspaceDigest identifies what the workspace profile contributed, with its
-	// symlinks resolved ("none" when there is no profile). ExecutableEntries lists
-	// each executable that could run or load as a hash of its name and a hash of
-	// its definition: enough to see that an entry is new or altered, without
-	// storing a name, path, command or argument.
-	WorkspaceDigest   string
-	ExecutableEntries map[string]string
+	// ExecutableEntries lists each executable that could run or load as a hash of
+	// its name and a hash of its definition: enough to see that an entry is new
+	// or altered, without storing a name, path, command or argument.
+	// WorkspaceOwned names (hashed, sorted) the entries the workspace profile
+	// defines; WorkspaceSuppressed the ones only its deny lists hide.
+	ExecutableEntries   map[string]string
+	WorkspaceOwned      []string
+	WorkspaceSuppressed []string
 	// Default is true for a positively resolved configuration with no workspace
 	// profile and no session override: today's unprofiled behavior.
 	Default bool
@@ -181,25 +182,36 @@ func (r SnapshotRef) Equal(o SnapshotRef) bool {
 		sameRev(r.Revisions.Workspace, o.Revisions.Workspace) && sameRev(r.Revisions.Session, o.Revisions.Session) &&
 		r.Revisions.Vendor == o.Revisions.Vendor && r.Fingerprint == o.Fingerprint &&
 		r.ExecutableDigest == o.ExecutableDigest && r.FactsComplete == o.FactsComplete && r.Default == o.Default &&
-		r.WorkspaceDigest == o.WorkspaceDigest
+		slices.Equal(r.WorkspaceOwned, o.WorkspaceOwned) && slices.Equal(r.WorkspaceSuppressed, o.WorkspaceSuppressed)
 }
 
 // AdoptsNewExecutables reports whether reopening with r instead of what was
 // applied (previous) would bring in an executable that is new or altered because
-// the workspace profile changed. Removals and narrowing never count, and a change
-// that comes from the vendor customization or the vendor's own files while the
-// workspace content is unchanged is not this rule's business: a reload has always
-// adopted those.
+// of the workspace profile: an entry the profile defines (now, or before and
+// since replaced), or one its deny lists stopped hiding. Removals and narrowing
+// never count. A change that comes from the vendor customization or the vendor's
+// own files is not this rule's business, even in the same reopen as a workspace
+// edit that only narrows: a reload has always adopted those.
 func (r SnapshotRef) AdoptsNewExecutables(previous SnapshotRef) bool {
-	if r.WorkspaceDigest == previous.WorkspaceDigest {
-		return false
-	}
+	owned := hashSet(r.WorkspaceOwned)
+	prevOwned, prevSuppressed := hashSet(previous.WorkspaceOwned), hashSet(previous.WorkspaceSuppressed)
 	for key, shape := range r.ExecutableEntries {
-		if old, ok := previous.ExecutableEntries[key]; !ok || old != shape {
+		if old, ok := previous.ExecutableEntries[key]; ok && old == shape {
+			continue
+		}
+		if owned[key] || prevOwned[key] || prevSuppressed[key] {
 			return true
 		}
 	}
 	return false
+}
+
+func hashSet(in []string) map[string]bool {
+	out := make(map[string]bool, len(in))
+	for _, s := range in {
+		out[s] = true
+	}
+	return out
 }
 
 // ExecutableEntries is the hashed entry table a SnapshotRef carries.
@@ -211,8 +223,19 @@ func (e Effective) ExecutableEntries() map[string]string {
 	return out
 }
 
-// WorkspaceDigest is the digest of what W contributed (see SnapshotRef).
-func (e Effective) WorkspaceDigest() string { return e.wsDigest }
+// WorkspaceOwned and WorkspaceSuppressed are the hashed, sorted ownership tables
+// a SnapshotRef carries (see AdoptsNewExecutables).
+func (e Effective) WorkspaceOwned() []string      { return hashedKeys(e.owned) }
+func (e Effective) WorkspaceSuppressed() []string { return hashedKeys(e.suppressed) }
+
+func hashedKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, shortHash(k))
+	}
+	slices.Sort(out)
+	return out
+}
 
 func shortHash(s string) string {
 	sum := sha256.Sum256([]byte(s))
@@ -231,5 +254,7 @@ func (r SnapshotRef) Clone() SnapshotRef {
 	out := r
 	out.Revisions = r.Revisions.Clone()
 	out.ExecutableEntries = cloneMap(r.ExecutableEntries)
+	out.WorkspaceOwned = slices.Clone(r.WorkspaceOwned)
+	out.WorkspaceSuppressed = slices.Clone(r.WorkspaceSuppressed)
 	return out
 }

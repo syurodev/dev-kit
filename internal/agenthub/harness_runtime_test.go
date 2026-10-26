@@ -200,7 +200,7 @@ func snapshotFor(t *testing.T, session, ws, vendor string, mutate func(*harness.
 	return harness.Snapshot{
 		Vendor: in.Vendor,
 		Ref: harness.SnapshotRef{Schema: harness.SnapshotSchema, WorkspaceID: ws, SessionID: session, Vendor: vendor, Revisions: eff.Revisions,
-			Fingerprint: eff.Fingerprint, ExecutableDigest: eff.ExecutableDigest(), WorkspaceDigest: eff.WorkspaceDigest(), ExecutableEntries: eff.ExecutableEntries(), FactsComplete: true, Default: in.Workspace == nil && in.Session == nil},
+			Fingerprint: eff.Fingerprint, ExecutableDigest: eff.ExecutableDigest(), ExecutableEntries: eff.ExecutableEntries(), WorkspaceOwned: eff.WorkspaceOwned(), WorkspaceSuppressed: eff.WorkspaceSuppressed(), FactsComplete: true, Default: in.Workspace == nil && in.Session == nil},
 		Effective: eff,
 	}
 }
@@ -696,5 +696,38 @@ func TestAReopenAdoptsOnlyWhatTheWorkspaceContentReallyChanged(t *testing.T) {
 	e.harness.set(snapWith(4, nil))
 	if err := e.reload(s.ID); !errors.Is(err, agenthub.ErrHarnessNewSessionRequired) {
 		t.Fatalf("re-adding a server after narrowing: %v", err)
+	}
+}
+
+// Review: the vendor customization changes a server's command in the same reload
+// in which the workspace only turns a tool group off.
+func TestAVendorCommandChangeBesideAWorkspaceNarrowingStillReloads(t *testing.T) {
+	e := newLaunchEnv(t, policy)
+	snap := func(vendorCmd string, wRev int64, gitOn bool) func(string, string, string) (harness.Snapshot, error) {
+		return func(sid, ws, v string) (harness.Snapshot, error) {
+			return snapshotFor(t, sid, ws, v, func(in *harness.Inputs) {
+				in.Vendor.Servers = []harness.Server{{Name: "vendor-db", Command: vendorCmd, Enabled: true}}
+				in.Workspace = &harness.Profile{Schema: 1, Revision: wRev, ToolGroups: map[string]bool{"git": gitOn}}
+			}), nil
+		}
+	}
+	e.harness.set(snap("old-command", 1, true))
+	s := e.mustCreate()
+	e.harness.set(snap("new-command", 2, false))
+	if err := e.reload(s.ID); err != nil {
+		t.Fatalf("a vendor command change must not be blamed on a workspace that only narrows: %v", err)
+	}
+	if ref, _, _ := e.svc.HarnessApplied(s.ID); *ref.Revisions.Workspace != 2 {
+		t.Fatalf("the reload did not apply the new configuration: %+v", ref)
+	}
+	// The workspace adding its own server in the same breath is its doing.
+	e.harness.set(func(sid, ws, v string) (harness.Snapshot, error) {
+		return snapshotFor(t, sid, ws, v, func(in *harness.Inputs) {
+			in.Vendor.Servers = []harness.Server{{Name: "vendor-db", Command: "newer", Enabled: true}}
+			in.Workspace = &harness.Profile{Schema: 1, Revision: 3, ToolGroups: map[string]bool{"git": false}, Servers: []harness.Server{{Name: "w", Command: "x", Enabled: true}}}
+		}), nil
+	})
+	if err := e.reload(s.ID); !errors.Is(err, agenthub.ErrHarnessNewSessionRequired) {
+		t.Fatalf("got %v", err)
 	}
 }
