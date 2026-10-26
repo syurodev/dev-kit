@@ -59,6 +59,14 @@ func (k CodexAPIKey) Key(context.Context) (string, error) {
 	return credential.Secret, nil
 }
 
+// Chosen reports whether an API key is chosen, without reading the key. A
+// preference that cannot be read counts as chosen: the explicit setting is not
+// passed over for a guess.
+func (k CodexAPIKey) Chosen(context.Context) bool {
+	id, err := k.chosen()
+	return err != nil || id != ""
+}
+
 // Choose stores which account is the key; "" goes back to ChatGPT. It
 // refuses an account a spawn could not resolve, so the mistake is made here
 // and not at the next session.

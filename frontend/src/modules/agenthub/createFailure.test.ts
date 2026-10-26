@@ -33,4 +33,14 @@ describe("a failed create, per vendor", () => {
     expect(createFailure("codex", coded("connection_failed", "Agent sandbox is unavailable.")).sandboxHint).toBe(true);
     expect(createFailure("mock", coded("connection_failed", "Agent sandbox is unavailable.")).sandboxHint).toBe(false);
   });
+
+  it("every account at its limit is neither a sign-in nor a missing runtime", () => {
+    for (const vendor of ["claude", "codex", "mock"]) {
+      const failure = createFailure(vendor, coded("agent_usage_limit", "Every account of this vendor has reached its limit."));
+      expect(failure.signIn).toBe(false);
+      expect(failure.refreshRuntime).toBe("");
+      expect(failure.shownByInstallPanel).toBe(false);
+      expect(failure.sandboxHint).toBe(false);
+    }
+  });
 });

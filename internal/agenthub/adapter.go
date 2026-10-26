@@ -122,6 +122,16 @@ type RuntimeConfigurator interface {
 	SetMode(ctx context.Context, modeID string) error
 }
 
+// BuiltinCredentialPin is implemented by a vendor whose built-in account can be
+// pinned to a credential the person chose in Settings (Codex's API key). Such a
+// credential is explicit configuration: a new session is not moved to a
+// subscription account in its place (account_create.go). Answering true when the
+// choice cannot be read keeps the pin: the open then fails as a bad key, rather
+// than the choice being passed over.
+type BuiltinCredentialPin interface {
+	BuiltinPinnedToAPIKey(ctx context.Context) bool
+}
+
 // VendorConfigCatalog reads choices before there is a conversation or turn.
 type VendorConfigCatalog interface {
 	ConfigCatalog(context.Context, OpenSpec) ([]ConfigOption, error)

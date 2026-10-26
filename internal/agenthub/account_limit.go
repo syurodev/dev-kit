@@ -51,17 +51,24 @@ func (s *Service) markAccountLimited(ctx context.Context, sess AgentSession, sto
 	if id == "" {
 		id = accountIDOf(sess)
 	}
+	s.markExhausted(ctx, id, stop.RetryAfter, "session "+sess.ID)
+}
+
+// markExhausted records that the vendor refused account id for a real limit: it
+// is out until the blocking window's reset, else retryAfter, else
+// accountProbeCooldown. who names the caller in the log. Best effort.
+func (s *Service) markExhausted(ctx context.Context, id string, retryAfter *time.Time, who string) {
 	acct, err := s.Accounts.Get(ctx, id)
 	if err != nil {
-		log.Printf("agenthub: session %s: account %s: %v; its limit is not recorded", sess.ID, id, err)
+		log.Printf("agenthub: %s: account %s: %v; its limit is not recorded", who, id, err)
 		return
 	}
 	now := time.Now()
 	until := now.Add(accountProbeCooldown)
 	if reset := reachedReset(acct.Usage, now); !reset.IsZero() {
 		until = reset
-	} else if stop.RetryAfter != nil && stop.RetryAfter.After(now) {
-		until = *stop.RetryAfter
+	} else if retryAfter != nil && retryAfter.After(now) {
+		until = *retryAfter
 	}
 	if err := s.Accounts.MarkExhausted(ctx, id, until); err != nil {
 		log.Printf("agenthub: account %s: marking its limit: %v", id, err)

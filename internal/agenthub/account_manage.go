@@ -297,7 +297,9 @@ func (s *Service) SetAccountShared(ctx context.Context, id string, shared bool) 
 
 // accountInUse reports whether a session's process runs as the account, or is
 // being opened as it: resumeRuntime records the account long before it publishes
-// s.runtimes[id], so a session with its resume barrier up counts too.
+// s.runtimes[id], so a session with its resume barrier up counts too, and a
+// session being created holds its account from the moment it is chosen
+// (creating, set under accountMgmt by accountChooser.holdAdded).
 //
 // Residual gaps, accepted: a resume that has not yet reached recordSessionAccount
 // (it reads the session's row, which still names the account), and a moveSession
@@ -307,6 +309,11 @@ func (s *Service) SetAccountShared(ctx context.Context, id string, shared bool) 
 func (s *Service) accountInUse(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	for _, acct := range s.creating {
+		if acct == id {
+			return true // a session being created holds it
+		}
+	}
 	for sessionID, acct := range s.sessionAccount {
 		if acct != id {
 			continue
