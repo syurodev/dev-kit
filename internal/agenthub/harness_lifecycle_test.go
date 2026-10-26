@@ -194,7 +194,7 @@ func TestAFailedDurableWriteRefusesTheLaunchAndPublishesNothing(t *testing.T) {
 	}
 }
 
-func TestExplicitCloseRemovesTheOverrideAndTheReference(t *testing.T) {
+func TestExplicitCloseRemovesTheOverrideAndKeepsTheReference(t *testing.T) {
 	e := newLaunchEnv(t, plain)
 	life := &fakeLifecycle{}
 	e.svc.HarnessLifecycle = life
@@ -205,11 +205,11 @@ func TestExplicitCloseRemovesTheOverrideAndTheReference(t *testing.T) {
 	if got := life.calls(); len(got) != 1 || got[0] != s.ID {
 		t.Fatalf("lifecycle calls = %v", got)
 	}
-	if _, _, ok := e.svc.HarnessApplied(s.ID); ok {
-		t.Fatal("the in-memory record outlived the close")
+	if _, _, ok := e.svc.HarnessApplied(s.ID); !ok {
+		t.Fatal("Close lost the in-memory reopen guard")
 	}
-	if _, _, found := e.durable(s.ID); found {
-		t.Fatal("the durable reference outlived the close")
+	if _, _, found := e.durable(s.ID); !found {
+		t.Fatal("Close lost the durable reopen guard")
 	}
 }
 
@@ -253,14 +253,36 @@ func TestACleanupFailureIsReportedAndClosingAgainRetries(t *testing.T) {
 	if len(life.calls()) != 2 {
 		t.Fatalf("calls = %v", life.calls())
 	}
-	// A failing reference cleanup is reported the same way.
+	// Reference deletion belongs to Delete, not Close. A failed Delete keeps
+	// both guards until the rows can actually be removed.
 	e2 := newLaunchEnv(t, plain)
 	s2 := e2.mustCreate()
 	if _, err := e2.db.Exec(`CREATE TRIGGER fail_del BEFORE DELETE ON agent_session_harness_applied BEGIN SELECT RAISE(ABORT,'injected'); END`); err != nil {
 		t.Fatal(err)
 	}
-	if err := e2.svc.CloseSession(context.Background(), s2.ID); !errors.Is(err, agenthub.ErrHarnessCleanupFailed) {
-		t.Fatalf("reference cleanup failure: %v", err)
+	if err := e2.svc.CloseSession(context.Background(), s2.ID); err != nil {
+		t.Fatalf("Close must not attempt reference deletion: %v", err)
+	}
+	if err := e2.svc.DeleteSession(context.Background(), s2.ID); err == nil {
+		t.Fatal("Delete ignored a failed reference cascade")
+	}
+	if _, _, found := e2.durable(s2.ID); !found {
+		t.Fatal("failed Delete lost the durable guard")
+	}
+	if _, _, found := e2.svc.HarnessApplied(s2.ID); !found {
+		t.Fatal("failed Delete lost the in-memory guard")
+	}
+	if _, err := e2.db.Exec(`DROP TRIGGER fail_del`); err != nil {
+		t.Fatal(err)
+	}
+	if err := e2.svc.DeleteSession(context.Background(), s2.ID); err != nil {
+		t.Fatalf("retry Delete: %v", err)
+	}
+	if _, _, found := e2.durable(s2.ID); found {
+		t.Fatal("Delete retained the durable reference")
+	}
+	if _, _, found := e2.svc.HarnessApplied(s2.ID); found {
+		t.Fatal("Delete retained the in-memory reference")
 	}
 }
 
@@ -278,5 +300,8 @@ func TestDeletingASessionCleansItsSubtree(t *testing.T) {
 	var n int
 	if err := e.db.QueryRow(`SELECT count(*) FROM agent_session_harness_applied`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("references left: %d %v", n, err)
+	}
+	if _, _, found := e.svc.HarnessApplied(s.ID); found {
+		t.Fatal("Delete retained the in-memory reference")
 	}
 }

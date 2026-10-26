@@ -48,6 +48,15 @@ func (st *SQLStore) GetHarnessApplied(ctx context.Context, sessionID string) (ha
 }
 
 func (st *SQLStore) SetHarnessApplied(ctx context.Context, sessionID string, ref harness.SnapshotRef, enforced bool, at time.Time) error {
+	return setHarnessApplied(ctx, st.db, sessionID, ref, enforced, at)
+}
+
+// Both an ordinary launch and the rewind transaction use the same encoding.
+type harnessAppliedExecer interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func setHarnessApplied(ctx context.Context, db harnessAppliedExecer, sessionID string, ref harness.SnapshotRef, enforced bool, at time.Time) error {
 	raw, err := json.Marshal(ref)
 	if err != nil {
 		return err
@@ -56,7 +65,7 @@ func (st *SQLStore) SetHarnessApplied(ctx context.Context, sessionID string, ref
 	if enforced {
 		flag = 1
 	}
-	_, err = st.db.ExecContext(ctx, `INSERT INTO agent_session_harness_applied(session_id,schema_version,ref,enforced,applied_at) VALUES(?,?,?,?,?)
+	_, err = db.ExecContext(ctx, `INSERT INTO agent_session_harness_applied(session_id,schema_version,ref,enforced,applied_at) VALUES(?,?,?,?,?)
  ON CONFLICT(session_id) DO UPDATE SET schema_version=excluded.schema_version,ref=excluded.ref,enforced=excluded.enforced,applied_at=excluded.applied_at`,
 		sessionID, harness.SnapshotSchema, string(raw), flag, formatStoreTime(at))
 	return err

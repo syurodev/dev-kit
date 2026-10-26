@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	"devkit/internal/harness"
 )
 
 // The one write a rewind makes.
@@ -33,6 +35,11 @@ type RewindSpec struct {
 	// at the moment the rewind stops being interruptible.
 	SafetyCheckpointID string
 	At                 time.Time
+	// The fork's applied reference commits with the conversation cut, never in
+	// a later best-effort write. Nil removes the reference for an unconfigured
+	// launch; a failed write leaves the entire old conversation/reference intact.
+	HarnessRef      *harness.SnapshotRef
+	HarnessEnforced bool
 }
 
 // RewindStore is the transactional half of a rewind.
@@ -113,6 +120,13 @@ func (st *SQLStore) RewindSession(ctx context.Context, spec RewindSpec) error {
 			string(CheckpointDone), formatStoreTime(spec.At), spec.SafetyCheckpointID); err != nil {
 			return err
 		}
+	}
+	if spec.HarnessRef != nil {
+		if err := setHarnessApplied(ctx, tx, spec.SessionID, *spec.HarnessRef, spec.HarnessEnforced, spec.At); err != nil {
+			return err
+		}
+	} else if _, err := tx.ExecContext(ctx, `DELETE FROM agent_session_harness_applied WHERE session_id=?`, spec.SessionID); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
