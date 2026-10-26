@@ -40,6 +40,10 @@ const (
 	// authenticate: the person says which, because choosing the wrong identity
 	// is worse than asking once.
 	KindGitAccount Kind = "git_account"
+	// KindHarness is a change to the workspace harness profile or a session's
+	// tool groups. It is always asked with EnvBlocks, so it never offers an
+	// "always" answer and never reuses one.
+	KindHarness Kind = "harness"
 )
 
 // Prompter notifies the UI that a human decision is needed.
@@ -362,6 +366,10 @@ func (h *Hub) SelectAccount(ctx context.Context, req SelectAccountRequest) (Acco
 	}
 	return choice, nil
 }
+
+// CanAsk reports whether a person could answer a confirmation: there is a
+// prompt handler and the hub is not headless (server mode).
+func (h *Hub) CanAsk() bool { return h != nil && !h.Headless && h.prompter != nil }
 
 func (h *Hub) Confirm(ctx context.Context, req ConfirmRequest) error {
 	_, _, err := h.ConfirmDecision(ctx, req)
