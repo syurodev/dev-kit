@@ -142,15 +142,20 @@ func Resolve(in Inputs) (Effective, error) {
 			eff.executable["mcp:"+s.Name] = serverShape(s)
 		}
 	}
+	// An imported skill that is denied is not loaded, so it is not executable
+	// until its deny entry goes: removing that entry is an executable change.
 	for f := range folders {
-		eff.executable["skill:"+filepath.Join(f, "SKILL.md")] = "folder"
+		skill := lenient(filepath.Join(f, "SKILL.md"))
+		if !disabledSkills[skill] {
+			eff.executable["skill:"+skill] = "folder"
+		}
 	}
 	for p := range envSkills {
 		if _, mine := eff.executable["skill:"+p]; !mine && !disabledSkills[p] {
 			eff.executable["skill:"+p] = "vendor"
 		}
 	}
-	eff.Fingerprint = fingerprint(in, envSkills)
+	eff.Fingerprint = fingerprint(in, envSkills, folders, disabledSkills)
 	return eff, nil
 }
 
@@ -287,14 +292,17 @@ func validServer(s Server) error {
 
 // serverShape is the part of a server whose change is an executable change.
 func serverShape(s Server) string {
-	keys := slices.Clone(s.EnvKeys)
+	// nil and empty are one value: storage drops empty lists (omitempty), so a
+	// save/load round trip must not look like an altered executable.
+	keys := append([]string{}, s.EnvKeys...)
 	sort.Strings(keys)
+	args := append([]string{}, s.Args...)
 	b, _ := json.Marshal(struct {
 		Command string
 		Args    []string
 		URL     string
 		EnvKeys []string
-	}{s.Command, s.Args, s.URL, keys})
+	}{s.Command, args, s.URL, keys})
 	return string(b)
 }
 

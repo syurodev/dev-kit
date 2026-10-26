@@ -13,11 +13,12 @@ const fingerprintVersion = "sha256:v1:"
 
 // fingerprint binds a proposal or a snapshot to the inputs a diff depends on:
 // the V, W and S revisions, the registry's tool names and exemptions, and the
-// vendor-defined servers and skills with their commands. Sets are sorted and
+// vendor-defined servers and skills with their commands, and the canonical
+// targets of imported skill folders and denied skills. Sets are sorted and
 // paths canonical, so ordering never causes a change. It holds names, shapes
 // and paths only: no environment values and no vendor error text. Vendor
 // files can still change after this is computed; it records what was seen.
-func fingerprint(in Inputs, envSkills map[string]bool) string {
+func fingerprint(in Inputs, envSkills, folders, denied map[string]bool) string {
 	type serverFact struct{ Name, Shape string }
 	facts := struct {
 		Vendor    int64
@@ -26,6 +27,8 @@ func fingerprint(in Inputs, envSkills map[string]bool) string {
 		Registry  []string
 		Servers   []serverFact
 		Skills    []string
+		Folders   []string
+		Denied    []string
 	}{Vendor: in.Vendor.Revision}
 	if in.Workspace != nil {
 		r := in.Workspace.Revision
@@ -48,6 +51,10 @@ func fingerprint(in Inputs, envSkills map[string]bool) string {
 	}
 	sort.Slice(facts.Servers, func(i, j int) bool { return facts.Servers[i].Name < facts.Servers[j].Name })
 	facts.Skills = sortedKeys(envSkills)
+	// Where each path really points: re-pointing a symlink changes what loads
+	// although no revision moved.
+	facts.Folders = sortedKeys(folders)
+	facts.Denied = sortedKeys(denied)
 	b, _ := json.Marshal(facts)
 	sum := sha256.Sum256(b)
 	return fingerprintVersion + hex.EncodeToString(sum[:])
