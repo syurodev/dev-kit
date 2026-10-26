@@ -170,6 +170,10 @@ type PackageHost interface {
 	CurrentArtifactLeaseGeneration(context.Context, PackageScope) (int64, error)
 	AuthorizeArtifactRead(context.Context, ArtifactMetadata) error
 	AuthorizeArtifactList(context.Context, PackageScope) error
+	// ResolvePackageReference returns the reference's current canonical form for
+	// the work item's scope, or ErrManagedReferenceMissing, ...Foreign or
+	// ...Unsupported. It never trusts the revision it was given.
+	ResolvePackageReference(context.Context, PackageScope, PackageReference) (PackageReference, error)
 }
 
 type ContextPackage struct {
@@ -296,6 +300,13 @@ func (s *ManagedPayloadService) BuildContextPackage(ctx context.Context, attempt
 		return ContextPackage{}, err
 	}
 	if err = validatePackageSource(scope, source, s.limits); err != nil {
+		return ContextPackage{}, err
+	}
+	source.References, err = canonicalReferences(source.References)
+	if err != nil {
+		return ContextPackage{}, err
+	}
+	if err = s.resolveReferences(ctx, scope, source.References); err != nil {
 		return ContextPackage{}, err
 	}
 	digest, err := RequirementsDigest(source.Requirements)
@@ -564,7 +575,7 @@ func validatePackageSource(scope PackageScope, source PackageSource, limits Payl
 		return ErrManagedPayloadLimit
 	}
 	for _, ref := range source.References {
-		if !validReference(scope, ref) {
+		if !validReference(scope, ref) || !validReferenceDigest(ref) {
 			return ErrManagedPayloadScope
 		}
 	}

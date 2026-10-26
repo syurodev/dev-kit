@@ -15,7 +15,7 @@ import (
 const ManagedLedgerPageMax = 100
 
 var (
-	ErrManagedNotFound     = errors.New("managed ledger record not found")
+	ErrManagedNotFound     = agentwork.ErrManagedRecordNotFound
 	ErrManagedConflict     = errors.New("managed ledger revision conflict")
 	ErrManagedScope        = errors.New("managed ledger scope mismatch")
 	ErrManagedInvalid      = errors.New("invalid managed ledger record")
@@ -339,6 +339,19 @@ func (l *ManagedLedger) CreateWorkItem(ctx context.Context, item ManagedWorkItem
 
 func (l *ManagedLedger) GetWorkItem(ctx context.Context, id string) (ManagedWorkItem, error) {
 	i, err := scanManagedItem(l.db.QueryRowContext(ctx, managedItemSelect+` WHERE i.id=?`, id))
+	if err != nil {
+		return i, managedReadErr(err)
+	}
+	return i, nil
+}
+
+// GetWorkItemByTask returns the group's work item for a task, ended or not.
+// Both ids are required: the lookup is scoped to one group, never to a board.
+func (l *ManagedLedger) GetWorkItemByTask(ctx context.Context, groupID, taskID string) (ManagedWorkItem, error) {
+	if groupID == "" || taskID == "" {
+		return ManagedWorkItem{}, ErrManagedInvalid
+	}
+	i, err := scanManagedItem(l.db.QueryRowContext(ctx, managedItemSelect+` WHERE i.group_id=? AND i.task_id=? ORDER BY (i.ended_at IS NOT NULL), i.created_at DESC LIMIT 1`, groupID, taskID))
 	if err != nil {
 		return i, managedReadErr(err)
 	}
