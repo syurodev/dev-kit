@@ -211,6 +211,34 @@ Nothing is published until the runtime opened.
   Reload, resume, rewind, account moves, crashes and runtime teardown do not call the cleanup.
 - Not yet: the read model (H3d), a real `HarnessLifecycle`/`Harness` wiring in the container, and an
   end-to-end close-vs-apply test against the H2c `Apply` (H2c is not in this branch's base).
+
+### Status read model and attribution (H3d)
+
+`Service.HarnessStatus(ctx, sessionID)` is an internal read (no caller authorization; the
+transport that exposes it, H5, decides who may ask). It starts nothing and calls no model.
+
+| State | Meaning |
+| --- | --- |
+| `unconfigured` | no harness provider, or the session has no workspace |
+| `unavailable` | the saved configuration cannot be resolved now (applied record still shown) |
+| `not_applied` | no runtime has opened under a harness yet |
+| `current` | applied equals what the saved configuration resolves to now |
+| `reload_required` | saved ≠ applied and a reload would adopt it |
+| `new_session_required` | saved ≠ applied and the change brings in a new or altered executable from W |
+
+`Desired` (saved W/S/V resolved now) and `Applied` (what the runtime was opened with) are always
+separate references; `Enforced` says the applied endpoint serves the applied policy,
+`AppliedFactsComplete` says the vendor's own servers/skills were readable (false → the reference
+describes DevKit's configuration, not a verified account of the vendor's), and `Live` is always
+false until H4 publishes override changes to the running endpoint. A saved edit therefore reads as
+`reload_required`, never as applied. The status agrees with the reopen gate by construction (both
+use `SnapshotRef.AdoptsNewExecutables`).
+
+**Attribution.** Turn rows take their `ProfileRevision`/`OverrideRevision` from the runtime facts
+captured at turn start, and those carry W/S revisions only when the endpoint enforced the
+snapshot. A saved edit mid-session, a failed open or a refused reload changes nothing already
+recorded; an unenforced configuration stays NULL; historical rows are never rewritten. The MCP
+per-call observer reading the live serving snapshot is H4's.
 ### Confirm, recheck and commit (H2c)
 
 `Service.Apply(ctx, proposalID)` is the only way a prepared proposal becomes a write. Order:
