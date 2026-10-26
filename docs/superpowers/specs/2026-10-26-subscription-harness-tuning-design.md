@@ -1,7 +1,8 @@
 # Subscription-path harness tuning: measurement, workspace harness profile, smaller context
 
-Date: 2026-10-26. Status: **Phase 1a implemented** (usage reader, UI-only report and Settings table); Phase 1b and phases 2–4
-remain design. Implementation and validation: [Phase 1a plan](../plans/2026-10-26-harness-tuning-phase1a-usage-report.md).
+Date: 2026-10-26. Status: **Phases 1a and 1b implemented** (usage reader, account attribution, host MCP text measurements and Settings reports).
+Phases 2–4 remain design. Implementation and validation: [Phase 1a plan](../plans/2026-10-26-harness-tuning-phase1a-usage-report.md)
+and [Phase 1b execution notes](../plans/2026-10-26-harness-tuning-phase1b-usage-attribution-and-tool-metrics.md#execution-notes).
 Everything under "Measured" was read from the person's database and the code on 2026-10-26.
 
 ## 1. Direction
@@ -65,18 +66,27 @@ model (grants stay per subject, gates stay where they are).
 2. **Report.** A Go service aggregates by workspace, session, model, account and day: turns, fresh input, cache read, cache write,
    output, and turns without data. UI-only bridge method (`uiOnly`, like the account methods), not an MCP tool. Numbers only.
 3. **What each turn and tool call records** (no content, no arguments):
-   - turn: the account id it ran as, the workspace's profile revision and the session override in force (none before phase 2);
-   - tool call: tool, workspace, profile revision, result bytes before and after the cut, whether it was cut, the cut mode;
-     stored as per-day counters.
-   - account moves: the move notice already carries from/to; the report joins turns to accounts and to the notice time, which is
-     what the phase 4 measurement needs. (Whether the notice row carries a usable time is checked in the plan.)
+   - turn: its start time, captured workspace, actual runtime account id and account generation; profile and override revisions
+     remain NULL before phase 2. Never reconstruct historical attribution from the current session row.
+   - tool call: tool, vendor, workspace, nullable profile/override revisions, UTF-8 text-content bytes before/after the cut, cut
+     mode and result/error/exemption coverage; stored as bounded daily counters. Images, duplicate structured JSON and vendor
+     internal tools are outside this byte metric. Collection drops or unclean shutdowns are shown as possible gaps.
+   - account moves: existing plain transcript notices have individual CreatedAt timestamps and from/to ids. New host-only
+     metadata distinguishes a successful runtime reopen from binding-only/failed moves; older notices remain unverified.
+     Correlate only with a matching new turn's start time and actual account generation. Cache writes on that first recorded
+     turn are an observation, not proof of cache invalidation cost; failover behavior stays unchanged.
 4. **UI.** A table under Settings → Agents; placement is decided in the plan. It says "tokens", never "quota used", and states that
    fewer tokens does not show a smaller share of the subscription limit, because how limits weigh cache reads is not known.
-5. **Scope.** Claude only. Other vendors show "no data".
+5. **Scope.** Vendor token accounting remains Claude-only; other vendors show no token data. DevKit-owned MCP text-byte
+   measurements can cover all Hub vendors without adding provider token/quota accounting.
 
 **Delivery.** Phase 1 ships as two plans. Plan 1a is items 1, 2, 4 and 5 (reading, the report, the table), grouped by workspace,
-session, model and day. Plan 1b is item 3 (the account id and profile revision on each turn, tool result sizes) and adds the
-account view to the report; it waits for phase 2 for the profile revision.
+session, model and day. [Plan 1b](../plans/2026-10-26-harness-tuning-phase1b-usage-attribution-and-tool-metrics.md) adds actual
+runtime account attribution, an account view, bounded MCP text-result measurements and a conservative account-move view.
+It does not wait for phase 2: profile and override revisions stay SQL NULL until real workspace/session snapshots exist.
+Earlier turns remain unknown by account, and earlier unprofiled measurements are never relabelled with a later profile revision.
+Account generations distinguish deleted/recreated local account ids; byte measurements cover DevKit-served text results, not
+vendor token billing. Account-move cache writes are observations on the first recorded turn, not inferred invalidation cost.
 
 Done when the report reproduces the §2 numbers (checked on 2026-10-26 against a copy of the real database: 512 turns, 960,683,040
 tokens, 932,811,339 cache reads, 95 partial splits, equal to a plain SQL sum of the raw meta) and tests cover: a row whose stored

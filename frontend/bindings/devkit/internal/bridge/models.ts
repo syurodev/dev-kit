@@ -20,6 +20,7 @@ export interface ActiveProfileDTO {
  * (0 = none). The account's home folder and every credential stay in Go.
  */
 export interface AgentAccountInfo {
+    "usageGeneration"?: string;
     "id": string;
     "vendor": string;
     "label": string;
@@ -81,6 +82,17 @@ export interface AgentSubagentLimitsState {
 }
 
 /**
+ * AgentUsageReportInfo is what a vendor's turns spent, in tokens. It is not a share
+ * of a subscription limit. Every list is non-null. Workspace ids are named by the
+ * window from the workspace list it already has.
+ */
+export interface AgentUsageAccountInfo {
+    "accountId": string;
+    "generation": string;
+    "totals": AgentUsageTotalsInfo;
+}
+
+/**
  * AgentUsageGroupInfo is one workspace id, UTC day (YYYY-MM-DD) or model.
  */
 export interface AgentUsageGroupInfo {
@@ -88,12 +100,8 @@ export interface AgentUsageGroupInfo {
     "totals": AgentUsageTotalsInfo;
 }
 
-/**
- * AgentUsageReportInfo is what a vendor's turns spent, in tokens. It is not a share
- * of a subscription limit. Every list is non-null. Workspace ids are named by the
- * window from the workspace list it already has.
- */
 export interface AgentUsageReportInfo {
+    "byAccount": AgentUsageAccountInfo[] | null;
     "vendor": string;
     "totals": AgentUsageTotalsInfo;
     "byWorkspace": AgentUsageGroupInfo[] | null;

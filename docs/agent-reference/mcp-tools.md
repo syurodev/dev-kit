@@ -95,3 +95,20 @@ as production-verified against a real Claude Code session in cloud CI.
   `db.testConnection`, `db.schema.get`, `ssh.testConnection`) go through `GateProfileMCP`:
   they prompt on every call when the profile's env requires confirmation, and pass otherwise.
 
+
+### Host text-result measurements (Phase 1b)
+
+`internal/mcp/result_metrics.go` observes UTF-8 `TextContent` bytes immediately around the existing result-budget mutation.
+Collection is only on identity-bound Hub sockets; terminal clients are excluded. The scope callback reads host-owned runtime
+facts from memory at call entry and checks the endpoint incarnation, so stale sockets cannot adopt a replacement runtime's
+workspace. It stores identifiers, dates and counters, never tool arguments, result text, resource/image bytes or duplicate
+structured content. Unknown dispatch failures use `dispatch-error`; known text zero and missing result coverage are distinct.
+The observer changes no gates, exemptions, limits or response content.
+
+The stdlib-only `internal/usagemetrics` collector aggregates at most 4,096 active keys plus one immutable pending batch of at
+most 4,096 keys, flushing every two seconds on one worker. SQLite daily UPSERTs and the run/sequence watermark commit together;
+an ambiguously successful commit can be retried without double counting. Full buffers or stale scopes count as dropped
+observations; write failures and runs left unclosed are visible in Settings. Shutdown stops accepts, closes collection to new
+calls, waits for entered observations within five seconds and drains pending/active batches. A crash can lose the unsaved tail;
+there is no durable per-call queue. The report reads persisted data only and never forces a flush. This measures host-served
+text bytes, not vendor request tokens, provider cost or subscription quota.

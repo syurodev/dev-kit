@@ -23,7 +23,7 @@ var _ TurnUsageSource = (*SQLStore)(nil)
 // session's workspace. It reads no message and no title.
 func (st *SQLStore) TurnUsageRows(ctx context.Context, vendor AgentType) ([]TurnUsageRow, error) {
 	rows, err := st.db.QueryContext(ctx, `
-		SELECT t.id, t.session_id, COALESCE(s.workspace_id, ''), t.created_at, t.usage_json, t.raw_meta
+		SELECT t.id, t.session_id, COALESCE(s.workspace_id, ''), t.created_at, t.usage_json, t.raw_meta, t.account_id,t.account_generation,t.started_at,t.usage_workspace_id,t.usage_context_version,t.harness_profile_revision,t.harness_override_revision
 		FROM `+tableAgentTurns+` t
 		JOIN `+tableAgentSessions+` s ON s.id = t.session_id
 		WHERE s.agent_type = ?
@@ -37,9 +37,18 @@ func (st *SQLStore) TurnUsageRows(ctx context.Context, vendor AgentType) ([]Turn
 	for rows.Next() {
 		var r TurnUsageRow
 		var usageJSON, rawMeta sql.NullString
+		var account, generation, started, workspace sql.NullString
+		var version, profile, override sql.NullInt64
 		var createdAt string
-		if err := rows.Scan(&r.TurnID, &r.SessionID, &r.WorkspaceID, &createdAt, &usageJSON, &rawMeta); err != nil {
+		if err := rows.Scan(&r.TurnID, &r.SessionID, &r.WorkspaceID, &createdAt, &usageJSON, &rawMeta, &account, &generation, &started, &workspace, &version, &profile, &override); err != nil {
 			return nil, err
+		}
+		r.Attribution, err = scanAttribution(account, generation, started, workspace, version, profile, override)
+		if err != nil {
+			return nil, err
+		}
+		if r.Attribution != nil && r.Attribution.ContextVersion == 1 {
+			r.WorkspaceID = r.Attribution.Facts.WorkspaceID
 		}
 		if usageJSON.Valid {
 			r.UsageJSON = []byte(usageJSON.String)

@@ -63,8 +63,8 @@ func (s *Service) saveObservedUsage(ctx context.Context, sess AgentSession, id s
 }
 
 // observedAccountID is the account the session's runtime runs as. A runtime
-// opened by CreateSession is not recorded in sessionAccount and is always the
-// built-in account, which the stored row names.
+// published by CreateSession or resume has host-owned attribution. Older cache
+// misses fall back to the stored binding.
 func (s *Service) observedAccountID(ctx context.Context, sessionID string) string {
 	s.mu.Lock()
 	id := s.sessionAccount[sessionID]

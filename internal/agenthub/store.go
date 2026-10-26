@@ -282,11 +282,23 @@ func (st *SQLStore) ListSessions(ctx context.Context) ([]AgentSession, error) {
 }
 
 func (st *SQLStore) InsertTurn(ctx context.Context, t TurnRecord) error {
+	var account, generation, started, workspace, version, profile, override any
+	if a := t.Attribution; a != nil {
+		account = nullEmptyString(a.Facts.AccountID)
+		generation = nullEmptyString(a.Facts.AccountGeneration)
+		if !a.StartedAt.IsZero() {
+			started = formatStoreTime(a.StartedAt)
+		}
+		workspace = nullEmptyString(a.Facts.WorkspaceID)
+		version = a.ContextVersion
+		profile = a.Facts.ProfileRevision
+		override = a.Facts.OverrideRevision
+	}
 	_, err := st.db.ExecContext(ctx, `
-		INSERT INTO `+tableAgentTurns+` (id, session_id, prompt_message_id, stop_reason, usage_json, raw_meta, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO `+tableAgentTurns+` (id, session_id, prompt_message_id, stop_reason, usage_json, raw_meta, created_at, account_id, account_generation, started_at, usage_workspace_id, usage_context_version, harness_profile_revision, harness_override_revision)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.SessionID, t.PromptMessageID, nullEmptyString(t.StopReason), nullRawJSON(t.UsageJSON), nullRawJSON(t.RawMeta),
-		formatStoreTime(t.CreatedAt),
+		formatStoreTime(t.CreatedAt), account, generation, started, workspace, version, profile, override,
 	)
 	return err
 }
@@ -307,7 +319,7 @@ func nullRawJSON(b []byte) sql.NullString {
 
 func (st *SQLStore) ListTurns(ctx context.Context, sessionID string) ([]TurnRecord, error) {
 	rows, err := st.db.QueryContext(ctx, `
-		SELECT id, session_id, prompt_message_id, stop_reason, usage_json, raw_meta, created_at
+		SELECT id, session_id, prompt_message_id, stop_reason, usage_json, raw_meta, created_at, account_id, account_generation, started_at, usage_workspace_id, usage_context_version, harness_profile_revision, harness_override_revision
 		FROM `+tableAgentTurns+`
 		WHERE session_id = ?
 		ORDER BY created_at ASC, id ASC`, sessionID,
@@ -321,8 +333,10 @@ func (st *SQLStore) ListTurns(ctx context.Context, sessionID string) ([]TurnReco
 	for rows.Next() {
 		var t TurnRecord
 		var stopReason, usageJSON, rawMeta sql.NullString
+		var account, generation, started, workspace sql.NullString
+		var version, profile, override sql.NullInt64
 		var createdAt string
-		if err := rows.Scan(&t.ID, &t.SessionID, &t.PromptMessageID, &stopReason, &usageJSON, &rawMeta, &createdAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.SessionID, &t.PromptMessageID, &stopReason, &usageJSON, &rawMeta, &createdAt, &account, &generation, &started, &workspace, &version, &profile, &override); err != nil {
 			return nil, err
 		}
 		if stopReason.Valid {
@@ -333,6 +347,11 @@ func (st *SQLStore) ListTurns(ctx context.Context, sessionID string) ([]TurnReco
 		}
 		if rawMeta.Valid {
 			t.RawMeta = []byte(rawMeta.String)
+		}
+
+		t.Attribution, err = scanAttribution(account, generation, started, workspace, version, profile, override)
+		if err != nil {
+			return nil, err
 		}
 		t.CreatedAt, err = parseStoreTime(createdAt)
 		if err != nil {

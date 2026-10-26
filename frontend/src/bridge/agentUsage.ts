@@ -37,6 +37,7 @@ export type UsageReport = {
   vendor: string;
   totals: UsageTotals;
   byWorkspace: UsageGroup[];
+  byAccount: { accountId: string; generation: string; totals: UsageTotals }[];
   /** Oldest first. */
   byDay: UsageGroup[];
   byModel: UsageGroup[];
@@ -76,6 +77,7 @@ export function reportOf(raw: RawReport): UsageReport {
   return {
     vendor: raw.vendor,
     totals: totalsOf(raw.totals),
+    byAccount: (raw.byAccount ?? []).map((row) => ({accountId: row.accountId, generation: row.generation, totals: totalsOf(row.totals)})),
     byWorkspace: (raw.byWorkspace ?? []).map(groupOf),
     byDay: (raw.byDay ?? []).map(groupOf),
     byModel: (raw.byModel ?? []).map(groupOf),

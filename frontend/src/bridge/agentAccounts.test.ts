@@ -4,6 +4,7 @@ import { accountOf, parseAccountSwitched, policyOf, rawPolicyOf } from "./agentA
 
 const raw: AgentAccountInfo = {
   id: "claude-work",
+  usageGeneration: "generation-1",
   vendor: "claude",
   label: "Work",
   builtin: false,
@@ -20,6 +21,7 @@ describe("accountOf", () => {
   test("keeps what Go sent", () => {
     expect(accountOf(raw)).toEqual({
       id: "claude-work",
+  usageGeneration: "generation-1",
       vendor: "claude",
       label: "Work",
       builtin: false,

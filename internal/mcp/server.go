@@ -16,6 +16,7 @@ import (
 	"devkit/internal/ops"
 	sshservice "devkit/internal/ssh"
 	"devkit/internal/tools"
+	"devkit/internal/usagemetrics"
 	"devkit/internal/vault"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -176,16 +177,21 @@ type ActiveProfileResult struct {
 
 // Deps wires MCP tool handlers. Production composition is Task 8 / main.
 type Deps struct {
-	Caller    Caller
-	Notes     NotesAPI
-	Vault     VaultAPI
-	Search    SearchAPI
-	Tools     ToolsAPI
-	Envs      EnvAPI
-	SSH       SSHAPI
-	DB        DatabaseAPI
-	Kafka     KafkaAPI
-	CodeGraph CodeGraphAPI
+	BeginUsage  func() bool
+	EndUsage    func()
+	UsageScope  func(sessionID, endpointToken string) (usagemetrics.Scope, bool)
+	RecordUsage func(usagemetrics.Observation)
+	DropUsage   func()
+	Caller      Caller
+	Notes       NotesAPI
+	Vault       VaultAPI
+	Search      SearchAPI
+	Tools       ToolsAPI
+	Envs        EnvAPI
+	SSH         SSHAPI
+	DB          DatabaseAPI
+	Kafka       KafkaAPI
+	CodeGraph   CodeGraphAPI
 	// CodeGraphServices lets codegraph.* tools name a workspace service
 	// (servicePath) instead of the focused project. Optional: nil leaves
 	// only the focused project, and a servicePath is refused.
@@ -282,10 +288,15 @@ func NewServer(d Deps) *Server {
 // sdkServerFor builds an SDK server whose every request carries caller. One
 // instance per identity — the shared socket gets user-terminal, each agent
 // socket its own — so there is no per-connection lookup to race against.
-func (s *Server) sdkServerFor(caller identity.Caller) *sdk.Server {
+func (s *Server) sdkServerFor(caller identity.Caller, token ...string) *sdk.Server {
 	ms := sdk.NewServer(&sdk.Implementation{Name: "devkit", Version: "0.1.0"}, nil)
 	ms.AddReceivingMiddleware(withCaller(caller))
-	ms.AddReceivingMiddleware(withResultBudget(ResultBudget))
+	var observer *ResultObservation
+	if caller.IsAgent() && len(token) > 0 && s.deps.RecordUsage != nil && s.deps.UsageScope != nil {
+		endpointToken := token[0]
+		observer = &ResultObservation{Begin: s.deps.BeginUsage, End: s.deps.EndUsage, Scope: func() (usagemetrics.Scope, bool) { return s.deps.UsageScope(caller.SessionID, endpointToken) }, Record: s.deps.RecordUsage, Drop: s.deps.DropUsage}
+	}
+	ms.AddReceivingMiddleware(withMeasuredResultBudget(ResultBudget, observer))
 	s.registerVault(ms)
 	RegisterOps(ms, ops.Runtime{Deps: ops.Deps{Notes: s.deps.Notes}, Caller: s.deps.Caller, Origin: "mcp"}, ops.Notes()...)
 	s.registerTools(ms)

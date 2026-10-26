@@ -5,6 +5,35 @@
 // @ts-ignore: Unused imports
 import * as json$0 from "../../../encoding/json/models.js";
 
+export interface AccountMoveQuery {
+    "from": string;
+    "to": string;
+    "limit": number;
+    "cursor": string;
+}
+
+export interface AccountMoveReport {
+    "vendor": string;
+    "from": string;
+    "to": string;
+    "rows": AccountMoveUsage[] | null;
+    "nextCursor": string;
+}
+
+export interface AccountMoveUsage {
+    "id": string;
+    "sessionId": string;
+    "seq": number;
+    "at": string;
+    "from": string;
+    "to": string;
+    "toGeneration": string;
+    "status": string;
+    "turnId": string;
+    "turnStartedAt": string;
+    "cacheWrite": number | null;
+}
+
 /**
  * AgentSession is the hub-owned session record (DevKit UUID, not ACP id).
  */

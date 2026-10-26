@@ -118,13 +118,10 @@ func TestUsageOfABrandNewBuiltInAccountIsStored(t *testing.T) {
 
 func TestUsageOfASessionWithNoRecordedAccountIsTheBuiltInAccounts(t *testing.T) {
 	r := newUsageRig(t)
-	// CreateSession's runtime is never recorded in sessionAccount.
+	// Exercise the legacy cache-miss fallback; newly opened runtimes now publish attribution.
 	r.svc.mu.Lock()
-	_, known := r.svc.sessionAccount[r.sess.ID]
+	delete(r.svc.sessionAccount, r.sess.ID)
 	r.svc.mu.Unlock()
-	if known {
-		t.Fatal("test premise: CreateSession must not record an account")
-	}
 
 	r.svc.handleUpdate(r.ctx, r.sess.ID, usageUpdate92)
 
@@ -139,11 +136,14 @@ func TestUsageOfASessionWithNoRecordedAccountIsTheBuiltInAccounts(t *testing.T) 
 
 func TestUsageOfAnUnknownSessionIsDropped(t *testing.T) {
 	r := newUsageRig(t)
+	r.svc.mu.Lock()
+	before := len(r.svc.sessionAccount) + len(r.svc.usageSeen)
+	r.svc.mu.Unlock()
 	r.svc.handleUpdate(r.ctx, "no-such-session", usageUpdate92)
 	r.svc.mu.Lock()
 	n := len(r.svc.sessionAccount) + len(r.svc.usageSeen)
 	r.svc.mu.Unlock()
-	if n != 0 {
+	if n != before {
 		t.Errorf("an unknown session left %d entries behind", n)
 	}
 }

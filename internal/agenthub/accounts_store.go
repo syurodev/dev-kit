@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const tableAgentAccounts = "agent_accounts"
@@ -19,19 +21,21 @@ func NewSQLAccountStore(db *sql.DB) *SQLAccountStore { return &SQLAccountStore{d
 
 var _ AccountBook = (*SQLAccountStore)(nil)
 
-const accountColumns = `id, vendor, label, home_dir, signed_in, shared, exhausted_until, cooldown_until, usage, usage_source, observed_at`
+const accountColumns = `id, vendor, label, home_dir, signed_in, shared, exhausted_until, cooldown_until, usage, usage_source, observed_at, usage_generation`
 
 // scanAccount reads one row of accountColumns. Migration 45 stores
 // exhausted_until and observed_at as Unix seconds, while created_at is an
 // RFC3339 string.
 func scanAccount(scan func(dest ...any) error) (AccountRecord, error) {
 	var a AccountRecord
+	var generation sql.NullString
 	var vendor, usage string
 	var signedIn, shared int
 	var exhausted, cooldown, observed int64
-	if err := scan(&a.ID, &vendor, &a.Label, &a.HomeDir, &signedIn, &shared, &exhausted, &cooldown, &usage, &a.UsageSource, &observed); err != nil {
+	if err := scan(&a.ID, &vendor, &a.Label, &a.HomeDir, &signedIn, &shared, &exhausted, &cooldown, &usage, &a.UsageSource, &observed, &generation); err != nil {
 		return AccountRecord{}, err
 	}
+	a.UsageGeneration = generation.String
 	a.Vendor = AgentType(vendor)
 	a.SignedIn, a.Shared = signedIn != 0, shared != 0
 	if exhausted > 0 {
@@ -59,8 +63,8 @@ func boolInt(b bool) int {
 
 func (st *SQLAccountStore) ensureBuiltin(ctx context.Context, vendor AgentType) error {
 	_, err := st.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO `+tableAgentAccounts+` (id, vendor, label, home_dir, signed_in, created_at)
-		 VALUES (?, ?, ?, '', 1, ?)`,
+		`INSERT OR IGNORE INTO `+tableAgentAccounts+` (id, vendor, label, home_dir, signed_in, created_at, usage_generation)
+		 VALUES (?, ?, ?, '', 1, ?, 'builtin')`,
 		BuiltinAccountID(vendor), string(vendor), builtinAccountLabel(vendor), formatStoreTime(time.Now()))
 	return err
 }
@@ -107,12 +111,16 @@ func (st *SQLAccountStore) Put(ctx context.Context, a AccountRecord) error {
 	case a.ID != BuiltinAccountID(a.Vendor) && a.HomeDir == "":
 		return fmt.Errorf("%w: only the built-in account may have no home folder", ErrInvalidAccount)
 	}
+	generation := uuid.NewString()
+	if a.Builtin() {
+		generation = "builtin"
+	}
 	_, err := st.db.ExecContext(ctx,
-		`INSERT INTO `+tableAgentAccounts+` (id, vendor, label, home_dir, signed_in, shared, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO `+tableAgentAccounts+` (id, vendor, label, home_dir, signed_in, shared, created_at, usage_generation)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET label = excluded.label, home_dir = excluded.home_dir,
 		   shared = excluded.shared`,
-		a.ID, string(a.Vendor), a.Label, a.HomeDir, boolInt(a.SignedIn), boolInt(a.Shared), formatStoreTime(time.Now()))
+		a.ID, string(a.Vendor), a.Label, a.HomeDir, boolInt(a.SignedIn), boolInt(a.Shared), formatStoreTime(time.Now()), generation)
 	return err
 }
 

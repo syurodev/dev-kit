@@ -14,6 +14,9 @@ export {
 } from "./models.js";
 
 export type {
+    AccountMoveQuery,
+    AccountMoveReport,
+    AccountMoveUsage,
     AgentSession,
     AttachmentInfo,
     AuthMethod,

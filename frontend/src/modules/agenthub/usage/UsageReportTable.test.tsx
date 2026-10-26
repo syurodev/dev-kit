@@ -23,7 +23,7 @@ const group = (key: string, over: Partial<UsageTotals> = {}): UsageGroup => ({ k
 const report = (over: Partial<UsageReport> = {}): UsageReport => ({
   vendor: "claude",
   totals: totals({ turns: 512, total: 960_683_040, cacheRead: 932_811_339, cacheWrite: 24_759_563, output: 3_105_232 }),
-  byWorkspace: [
+  byAccount: [], byWorkspace: [
     group("w1", { turns: 427, total: 824_519_570, cacheRead: 800_000_000 }),
     group("", { turns: 3, total: 3_583_422 }),
     group("gone", { turns: 1, total: 791_005 }),
@@ -61,7 +61,7 @@ describe("UsageReportTable", () => {
   test("renders fresh input and does not turn unknown totals into a zero headline", () => {
     const t = totals({ turns: 1, freshInput: 5, output: 7,
       known: { freshInput: 1, output: 1, total: 0, cacheRead: 0, cacheWrite: 0 } });
-    const html = render({ report: report({ totals: t, byWorkspace: [group("w1", t)], byModel: [] }) });
+    const html = render({ report: report({ totals: t, byAccount: [], byWorkspace: [group("w1", t)], byModel: [] }) });
     expect(html).toContain("Fresh input");
     expect(html).toContain(">5<");
     expect(html).toContain("— tokens over 1 turns");
@@ -99,7 +99,7 @@ describe("UsageReportTable", () => {
   });
 
   test("says there is no data yet when no turn has any", () => {
-    const html = render({ report: report({ totals: totals({ turns: 3, turnsWithoutData: 3 }), byWorkspace: [], byDay: [], byModel: [], topSessions: [] }) });
+    const html = render({ report: report({ totals: totals({ turns: 3, turnsWithoutData: 3 }), byAccount: [], byWorkspace: [], byDay: [], byModel: [], topSessions: [] }) });
     expect(html).toContain("No token data yet for Claude.");
     expect(html).not.toContain("tokens over");
   });

@@ -19,11 +19,12 @@ var ErrInvalidAccount = errors.New("agenthub.invalidAccount")
 // account (HomeDir "") is the machine's own Claude login or DevKit's own Codex
 // home, exactly what sessions ran as before accounts existed.
 type AccountRecord struct {
-	ID       string
-	Vendor   AgentType
-	Label    string
-	HomeDir  string
-	SignedIn bool
+	UsageGeneration string
+	ID              string
+	Vendor          AgentType
+	Label           string
+	HomeDir         string
+	SignedIn        bool
 	// Shared says other people also use this login (a team account), so what
 	// this app's sessions observed is only a lower bound of its usage.
 	Shared bool

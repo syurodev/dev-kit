@@ -4,7 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"devkit/internal/agenthub"
 	"devkit/internal/identity"
+	"devkit/internal/usagemetrics"
 )
 
 func TestAgentUsageReportIsUIOnlyAndNeverPermissionDeniedForTheWindow(t *testing.T) {
@@ -42,5 +44,28 @@ func TestAgentUsageReportRefusesAnInvalidVendorWithoutAnError(t *testing.T) {
 	svc := newBridgeWithAgentAccounts(t)
 	if _, err := svc.AgentUsageReport(context.Background(), "../etc"); err == nil {
 		t.Error("a vendor that is not an opaque id must be refused")
+	}
+}
+
+func TestHostMeasurementReportsAreUIOnlyAndUseUsageReadGrant(t *testing.T) {
+	svc := newBridgeWithAgentAccounts(t)
+	calls := map[string]func(context.Context) error{
+		"tools": func(ctx context.Context) error {
+			_, e := svc.AgentToolUsageReport(ctx, "mock", usagemetrics.Query{})
+			return e
+		},
+		"moves": func(ctx context.Context) error {
+			_, e := svc.AgentAccountMoveUsageReport(ctx, "mock", agenthub.AccountMoveQuery{})
+			return e
+		},
+	}
+	for name, call := range calls {
+		for who, caller := range map[string]identity.Caller{"agent": identity.Agent("session"), "terminal": identity.UserTerminal(), "remote-human": {Kind: identity.KindRemoteHuman}} {
+			e := call(identity.WithCaller(context.Background(), caller))
+			if e == nil || publicCode(e) != "permission_denied" {
+				t.Errorf("%s %s: %v", name, who, e)
+			}
+		}
+		assertNotPermissionDenied(t, "window "+name, call(context.Background()))
 	}
 }

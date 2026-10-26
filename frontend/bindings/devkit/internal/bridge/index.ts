@@ -13,6 +13,7 @@ export type {
     AgentAccountVendorPolicyState,
     AgentModelProfilesState,
     AgentSubagentLimitsState,
+    AgentUsageAccountInfo,
     AgentUsageGroupInfo,
     AgentUsageReportInfo,
     AgentUsageSessionInfo,
