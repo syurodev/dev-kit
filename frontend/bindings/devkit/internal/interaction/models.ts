@@ -50,6 +50,13 @@ export enum Kind {
      * is worse than asking once.
      */
     KindGitAccount = "git_account",
+
+    /**
+     * KindHarness is a change to the workspace harness profile or a session's
+     * tool groups. It is always asked with EnvBlocks, so it never offers an
+     * "always" answer and never reuses one.
+     */
+    KindHarness = "harness",
 };
 
 export interface Pending {
