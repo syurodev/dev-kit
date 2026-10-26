@@ -65,3 +65,25 @@ contract only; no service calls it yet and behavior is unchanged.
   the host must add them before a vendor-defined server can be fingerprinted (spike 9); a stored
   profile naming a tool or group that a later build removed makes `Resolve` fail, so H2/H5 need
   a repair path.
+
+### Harness profile storage (H2a)
+
+`storage.HarnessStore` (migration 54) persists W (`workspace_harness_profiles`) and S
+(`session_harness_overrides`). It is internal: the future harness service and composition
+call it; no UI, bridge or MCP write path exists yet.
+
+- **Tokens.** `harness.Stamp{Revision, Present}`. Every write, a delete included, bumps the
+  revision and a delete leaves a tombstone, so "absent at 3" differs from "absent at 0" and a
+  delete/recreate never repeats a token. Revision 0 = never existed. A present record's
+  `Profile.Revision`/`Override.Revision` is the column; an absent one is a nil H1 input, never 0.
+- **Writes.** `Apply(StoreWrite)` compares each record's expected revision inside one
+  transaction (insert-if-absent from 0, CAS afterwards). `*harness.ConflictError` names the
+  record that moved (`profile` → `harness.profileConflict`, `override` → stale proposal). W+S
+  commit together or not at all; a failure after W rolls W back (tested with a SQL trigger).
+- **Scope.** The workspace must exist and the session's `workspace_id` must equal it. S stores
+  the workspace it was written under; reading it under another workspace is `ErrStoreScope`,
+  so an override never follows a session that moved. Deleting the session or workspace
+  cascades; closing or reloading a runtime does not touch S (H3 owns that hook).
+- **Reads.** A stored document with an unknown schema, invalid JSON, an unknown field or
+  trailing data is `ErrStoreCorrupt`, never "no profile" (that would turn every group on).
+  Absent vs present-empty fields survive the store; S groups are sorted and de-duplicated.
