@@ -120,3 +120,34 @@ imports only `internal/harness` and `internal/identity` (architecture-tested).
 - **Tiers.** Narrowing asks unless the UI-only auto-narrowing setting is on; widening always
   asks. The agent's rationale is cleaned, bounded and shown labelled untrusted; it never
   influences target, tier or summary.
+
+### Runtime snapshots (H3a)
+
+`harness.Snapshot` is the resolved effective configuration plus the identity it was resolved
+for; `harnessconfig.Provider.Snapshot` produces it from the same store/vendor/registry ports
+and the single `harness.Resolve`. Nothing in Agent Hub calls it yet (H3b).
+
+- **Two references, never one.** `harness.ModelProfileRef` (vendor/model/effort) selects a
+  model; `harness.SnapshotRef` identifies the harness. The same model can run under different
+  snapshots and a snapshot never changes the model.
+- **SnapshotRef** holds schema, workspace/session/vendor ids, the V/W/S revisions (W and S nil
+  when they did not exist, never 0), the effective fingerprint, an `ExecutableDigest` (what could
+  run or load; order- and revision-independent, follows resolved symlink targets),
+  `FactsComplete` and `Default`. It carries no path, command, argument, instruction, env value
+  or endpoint token; a digest is never a permission.
+- **Default vs unavailable.** No W and no S is a positively resolved `Default` snapshot.
+  Anything that cannot be resolved (corrupt W or S, vendor read error, no registry, a profile
+  naming a removed group) is `harness.snapshotUnavailable`; the launch must be refused, never
+  run with unfiltered defaults. A present-but-empty W is not `Default`, although it serves the
+  same tools.
+- **Scope.** The request comes from Agent Hub's own session row. A fresh child asks with its own
+  new id, so it cannot see its parent's S; an S written under another workspace does not follow
+  the session and is not applied.
+- **Facts.** When the host reports the vendor's own servers and skills as incomplete they are not
+  used at all and `FactsComplete=false`: the snapshot describes DevKit's configuration, not a
+  verified account of what the vendor runs. Do not present it as a fully checked TEAM
+  configuration.
+- **Detached.** `Snapshot.Clone`/`Effective.Clone` share no memory; the provider returns a clone,
+  so a later change to a request, a candidate or a store row cannot alter an opening or live
+  snapshot. `Effective.ServingIsDefault` says whether the MCP server would serve exactly what it
+  serves today, i.e. whether anything needs the server to enforce the configuration.

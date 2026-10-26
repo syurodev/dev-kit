@@ -806,3 +806,42 @@ func TestFingerprintKeepsToolNamesAndExemptionsApart(t *testing.T) {
 		t.Error("tool order must not matter")
 	}
 }
+
+func TestServingIsDefaultOnlyWhenNothingChangesWhatTheServerServes(t *testing.T) {
+	if !resolve(t, base()).ServingIsDefault() {
+		t.Fatal("no profile serves the default")
+	}
+	off := base()
+	off.Workspace = profile(func(p *Profile) { p.ToolGroups = map[string]bool{"git": false} })
+	if resolve(t, off).ServingIsDefault() {
+		t.Error("a group off is not the default")
+	}
+	b := base()
+	b.Workspace = profile(func(p *Profile) {
+		p.ResultBudget = &BudgetProfile{Tools: map[string]BudgetRule{"git.status": {Bytes: ptr(4096)}}}
+	})
+	if resolve(t, b).ServingIsDefault() {
+		t.Error("a smaller budget is not the default")
+	}
+	// Lists and servers change the launch, not what the server serves.
+	l := base()
+	l.Workspace = profile(func(p *Profile) { p.DisabledMCP = []string{"x"} })
+	if !resolve(t, l).ServingIsDefault() {
+		t.Error("a deny list does not change the served tools")
+	}
+}
+
+func TestExecutableDigestIgnoresRevisionsAndOrder(t *testing.T) {
+	a := base()
+	a.Workspace = profile(func(p *Profile) { p.Servers = []Server{stdio("a", "x"), stdio("b", "y")} })
+	b := base()
+	b.Workspace = profile(func(p *Profile) { p.Revision = 99; p.Servers = []Server{stdio("b", "y"), stdio("a", "x")} })
+	if resolve(t, a).ExecutableDigest() != resolve(t, b).ExecutableDigest() {
+		t.Error("revisions or order moved the executable digest")
+	}
+	c := base()
+	c.Workspace = profile(func(p *Profile) { p.Servers = []Server{stdio("a", "x"), stdio("b", "z")} })
+	if resolve(t, a).ExecutableDigest() == resolve(t, c).ExecutableDigest() {
+		t.Error("a changed command kept the digest")
+	}
+}

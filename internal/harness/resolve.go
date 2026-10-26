@@ -156,6 +156,7 @@ func Resolve(in Inputs) (Effective, error) {
 		}
 	}
 	eff.Fingerprint = fingerprint(in, envSkills, folders, disabledSkills)
+	eff.execDigest = executableDigest(eff.executable)
 	return eff, nil
 }
 

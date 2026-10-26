@@ -174,6 +174,7 @@ type Effective struct {
 	groupOn    map[string]bool
 	budgets    map[string]Budget
 	executable map[string]string // what could run or be loaded, keyed by kind:name
+	execDigest string
 }
 
 // GroupOn reports whether a registry group is on. An unknown group is off.
@@ -221,6 +222,9 @@ const (
 	CodeFactsUnavailable = "harness.factsUnavailable"
 	CodeNotAvailable     = "harness.notAvailable"
 	CodeNoChange         = "harness.noChange"
+	// CodeSnapshotUnavailable: a runtime's configuration could not be resolved.
+	// The launch is refused; it never falls back to unfiltered defaults.
+	CodeSnapshotUnavailable = "harness.snapshotUnavailable"
 )
 
 // Error carries a public code and host-authored text only: never a command,
