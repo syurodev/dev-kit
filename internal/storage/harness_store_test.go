@@ -142,11 +142,15 @@ func TestAbsentAndPresentEmptySurviveTheStore(t *testing.T) {
 func TestUnreadableStoredRecordsAreCorruptNeverDefaults(t *testing.T) {
 	s, ctx := harnessFixture(t)
 	for name, q := range map[string]string{
-		"future schema": `INSERT INTO workspace_harness_profiles VALUES('w1',9,1,0,'{"schema":9}','x','x')`,
-		"bad json":      `INSERT INTO workspace_harness_profiles VALUES('w1',1,1,0,'{nope','x','x')`,
-		"unknown field": `INSERT INTO workspace_harness_profiles VALUES('w1',1,1,0,'{"schema":1,"toolGroupz":{}}','x','x')`,
-		"schema skew":   `INSERT INTO workspace_harness_profiles VALUES('w1',1,1,0,'{"schema":2}','x','x')`,
-		"trailing data": `INSERT INTO workspace_harness_profiles VALUES('w1',1,1,0,'{"schema":1}{"schema":1}','x','x')`,
+		"future schema":    `INSERT INTO workspace_harness_profiles VALUES('w1',9,1,0,'{"schema":9}','x','x')`,
+		"bad json":         `INSERT INTO workspace_harness_profiles VALUES('w1',1,1,0,'{nope','x','x')`,
+		"unknown field":    `INSERT INTO workspace_harness_profiles VALUES('w1',1,1,0,'{"schema":1,"toolGroupz":{}}','x','x')`,
+		"schema skew":      `INSERT INTO workspace_harness_profiles VALUES('w1',1,1,0,'{"schema":2}','x','x')`,
+		"trailing data":    `INSERT INTO workspace_harness_profiles VALUES('w1',1,1,0,'{"schema":1}{"schema":1}','x','x')`,
+		"stray bracket":    `INSERT INTO workspace_harness_profiles VALUES('w1',1,1,0,'{"schema":1}]','x','x')`,
+		"stray brace":      `INSERT INTO workspace_harness_profiles VALUES('w1',1,1,0,'{"schema":1}}','x','x')`,
+		"stray text":       `INSERT INTO workspace_harness_profiles VALUES('w1',1,1,0,'{"schema":1} x','x','x')`,
+		"future tombstone": `INSERT INTO workspace_harness_profiles VALUES('w1',9,3,1,'','x','x')`,
 	} {
 		if _, err := s.db.ExecContext(ctx, `DELETE FROM workspace_harness_profiles`); err != nil {
 			t.Fatal(err)
@@ -421,5 +425,37 @@ func TestReopeningTheDatabaseKeepsTheRecords(t *testing.T) {
 	p, st, err := NewHarnessStore(db).GetProfile(ctx, "w1")
 	if err != nil || st.Revision != 1 || p.ToolGroups["git"] {
 		t.Fatalf("after reopen: %+v %+v %v", p, st, err)
+	}
+}
+
+// A tombstone is "absent" only when this build understands it; one written under
+// another schema must not let a consumer fall back to the defaults.
+func TestUnknownSchemaTombstonesAreCorruptNotAbsent(t *testing.T) {
+	s, ctx := harnessFixture(t)
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO session_harness_overrides VALUES('s1','w1',9,2,1,'','x','x')`); err != nil {
+		t.Fatal(err)
+	}
+	if o, _, err := s.GetOverride(ctx, "s1", "w1"); !errors.Is(err, harness.ErrStoreCorrupt) || o != nil {
+		t.Fatalf("future-schema override tombstone: %+v %v", o, err)
+	}
+	// A current-schema tombstone is still plain absence with its token.
+	if _, err := s.Apply(ctx, harness.StoreWrite{WorkspaceID: "w1", Profile: &harness.ProfileWrite{Value: hp(nil)}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Apply(ctx, harness.StoreWrite{WorkspaceID: "w1", Profile: &harness.ProfileWrite{Expect: harness.Stamp{Revision: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	if p, st, err := s.GetProfile(ctx, "w1"); err != nil || p != nil || st.Revision != 2 || st.Present {
+		t.Fatalf("a current tombstone: %+v %+v %v", p, st, err)
+	}
+	// A tombstone that somehow holds a body is not trusted either.
+	if _, err := s.db.ExecContext(ctx, `PRAGMA ignore_check_constraints=ON`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE workspace_harness_profiles SET body='{"schema":1}' WHERE workspace_id='w1'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.GetProfile(ctx, "w1"); !errors.Is(err, harness.ErrStoreCorrupt) {
+		t.Fatalf("a tombstone with a body: %v", err)
 	}
 }
