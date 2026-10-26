@@ -569,6 +569,19 @@ func cloneCustomizations(in map[string]AgentCustomization) map[string]AgentCusto
 	_ = json.Unmarshal(data, &out)
 	return out
 }
+
+// HoldAgentCustomization runs fn while no customization or sandbox settings
+// write can start or finish. The harness proposal service uses it for its final
+// recheck and commit, so a vendor customization edit made through the existing
+// setter cannot land between "the inputs are unchanged" and the write. fn must
+// not call SetAgentCustomization or SetAgentSandbox; reads are fine. It is never
+// held while a person decides.
+func (s *Service) HoldAgentCustomization(fn func() error) error {
+	s.customizationMu.Lock()
+	defer s.customizationMu.Unlock()
+	return fn()
+}
+
 func (s *Service) AgentCustomization(vendor string) (AgentCustomization, error) {
 	settings, err := s.AgentSandbox()
 	return settings.Customizations[vendor], err
