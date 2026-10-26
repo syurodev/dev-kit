@@ -797,3 +797,97 @@ func TestAClosedPolicyAnswersNothing(t *testing.T) {
 		t.Fatalf("closed policy = %v %v ran=%v", res, err, ran.Load())
 	}
 }
+
+// The old endpoint's cleanup runs between the replacement's bind and its
+// publication. It must not find itself still registered and remove the new
+// socket: bind/publish and cleanup are serialized.
+func TestAnOldCloseCannotRemoveTheSocketOfAReplacementBeingPublished(t *testing.T) {
+	r := newServingRig(t, nil)
+	old, err := r.host.OpenWithPolicy(sidA, r.resolve(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused, resume := make(chan struct{}), make(chan struct{})
+	oldDone := make(chan struct{})
+	r.host.closeHook = func() { close(paused); <-resume } // the old listener is closed; its cleanup has not run
+	go func() { old.Close(); close(oldDone) }()
+	<-paused
+	r.host.closeHook = nil
+
+	r.host.bindHook = func() { // the replacement is bound, not yet published
+		r.host.bindHook = nil
+		close(resume)
+		select {
+		case <-oldDone: // an unserialized cleanup would finish here, having removed the socket
+		case <-time.After(300 * time.Millisecond):
+		}
+	}
+	fresh, err := r.host.OpenWithPolicy(sidA, r.resolve(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-oldDone
+	if _, err := os.Stat(fresh.SocketPath); err != nil {
+		t.Fatalf("the replacement's socket is gone: %v", err)
+	}
+	cs := r.client(fresh.SocketPath)
+	if _, err := cs.CallTool(r.ctx, &sdk.CallToolParams{Name: "vault.status", Arguments: map[string]any{}}); err != nil {
+		t.Fatalf("the replacement does not serve: %v", err)
+	}
+	r.host.mu.Lock()
+	owner := r.host.endpoints[sidA]
+	r.host.mu.Unlock()
+	if owner == nil || owner.path != fresh.SocketPath {
+		t.Fatal("the replacement is not the registered endpoint")
+	}
+}
+
+// A policy resolved against another registry cannot grant itself an exemption
+// the server does not own.
+func TestAPolicyCannotAddABudgetExemption(t *testing.T) {
+	r := newServingRig(t, nil)
+	inv := r.inventory()
+	forged := inv.Registry()
+	for i := range forged.Tools {
+		forged.Tools[i].BudgetExempt = true // same names, every tool claims an exemption
+	}
+	eff, err := harness.Resolve(harness.Inputs{Registry: forged})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.host.OpenWithPolicy(sidA, eff); err == nil {
+		t.Fatal("a policy whose exemptions differ from the server's was accepted")
+	}
+	if entries, _ := os.ReadDir(r.dir); len(entries) != 0 {
+		t.Fatalf("a refused open left %d files", len(entries))
+	}
+	// And if one ever reached the middleware, the cut still applies: only the
+	// server's own table exempts a tool.
+	ms := sdk.NewServer(&sdk.Implementation{Name: "t", Version: "0"}, nil)
+	ms.AddReceivingMiddleware(withMeasuredResultBudget(ResultBudget, nil, newServingHolder(eff)))
+	name := inv.Tools[0].Name
+	if inv.Tools[0].BudgetExempt {
+		t.Fatalf("pick another tool: %s is exempt", name)
+	}
+	sdk.AddTool(ms, &sdk.Tool{Name: name}, func(context.Context, *sdk.CallToolRequest, struct{}) (*sdk.CallToolResult, any, error) {
+		return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: strings.Repeat("x\n", 20000)}}}, nil, nil
+	})
+	st, ct := sdk.NewInMemoryTransports()
+	ss, err := ms.Connect(context.Background(), st, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ss.Close()
+	cs, err := sdk.NewClient(&sdk.Implementation{Name: "c", Version: "0"}, nil).Connect(context.Background(), ct, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	res, err := cs.CallTool(context.Background(), &sdk.CallToolParams{Name: name, Arguments: map[string]any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(resultText(res)); n > ResultBudget {
+		t.Fatalf("a forged exemption let %d bytes through a %d byte budget", n, ResultBudget)
+	}
+}

@@ -53,6 +53,17 @@ type SessionHost struct {
 
 	mu        sync.Mutex
 	endpoints map[string]*sessionEndpoint
+
+	// bindMu serializes everything that touches a session's socket path: an
+	// open (probe, bind, chmod, publish in endpoints) and the cleanup of an
+	// endpoint (listener closed, file removed, entry dropped). Without it an
+	// old endpoint's cleanup can run between a replacement's bind and its
+	// publication, find itself still registered and remove the new socket.
+	// Lock order: bindMu, then mu. Nothing slow runs under it: a unix dial to a
+	// closed path fails at once, bind and chmod are local.
+	bindMu sync.Mutex
+	// Hooks for tests; nil in production.
+	bindHook, closeHook func()
 }
 
 var (
@@ -117,6 +128,15 @@ func (h *SessionHost) open(sessionID string, serving *servingHolder) (agenthub.M
 	if len(path) > maxSunPath {
 		return agenthub.MCPEndpoint{}, fmt.Errorf("%w: %s", ErrSocketPathTooLong, path)
 	}
+	h.bindMu.Lock()
+	unlocked := false
+	unlock := func() {
+		if !unlocked {
+			unlocked = true
+			h.bindMu.Unlock()
+		}
+	}
+	defer unlock()
 	if conn, err := net.DialTimeout("unix", path, 250*time.Millisecond); err == nil {
 		conn.Close()
 		return agenthub.MCPEndpoint{}, fmt.Errorf("mcp: agent socket %s is already in use", path)
@@ -137,9 +157,13 @@ func (h *SessionHost) open(sessionID string, serving *servingHolder) (agenthub.M
 	ms := h.server.sdkServerWith(&caller, token, serving)
 	ctx, cancel := context.WithCancel(h.ctx)
 	ep := &sessionEndpoint{host: h, id: sessionID, path: path, ln: ln, serving: serving, ctx: ctx, cancel: cancel, conns: map[net.Conn]struct{}{}}
+	if h.bindHook != nil {
+		h.bindHook()
+	}
 	h.mu.Lock()
 	h.endpoints[sessionID] = ep
 	h.mu.Unlock()
+	unlock()
 	go ep.serve(ms)
 
 	gateOwned, preApproved := h.server.GateOwnedTools(), h.server.PreApprovedTools()
@@ -229,6 +253,13 @@ func (e *sessionEndpoint) close() {
 		for _, c := range conns {
 			_ = c.Close()
 		}
+		if e.host.closeHook != nil {
+			e.host.closeHook()
+		}
+		// Under bindMu, so a replacement is either fully published (and this
+		// endpoint no longer owns the entry) or has not bound yet.
+		e.host.bindMu.Lock()
+		defer e.host.bindMu.Unlock()
 		e.host.mu.Lock()
 		owns := e.host.endpoints[e.id] == e
 		if owns {

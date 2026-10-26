@@ -105,10 +105,12 @@ func withMeasuredResultBudget(budget int, observer *ResultObservation, serving *
 					o.Tool = name
 				}
 				limit := budget
+				// Exemptions are the server's own and fixed (budgetExempt): a
+				// policy supplies a size, never a reason to skip the cut.
 				_, exempt := budgetExempt[o.Tool]
 				if snap != nil {
 					if b, known := snap.eff.Budget(o.Tool); known {
-						limit, exempt = b.Bytes, exempt || b.Exempt
+						limit = b.Bytes
 					}
 				}
 				o.Exempt = exempt || o.NonText

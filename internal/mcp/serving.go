@@ -176,7 +176,8 @@ func hiddenTools(inv Inventory, eff harness.Effective) []string {
 // decision or budget, and serving it would be a guess.
 func checkPolicyCoversInventory(inv Inventory, eff harness.Effective) error {
 	for _, t := range inv.Tools {
-		if _, ok := eff.Budget(t.Name); !ok {
+		b, ok := eff.Budget(t.Name)
+		if !ok || b.Exempt != t.BudgetExempt {
 			return &harness.Error{Code: harness.CodeNotEnforceable, Message: "The harness policy was resolved against a different tool registry."}
 		}
 	}
