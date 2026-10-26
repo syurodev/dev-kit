@@ -337,8 +337,12 @@ func TestTasksWorkspaceScopedAccessMCP(t *testing.T) {
 	if staleErr == nil || errResult != nil || !errors.Is(staleErr, tasks.ErrDependenciesChanged) {
 		t.Fatalf("stale replacement result=%v err=%v", errResult, staleErr)
 	}
+	// Either replacement may have won. When the empty one did, BlockedBy reads
+	// back nil, and a nil expected set means "not supplied" (expectedDependenciesRequired).
+	// An empty, non-nil snapshot is the same state and is accepted.
+	expected := append([]string{}, unwrap(readResult).(tasks.Task).BlockedBy...)
 	_, clearResult, err := srv.toolTasksSetFields(ctx, &sdk.CallToolRequest{}, tasksSetFieldsInput{
-		TaskID: taskA.ID, BlockedBy: []string{}, ExpectedBlockedBy: unwrap(readResult).(tasks.Task).BlockedBy,
+		TaskID: taskA.ID, BlockedBy: []string{}, ExpectedBlockedBy: expected,
 	})
 	if err != nil || len(unwrap(clearResult).(taskOut).BlockedBy) != 0 {
 		t.Fatalf("clear blockedBy = %#v, err=%v", unwrap(clearResult), err)
