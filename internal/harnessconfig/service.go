@@ -53,6 +53,11 @@ type pendingProposal struct {
 	bound  evaluation
 	view   View
 	taken  bool // an apply is in flight or finished: single use
+	// cancelled is set by Cancel, also while the person is deciding; committing
+	// is set once the commit has started and can no longer be cancelled. Both
+	// are guarded by Service.mu and checked right before the write.
+	cancelled, committing bool
+	abort                 context.CancelFunc // closes an open confirmation
 }
 
 // View is the host-authored confirmation content. Everything but
@@ -136,7 +141,11 @@ func (s *Service) Prepare(ctx context.Context, req Request) (Prepared, error) {
 	if err != nil {
 		return Prepared{}, err
 	}
-	p := &pendingProposal{id: id, caller: caller.String(), req: owned, bound: ev, view: buildView(ev, policy)}
+	view, err := buildView(ev, policy)
+	if err != nil {
+		return Prepared{}, err
+	}
+	p := &pendingProposal{id: id, caller: caller.String(), req: owned, bound: ev, view: view}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.pending) >= maxPending {
@@ -146,16 +155,29 @@ func (s *Service) Prepare(ctx context.Context, req Request) (Prepared, error) {
 	return Prepared{ID: id, View: p.view}, nil
 }
 
-// Cancel drops a pending proposal. Only the caller that prepared it can.
+// Cancel withdraws a pending proposal. Only the caller that prepared it can. It
+// also works while the person is being asked: the question is closed and the
+// commit is refused. Once the commit has started it is too late, and Cancel says
+// so instead of reporting a success that did not happen.
 func (s *Service) Cancel(ctx context.Context, id string) error {
 	caller, ok := identity.FromContext(ctx)
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	p := s.pending[id]
 	if !ok || p == nil || p.caller != caller.String() {
+		s.mu.Unlock()
 		return ErrUnknownProposal
 	}
+	if p.committing {
+		s.mu.Unlock()
+		return ErrTooLateToCancel
+	}
+	p.cancelled = true
 	delete(s.pending, id)
+	abort := p.abort
+	s.mu.Unlock()
+	if abort != nil {
+		abort()
+	}
 	return nil
 }
 

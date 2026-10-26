@@ -3,6 +3,8 @@ package harnessconfig
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -547,5 +549,103 @@ func TestACompetingWriteBetweenTheRecheckAndTheCommitLosesTheCAS(t *testing.T) {
 				t.Errorf("%s: the loser overwrote the winner: %+v", name, o)
 			}
 		}
+	}
+}
+
+func TestCancelWhileTheQuestionIsOpenStopsTheCommit(t *testing.T) {
+	a := newApplyEnv(t)
+	gitOff(a.env, "w1")
+	id := a.prepareEnableGit("s1")
+	a.confirm.during = func() {
+		if err := a.svc.Cancel(agent("s1"), id); err != nil {
+			t.Errorf("cancel while asking: %v", err)
+		}
+	}
+	// The person says yes after the cancel landed.
+	_, err := a.svc.Apply(agent("s1"), id)
+	if err != ErrCancelled {
+		t.Fatalf("a cancelled proposal was committed or misreported: %v", err)
+	}
+	if st := a.sessionState("w1", "s1"); st.Revision != 0 {
+		t.Fatalf("a proposal cancelled during confirmation wrote S: %+v", st)
+	}
+	if a.svc.Pending() != 0 {
+		t.Fatal("still pending")
+	}
+}
+
+func TestCancelAfterTheCommitStartedSaysSo(t *testing.T) {
+	a := newApplyEnv(t)
+	gitOff(a.env, "w1")
+	id := a.prepareEnableGit("s1")
+	racy := &racyStore{Store: a.store}
+	a.svc.cfg.Store = racy
+	var cancelErr error
+	racy.before = func() { cancelErr = a.svc.Cancel(agent("s1"), id) }
+	if _, err := a.svc.Apply(agent("s1"), id); err != nil {
+		t.Fatal(err)
+	}
+	if cancelErr != ErrTooLateToCancel {
+		t.Fatalf("Cancel during the commit reported %v; it must not claim a success that did not happen", cancelErr)
+	}
+	if st := a.sessionState("w1", "s1"); st.Revision != 1 {
+		t.Fatalf("the commit should have gone through: %+v", st)
+	}
+}
+
+func TestCancelledBeforeApplyIsRefusedAndUnknown(t *testing.T) {
+	a := newApplyEnv(t)
+	gitOff(a.env, "w1")
+	id := a.prepareEnableGit("s1")
+	if err := a.svc.Cancel(agent("s1"), id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.svc.Apply(agent("s1"), id); err != ErrUnknownProposal || a.confirm.calls != 0 {
+		t.Fatalf("apply after cancel: %v calls %d", err, a.confirm.calls)
+	}
+}
+
+// The person must see every change they are asked to approve.
+func TestTheConfirmationShowsEveryChangeOrTheProposalIsRefused(t *testing.T) {
+	a := newApplyEnv(t)
+	wide := harness.Registry{}
+	for i := 0; i < 26; i++ {
+		wide.Tools = append(wide.Tools, harness.Tool{Name: fmt.Sprintf("bulk.t%02d", i), DefinitionBytes: 100})
+	}
+	wide.Tools = append(wide.Tools, registry().Tools...)
+	a.svc.cfg.Registry = func() harness.Registry { return wide }
+	small := 4096
+	got, err := a.svc.Prepare(agent("s1"), Request{Target: TargetWorkspace, Patch: Patch{Workspace: &ProfilePatch{GroupBudgets: map[string]*harness.BudgetRule{"bulk": {Bytes: &small}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 26; i++ {
+		if !strings.Contains(got.View.Summary, fmt.Sprintf("bulk.t%02d", i)) {
+			t.Fatalf("bulk.t%02d changes but is not in the confirmation:\n%s", i, got.View.Summary)
+		}
+	}
+	if strings.Contains(got.View.Summary, "more") {
+		t.Fatalf("the summary was shortened:\n%s", got.View.Summary)
+	}
+	if _, err := a.svc.Apply(agent("s1"), got.ID); err != nil {
+		t.Fatal(err)
+	}
+	q := a.confirm.asked[0].Summary
+	if !strings.Contains(q, "bulk.t25") {
+		t.Fatal("the prompt did not receive the full summary")
+	}
+
+	// More than can be listed: refused, not shortened.
+	huge := harness.Registry{}
+	for i := 0; i < maxViewChanges+5; i++ {
+		huge.Tools = append(huge.Tools, harness.Tool{Name: fmt.Sprintf("bulk.t%03d", i), DefinitionBytes: 100})
+	}
+	a.svc.cfg.Registry = func() harness.Registry { return huge }
+	bigger := 8192
+	if _, err := a.svc.Prepare(agent("s1"), Request{Target: TargetWorkspace, Patch: Patch{Workspace: &ProfilePatch{GroupBudgets: map[string]*harness.BudgetRule{"bulk": {Bytes: &bigger}}}}}); err != ErrTooLargeToShow {
+		t.Fatalf("a diff that cannot be shown in full was offered: %v", err)
+	}
+	if a.svc.Pending() != 0 {
+		t.Fatal("a refused proposal stays pending")
 	}
 }

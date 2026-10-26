@@ -51,9 +51,22 @@ func (s *Service) Apply(ctx context.Context, id string) (Result, error) {
 	// Narrowing the person has allowed the agent to apply by itself skips the
 	// question, but only when someone could have answered (checked above).
 	if p.bound.needsApproval {
-		if err := s.cfg.Confirmer.Confirm(ctx, Confirmation{
+		// A Cancel while the question is open closes it (and refuses the commit).
+		askCtx, abort := context.WithCancel(ctx)
+		defer abort()
+		s.mu.Lock()
+		p.abort = abort
+		cancelled := p.cancelled
+		s.mu.Unlock()
+		if cancelled {
+			return fail(ErrCancelled)
+		}
+		if err := s.cfg.Confirmer.Confirm(askCtx, Confirmation{
 			Target: p.view.Target, Tier: p.view.Tier, Summary: p.view.Summary, RationaleUntrusted: p.view.RationaleUntrusted,
 		}); err != nil {
+			if s.wasCancelled(p) {
+				return fail(ErrCancelled)
+			}
 			return fail(ErrNotConfirmed)
 		}
 		if err := ctx.Err(); err != nil {
@@ -78,6 +91,12 @@ func (s *Service) Apply(ctx context.Context, id string) (Result, error) {
 		}
 		if ev.digest() != p.bound.digest() {
 			return ErrStale
+		}
+		// The point of no return: after this Cancel is too late. Checked and set
+		// together under the lock, so a Cancel either lands before (and wins) or
+		// is told it is too late.
+		if !s.beginCommit(p) {
+			return ErrCancelled
 		}
 		applied, err = s.cfg.Store.Apply(ctx, ev.write)
 		return mapApplyErr(err)
@@ -149,4 +168,21 @@ func (s *Service) audit(p *pendingProposal, applied harness.Applied, outcome str
 	s.cfg.Audit(Event{Outcome: outcome, Tier: p.view.Tier, Target: p.view.Target, Caller: p.caller,
 		WorkspaceID: p.bound.WorkspaceID, SessionID: p.bound.SessionID,
 		Profile: applied.Profile.Revision, Override: applied.Override.Revision})
+}
+
+func (s *Service) wasCancelled(p *pendingProposal) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return p.cancelled
+}
+
+// beginCommit reports whether the commit may start; if so, no Cancel can stop it.
+func (s *Service) beginCommit(p *pendingProposal) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p.cancelled {
+		return false
+	}
+	p.committing = true
+	return true
 }
