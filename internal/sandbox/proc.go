@@ -5,6 +5,7 @@ import (
 	"io"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -12,6 +13,9 @@ import (
 type Proc struct {
 	waitOnce  sync.Once
 	waitErr   error
+	exited    chan struct{} // closed once Wait has reaped the process
+	exitedAt  atomic.Int64  // unix nanoseconds of the reap; 0 until then
+	contained bool          // set by the backend that built the jail
 	cmd       *exec.Cmd
 	stdoutBuf *bytes.Buffer
 	stderrBuf *bytes.Buffer
@@ -21,14 +25,14 @@ type Proc struct {
 
 // NewProc returns a Proc for an already-started command.
 func NewProc(cmd *exec.Cmd) *Proc {
-	return &Proc{cmd: cmd}
+	return &Proc{cmd: cmd, exited: make(chan struct{})}
 }
 
 // NewProcWithBuffers captures stdout and stderr on cmd for later inspection.
 func NewProcWithBuffers(cmd *exec.Cmd, stdout, stderr *bytes.Buffer) *Proc {
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	return &Proc{cmd: cmd, stdoutBuf: stdout, stderrBuf: stderr}
+	return &Proc{cmd: cmd, exited: make(chan struct{}), stdoutBuf: stdout, stderrBuf: stderr}
 }
 
 // pipedWaitDelay bounds how long Wait keeps copying stderr once the process
@@ -44,7 +48,7 @@ func NewProcPiped(cmd *exec.Cmd, stdin io.WriteCloser, stdout io.ReadCloser, std
 		cmd.Stderr = stderr
 	}
 	cmd.WaitDelay = pipedWaitDelay
-	return &Proc{cmd: cmd, stdinW: stdin, stdoutR: stdout, stderrBuf: stderr}
+	return &Proc{cmd: cmd, exited: make(chan struct{}), stdinW: stdin, stdoutR: stdout, stderrBuf: stderr}
 }
 
 // Output returns copies of captured stdout and stderr, when buffers were set.
@@ -59,9 +63,38 @@ func (p *Proc) Output() (stdout, stderr []byte) {
 }
 
 func (p *Proc) Wait() error {
-	p.waitOnce.Do(func() { p.waitErr = p.cmd.Wait() })
+	p.waitOnce.Do(func() {
+		p.waitErr = p.cmd.Wait()
+		p.exitedAt.Store(time.Now().UnixNano())
+		if p.exited != nil {
+			close(p.exited)
+		}
+	})
 	return p.waitErr
 }
+
+// Exited is closed once Wait has returned, which means the kernel reported the
+// supervisor process gone and it was reaped. A Kill call, a signal sent or an
+// error from either is not that: only the reap is. The channel is nil for a
+// Proc not built by this package, which never closes.
+func (p *Proc) Exited() <-chan struct{} { return p.exited }
+
+// ExitedAt is when Wait observed the exit; the zero Time before that.
+func (p *Proc) ExitedAt() time.Time {
+	n := p.exitedAt.Load()
+	if n == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, n)
+}
+
+// ContainsDescendants reports that the backend gives the guarantee below, and
+// nothing weaker: when this process has been reaped, every process the jail
+// started is gone too. bwrap with --unshare-pid has it, because the kernel ends
+// every process of a PID namespace when its init exits and the supervisor waits
+// for that init. A Seatbelt or Landlock jail, or no jail, does not: a descendant
+// the agent started can outlive its parent.
+func (p *Proc) ContainsDescendants() bool { return p.contained }
 
 func (p *Proc) Kill() error {
 	if p.cmd.Process == nil {

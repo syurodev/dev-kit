@@ -2,11 +2,15 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
+	"devkit/internal/agenthub"
 	"devkit/internal/agentwork"
 	"devkit/internal/git"
 	"devkit/internal/identity"
@@ -83,6 +87,78 @@ func TestManagedOwnershipHostResolvesRealTaskScopeAndPinsUnknownWriter(t *testin
 	}
 	if _, err := host.CheckManagedWriterQuiescence(context.Background(), agentwork.ManagedWriterLease{Binding: binding, Generation: 1}); err == nil {
 		t.Fatal("unknown host liveness was treated as quiescent")
+	}
+
+	// Release goes through the same fresh host check. Only a positive hub proof
+	// from this process's epoch lets it through, and it frees the slot exactly once.
+	lease, err := leases.CurrentAttemptLease(context.Background(), attempt.ID)
+	if err != nil {
+		t.Fatalf("CurrentAttemptLease: %v", err)
+	}
+	proving := &provingHub{sessionHub: hub, proof: agenthub.WriterStopProof{Epoch: "e", EpochStart: lease.CreatedAt.Add(-time.Hour), Known: true, Stopped: true, Isolated: false, Reason: agenthub.StopNoContainment}}
+	host.hubOverride = proving
+	if _, err := leases.Release(context.Background(), lease.ID, lease.Generation, lease.Revision); !errors.Is(err, agentwork.ErrManagedQuiescenceUnknown) {
+		t.Fatalf("stopped but uncontained release = %v", err)
+	}
+	proving.proof.Isolated, proving.proof.Reason = true, agenthub.StopOK
+	released, err := leases.Release(context.Background(), lease.ID, lease.Generation, lease.Revision)
+	if err != nil || released.ReleasedAt == nil {
+		t.Fatalf("release on a positive proof = %+v, %v", released, err)
+	}
+}
+
+type provingHub struct {
+	sessionHub
+	proof agenthub.WriterStopProof
+}
+
+func (h *provingHub) WriterStopProof(_ context.Context, _ string) agenthub.WriterStopProof {
+	p := h.proof
+	p.CheckedAt = time.Now().UTC()
+	return p
+}
+
+func TestManagedQuiescenceIsPositiveOnlyOnAFreshInProcessProof(t *testing.T) {
+	started := time.Now().Add(-time.Minute).UTC()
+	binding := agentwork.ManagedWriterBinding{SessionID: "s1", AttemptID: "a1", ResourceKey: "r"}
+	lease := agentwork.ManagedWriterLease{ID: "l", Binding: binding, Generation: 2, CreatedAt: started.Add(time.Second)}
+	positive := agenthub.WriterStopProof{Epoch: "e", EpochStart: started, Known: true, Stopped: true, Isolated: true, Reason: agenthub.StopOK}
+	cases := []struct {
+		name   string
+		hub    agentSessions
+		lease  agentwork.ManagedWriterLease
+		reason string
+		want   bool
+	}{
+		{name: "positive", hub: &provingHub{proof: positive}, lease: lease, want: true},
+		{name: "lease predates process", hub: &provingHub{proof: positive}, lease: func() agentwork.ManagedWriterLease { l := lease; l.CreatedAt = started.Add(-time.Second); return l }(), reason: "lease_predates_process"},
+		{name: "zero lease creation", hub: &provingHub{proof: positive}, lease: func() agentwork.ManagedWriterLease { l := lease; l.CreatedAt = time.Time{}; return l }(), reason: "lease_predates_process"},
+		{name: "runtime live", hub: &provingHub{proof: agenthub.WriterStopProof{Epoch: "e", EpochStart: started, Known: true, Reason: agenthub.StopLive}}, lease: lease, reason: agenthub.StopLive},
+		{name: "exit unobserved", hub: &provingHub{proof: agenthub.WriterStopProof{Epoch: "e", EpochStart: started, Reason: agenthub.StopExitUnobserved}}, lease: lease, reason: agenthub.StopExitUnobserved},
+		{name: "unsupported runtime", hub: &provingHub{proof: agenthub.WriterStopProof{Epoch: "e", EpochStart: started, Reason: agenthub.StopUnsupported}}, lease: lease, reason: agenthub.StopUnsupported},
+		{name: "no containment", hub: &provingHub{proof: agenthub.WriterStopProof{Epoch: "e", EpochStart: started, Known: true, Stopped: true, Reason: agenthub.StopNoContainment}}, lease: lease, reason: agenthub.StopNoContainment},
+		{name: "hub cannot prove", hub: sessionHub{}, lease: lease, reason: agenthub.StopUnsupported},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			host := &managedOwnershipHost{hubOverride: tc.hub}
+			got, err := host.CheckManagedWriterQuiescence(context.Background(), tc.lease)
+			if tc.want {
+				if err != nil || !got.Known || !got.Quiescent || !got.Isolated || got.Binding != binding || got.Generation != 2 || got.CheckedAt.IsZero() {
+					t.Fatalf("positive proof = %+v, %v", got, err)
+				}
+				return
+			}
+			if !errors.Is(err, agentwork.ErrManagedQuiescenceUnknown) || got.Known || got.Quiescent || got.Isolated {
+				t.Fatalf("answer = %+v, %v; want unknown", got, err)
+			}
+			if !strings.Contains(err.Error(), tc.reason) {
+				t.Fatalf("error %q lacks reason %q", err, tc.reason)
+			}
+		})
+	}
+	if _, err := (&managedOwnershipHost{hubOverride: &provingHub{proof: positive}}).CheckManagedWriterQuiescence(context.Background(), agentwork.ManagedWriterLease{Generation: 1, CreatedAt: lease.CreatedAt}); !errors.Is(err, agentwork.ErrManagedQuiescenceUnknown) {
+		t.Fatalf("lease without a session = %v", err)
 	}
 }
 

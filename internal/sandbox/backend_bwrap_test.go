@@ -381,3 +381,64 @@ func bindIndex(args []string, flag, path string) int {
 	}
 	return -1
 }
+
+// The containment claim of BwrapBackend rests on these two flags: the PID
+// namespace ends every jailed process with its init, and die-with-parent ends
+// the jail with the host.
+func TestBwrapArgsKeepPIDNamespaceAndDieWithParent(t *testing.T) {
+	args := buildBwrapArgs(Policy{WorkDir: t.TempDir()}, Cmd{Path: "/bin/sh", Args: []string{"-c", "true"}})
+	for _, want := range []string{"--unshare-pid", "--die-with-parent"} {
+		found := false
+		for _, a := range args {
+			found = found || a == want
+		}
+		if !found {
+			t.Errorf("bwrap args lack %s: containment claim would be false", want)
+		}
+	}
+	if !bwrapContainsDescendants {
+		t.Error("bwrapContainsDescendants is false")
+	}
+}
+
+// A descendant the agent leaves running must be gone once the supervisor is
+// reaped. Needs a Linux host where bwrap works; skipped elsewhere, so it is
+// evidence only where it actually runs.
+func TestBwrapReapedSupervisorLeavesNoDescendant(t *testing.T) {
+	backend := NewBwrapBackend()
+	if err := backend.Available(context.Background()); err != nil {
+		t.Skipf("bwrap unavailable: %v", err)
+	}
+	wd := t.TempDir()
+	marker := filepath.Join(wd, "alive")
+	script := `(while :; do : > ` + marker + `; sleep 0.05; done) & wait`
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	proc, err := backend.StartPiped(ctx, Policy{WorkDir: wd, Network: NetworkNone, Env: map[string]string{"PATH": "/usr/bin:/bin"}}, Cmd{Path: "/bin/sh", Args: []string{"-c", script}})
+	if err != nil {
+		t.Skipf("bwrap cannot start here: %v", err)
+	}
+	if !proc.ContainsDescendants() {
+		t.Fatal("bwrap Proc does not claim containment")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(marker); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Skip("descendant never started")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	_ = proc.Kill()
+	_ = proc.Wait()
+	<-proc.Exited()
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("a jailed descendant kept writing after the supervisor was reaped")
+	}
+}

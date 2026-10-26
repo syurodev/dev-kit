@@ -692,7 +692,15 @@ func (r *acpRuntime) Close(ctx context.Context) error {
 	_ = ctx
 	r.mu.Lock()
 	if r.closed {
+		// The serve loop ended on its own (a crash, or an agent that closed its
+		// pipes). The process may not have: ending it here is what lets a
+		// proof see it reaped. Kill after a reap is a no-op.
+		proc := r.proc
 		r.mu.Unlock()
+		if proc != nil {
+			_ = proc.Kill()
+			go func() { _ = proc.Wait() }()
+		}
 		return nil
 	}
 	r.closed = true
@@ -711,6 +719,9 @@ func (r *acpRuntime) Close(ctx context.Context) error {
 	}
 	if proc != nil {
 		_ = proc.Kill()
+		// Kill only asks. Reaping the process is what lets WriterStopProof see
+		// the exit, and it keeps a killed agent from lingering as a zombie.
+		go func() { _ = proc.Wait() }()
 	}
 	if done != nil {
 		select {
@@ -719,6 +730,15 @@ func (r *acpRuntime) Close(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// StopWitness satisfies RuntimeStopWitness with the sandbox supervisor's own
+// reap and the backend's containment promise.
+func (r *acpRuntime) StopWitness() (StopWitness, bool) {
+	if r == nil || r.proc == nil || r.proc.Exited() == nil {
+		return StopWitness{}, false
+	}
+	return StopWitness{Exited: r.proc.Exited(), Contained: r.proc.ContainsDescendants()}, true
 }
 
 // acpConnHandler bridges agent→client ACP methods onto RuntimeHandlers.
