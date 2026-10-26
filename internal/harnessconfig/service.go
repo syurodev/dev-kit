@@ -48,7 +48,6 @@ type pendingProposal struct {
 	req    Request // owned copy; Patch is normalized
 	bound  evaluation
 	view   View
-	taken  bool // an apply is in flight or finished: single use
 }
 
 // View is the host-authored confirmation content. Everything but
@@ -339,7 +338,7 @@ func (s *Service) evaluate(ctx context.Context, caller identity.Caller, req Requ
 		ev.write.SessionID = ev.SessionID
 		ev.write.Override = &harness.OverrideWrite{Expect: oStamp, Value: o2}
 	}
-	ev.needsApproval = !(ev.Tier == harness.TierNarrowing && policy.AutoNarrowing)
+	ev.needsApproval = ev.Tier != harness.TierNarrowing || !policy.AutoNarrowing
 	return ev, policy, nil
 }
 
