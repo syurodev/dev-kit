@@ -227,6 +227,12 @@ const (
 	// CodeSnapshotUnavailable: a runtime's configuration could not be resolved.
 	// The launch is refused; it never falls back to unfiltered defaults.
 	CodeSnapshotUnavailable = "harness.snapshotUnavailable"
+	// CodeNotEnforceable: the profile needs the MCP server to enforce it and this
+	// endpoint cannot, so the launch is refused instead of run unfiltered.
+	CodeNotEnforceable = "harness.notEnforceable"
+	// CodeNewSessionRequired: reopening this session would adopt a changed set of
+	// executables; they take effect in a new session only.
+	CodeNewSessionRequired = "harness.newSessionRequired"
 )
 
 // Error carries a public code and host-authored text only: never a command,

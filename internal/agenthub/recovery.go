@@ -73,6 +73,13 @@ func (s *Service) resumeSession(ctx context.Context, id string, reload bool) err
 			return ErrUnavailable
 		}
 	}
+	if reload {
+		// Before the live runtime is touched: a reload that would be refused must
+		// leave the running session as it is, on the configuration it opened with.
+		if err := s.preflightHarness(ctx, sess); err != nil {
+			return err
+		}
+	}
 	s.mu.Lock()
 	_, invoking := s.invoking[id]
 	if invoking || s.resuming[id] != nil || sess.Status == SessionStatusRunning || sess.Status == SessionStatusAwaitingPermission {

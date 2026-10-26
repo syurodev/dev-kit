@@ -1,6 +1,6 @@
 # H3 implementation: runtime harness snapshots and override lifecycle
 
-Date: 2026-10-27. Status: **in progress; H3a delivered (see Execution record)**.
+Date: 2026-10-27. Status: **in progress; H3a and H3b delivered (see Execution record)**.
 
 ## Objective and current evidence
 
@@ -117,3 +117,9 @@ Bases: H1 #344/#345 and H2a #346 are merged. H2b is PR #347 (`harness/h2b-prepar
 ### H3a (branch `harness/h3a-snapshot`, stacked on #347)
 
 `harness.ModelProfileRef`, `SnapshotRef`, `Snapshot` (+ `Clone`, `Equal`, `ExecutableDigest`, `ServingIsDefault`) and `harnessconfig.Provider`. Tests: default vs present-empty vs unavailable (corrupt W/S, vendor read error, no registry, removed group, nil provider), actual workspace/session scope and no child inheritance, detached copies, facts coverage and no fabricated facts, symlink retarget and order for the executable digest, stale reference, model vs harness separation. Mutation checks fail the matching tests. Mock-only: the provider is exercised through the same fake ports as H2b; no production registry or vendor-facts reader exists.
+
+### H3b (branch `harness/h3b-pipeline`, stacked on H3a #349)
+
+`agenthub.Service.Harness` + `harness_runtime.go`: `prepareLaunch`/`harnessGate`/`preflightHarness`/`publishHarnessLocked`, the optional `PolicyEndpoints` seam, the in-memory `appliedHarness` record and `HarnessApplied`. All five open sites (create, `resumeRuntime` with its Load/Open, rewind Open and Fork) use it. Tests (mock adapter, instrumented endpoints, real resolver snapshots): no harness, default compatibility, refusal before anything opens, unresolvable snapshot, policy staged before adapter open, revisions only when enforced, launch config only when profiled, failed open keeps the previous record, executable gate (moved W vs V-only vs fresh session), release seal vs reload, concurrent resume, workspace-less session, rewind. Mutation checks fail the matching tests.
+
+Not covered / mock-only: the account-switch reopen shares `resumeRuntime` and is not separately exercised; the endpoint fake stands in for the H4 session host; no process, vendor or live account is involved. Durable applied state, S lifecycle and the status read model are H3c/H3d.

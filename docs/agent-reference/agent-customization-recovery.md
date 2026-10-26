@@ -151,6 +151,40 @@ and the single `harness.Resolve`. Nothing in Agent Hub calls it yet (H3b).
   so a later change to a request, a candidate or a store row cannot alter an opening or live
   snapshot. `Effective.ServingIsDefault` says whether the MCP server would serve exactly what it
   serves today, i.e. whether anything needs the server to enforce the configuration.
+
+### One prepared launch for every runtime (H3b)
+
+`Service.Harness` (`HarnessSnapshots`, nil by default) makes CreateSession, `resumeRuntime`
+(Load, reload, dead-runtime and account reopen) and both rewind opens (Open, Fork) derive their
+launch from `prepareLaunch`: resolve the snapshot, gate it, open the endpoint, fill the spec.
+Nothing is published until the runtime opened.
+
+- **Order.** Snapshot → gate → endpoint (staged with the policy when the endpoint is a
+  `PolicyEndpoints`) → spec. The endpoint never exists in a default-on state first. Early tool
+  calls are served under the prepared identity once H4 implements `OpenWithPolicy`; until then
+  only a snapshot that serves exactly today's tools can launch.
+- **Gate.** A profile whose served groups/budgets differ from the default needs an enforcing
+  endpoint; without one the launch is refused (`harness.notEnforceable`) before anything opens,
+  never run unfiltered. An unresolvable snapshot is refused (`harness.snapshotUnavailable`). A
+  reopen that would change the executable set after W moved is refused
+  (`harness.newSessionRequired`): executable changes take effect in a new session only. A V-only
+  change (edited in Settings) still reloads as it always has.
+- **Reload preflight.** `ResumeSession(reload)` runs the same resolution and gate before it
+  closes the live runtime, so a refused reload leaves the running session untouched on the
+  configuration it opened with.
+- **Launch configuration.** For a profiled session the effective deny lists, servers and skill
+  folders replace the vendor customization in the `OpenSpec`; with no W and no S the spec keeps
+  the vendor customization exactly as before.
+- **Publication.** After a successful open the service records `appliedHarness` (reference and
+  whether the endpoint enforces it) with the usage facts; W/S revisions reach attribution only
+  when the endpoint enforces them. A failed open closes the staged endpoint and leaves the
+  previous record. The record survives runtime teardown (account move, reload, crash) and is
+  replaced only by the next successful open. It is in memory: it does not survive a restart (H3c).
+- **Unchanged.** Admission seals still run first (a sealed start resolves and opens nothing),
+  concurrent resumes share one barrier and one preparation, accounts, mode, model and leases are
+  untouched.
+- No production code sets `Service.Harness` or an enforcing endpoint yet, so nothing changes at
+  runtime.
 ### Confirm, recheck and commit (H2c)
 
 `Service.Apply(ctx, proposalID)` is the only way a prepared proposal becomes a write. Order:
