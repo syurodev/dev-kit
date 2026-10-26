@@ -318,14 +318,49 @@ func isClaudeAuthStatus(line []byte) bool {
 	return ok
 }
 
+// claudeAuthStatusLines finds the status object in the CLI's output line by line.
+// Claude Code 2.1.310 prints it indented over several lines, older output was one
+// line, so a line is tried alone first and then as part of the object that a line
+// starting with "{" in column 0 opened. Lines are joined without their newline, which
+// JSON allows between tokens and never inside a string.
+type claudeAuthStatusLines struct {
+	pending []byte
+	answer  []byte
+}
+
+// claudeAuthStatusMaxPending bounds the lines kept for an object that never closes.
+const claudeAuthStatusMaxPending = 64 << 10
+
+func (s *claudeAuthStatusLines) accept(raw []byte) bool {
+	line := bytes.TrimSpace(raw)
+	if isClaudeAuthStatus(line) {
+		s.answer = append([]byte(nil), line...)
+		return true
+	}
+	opens := bytes.HasPrefix(raw, []byte("{"))
+	if opens || len(s.pending)+len(line) > claudeAuthStatusMaxPending {
+		s.pending = s.pending[:0]
+	}
+	if !opens && len(s.pending) == 0 {
+		return false
+	}
+	s.pending = append(s.pending, line...)
+	if isClaudeAuthStatus(s.pending) {
+		s.answer = s.pending
+		return true
+	}
+	return false
+}
+
 // CheckSignIn runs `claude auth status` (JSON; no model call, no prompt). It takes no
 // --no-session-persistence: that flag only works with --print, and this command writes
 // no session.
 func (a *ClaudeAdapter) CheckSignIn(ctx context.Context, spec OpenSpec) (SignInState, error) {
-	line, err := a.claudeCLI(ctx, spec, []string{"auth", "status"}, "", isClaudeAuthStatus)
-	if err != nil {
+	var lines claudeAuthStatusLines
+	if _, err := a.claudeCLI(ctx, spec, []string{"auth", "status"}, "", lines.accept); err != nil {
 		return SignInState{}, err
 	}
+	line := lines.answer
 	var st struct {
 		LoggedIn         bool   `json:"loggedIn"`
 		Email            string `json:"email"`

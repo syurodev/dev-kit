@@ -13,6 +13,8 @@ import (
 
 // OpenSpec is everything an adapter needs to spawn one session.
 type OpenSpec struct {
+	UsageToken             string
+	UsageAccountGeneration string
 	// SessionID is set by the service, never a tool input.
 	SessionID      string
 	SessionTempDir string

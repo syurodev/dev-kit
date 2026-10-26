@@ -175,7 +175,7 @@ func TestLayering(t *testing.T) {
 	// parameter instead of importing it, so it can be tested against any
 	// version and knows nothing about how the linker stamps one; buildinfo is
 	// a string the linker overwrites and must not pull anything in.
-	for _, leaf := range []string{"updater", "buildinfo"} {
+	for _, leaf := range []string{"updater", "buildinfo", "usagemetrics"} {
 		for _, imp := range graph[pkg(leaf)] {
 			t.Errorf("layering violation: %s must not import %s", leaf, short(imp))
 		}

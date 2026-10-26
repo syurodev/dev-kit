@@ -29,12 +29,13 @@ var errAgentAccountsDesktopOnly = errors.New("bridge.agentAccountsDesktopOnly")
 // AgentAccountInfo is one vendor account as Settings draws it. Times are Unix seconds
 // (0 = none). The account's home folder and every credential stay in Go.
 type AgentAccountInfo struct {
-	ID       string `json:"id"`
-	Vendor   string `json:"vendor"`
-	Label    string `json:"label"`
-	Builtin  bool   `json:"builtin"`
-	SignedIn bool   `json:"signedIn"`
-	Shared   bool   `json:"shared"`
+	UsageGeneration string `json:"usageGeneration,omitempty"`
+	ID              string `json:"id"`
+	Vendor          string `json:"vendor"`
+	Label           string `json:"label"`
+	Builtin         bool   `json:"builtin"`
+	SignedIn        bool   `json:"signedIn"`
+	Shared          bool   `json:"shared"`
 	// ExhaustedUntil and CooldownUntil are when a refusal or a failed probe keeps the
 	// account out. They may be past values (nothing clears them when time passes):
 	// a consumer must treat a time at or before now as "not limited".
@@ -58,7 +59,7 @@ func accountInfo(a agenthub.AccountRecord) AgentAccountInfo {
 		usage = []agenthub.LimitWindow{}
 	}
 	return AgentAccountInfo{
-		ID: a.ID, Vendor: string(a.Vendor), Label: a.Label, Builtin: a.Builtin(), SignedIn: a.SignedIn, Shared: a.Shared,
+		UsageGeneration: a.UsageGeneration, ID: a.ID, Vendor: string(a.Vendor), Label: a.Label, Builtin: a.Builtin(), SignedIn: a.SignedIn, Shared: a.Shared,
 		ExhaustedUntil: unixOrZero(a.ExhaustedUntil), CooldownUntil: unixOrZero(a.CooldownUntil),
 		Usage: usage, UsageSource: a.UsageSource, ObservedAt: unixOrZero(a.ObservedAt),
 	}

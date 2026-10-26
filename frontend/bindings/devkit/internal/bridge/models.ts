@@ -20,6 +20,7 @@ export interface ActiveProfileDTO {
  * (0 = none). The account's home folder and every credential stay in Go.
  */
 export interface AgentAccountInfo {
+    "usageGeneration"?: string;
     "id": string;
     "vendor": string;
     "label": string;
@@ -78,6 +79,60 @@ export interface AgentModelProfilesState {
 export interface AgentSubagentLimitsState {
     "revision": number;
     "codexMaxSubagents": number | null;
+}
+
+/**
+ * AgentUsageReportInfo is what a vendor's turns spent, in tokens. It is not a share
+ * of a subscription limit. Every list is non-null. Workspace ids are named by the
+ * window from the workspace list it already has.
+ */
+export interface AgentUsageAccountInfo {
+    "accountId": string;
+    "generation": string;
+    "totals": AgentUsageTotalsInfo;
+}
+
+/**
+ * AgentUsageGroupInfo is one workspace id, UTC day (YYYY-MM-DD) or model.
+ */
+export interface AgentUsageGroupInfo {
+    "key": string;
+    "totals": AgentUsageTotalsInfo;
+}
+
+export interface AgentUsageReportInfo {
+    "byAccount": AgentUsageAccountInfo[] | null;
+    "vendor": string;
+    "totals": AgentUsageTotalsInfo;
+    "byWorkspace": AgentUsageGroupInfo[] | null;
+    "byDay": AgentUsageGroupInfo[] | null;
+    "byModel": AgentUsageGroupInfo[] | null;
+    "topSessions": AgentUsageSessionInfo[] | null;
+    "partialSplitTurns": number;
+}
+
+/**
+ * AgentUsageSessionInfo is one session's totals.
+ */
+export interface AgentUsageSessionInfo {
+    "sessionId": string;
+    "workspaceId": string;
+    "totals": AgentUsageTotalsInfo;
+}
+
+/**
+ * AgentUsageTotalsInfo is a sum of tokens. A turn with no token data counts in
+ * Turns and TurnsWithoutData and adds nothing else.
+ */
+export interface AgentUsageTotalsInfo {
+    "known": { [_ in string]?: number } | null;
+    "turns": number;
+    "turnsWithoutData": number;
+    "freshInput": number;
+    "cacheRead": number;
+    "cacheWrite": number;
+    "output": number;
+    "total": number;
 }
 
 /**

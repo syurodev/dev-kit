@@ -16,6 +16,9 @@ import (
 // "not in server mode" instead of "unknown vendor".
 type ServerModeAdapter struct {
 	t AgentType
+	// Decoding stored metadata is pure and remains available to Settings.
+	// Keep only this function; execution and authentication always use the stubs.
+	normalizeUsage func(json.RawMessage) (NormalizedUsage, error)
 }
 
 var (
@@ -36,7 +39,9 @@ func NewServerModeAdapter(t AgentType) *ServerModeAdapter { return &ServerModeAd
 func ForServerMode(adapters ...VendorAdapter) []VendorAdapter {
 	out := make([]VendorAdapter, 0, len(adapters))
 	for _, a := range adapters {
-		out = append(out, NewServerModeAdapter(a.Type()))
+		stub := NewServerModeAdapter(a.Type())
+		stub.normalizeUsage = a.NormalizeUsage
+		out = append(out, stub)
 	}
 	return out
 }
@@ -52,6 +57,9 @@ func (a *ServerModeAdapter) Load(context.Context, OpenSpec, string) (SessionRunt
 }
 
 func (a *ServerModeAdapter) NormalizeUsage(meta json.RawMessage) (NormalizedUsage, error) {
+	if a.normalizeUsage != nil {
+		return a.normalizeUsage(meta)
+	}
 	return NormalizedUsage{RawMeta: append(json.RawMessage(nil), meta...)}, nil
 }
 

@@ -369,6 +369,8 @@ func NewContainerWithStores(
 		// uses these scopes and every bridge method refuses a caller that is not the window.
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "account:*"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "account:*"},
+		// Token usage is a UI-only read; no MCP tool uses usage:*.
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "usage:*"},
 		{SubjectID: "builtin.agenthub", Capability: "terminal:io", Scope: "session:*"},
 		{SubjectID: "builtin.vault", Capability: "vault:manage", Scope: "vault"},
 		{SubjectID: "builtin.search", Capability: "vault:search", Scope: "item:search"},

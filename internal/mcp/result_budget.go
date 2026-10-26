@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -70,26 +69,7 @@ const genericResultHint = "Ask for less: a smaller limit, a narrower query or fi
 // text in an agent's context. It sits in front of every registered tool, so a
 // new tool is covered without knowing about it.
 func withResultBudget(budget int) sdk.Middleware {
-	return func(next sdk.MethodHandler) sdk.MethodHandler {
-		return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
-			res, err := next(ctx, method, req)
-			if err != nil || method != "tools/call" {
-				return res, err
-			}
-			call, ok := res.(*sdk.CallToolResult)
-			if !ok || call == nil || call.IsError {
-				return res, err
-			}
-			name := ""
-			if r, ok := req.(*sdk.CallToolRequest); ok && r.Params != nil {
-				name = r.Params.Name
-			}
-			if _, exempt := budgetExempt[name]; !exempt {
-				limitResult(name, call, budget)
-			}
-			return res, err
-		}
-	}
+	return withMeasuredResultBudget(budget, nil)
 }
 
 // limitResult shrinks call in place when its text is over budget.

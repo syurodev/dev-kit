@@ -35,6 +35,7 @@ import (
 	"devkit/internal/preferences"
 	"devkit/internal/servermode"
 	"devkit/internal/telegramcontrol"
+	"devkit/internal/usagemetrics"
 	"errors"
 	"strings"
 
@@ -827,6 +828,20 @@ func main() {
 		log.Printf("agenthub: unmodelled session/update kind %q for session %s: %s",
 			wireKind, sessionID, truncateForLog(raw, 300))
 	}
+	metricsStore := usagemetrics.NewSQLStore(db)
+	metrics, metricsErr := usagemetrics.New(context.Background(), metricsStore)
+	if metricsErr != nil {
+		log.Printf("usage collection is unavailable")
+	} else {
+		agentSvc.ToolMetrics = metricsStore
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if metrics.Shutdown(ctx) != nil {
+				log.Printf("usage collection did not flush completely")
+			}
+		}()
+	}
 	container.AgentHub = agentSvc
 	container.AgentHubPermissions = agentWaiter
 	container.AgentHubElicitations = agentElicitations
@@ -1135,7 +1150,18 @@ func main() {
 	if container.PullRequests != nil {
 		pullRequests = container.PullRequests
 	}
+	var recordUsage func(usagemetrics.Observation)
+	var dropUsage func()
+	var beginUsage func() bool
+	var endUsage func()
+	if metrics != nil {
+		recordUsage = metrics.Record
+		dropUsage = metrics.Drop
+		beginUsage = metrics.Begin
+		endUsage = metrics.End
+	}
 	mcpServer := mcp.NewServerFromContainer(mcp.Deps{
+		UsageScope: agentSvc.ToolUsageScope, RecordUsage: recordUsage, DropUsage: dropUsage, BeginUsage: beginUsage, EndUsage: endUsage,
 		Caller:            bridge.NewCaller(appService),
 		Notes:             container.Notes,
 		Vault:             container.Vault,
@@ -1263,6 +1289,15 @@ func main() {
 		// while the database is still open (it closes in main's defers,
 		// after Run returns).
 		OnShutdown: func() {
+			sessionHost.Close()
+			mcpCancel()
+			if metrics != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				if metrics.Shutdown(ctx) != nil {
+					log.Printf("usage collection did not drain completely")
+				}
+				cancel()
+			}
 			if err := agentSvc.Shutdown(context.Background()); err != nil {
 				log.Printf("agenthub: flush transcripts on quit: %v", err)
 			}

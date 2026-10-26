@@ -260,3 +260,30 @@
   - **Not done.** A toast for "every account is limited" (it reaches the window as the turn's `agent_usage_limit` error, as
     before; `agenthub.allAccountsLimited` is still unpublished in `keptCodes`); a drag-to-reorder list; any account UI for
     opencode; "Refresh all"; usage polling.
+
+- **Token usage report: Settings → Agents → Accounts & limits** (`internal/agenthub/turn_usage.go`, `usage_report.go`, `usage_source.go`;
+  bridge `agenthub_usage.go` `AgentUsageReport`, scope `usage:report`, UI-only; frontend `modules/agenthub/usage/`; spec
+  `docs/superpowers/specs/2026-10-26-subscription-harness-tuning-design.md`, phase 1a). Numbers and ids only, never a prompt, title or path.
+  **Usage is re-derived from each turn's raw meta** with the vendor's current `NormalizeUsage`, because the stored `InputTokens` /
+  `OutputTokens` / `CostUSD` are always serialized and turns stored before the normalizer read `quota.token_count` hold a false 0 beside
+  real numbers in `RawMeta`; the stored fields are used only for a row with no raw meta. Every aggregate carries `Known` coverage per metric (DTO `known`):
+  missing values do not increase coverage, real zeros do. Cells without coverage show `—`, incomplete sums say `(partial)`, and
+  percentages require complete coverage of both operands. Model rows expose total coverage only; other cells show `—`.
+  Fresh input is displayed beside cache read/write and output. The query explicitly refetches stale data on window focus.
+  A turn whose normalized answer has no pointer
+  field and only zeros is **unknown** (counted in `TurnsWithoutData`, never added as 0), so legacy input/output-only meta reporting zeros
+  is indistinguishable from no data; explicit pointer counters at 0 remain known. `model_usage` is the per-model split and can include helper models that the turn total leaves out,
+  so model totals can differ from the overall total; `PartialSplitTurns` counts incomplete, unequal or uncomparable splits.
+  The warning does not attribute a mismatch to helper models without evidence. The panel says these are tokens, not a share of
+  the subscription limit (how the limit counts cached reads is not known). Claude only; opencode and Codex have no usable usage rows.
+  **Phase 1b:** migration 51 gives local accounts an immutable `usage_generation` (built-in: `builtin`). Each new recorded turn,
+  including a billed failed turn, captures the actual opened runtime account/generation, start time and workspace just before
+  `Prompt`; legacy turns remain unknown-account and retain Phase 1a's workspace fallback. Profile/override revisions are nullable
+  until profiles exist. `ByAccount` partitions the same totals and coverage; current labels require an id + generation match.
+  `AgentToolUsageReport` (`usage:tools`) and `AgentAccountMoveUsageReport` (`usage:moves`) are additional window-only reads under
+  `agenthub:read`, never MCP tools or vendor probes. The first reads persisted host text-byte aggregates (see `mcp-tools.md`);
+  the second projects account notices, at most 100 per page, default 30/max 90 UTC days, with filter-bound cursors. Only a host-stamped
+  reopened-runtime notice can match the first subsequently started turn of the same account generation before the next move.
+  Binding-only, failed, legacy and ambiguous moves stay qualified; absent accounting is not zero or proof of a cache miss.
+  The UI shows each report's own error, UTC date filters, collection health and stale focus refresh. It does not poll or change failover.
+  Server mode preserves the vendor's pure usage decoder through `ForServerMode`; creating sessions and signing in remain refused.

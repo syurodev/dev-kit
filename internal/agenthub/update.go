@@ -313,10 +313,12 @@ func (r *ProviderRetry) stopHint() StopHint {
 // _meta.devkit. Kind is "switch" (a move that stands) or "failed" (one that was tried
 // and undone). From and To are account ids; the built-in account's is "<vendor>-default".
 type AccountNotice struct {
-	Kind   string `json:"kind"`
-	From   string `json:"from"`
-	To     string `json:"to"`
-	Reason string `json:"reason,omitempty"`
+	RuntimeOpened *bool  `json:"runtimeOpened,omitempty"`
+	ToGeneration  string `json:"toGeneration,omitempty"`
+	Kind          string `json:"kind"`
+	From          string `json:"from"`
+	To            string `json:"to"`
+	Reason        string `json:"reason,omitempty"`
 }
 
 // SessionGoal is the objective a session is working towards, from the goal

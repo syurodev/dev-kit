@@ -33,6 +33,7 @@ import (
 	"devkit/internal/syncclient"
 	"devkit/internal/tasks"
 	"devkit/internal/telegramcontrol"
+	"devkit/internal/usagemetrics"
 	"devkit/internal/vault"
 	"devkit/internal/workspace"
 	"devkit/internal/wssearch"
@@ -400,6 +401,10 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.New(codeValidationFailed, "Agent session depth limit exceeded.", true)
 		case errors.Is(err, agenthub.ErrCycleDetected):
 			return apperrors.New(codeValidationFailed, "Agent session cycle detected.", true)
+		case errors.Is(err, usagemetrics.ErrInvalidQuery):
+			return apperrors.New(codeValidationFailed, "Choose a valid UTC date window of at most 90 days and page size of at most 100.", true)
+		case errors.Is(err, usagemetrics.ErrUnavailable):
+			return apperrors.New(codeValidationFailed, "Usage collection is not available in this instance.", true)
 		case errors.Is(err, agenthub.ErrVendorUnknown):
 			return apperrors.New(codeValidationFailed, "Unknown agent vendor.", true)
 		case errors.Is(err, agenthub.ErrPermissionDenied):

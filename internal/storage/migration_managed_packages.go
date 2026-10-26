@@ -11,7 +11,7 @@ import (
 // metadata remain queryable without opening the vault.
 func ManagedPackagesMigration(db *sql.DB) Migration {
 	return Migration{
-		Version: 52,
+		Version: 53,
 		Name:    "managed immutable context packages and artifacts",
 		Up: func(ctx context.Context) error {
 			return migrateManagedPackages(ctx, db)

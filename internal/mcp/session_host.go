@@ -16,6 +16,8 @@ import (
 	"devkit/internal/identity"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/google/uuid"
 )
 
 // ErrSocketPathTooLong: sun_path is 104 bytes on darwin; a longer path fails
@@ -87,7 +89,8 @@ func (h *SessionHost) Open(sessionID string) (agenthub.MCPEndpoint, error) {
 		return agenthub.MCPEndpoint{}, err
 	}
 
-	ms := h.server.sdkServerFor(identity.Agent(sessionID))
+	token := uuid.NewString()
+	ms := h.server.sdkServerFor(identity.Agent(sessionID), token)
 	h.mu.Lock()
 	h.listeners[sessionID] = ln
 	h.mu.Unlock()
@@ -101,7 +104,7 @@ func (h *SessionHost) Open(sessionID string) (agenthub.MCPEndpoint, error) {
 		_ = os.Remove(path)
 	}
 	return agenthub.MCPEndpoint{
-		GateOwnedTools:   h.server.GateOwnedTools(),
+		UsageToken: token, GateOwnedTools: h.server.GateOwnedTools(),
 		PreApprovedTools: h.server.PreApprovedTools(),
 		SocketPath:       path,
 		Server: acp.McpServerStdio{

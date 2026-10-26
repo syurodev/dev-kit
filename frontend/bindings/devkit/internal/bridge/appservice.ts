@@ -64,6 +64,9 @@ import * as ssh$0 from "../ssh/models.js";
 import * as tasks$0 from "../tasks/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as usagemetrics$0 from "../usagemetrics/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as workfolder$0 from "../workfolder/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -328,6 +331,10 @@ export function AccountsUsedBy(id: string): $CancellablePromise<string[] | null>
  */
 export function AccountsVerify(id: string): $CancellablePromise<accounts$0.Account> {
     return $Call.ByID(2954128931, id);
+}
+
+export function AgentAccountMoveUsageReport(vendor: string, q: agenthub$0.AccountMoveQuery): $CancellablePromise<agenthub$0.AccountMoveReport> {
+    return $Call.ByID(695715644, vendor, q);
 }
 
 /**
@@ -952,6 +959,20 @@ export function AgentRuntimeSetClaudeBinary(source: string): $CancellablePromise
  */
 export function AgentRuntimeStatus(agent: string): $CancellablePromise<agentruntime$0.Status> {
     return $Call.ByID(3949624987, agent);
+}
+
+/**
+ * AgentToolUsageReport reads persisted host measurements; it never flushes or probes a vendor.
+ */
+export function AgentToolUsageReport(vendor: string, q: usagemetrics$0.Query): $CancellablePromise<usagemetrics$0.Report> {
+    return $Call.ByID(1868094102, vendor, q);
+}
+
+/**
+ * AgentUsageReport reports what a vendor's turns spent, in tokens.
+ */
+export function AgentUsageReport(vendor: string): $CancellablePromise<$models.AgentUsageReportInfo> {
+    return $Call.ByID(1777128644, vendor);
 }
 
 /**

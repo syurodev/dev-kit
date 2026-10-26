@@ -8,7 +8,7 @@ import (
 // ManagedLeasesMigration is wired as migration 51 by the composition-owned
 // migration list. It stores ownership metadata only, never paths or payloads.
 func ManagedLeasesMigration(db *sql.DB) Migration {
-	return Migration{Version: 51, Name: "managed writer leases", Up: func(ctx context.Context) error {
+	return Migration{Version: 52, Name: "managed writer leases", Up: func(ctx context.Context) error {
 		if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS agent_work_leases (
 			id TEXT PRIMARY KEY,
 			schema_version INTEGER NOT NULL CHECK(schema_version > 0),

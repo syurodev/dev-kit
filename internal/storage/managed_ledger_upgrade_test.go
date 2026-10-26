@@ -23,10 +23,7 @@ func TestManagedLedgerUpgradeFrom48PreservesExistingData(t *testing.T) {
 		`DROP TABLE agent_work_attempts`,
 		`DROP TABLE agent_work_items`,
 		`DROP TABLE agent_work_groups`,
-		`DELETE FROM schema_migrations WHERE version=49`,
-		`DELETE FROM schema_migrations WHERE version=50`,
-		`DELETE FROM schema_migrations WHERE version=51`,
-		`DELETE FROM schema_migrations WHERE version=52`,
+		`DELETE FROM schema_migrations WHERE version>=49`,
 		`INSERT INTO ui_state (key,value) VALUES ('upgrade-sentinel','{"retained":true}')`,
 	} {
 		if _, err := db.ExecContext(ctx, statement); err != nil {
@@ -50,8 +47,8 @@ func TestManagedLedgerUpgradeFrom48PreservesExistingData(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 52 {
-		t.Fatalf("schema version %d, want 52", version)
+	if version != 53 {
+		t.Fatalf("schema version %d, want 53", version)
 	}
 	var tables int
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('agent_work_groups','agent_work_items','agent_work_attempts')`).Scan(&tables); err != nil {
@@ -71,6 +68,9 @@ func TestManagedLedgerMigration50QuarantinesLegacyRowsWithoutLosingAttempt(t *te
 	defer db.Close()
 	for _, statement := range []string{
 		`CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL,applied_at TEXT NOT NULL)`,
+		`CREATE TABLE agent_accounts(id TEXT PRIMARY KEY,home_dir TEXT NOT NULL DEFAULT '')`,
+		`CREATE TABLE agent_turns(id TEXT PRIMARY KEY,session_id TEXT)`,
+		`CREATE TABLE agent_transcript(id TEXT PRIMARY KEY,session_id TEXT,kind TEXT,created_at TEXT)`,
 		`INSERT INTO schema_migrations VALUES(49,'agent managed work ledger','2026-10-25T00:00:00Z')`,
 		`CREATE TABLE agent_work_groups(id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL,board_id TEXT NOT NULL,parent_task_id TEXT NOT NULL,coordinator_id TEXT NOT NULL,enabled INTEGER NOT NULL,paused INTEGER NOT NULL,policy_revision INTEGER NOT NULL,revision INTEGER NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`,
 		`CREATE TABLE agent_work_items(id TEXT PRIMARY KEY,group_id TEXT NOT NULL,workspace_id TEXT NOT NULL,board_id TEXT NOT NULL,parent_task_id TEXT NOT NULL,task_id TEXT NOT NULL,task_revision INTEGER NOT NULL,requirements_revision TEXT NOT NULL,role TEXT NOT NULL,state TEXT NOT NULL,current_attempt_id TEXT,revision INTEGER NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`,
