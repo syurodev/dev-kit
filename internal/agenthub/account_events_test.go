@@ -38,10 +38,10 @@ func (e *eventCounts) snapshot() ([][4]string, int) {
 
 func TestAMoveFiresTheSwitchedHookAndAChangeEvent(t *testing.T) {
 	rig := newAccountRig(t, preferences.RefusalNone)
-	rig.fillBuiltin(t, 95)
 	var ev eventCounts
 	ev.attach(rig.svc)
 	sess := startSession(t, rig)
+	rig.fillBuiltin(t, 95)
 	if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"}); err != nil {
 		t.Fatal(err)
 	}
@@ -57,10 +57,10 @@ func TestAMoveFiresTheSwitchedHookAndAChangeEvent(t *testing.T) {
 func TestAnUndoneMoveDoesNotFireTheSwitchedHook(t *testing.T) {
 	rig := newAccountRig(t, preferences.RefusalNone)
 	rig.vendor.failHome.Store(true) // the added account's home never opens
-	rig.fillBuiltin(t, 95)
 	var ev eventCounts
 	ev.attach(rig.svc)
 	sess := startSession(t, rig)
+	rig.fillBuiltin(t, 95)
 	if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"}); err != nil {
 		t.Fatal(err)
 	}

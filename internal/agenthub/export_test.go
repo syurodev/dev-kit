@@ -234,3 +234,34 @@ func AccountSwitchFailedUpdateForTest(from, to, reason string) json.RawMessage {
 func (s *Service) ObserveUsageForTest(ctx context.Context, sessionID string, w []LimitWindow) {
 	s.observeAccountUsage(ctx, sessionID, SessionUpdate{Kind: UpdateUsage, Usage: &Usage{Limits: w}})
 }
+
+// RuntimeUsageForTest returns the usage facts published for a session's runtime.
+func (s *Service) RuntimeUsageForTest(id string) (RuntimeUsageFacts, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f, ok := s.runtimeUsage[id]
+	return f, ok
+}
+
+// EndpointCountForTest is how many sessions hold an open MCP endpoint.
+func (s *Service) EndpointCountForTest() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.endpoints)
+}
+
+// OpeningAccountsForTest is how many accounts a session being created holds
+// against removal right now.
+func (s *Service) OpeningAccountsForTest() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.creating)
+}
+
+// SetAccountPickedHookForTest sets what runs once CreateSession has chosen an
+// account and before it holds it, with no lock held.
+func (s *Service) SetAccountPickedHookForTest(hook func(accountID string)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.accountPickedHook = hook
+}

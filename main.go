@@ -367,7 +367,8 @@ func main() {
 		// spawn; none means Codex's own ChatGPT sign-in. Read through the
 		// container because Accounts is wired further down, once the database
 		// is open.
-		APIKey: app.CodexAPIKey{C: container}.Key,
+		APIKey:       app.CodexAPIKey{C: container}.Key,
+		APIKeyChosen: app.CodexAPIKey{C: container}.Chosen,
 		OnSignInCompleted: func(r agenthub.SignInResult) {
 			if r.Success && r.AccountID == "" {
 				// Accounts notes the built-in sign-in so its list answers "what

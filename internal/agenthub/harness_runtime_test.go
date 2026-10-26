@@ -2,6 +2,7 @@ package agenthub_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -60,8 +61,10 @@ type launchAdapter struct {
 	ev      *events
 	mu      sync.Mutex
 	openErr error
-	specs   []agenthub.OpenSpec
-	last    *mortal
+	// openErrFor, when set, answers per open: what that account's open does.
+	openErrFor func(agenthub.OpenSpec) error
+	specs      []agenthub.OpenSpec
+	last       *mortal
 }
 
 // mortal is a runtime whose process a test can declare dead.
@@ -87,6 +90,11 @@ func (a *launchAdapter) record(spec agenthub.OpenSpec, kind string) error {
 	defer a.mu.Unlock()
 	a.ev.add("adapter.%s", kind)
 	a.specs = append(a.specs, spec)
+	if a.openErrFor != nil {
+		if err := a.openErrFor(spec); err != nil {
+			return err
+		}
+	}
 	return a.openErr
 }
 
@@ -211,6 +219,7 @@ func gitOffW(rev int64) func(*harness.Inputs) {
 }
 
 type launchEnv struct {
+	db      *sql.DB
 	t       *testing.T
 	svc     *agenthub.Service
 	adapter *launchAdapter
@@ -237,7 +246,7 @@ func newLaunchEnv(t *testing.T, endpoints func(*events) agenthub.MCPEndpoints) *
 	reg.Register(adapter)
 	svc := agenthub.NewService(reg, agenthub.NewSQLStore(db), func(string, json.RawMessage) {})
 	svc.MatchingWorkspaces = func(string) ([]string, error) { return []string{"w1"}, nil }
-	e := &launchEnv{t: t, svc: svc, adapter: adapter, ev: ev, harness: &fakeHarness{ev: ev}}
+	e := &launchEnv{db: db, t: t, svc: svc, adapter: adapter, ev: ev, harness: &fakeHarness{ev: ev}}
 	e.harness.set(func(session, ws, vendor string) (harness.Snapshot, error) {
 		return snapshotFor(t, session, ws, vendor, nil), nil
 	})
