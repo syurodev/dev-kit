@@ -68,8 +68,8 @@ func TestAccountTurnMovesToTheNextAccountOverTheThreshold(t *testing.T) {
 		recordErrs = append(recordErrs, err)
 		recordMu.Unlock()
 	}
-	rig.fillBuiltin(t, 95)
 	sess := startSession(t, rig)
+	rig.fillBuiltin(t, 95)
 
 	if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"}); err != nil {
 		t.Fatal(err)
@@ -117,8 +117,8 @@ func TestAccountTurnMovesToTheNextAccountOverTheThreshold(t *testing.T) {
 
 func TestAccountTurnStaysUnderTheThreshold(t *testing.T) {
 	rig := newAccountRig(t, preferences.RefusalNone)
-	rig.fillBuiltin(t, 40)
 	sess := startSession(t, rig)
+	rig.fillBuiltin(t, 40)
 	opens := rig.opens.Load()
 	if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"}); err != nil {
 		t.Fatal(err)
@@ -136,9 +136,9 @@ func TestAccountTurnStaysUnderTheThreshold(t *testing.T) {
 
 func TestAccountTurnDoesNothingWithTheFeatureOff(t *testing.T) {
 	rig := newAccountRig(t, preferences.RefusalNone)
-	rig.fillBuiltin(t, 99)
 	rig.svc.Accounts = nil
 	sess := startSession(t, rig)
+	rig.fillBuiltin(t, 99)
 	if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"}); err != nil {
 		t.Fatal(err)
 	}
@@ -152,13 +152,13 @@ func TestAccountTurnDoesNothingWithTheFeatureOff(t *testing.T) {
 
 func TestAccountTurnDoesNothingWhenTheVendorIsNotEnabled(t *testing.T) {
 	rig := newAccountRig(t, preferences.RefusalNone)
-	rig.fillBuiltin(t, 99)
 	rig.svc.AccountPolicy = func() (preferences.AgentAccountPolicy, error) {
 		return preferences.AgentAccountPolicy{Vendors: map[string]preferences.AccountVendorPolicy{
 			string(agenthub.AgentTypeMock): {Enabled: false, ThresholdPercent: 90},
 		}}, nil
 	}
 	sess := startSession(t, rig)
+	rig.fillBuiltin(t, 99)
 	if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"}); err != nil {
 		t.Fatal(err)
 	}
@@ -169,8 +169,8 @@ func TestAccountTurnDoesNothingWhenTheVendorIsNotEnabled(t *testing.T) {
 
 func TestAccountTurnStaysOnTheBuiltinWhenItIsTheOnlyAccount(t *testing.T) {
 	rig := newAccountRigWith(t, preferences.RefusalNone, rigOptions{noWork: true})
-	rig.fillBuiltin(t, 99)
 	sess := startSession(t, rig)
+	rig.fillBuiltin(t, 99)
 	if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"}); err != nil {
 		t.Fatal(err)
 	}
@@ -238,8 +238,8 @@ func TestAccountTurnStaysWhereItWasWhenTheMoveCannotBeWritten(t *testing.T) {
 	rig := newAccountRigWith(t, preferences.RefusalNone, rigOptions{
 		store: func(s agenthub.Store) agenthub.Store { return failingAccountStore{s} },
 	})
-	rig.fillBuiltin(t, 95)
 	sess := startSession(t, rig)
+	rig.fillBuiltin(t, 95)
 	opens := rig.opens.Load()
 
 	if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"}); err != nil {
@@ -270,8 +270,8 @@ func TestAccountTurnStaysWhereItWasWhenTheMoveCannotBeWritten(t *testing.T) {
 // not be handed the process that resume opened on the account it is leaving.
 func TestAccountTurnWaitsForAResumeInFlightAndRunsOnTheNewAccount(t *testing.T) {
 	rig := newAccountRig(t, preferences.RefusalNone)
-	rig.fillBuiltin(t, 95)
 	sess := startSession(t, rig)
+	rig.fillBuiltin(t, 95)
 	rig.restart(t) // no session has a process now
 	moveWaits := make(chan struct{}, 1)
 	rig.svc.SetWaitHookForTest(func(waiter, _ string) {
@@ -338,9 +338,9 @@ func TestAccountTurnWaitsForAResumeInFlightAndRunsOnTheNewAccount(t *testing.T) 
 
 func TestAccountTurnStaysOnItsAccountWhenTheNewOneCannotOpen(t *testing.T) {
 	rig := newAccountRig(t, preferences.RefusalNone)
-	rig.fillBuiltin(t, 95)
 	rig.vendor.failHome.Store(true) // the work account's sign-in has expired
 	sess := startSession(t, rig)
+	rig.fillBuiltin(t, 95)
 	builtin := agenthub.BuiltinAccountID(agenthub.AgentTypeMock)
 
 	before := time.Now()
@@ -407,10 +407,10 @@ func TestAFailedSwitchNoticeNeverQuotesTheOpenError(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			rig := newAccountRig(t, preferences.RefusalNone)
-			rig.fillBuiltin(t, 95)
 			rig.vendor.failErr.Store(&tc.err)
 			rig.vendor.failHome.Store(true)
 			sess := startSession(t, rig)
+			rig.fillBuiltin(t, 95)
 			if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"}); err != nil {
 				t.Fatal(err)
 			}
@@ -431,9 +431,9 @@ func TestAFailedSwitchNoticeNeverQuotesTheOpenError(t *testing.T) {
 // A reopen that fails puts the account on a cooldown, which the Accounts page shows.
 func TestAFailedReopenTellsTheAccountsPageAboutTheCooldown(t *testing.T) {
 	rig := newAccountRig(t, preferences.RefusalNone)
-	rig.fillBuiltin(t, 95)
 	rig.vendor.failHome.Store(true)
 	sess := startSession(t, rig)
+	rig.fillBuiltin(t, 95)
 	changed := 0
 	rig.svc.OnAccountsChanged = func() { changed++ }
 	if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"}); err != nil {
@@ -449,9 +449,9 @@ func TestAFailedReopenTellsTheAccountsPageAboutTheCooldown(t *testing.T) {
 // cooldown, nothing says the switch failed, and the next turn tries it again.
 func TestAccountTurnEndedWhileTheNewOneOpensDoesNotBlameIt(t *testing.T) {
 	rig := newAccountRig(t, preferences.RefusalNone)
-	rig.fillBuiltin(t, 95)
 	rig.vendor.ctxEnds.Store(true)
 	sess := startSession(t, rig)
+	rig.fillBuiltin(t, 95)
 	builtin := agenthub.BuiltinAccountID(agenthub.AgentTypeMock)
 
 	started, release := rig.vendor.holdNextOpen()
@@ -558,9 +558,9 @@ func TestAccountTurnWhoseMoveBackCannotBeWrittenStaysOnTheNewAccount(t *testing.
 	rig := newAccountRigWith(t, preferences.RefusalNone, rigOptions{
 		store: func(s agenthub.Store) agenthub.Store { return accountWritesFailFrom{s, new(atomic.Int32), 2} },
 	})
-	rig.fillBuiltin(t, 95)
 	rig.vendor.failHome.Store(true)
 	sess := startSession(t, rig)
+	rig.fillBuiltin(t, 95)
 	logs := new(syncWriter)
 	log.SetOutput(logs)
 	defer log.SetOutput(os.Stderr)

@@ -61,8 +61,10 @@ type launchAdapter struct {
 	ev      *events
 	mu      sync.Mutex
 	openErr error
-	specs   []agenthub.OpenSpec
-	last    *mortal
+	// openErrFor, when set, answers per open: what that account's open does.
+	openErrFor func(agenthub.OpenSpec) error
+	specs      []agenthub.OpenSpec
+	last       *mortal
 }
 
 // mortal is a runtime whose process a test can declare dead.
@@ -88,6 +90,11 @@ func (a *launchAdapter) record(spec agenthub.OpenSpec, kind string) error {
 	defer a.mu.Unlock()
 	a.ev.add("adapter.%s", kind)
 	a.specs = append(a.specs, spec)
+	if a.openErrFor != nil {
+		if err := a.openErrFor(spec); err != nil {
+			return err
+		}
+	}
 	return a.openErr
 }
 

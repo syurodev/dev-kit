@@ -473,8 +473,12 @@ type Service struct {
 	// accountsEventAt: when accountsChangedThrottled last fired.
 	accountsEventAt time.Time
 	sessionAccount  map[string]string
-	turnProgress    map[string]bool
-	usageSeen       map[string]seenUsage
+	// creating: the account a session being created is opening as, by session id,
+	// from the moment it is chosen until the session is published or abandoned.
+	// RemoveAccount reads it (accountInUse), so the account cannot go meanwhile.
+	creating     map[string]string
+	turnProgress map[string]bool
+	usageSeen    map[string]seenUsage
 	// policyCached/policyAt/policyGen: the last account-policy read and when
 	// (account_policy_cache.go). usageClock and policyClock replace time.Now in tests.
 	policyCached preferences.AgentAccountPolicy
@@ -495,6 +499,8 @@ type Service struct {
 	// a caller is about to wait on a resume or a move in flight: waiter is
 	// "move" (moveSession) or "resume" (resumeRuntime). Read under mu.
 	waitHook func(waiter, sessionID string)
+	// accountPickedHook runs in CreateSession once an account was chosen, before it is held.
+	accountPickedHook func(accountID string)
 	// followUpHook, when set (tests only, see export_test.go), is called just
 	// before the one follow-up of a turn refused for a real limit is sent
 	// (runLimitFollowUp, account_limit.go). Read under mu.
@@ -579,6 +585,7 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 		emit:            emit,
 		accountSwitches: make(map[string]accountSwitch),
 		sessionAccount:  make(map[string]string),
+		creating:        make(map[string]string),
 		turnProgress:    make(map[string]bool),
 		usageSeen:       make(map[string]seenUsage),
 		// Off until main.go says otherwise: a machine with no git, or a user
@@ -887,33 +894,23 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 	} else if parent != nil {
 		spec.ExtraReadWritePaths = inheritedExtraPaths(*parent)
 	}
-	launch, err := s.prepareLaunch(ctx, &spec, id, workspaceID, in.AgentType, nil)
-	if err != nil {
-		log.Printf("agenthub: %s session: prepare launch: %v", in.AgentType, err)
-		return AgentSession{}, err
-	}
-	closeEndpoint := launch.closeEndpoint
-	s.applySandboxExtras(&spec)
-	s.applyHarnessLaunch(&spec, launch, in.AgentType)
-	s.applySubagents(&spec, in.AgentType)
-
-	if err := prepareSessionTemp(&spec, true); err != nil {
-		closeEndpoint()
-		return AgentSession{}, err
-	}
 	keepTemp := false
 	defer func() {
 		if !keepTemp {
 			removeSessionTemp(id)
 		}
 	}()
-	rt, err := s.openTracked(id, func() (SessionRuntime, error) { return adapter.Open(ctx, spec) })
+	// The account is chosen first, by the policy a turn uses, and the endpoint,
+	// jail and process are all built for it; a refusal at open that is typed as a
+	// usage limit tries the next account (account_create.go).
+	chooser := s.newAccountChooser(ctx, adapter, id)
+	defer chooser.release()
+	opened, err := s.openNewRuntime(ctx, adapter, spec, chooser)
 	if err != nil {
-		// The bridge redacts this to one sentence; the log keeps the cause.
-		log.Printf("agenthub: open %s session in %s: %v", in.AgentType, cwd, err)
-		closeEndpoint()
 		return AgentSession{}, err
 	}
+	rt, launch, spec, acct := opened.rt, opened.launch, opened.spec, opened.account
+	closeEndpoint := launch.closeEndpoint
 	if configurator, ok := rt.(RuntimeConfigurator); len(in.InitialConfig) > 0 && (!inheritedConfig || ok) {
 		if !ok {
 			_ = rt.Close(ctx)
@@ -956,6 +953,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 		Depth:        depth,
 		Title:        in.Title,
 		ACPSessionID: rt.ACPSessionID(),
+		AccountID:    acct.bound,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 		// What the jail was actually built with, after cleaning — resume and
@@ -991,7 +989,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 
 	s.mu.Lock()
 	s.runtimes[sess.ID] = rt
-	s.publishUsageLocked(sess, spec, BuiltinAccountID(sess.AgentType))
+	s.publishUsageLocked(sess, spec, acct.id)
 	s.publishHarnessLocked(sess.ID, launch)
 	s.endpoints[sess.ID] = closeEndpoint
 	s.mu.Unlock()
