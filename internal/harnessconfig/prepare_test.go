@@ -364,3 +364,37 @@ func TestPendingProposalsAreBounded(t *testing.T) {
 		t.Fatalf("over the bound: %v", err)
 	}
 }
+
+// The requesting session's override must not hide what a workspace change does
+// to every other session.
+func TestACallersOverrideDoesNotHideAWorkspaceWideWidening(t *testing.T) {
+	e := newEnv(t)
+	gitOff(e, "w1")
+	e.seedOverride("w1", "s1", "git") // this session already has git on
+	req := Request{Target: TargetWorkspace, Patch: Patch{Workspace: &ProfilePatch{Groups: map[string]*bool{"git": boolp(true), "tasks": boolp(false)}}}}
+	got, err := e.svc.Prepare(agent("s1"), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.View.Tier != "widening" || !got.View.NeedsConfirmation {
+		t.Fatalf("W turns git on for every session, so this is widening: %+v", got.View)
+	}
+	var sawGit bool
+	for _, c := range got.View.Changes {
+		sawGit = sawGit || (c.Key == "git" && c.Effect == "turn on tool group git")
+	}
+	if !sawGit {
+		t.Fatalf("the widening change is not shown: %+v", got.View.Changes)
+	}
+	// Even with auto-narrowing on, a widening is never applied without asking.
+	e.policy.p = Policy{Revision: "p2", AutoNarrowing: true}
+	got, err = e.svc.Prepare(agent("s1"), req)
+	if err != nil || !got.View.NeedsConfirmation {
+		t.Fatalf("auto-narrowing swallowed a widening: %+v %v", got.View, err)
+	}
+	// A session-only change still shows the session's own effect.
+	only, err := e.svc.Prepare(agent("s1"), Request{Target: TargetSession, Patch: Patch{RevokeGroups: []string{"git"}}})
+	if err != nil || only.View.Tier != "narrowing" {
+		t.Fatalf("revoking the session's own override: %+v %v", only.View, err)
+	}
+}
