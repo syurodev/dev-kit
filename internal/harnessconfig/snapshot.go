@@ -87,7 +87,7 @@ func (p *Provider) Snapshot(ctx context.Context, req SnapshotRequest) (harness.S
 		Ref: harness.SnapshotRef{
 			Schema: harness.SnapshotSchema, WorkspaceID: req.WorkspaceID, SessionID: req.SessionID, Vendor: req.Vendor,
 			Revisions: eff.Revisions, Fingerprint: eff.Fingerprint, ExecutableDigest: eff.ExecutableDigest(),
-			WorkspaceDigest: eff.WorkspaceDigest(), ExecutableEntries: eff.ExecutableEntries(),
+			ExecutableEntries: eff.ExecutableEntries(), WorkspaceOwned: eff.WorkspaceOwned(), WorkspaceSuppressed: eff.WorkspaceSuppressed(),
 			FactsComplete: vs.FactsComplete, Default: w == nil && o == nil,
 		},
 		Effective: eff,
