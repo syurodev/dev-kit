@@ -51,17 +51,19 @@ func newUsageRig(t *testing.T) *usageRig {
 	book := NewSQLAccountStore(db)
 	svc := NewService(reg, NewSQLStore(db), nil)
 	svc.Accounts = book
-	// The person configured the mock vendor (as for Claude or Codex): only then is usage observed.
-	svc.AccountPolicy = usagePolicyFor(AgentTypeMock)
 	ctx := identity.WithCaller(context.Background(), identity.UI())
 	cwd, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Created before the vendor is configured: a session born under a policy
+	// would list the book, and these tests read what a plain session leaves in it.
 	sess, err := svc.CreateSession(ctx, CreateInput{AgentType: AgentTypeMock, Cwd: cwd})
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The person configured the mock vendor (as for Claude or Codex): only then is usage observed.
+	svc.AccountPolicy = usagePolicyFor(AgentTypeMock)
 	return &usageRig{svc: svc, book: book, ctx: ctx, sess: sess}
 }
 

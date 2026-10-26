@@ -174,6 +174,9 @@ type Effective struct {
 	groupOn    map[string]bool
 	budgets    map[string]Budget
 	executable map[string]string // what could run or be loaded, keyed by kind:name
+	execDigest string
+	owned      map[string]bool // executable keys W defines
+	suppressed map[string]bool // executable keys only W's deny lists hide
 }
 
 // GroupOn reports whether a registry group is on. An unknown group is off.
@@ -221,6 +224,15 @@ const (
 	CodeFactsUnavailable = "harness.factsUnavailable"
 	CodeNotAvailable     = "harness.notAvailable"
 	CodeNoChange         = "harness.noChange"
+	// CodeSnapshotUnavailable: a runtime's configuration could not be resolved.
+	// The launch is refused; it never falls back to unfiltered defaults.
+	CodeSnapshotUnavailable = "harness.snapshotUnavailable"
+	// CodeNotEnforceable: the profile needs the MCP server to enforce it and this
+	// endpoint cannot, so the launch is refused instead of run unfiltered.
+	CodeNotEnforceable = "harness.notEnforceable"
+	// CodeNewSessionRequired: reopening this session would adopt a changed set of
+	// executables; they take effect in a new session only.
+	CodeNewSessionRequired = "harness.newSessionRequired"
 )
 
 // Error carries a public code and host-authored text only: never a command,

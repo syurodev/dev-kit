@@ -152,6 +152,8 @@ func (c countedMock) CheckUsage(ctx context.Context, spec agenthub.OpenSpec) ([]
 	return c.probe.check(ctx, spec)
 }
 
+func (c countedMock) BuiltinPinnedToAPIKey(context.Context) bool { return c.hook.pinned.Load() }
+
 func (c countedMock) Open(ctx context.Context, spec agenthub.OpenSpec) (agenthub.SessionRuntime, error) {
 	c.opens.Add(1)
 	if err := c.hook.enter(ctx, spec); err != nil {
@@ -177,12 +179,45 @@ type vendorHook struct {
 	homeOpens atomic.Int32          // opens (attempted) in an added account's home
 	failHome  atomic.Bool           // refuse every open in an added account's home
 	failErr   atomic.Pointer[error] // what failHome answers; errAccountHomeBroken when nil
+	pinned    atomic.Bool           // the built-in account is pinned to a credential the person chose
 	ctxEnds   atomic.Bool           // an open in an added account's home answers its context's error once that has ended
 
-	mu      sync.Mutex
-	block   chan struct{} // the next open waits for it to close
-	started chan struct{} // closed when that open has begun
-	homes   []runtimeHome // every runtime opened, in order
+	mu       sync.Mutex
+	onEnter  func()           // runs inside every open, before it answers, with no lock held
+	refusals map[string]error // refuse the open of the account home (key "" is the built-in account)
+	attempts []openAttempt    // every open that was asked for, refused or not, in order
+	block    chan struct{}    // the next open waits for it to close
+	started  chan struct{}    // closed when that open has begun
+	homes    []runtimeHome    // every runtime opened, in order
+}
+
+// openAttempt is what one Open or Load was asked to run as.
+type openAttempt struct {
+	home       string
+	generation string
+	shared     []string
+}
+
+// refuse makes every open as the account whose home is given ("" is the
+// built-in account) answer err; nil lifts it.
+func (h *vendorHook) refuse(home string, err error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.refusals == nil {
+		h.refusals = map[string]error{}
+	}
+	if err == nil {
+		delete(h.refusals, home)
+		return
+	}
+	h.refusals[home] = err
+}
+
+// tried returns the attempts made so far.
+func (h *vendorHook) tried() []openAttempt {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]openAttempt(nil), h.attempts...)
 }
 
 type runtimeHome struct {
@@ -202,6 +237,17 @@ func (h *vendorHook) holdNextOpen() (started <-chan struct{}, release func()) {
 }
 
 func (h *vendorHook) enter(ctx context.Context, spec agenthub.OpenSpec) error {
+	h.mu.Lock()
+	h.attempts = append(h.attempts, openAttempt{home: spec.AccountHome, generation: spec.UsageAccountGeneration, shared: append([]string(nil), spec.AccountSharedPaths...)})
+	refused := h.refusals[spec.AccountHome]
+	onEnter := h.onEnter
+	h.mu.Unlock()
+	if onEnter != nil {
+		onEnter()
+	}
+	if refused != nil {
+		return refused
+	}
 	if spec.AccountHome != "" {
 		h.homeOpens.Add(1)
 		if h.failHome.Load() {

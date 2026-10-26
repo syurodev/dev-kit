@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"devkit/internal/acp"
 	"devkit/internal/checkpoint"
 
 	"github.com/google/uuid"
@@ -296,6 +295,7 @@ type rewindRun struct {
 	overwrite []string
 
 	usageFacts RuntimeUsageFacts
+	launch     harnessLaunch
 	oldRuntime SessionRuntime
 	newRuntime SessionRuntime
 	closeNew   func()
@@ -383,6 +383,7 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 	s.mu.Lock()
 	s.runtimes[r.session.ID] = r.newRuntime
 	s.runtimeUsage[r.session.ID] = r.usageFacts
+	s.publishHarnessLocked(r.session.ID, r.launch)
 	s.sessionAccount[r.session.ID] = r.usageFacts.AccountID
 	s.endpoints[r.session.ID] = r.closeNew
 	s.forgetWorkspaceContextLocked(r.session.ID)
@@ -467,26 +468,19 @@ func (r *rewindRun) openForked(ctx context.Context) error {
 	s := r.service
 	spec := sessionOpenSpec(r.session)
 	spec.SessionTempRoot = s.SessionTempRoot
-	r.closeNew = func() {}
-	if s.MCPEndpoints != nil {
-		ep, err := s.MCPEndpoints.Open(r.session.ID)
-		if err != nil {
-			return err
-		}
-		r.closeNew = ep.Close
-		spec.UsageToken = ep.UsageToken
-		spec.AllowUnixSockets = []string{ep.SocketPath}
-		spec.McpServers = []acp.McpServerStdio{ep.Server}
-		spec.GateOwnedMCP = map[string][]string{ep.Server.Name: ep.GateOwnedTools}
-		spec.PreApprovedMCP = map[string][]string{ep.Server.Name: ep.PreApprovedTools}
-		spec.ReadOnlyPaths = []string{ep.Server.Command}
+	launch, err := s.prepareLaunch(ctx, &spec, r.session.ID, r.session.WorkspaceID, r.session.AgentType, s.previousHarness(r.session.ID))
+	if err != nil {
+		return err
 	}
+	r.launch = launch
+	r.closeNew = launch.closeEndpoint
 	spec.TempOwner = s.SessionTempOwner
 	if err := prepareSessionTemp(&spec, false); err != nil {
 		r.closeNew()
 		return err
 	}
 	s.applySandboxExtras(&spec)
+	s.applyHarnessLaunch(&spec, launch, r.session.AgentType)
 	resolvedAccount := s.fillAccountSpec(ctx, &spec, r.session)
 	s.recordSessionAccount(r.session.ID, resolvedAccount)
 	r.usageFacts = factsForSpec(r.session, spec, resolvedAccount)

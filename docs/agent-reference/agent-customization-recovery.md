@@ -120,3 +120,100 @@ imports only `internal/harness` and `internal/identity` (architecture-tested).
 - **Tiers.** Narrowing asks unless the UI-only auto-narrowing setting is on; widening always
   asks. The agent's rationale is cleaned, bounded and shown labelled untrusted; it never
   influences target, tier or summary.
+
+### Runtime snapshots (H3a)
+
+`harness.Snapshot` is the resolved effective configuration plus the identity it was resolved
+for; `harnessconfig.Provider.Snapshot` produces it from the same store/vendor/registry ports
+and the single `harness.Resolve`. Nothing in Agent Hub calls it yet (H3b).
+
+- **Two references, never one.** `harness.ModelProfileRef` (vendor/model/effort) selects a
+  model; `harness.SnapshotRef` identifies the harness. The same model can run under different
+  snapshots and a snapshot never changes the model.
+- **SnapshotRef** holds schema, workspace/session/vendor ids, the V/W/S revisions (W and S nil
+  when they did not exist, never 0), the effective fingerprint, an `ExecutableDigest` (what could
+  run or load; order- and revision-independent, follows resolved symlink targets),
+  `FactsComplete` and `Default`. It carries no path, command, argument, instruction, env value
+  or endpoint token; a digest is never a permission.
+- **Default vs unavailable.** No W and no S is a positively resolved `Default` snapshot.
+  Anything that cannot be resolved (corrupt W or S, vendor read error, no registry, a profile
+  naming a removed group) is `harness.snapshotUnavailable`; the launch must be refused, never
+  run with unfiltered defaults. A present-but-empty W is not `Default`, although it serves the
+  same tools.
+- **Scope.** The request comes from Agent Hub's own session row. A fresh child asks with its own
+  new id, so it cannot see its parent's S; an S written under another workspace does not follow
+  the session and is not applied.
+- **Facts.** When the host reports the vendor's own servers and skills as incomplete they are not
+  used at all and `FactsComplete=false`: the snapshot describes DevKit's configuration, not a
+  verified account of what the vendor runs. Do not present it as a fully checked TEAM
+  configuration.
+- **Detached.** `Snapshot.Clone`/`Effective.Clone` share no memory; the provider returns a clone,
+  so a later change to a request, a candidate or a store row cannot alter an opening or live
+  snapshot. `Effective.ServingIsDefault` says whether the MCP server would serve exactly what it
+  serves today, i.e. whether anything needs the server to enforce the configuration.
+
+### One prepared launch for every runtime (H3b)
+
+`Service.Harness` (`HarnessSnapshots`, nil by default) makes CreateSession, `resumeRuntime`
+(Load, reload, dead-runtime and account reopen) and both rewind opens (Open, Fork) derive their
+launch from `prepareLaunch`: resolve the snapshot, gate it, open the endpoint, fill the spec.
+Nothing is published until the runtime opened.
+
+- **Order.** Snapshot → gate → endpoint (staged with the policy when the endpoint is a
+  `PolicyEndpoints`) → spec. The endpoint never exists in a default-on state first. Early tool
+  calls are served under the prepared identity once H4 implements `OpenWithPolicy`; until then
+  only a snapshot that serves exactly today's tools can launch.
+- **Gate.** A profile whose served groups/budgets differ from the default needs an enforcing
+  endpoint; without one the launch is refused (`harness.notEnforceable`) before anything opens,
+  never run unfiltered. An unresolvable snapshot is refused (`harness.snapshotUnavailable`). A
+  reopen that would change the executable set after W moved is refused
+  (`harness.newSessionRequired`): executable changes take effect in a new session only. A V-only
+  change (edited in Settings) still reloads as it always has.
+- **Reload preflight.** `ResumeSession(reload)` runs the same resolution and gate before it
+  closes the live runtime, so a refused reload leaves the running session untouched on the
+  configuration it opened with.
+- **Launch configuration.** For a profiled session the effective deny lists, servers and skill
+  folders replace the vendor customization in the `OpenSpec`; with no W and no S the spec keeps
+  the vendor customization exactly as before.
+- **Publication.** After a successful open the service records `appliedHarness` (reference and
+  whether the endpoint enforces it) with the usage facts; W/S revisions reach attribution only
+  when the endpoint enforces them. A failed open closes the staged endpoint and leaves the
+  previous record. The record survives runtime teardown (account move, reload, crash) and is
+  replaced only by the next successful open. It is in memory: it does not survive a restart (H3c).
+- **Unchanged.** Admission seals still run first (a sealed start resolves and opens nothing),
+  concurrent resumes share one barrier and one preparation, accounts, mode, model and leases are
+  untouched.
+- No production code sets `Service.Harness` or an enforcing endpoint yet, so nothing changes at
+  runtime.
+### Confirm, recheck and commit (H2c)
+
+`Service.Apply(ctx, proposalID)` is the only way a prepared proposal becomes a write. Order:
+
+1. **Take it.** Only the proposing caller can; the proposal is spent whatever happens next
+   (approval, denial, stale, DB error, cancellation), so no late callback revives it and a retry
+   needs a fresh `Prepare`. Concurrent duplicates: one proceeds, the rest get "not pending".
+2. **Fail closed.** No `Confirmer`, `Confirmer.Available()` false (server mode, headless hub, no
+   prompt handler) or no `Boundary` → `ErrConfirmUnavailable` before anything is evaluated or
+   written, **auto-narrowing included**. The setting only skips the question when someone could
+   have answered.
+3. **Ask with nothing held.** Existing `interaction.Hub.Confirm` with `Kind=harness`,
+   `EnvBlocks=true`: no "always" option, an "always" answer is one allow and is never
+   remembered, the D1 scoped `db.query` approval cannot apply (it requires `Tool=db.query`).
+   The prompt shows the Go-authored summary; the rationale is appended under an "untrusted
+   text" label.
+4. **Recheck inside the boundary.** `preferences.Service.HoldAgentCustomization` is the same
+   mutex as `SetAgentCustomization`/`SetAgentSandbox`, so the real V writer cannot land between
+   the recheck and the commit. Identity, scope, policy, V, W, S and vendor facts are re-read and
+   the effective before/after rebuilt; the digest must equal the one shown. W moved →
+   `harness.profileConflict`; anything else changed (V, S, vendor facts, policy, scope, registry,
+   tier) → `harness.proposalStale`; an executable tier that appears after approval is refused.
+5. **Commit once.** `HarnessStore.Apply` with the expected W/S stamps in one short transaction;
+   a CAS lost in the gap between the recheck and the commit maps to the same two codes.
+6. **Result.** `Result{Profile, Override, Live:false, ReloadRequired}`: the change is *stored*,
+   not applied to any runtime. H3/H4 own publication, so this layer never claims live revocation.
+
+Composition adapters live in `internal/app/harness_config.go` (vendors from preferences with
+`FactsComplete=false`, hub confirmer, boundary, directory, validator, default policy) and
+`agenthub.Service.HarnessScope` is the trusted session → workspace/vendor read. No production
+code builds the service yet: it needs a registry source and a public transport (H4/H5).
+`EventAudit`-style records (`Event`) hold outcome, tier, target, ids and revisions only.

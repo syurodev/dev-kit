@@ -123,11 +123,11 @@ func TestASignedOutAccountIsLeftAndSkippedThroughTheService(t *testing.T) {
 
 	t.Run("a limited session does not move onto it", func(t *testing.T) {
 		rig := newAccountRig(t, preferences.RefusalNone)
-		rig.fillBuiltin(t, 99)
 		if err := rig.book.SetSignedIn(ctx, "work", false); err != nil {
 			t.Fatal(err)
 		}
 		sess := startSession(t, rig)
+		rig.fillBuiltin(t, 99)
 		if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"}); err != nil {
 			t.Fatalf("with nowhere to go the turn runs where it is: %v", err)
 		}
