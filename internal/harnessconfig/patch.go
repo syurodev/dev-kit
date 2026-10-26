@@ -110,10 +110,6 @@ func setOf(in []string) []string {
 	return out
 }
 
-func (p Patch) empty() bool {
-	return len(p.EnableGroups) == 0 && len(p.RevokeGroups) == 0 && p.Workspace == nil
-}
-
 // applyProfile returns W' = W with the patch applied. base may be nil (no W).
 func applyProfile(base *harness.Profile, p *ProfilePatch) *harness.Profile {
 	out := clone(base)
