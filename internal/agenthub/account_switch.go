@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"time"
 
@@ -51,16 +50,22 @@ func (s *Service) fillAccountSpec(ctx context.Context, spec *OpenSpec, sess Agen
 		log.Printf("agenthub: session %s: account %s: %v; opening as the built-in account", sess.ID, sess.AccountID, err)
 		return id
 	}
-	id = sess.AccountID
+	s.fillFromAccount(spec, acct)
+	return sess.AccountID
+}
+
+// fillFromAccount points an OpenSpec at one account's record: its usage
+// generation, and for an added account its home and the shared store paths,
+// always together. The built-in account changes nothing but the generation.
+func (s *Service) fillFromAccount(spec *OpenSpec, acct AccountRecord) {
 	spec.UsageAccountGeneration = acct.UsageGeneration
 	if acct.Builtin() {
-		return id
+		return
 	}
 	spec.AccountHome = acct.HomeDir
 	if s.AccountSharedHome != nil {
 		spec.AccountSharedPaths = SharedStorePaths(acct.Vendor, s.AccountSharedHome(acct.Vendor))
 	}
-	return id
 }
 
 // recordSessionAccount reserves the account while a runtime is opening, so
@@ -137,8 +142,7 @@ func (s *Service) switchAccountForTurn(ctx context.Context, sess *AgentSession) 
 		return nil
 	}
 	if d.AllLimited {
-		return fmt.Errorf("%w: every account of this vendor has reached its limit; the first one is available again at %s",
-			ErrAllAccountsLimited, retryClock(d.RetryAt))
+		return allAccountsLimited(d.RetryAt)
 	}
 	if !d.Switch {
 		return nil

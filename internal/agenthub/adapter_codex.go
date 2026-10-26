@@ -86,6 +86,9 @@ type CodexOptions struct {
 	// ChatGPT sign-in kept in Home. The key goes over the wire after
 	// initialize; it is never written to disk, the environment or argv.
 	APIKey func(ctx context.Context) (string, error)
+	// APIKeyChosen says a key is chosen without reading it. Optional: without
+	// it the key itself is read to tell.
+	APIKeyChosen func(ctx context.Context) bool
 	// Runner overrides sandbox.DefaultRunner(); nil uses the platform default.
 	Runner SandboxRunner
 	// Version is DevKit's, sent as clientInfo.version.
@@ -506,6 +509,17 @@ func (a *CodexAdapter) initialize(ctx context.Context, p *codexProcess) error {
 		return p.failure("initialized", err)
 	}
 	return nil
+}
+
+// BuiltinPinnedToAPIKey reports whether the person chose an API key for the
+// built-in account. Added accounts never use it (see Open), so it decides
+// whether choosing among accounts can respect what the person configured.
+func (a *CodexAdapter) BuiltinPinnedToAPIKey(ctx context.Context) bool {
+	if a.opts.APIKeyChosen != nil {
+		return a.opts.APIKeyChosen(ctx)
+	}
+	key, err := a.apiKey(ctx)
+	return err != nil || key != ""
 }
 
 // apiKey is the key this session signs in with, or "".

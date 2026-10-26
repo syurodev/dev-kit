@@ -46,6 +46,42 @@
     `AllLimited`, never on `Target != Current`** (the early stays return `Current` as given, `""` for the built-in, while
     a decision names `BuiltinAccountID`); `Previous` is an account id, never `""`; `Current == ""` is the built-in. A
     reading is used as it is: usage only grows until a reset, so an old reading over the threshold is still true.
+  - **A new session chooses its account before anything opens** (`account_create.go`, `Service.CreateSession`; plan
+    `docs/superpowers/plans/2026-10-27-agent-account-aware-session-creation-implementation.md`). Before this, creation opened
+    the built-in account and recorded it, so an out-of-quota built-in account could keep a session from starting while
+    another account had room. Now `accountChooser.first` asks `PickAccount` as for a never-moved session on the built-in
+    account (no hold, no previous account): a healthy built-in account stays (no rebalancing toward an emptier one), an
+    ineligible one gives way to the first eligible account in the person's order, and every signed-in account exhausted is
+    `ErrAllAccountsLimited` (public `agent_usage_limit`) with nothing opened. The OpenSpec's `AccountHome`,
+    `AccountSharedPaths` and `UsageAccountGeneration` come from that account's record (`fillFromAccount`, shared with
+    `fillAccountSpec`), before the jail, endpoint and harness snapshot are built, so the sandbox, `AgentSession.AccountID`
+    (`""` for the built-in account), the published `sessionAccount`/`runtimeUsage` and a later resume all name the account
+    that opened. Choosing a first account is not a move: no notice, no `OnAccountSwitched`, no `accountSwitches` entry, no
+    account-move usage row. Switching off (no book, no policy entry, disabled, an unreadable policy) is the old built-in
+    launch; an enabled vendor whose book cannot be read fails closed (`ErrAccountsUnavailable`, public "Accounts are not
+    available") rather than launching blind. A built-in account **pinned to a credential the person chose** (Codex's API
+    key, `BuiltinCredentialPin`) switches nothing: added accounts are ChatGPT sign-ins and never use that key. Which
+    credential applies is that setting only, never inferred from an error. A fresh child goes through the same entry point
+    and picks for itself; it does not inherit its parent's account.
+    **Held against removal.** The chosen added account is read again and recorded in `Service.creating` under `accountMgmt`
+    (the lock `RemoveAccount` checks and deletes under), so a removal either finishes first, and the choice is made again
+    among what is left, or sees `ErrAccountInUse`. `accountInUse` reads `creating`; `CreateSession` releases it on every exit
+    and `sessionAccount` takes over at publication. No lock is held across the vendor, the endpoint or the filesystem.
+    **Bounded startup failover.** Only an `Open` refusal typed `ErrAgentUsageLimit` (the adapter's own classification; no
+    stderr or wording match) on a live context marks that account (`markExhausted`, the same rule as a refused turn: reached
+    window reset, else the hint's retry time, else `accountProbeCooldown`), then the policy picks the next account. The
+    candidates are those listed when the choice began and each is tried once, so an account added meanwhile never joins and
+    the loop is finite; switching turned off mid-way, a cancellation, a generic process failure, a sign-in failure or an
+    unprepared home each end the creation with the vendor's own error and mark nothing. Each attempt builds its own endpoint,
+    harness snapshot, jail and temp directory (`openNewRuntime`) and the failed one is closed before the next; no prompt is
+    sent, so none can replay. All signed-in accounts exhausted after refusals returns `ErrAllAccountsLimited`; a cooling-down
+    alternative is not "exhausted", so the vendor's refusal is what is reported. The window is unchanged: it never
+    pre-checks the built-in account (the draft's catalog read is optional and a failure only shows beside the model picker),
+    and `agent_usage_limit` is not read as sign-in or "runtime not installed" (`createFailure.test.ts`).
+    **Not verified:** whether the real Claude or Codex adapters refuse `Open` for quota at all (the Codex adapter raises
+    `ErrAgentUsageLimit` only for a turn; the ACP runtime only from a prompt), so the startup fallback is exercised with
+    fake adapters only. No live account, login or paid request was used. Turn-time failover still moves a session off an
+    API-key-pinned built-in account; only creation respects the pin.
   - **The move** (`switchAccountForTurn` in `Service.invoke`, under the session's claim, before the runtime is resolved):
     never inside a running turn. `moveSession` installs a `s.resuming` barrier (waiting first for a resume in flight, as
     Reload does), closes the idle process, flushes the recorder, writes `agent_account_id` (`UpdateSessionAccount`) and

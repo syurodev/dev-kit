@@ -112,8 +112,8 @@ func TestTurnAttributionPreservesWorkspaceAndLegacyUnknown(t *testing.T) {
 }
 func TestInvokeCapturesActualMovedAccountAndHostNotice(t *testing.T) {
 	rig := newAccountRig(t, preferences.RefusalNone)
-	rig.fillBuiltin(t, 95)
 	s := startSession(t, rig)
+	rig.fillBuiltin(t, 95)
 	if _, e := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: s.ID, Prompt: "hello"}); e != nil {
 		t.Fatal(e)
 	}
