@@ -28,3 +28,37 @@
   Startup recovery adds a durable interruption notice; model/effort/mode are restored
   before attaching live handlers. User-requested Retry turn remains separate.
 
+
+## Effective harness configuration (`internal/harness`)
+
+`internal/harness` is the one definition of a session's effective configuration (tool
+groups, result budgets, deny lists, servers, skill folders). It is a stdlib-only leaf
+(`internal/arch` enforces it): the registry, the vendor customization (V), the vendor's own
+environment facts, the workspace profile (W), the session override (S) and path
+canonicalization are all injected, so nothing else may re-implement the merge. H1 ships the
+contract only; no service calls it yet and behavior is unchanged.
+
+- `Resolve(Inputs)` returns an `Effective` or a typed `*harness.Error`. An invalid input is
+  rejected, never skipped: a failure means "do not open", not "fall back to unfiltered".
+  With no W and no S every group is on at the 24 KiB default (`mcp.ResultBudget` is pinned
+  equal to `harness.DefaultResultBudget`).
+- Absent vs present-empty: nil vs empty non-nil with `omitzero`. W and S carry a schema
+  version and a revision; a missing W or S is a nil revision, never 0.
+- Groups: absent is on, W can turn one off, S can only turn one on; unknown groups are
+  `harness.groupUnknown`. `harness.profile.propose` is the one tool served with its group off.
+- Budgets: tool, then group, then default, each of size and cut separately; 2–64 KiB;
+  `budgetExempt` tools cannot be overridden. `headTail` is rejected (`harness.budgetInvalid`)
+  until phase 3 implements it.
+- Deny lists are V ∪ W. Servers are keyed by name, W replaces V, a duplicate or a name the
+  vendor environment already defines is rejected. Skill folders are V ∪ W by canonical path.
+- `Classify(before, after)` compares two effective values: executable > widening > narrowing.
+  A deny entry whose removal exposes a vendor-defined server or skill is *executable*; a
+  cut-mode-only change is neutral in the narrowing tier; budgets compare per tool on the
+  effective value (deleting a 16 KiB override widens).
+- `Effective.Fingerprint` (`sha256:v1:`) covers the V/W/S revisions, the registry's tool names
+  and exemptions and the vendor-defined servers/skills (name, command, args, URL, env names,
+  sorted). No env values, no definition sizes.
+- Known gaps for later slices: `EnvironmentReport` entries carry no command/arguments, so
+  the host must add them before a vendor-defined server can be fingerprinted (spike 9); a stored
+  profile naming a tool or group that a later build removed makes `Resolve` fail, so H2/H5 need
+  a repair path.

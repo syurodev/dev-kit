@@ -235,6 +235,13 @@ func TestLayering(t *testing.T) {
 		t.Errorf("layering violation: agentwork must be a standard-library-only leaf, imports %v", imports)
 	}
 
+	// harness is the single definition of a session's effective configuration:
+	// a pure leaf with the registry, vendor customization and path resolution
+	// injected, so no service can end up with a second resolver.
+	if imports := graph[pkg("harness")]; len(imports) != 0 {
+		t.Errorf("layering violation: harness must be a standard-library-only leaf, imports %v", imports)
+	}
+
 	// Nothing but main may import the bridge; nothing but the bridge (and main)
 	// may import app. main is the module-root package "devkit".
 	for from, imports := range graph {
