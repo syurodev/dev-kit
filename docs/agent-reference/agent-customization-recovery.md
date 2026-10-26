@@ -185,3 +185,35 @@ Nothing is published until the runtime opened.
   untouched.
 - No production code sets `Service.Harness` or an enforcing endpoint yet, so nothing changes at
   runtime.
+### Confirm, recheck and commit (H2c)
+
+`Service.Apply(ctx, proposalID)` is the only way a prepared proposal becomes a write. Order:
+
+1. **Take it.** Only the proposing caller can; the proposal is spent whatever happens next
+   (approval, denial, stale, DB error, cancellation), so no late callback revives it and a retry
+   needs a fresh `Prepare`. Concurrent duplicates: one proceeds, the rest get "not pending".
+2. **Fail closed.** No `Confirmer`, `Confirmer.Available()` false (server mode, headless hub, no
+   prompt handler) or no `Boundary` → `ErrConfirmUnavailable` before anything is evaluated or
+   written, **auto-narrowing included**. The setting only skips the question when someone could
+   have answered.
+3. **Ask with nothing held.** Existing `interaction.Hub.Confirm` with `Kind=harness`,
+   `EnvBlocks=true`: no "always" option, an "always" answer is one allow and is never
+   remembered, the D1 scoped `db.query` approval cannot apply (it requires `Tool=db.query`).
+   The prompt shows the Go-authored summary; the rationale is appended under an "untrusted
+   text" label.
+4. **Recheck inside the boundary.** `preferences.Service.HoldAgentCustomization` is the same
+   mutex as `SetAgentCustomization`/`SetAgentSandbox`, so the real V writer cannot land between
+   the recheck and the commit. Identity, scope, policy, V, W, S and vendor facts are re-read and
+   the effective before/after rebuilt; the digest must equal the one shown. W moved →
+   `harness.profileConflict`; anything else changed (V, S, vendor facts, policy, scope, registry,
+   tier) → `harness.proposalStale`; an executable tier that appears after approval is refused.
+5. **Commit once.** `HarnessStore.Apply` with the expected W/S stamps in one short transaction;
+   a CAS lost in the gap between the recheck and the commit maps to the same two codes.
+6. **Result.** `Result{Profile, Override, Live:false, ReloadRequired}`: the change is *stored*,
+   not applied to any runtime. H3/H4 own publication, so this layer never claims live revocation.
+
+Composition adapters live in `internal/app/harness_config.go` (vendors from preferences with
+`FactsComplete=false`, hub confirmer, boundary, directory, validator, default policy) and
+`agenthub.Service.HarnessScope` is the trusted session → workspace/vendor read. No production
+code builds the service yet: it needs a registry source and a public transport (H4/H5).
+`EventAudit`-style records (`Event`) hold outcome, tier, target, ids and revisions only.

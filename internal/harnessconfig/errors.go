@@ -20,6 +20,9 @@ var (
 	ErrConflict           = &harness.Error{Code: harness.CodeProfileConflict, Message: "The workspace profile changed. Propose it again."}
 	ErrUnknownProposal    = &harness.Error{Code: harness.CodeProposalStale, Message: "That proposal is not pending."}
 	ErrBusy               = &harness.Error{Code: harness.CodeProposalStale, Message: "Too many proposals are waiting."}
+	ErrTooLargeToShow     = &harness.Error{Code: harness.CodeNotAvailable, Message: "This change is too large to show in full, so it cannot be offered for approval. Split it into smaller changes."}
+	ErrCancelled          = &harness.Error{Code: harness.CodeProposalStale, Message: "The proposal was cancelled."}
+	ErrTooLateToCancel    = &harness.Error{Code: harness.CodeProposalStale, Message: "The change is already being applied and can no longer be cancelled."}
 	ErrNotConfirmed       = &harness.Error{Code: harness.CodeProfileDenied, Message: "The change was not approved."}
 	ErrConfirmUnavailable = &harness.Error{Code: harness.CodeProfileDenied, Message: "No one can approve a harness change right now."}
 )

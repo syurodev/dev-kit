@@ -67,3 +67,46 @@ type PolicySource interface {
 type Validator interface {
 	Validate(ctx context.Context, w harness.Profile) error
 }
+
+// Confirmation is what the person is asked. Everything but RationaleUntrusted is
+// host-authored; implementations must show that field only under an "untrusted
+// text from the proposer" label.
+type Confirmation struct {
+	Target             Target
+	Tier               string
+	Summary            string
+	RationaleUntrusted string
+}
+
+// Confirmer asks the person through the existing confirmation flow. Available is
+// false when nobody can answer (no prompt handler, server or headless mode): the
+// service then refuses before it evaluates or writes anything, auto-narrowing
+// included. Confirm returns nil only for an explicit approval of this one
+// request; denial, cancellation, a prompt failure or an answer it cannot read
+// are all errors. It must offer no "always" choice and keep no memory of the
+// answer.
+type Confirmer interface {
+	Available() bool
+	Confirm(ctx context.Context, c Confirmation) error
+}
+
+// Boundary is the short validation boundary the final recheck and the commit
+// run inside. It must exclude every other writer whose inputs the evaluation
+// reads, notably the existing customization setter (V), and it is never held
+// while the person decides.
+type Boundary interface {
+	Hold(ctx context.Context, fn func() error) error
+}
+
+// Event is the audit record: codes, ids, revisions and a tier; never a
+// definition, command, path, rationale or the diff text.
+type Event struct {
+	Outcome     string // "applied" or the refusal's code
+	Tier        string
+	Target      Target
+	Caller      string
+	WorkspaceID string
+	SessionID   string
+	Profile     int64 // stamp revision after the write, 0 when untouched
+	Override    int64
+}
