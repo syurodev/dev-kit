@@ -242,6 +242,15 @@ func TestLayering(t *testing.T) {
 		t.Errorf("layering violation: harness must be a standard-library-only leaf, imports %v", imports)
 	}
 
+	// harnessconfig prepares and applies harness changes. It sees the registry,
+	// storage, preferences, prompts and sessions only through ports, so it may
+	// import nothing but the pure resolver and the caller identity.
+	for _, imp := range graph[pkg("harnessconfig")] {
+		if imp != pkg("harness") && imp != pkg("identity") {
+			t.Errorf("layering violation: harnessconfig must not import %s", short(imp))
+		}
+	}
+
 	// Nothing but main may import the bridge; nothing but the bridge (and main)
 	// may import app. main is the module-root package "devkit".
 	for from, imports := range graph {

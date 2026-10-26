@@ -87,3 +87,36 @@ call it; no UI, bridge or MCP write path exists yet.
 - **Reads.** A stored document with an unknown schema, invalid JSON, an unknown field or
   trailing data is `ErrStoreCorrupt`, never "no profile" (that would turn every group on).
   Absent vs present-empty fields survive the store; S groups are sorted and de-duplicated.
+
+### Harness proposals (H2b, `internal/harnessconfig`)
+
+`harnessconfig.Service.Prepare` turns a request into an exact, host-authored effective diff
+and keeps it pending in memory. It writes nothing, asks nobody and has no public transport.
+It reaches storage, sessions, preferences, policy and validation only through ports, and
+imports only `internal/harness` and `internal/identity` (architecture-tested).
+
+- **Identity is the caller's, not the request's.** The caller comes from `identity` on the
+  context: an agent targets its own authenticated session's workspace (a request naming another
+  workspace or session is denied); the UI names a workspace and, optionally, a session that must
+  belong to it; a terminal CLI, a remote person or no caller is denied. Scope is re-read from
+  the directory port on every evaluation.
+- **One resolver.** Candidates are built on deep copies of W and S, then `harness.Resolve`
+  and `harness.Classify` run for the before and the after, per vendor (a workspace change is
+  judged for every vendor, a session change for the session's vendor). The patch itself is never
+  classified. Sets are sorted and de-duplicated first, so equal intents bind identically.
+- **Facts fail closed.** A patch that edits deny lists, servers or skill folders needs the
+  vendor's own server/skill facts; if the host reports them incomplete (today's
+  `EnvironmentReport` has no commands) or unreadable, `harness.factsUnavailable`, never an
+  empty environment. A group- or budget-only patch needs none.
+- **Executable proposals are unavailable.** The prompt cannot yet show the exact command,
+  arguments, resolved paths and env names, so an executable-tier proposal is refused
+  (`harness.profileDenied` when the UI opt-in is off, `harness.notAvailable` when on). A
+  truncated summary is not an approval. H5 supplies the structured view.
+- **Binding.** The evaluation holds caller, session, workspace, target, normalized patch,
+  rationale, policy revision, W/S stamps, per-vendor V revision, fingerprints before and after,
+  tier and the canonical changes; its digest must be reproduced by a fresh evaluation. The
+  proposal ID is a random lookup key held in memory for the proposing caller; it is not an
+  approval, nothing accepts it from anyone else, restart drops it, and there are at most 32.
+- **Tiers.** Narrowing asks unless the UI-only auto-narrowing setting is on; widening always
+  asks. The agent's rationale is cleaned, bounded and shown labelled untrusted; it never
+  influences target, tier or summary.

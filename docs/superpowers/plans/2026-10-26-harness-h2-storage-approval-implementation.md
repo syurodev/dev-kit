@@ -1,6 +1,6 @@
 # H2 implementation: revisioned harness storage and approval-bound writes
 
-Date: 2026-10-26. Status: **in progress; H2a delivered (see Execution record), H2b and H2c not started**.
+Date: 2026-10-26. Status: **in progress; H2a delivered, H2b in review (see Execution record), H2c not started**.
 
 ## Objective and dependencies
 
@@ -134,3 +134,9 @@ H1 fixes used (merged in #345, `95f2f83f`, verified by running their three tests
 Migration 54, `storage.HarnessStore`, and the persistence contract types in `internal/harness/store.go`. See the "Harness profile storage (H2a)" section of the customization guide for the token, scope and corruption rules. Verified by fresh/upgrade/idempotent migration, create/update/delete CAS, delete/recreate ABA, 16-way concurrent create and update races, W+S rollback by SQL trigger and in-transaction hook, scope and cascade, reopen, corrupt-document and mutation checks.
 
 Not in H2a: the service, proposals, confirmation, the V-writer participation, vendor facts, and any lifecycle hook for S cleanup (H3).
+
+### H2b (branch `harness/h2b-proposals`, stacked on H2a)
+
+`internal/harnessconfig` (ports, patch normalization, `Prepare`/`Cancel`, view, binding) with an architecture rule, and new codes in `internal/harness` (`profileDenied`, `factsUnavailable`, `notAvailable`, `noChange`). Tests use the real `storage.HarnessStore`. Covered: agent cannot choose workspace/session, UI session must belong to the workspace, terminal/remote/no caller denied, gone/moved scope, no-op proposals, vendor facts gate (needed vs not, unreadable), deny removal exposing a vendor server, server fallback, mixed tiers, narrowing vs auto-narrowing vs widening, per-vendor judgement of a workspace change, binding moves with V/W/S/policy/vendor facts/patch, equivalent representations, caller-owned values after Prepare, symlink retarget, corrupt/obsolete stored profile, validator failure, rationale handling, cancel ownership and the pending bound. Mutation checks fail the matching tests.
+
+Not in H2b: confirmation, revalidation and the single commit (H2c); the production adapters (`Vendors` with real facts, `Directory`, `Validator`, `Policy`) and a production registry source, which H2c/H4 own. No production code constructs the service yet.
