@@ -5,7 +5,7 @@ import (
 	"database/sql"
 )
 
-// ManagedLeasesMigration is wired as migration 51 by the composition-owned
+// ManagedLeasesMigration is wired as migration 52 by the composition-owned
 // migration list. It stores ownership metadata only, never paths or payloads.
 func ManagedLeasesMigration(db *sql.DB) Migration {
 	return Migration{Version: 52, Name: "managed writer leases", Up: func(ctx context.Context) error {

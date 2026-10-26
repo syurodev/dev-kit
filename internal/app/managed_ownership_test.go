@@ -111,6 +111,43 @@ func TestManagedWriterResourceIdentityIsGlobalAndRejectsBroadGrants(t *testing.T
 	}
 }
 
+func TestManagedFolderContainmentUsesCanonicalSessionAndGitRoot(t *testing.T) {
+	allowed := t.TempDir()
+	worktree := filepath.Join(allowed, "repo")
+	if err := os.Mkdir(worktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "repo-alias")
+	if err := os.Symlink(worktree, alias); err != nil {
+		t.Fatal(err)
+	}
+	scope := []string{"folder-registered-id|project|" + allowed}
+	if got := managedFolderForCanonicalPaths(alias, worktree, scope); got != "folder-registered-id" {
+		t.Fatalf("canonical alias folder = %q, want preserved registered ID", got)
+	}
+	if got := managedFolderForCanonicalPaths(worktree, alias, scope); got != "folder-registered-id" {
+		t.Fatalf("canonical Git-root alias folder = %q, want preserved registered ID", got)
+	}
+
+	outside := t.TempDir()
+	escape := filepath.Join(allowed, "escape")
+	if err := os.Symlink(outside, escape); err != nil {
+		t.Fatal(err)
+	}
+	if got := managedFolderForCanonicalPaths(escape, outside, scope); got != "" {
+		t.Fatalf("symlink escape resolved to registered folder %q", got)
+	}
+
+	narrow := filepath.Join(worktree, "subtree")
+	if err := os.Mkdir(narrow, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	narrowScope := []string{"narrow-folder|project|" + narrow}
+	if got := managedFolderForCanonicalPaths(narrow, worktree, narrowScope); got != "" {
+		t.Fatalf("Git root outside narrow registered scope resolved to folder %q", got)
+	}
+}
+
 func TestManagedOwnershipHostNilHubFailsClosed(t *testing.T) {
 	host := &managedOwnershipHost{container: NewContainer()}
 	if hub := host.hub(); hub != nil {

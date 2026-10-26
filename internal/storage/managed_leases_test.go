@@ -299,3 +299,53 @@ func TestManagedWriterLeaseHeartbeatWhilePausedAndAmbiguousOwnership(t *testing.
 		t.Fatalf("ambiguous attempt was authorized to write: %v", err)
 	}
 }
+
+func TestManagedWriterLeaseRejectsChangedTaskRequirementsButCanReleaseSafely(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		bumpTaskRev  bool
+		changeDigest bool
+	}{
+		{name: "task revision only", bumpTaskRev: true},
+		{name: "requirements digest only", changeDigest: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			now := time.Date(2026, 10, 26, 7, 8, 9, 0, time.UTC)
+			l, db := openManagedLeaseTest(t, func() time.Time { return now })
+			defer db.Close()
+			item, attempt := createLeaseAttempt(t, l, "g1", "p1", "i1", "task1", "a1", "session1")
+			binding := agentwork.ManagedWriterBinding{WorkspaceID: "ws", BoardID: "board", ParentTaskID: "p1", TaskID: "task1", GroupID: "g1", WorkItemID: item.ID, AttemptID: attempt.ID, SessionID: attempt.SessionID, ResourceKey: "resource1"}
+			host := &leaseHostFake{bindings: map[string]agentwork.ManagedWriterBinding{attempt.ID: binding}, current: map[string]agentwork.ManagedWriterResolution{attempt.SessionID: {Managed: true, Binding: binding}}}
+			service := agentwork.NewManagedLeaseServiceWithClock(host, l, func() time.Time { return now })
+			lease, err := service.Acquire(ctx, attempt.ID, attempt.Revision)
+			if err != nil {
+				t.Fatal(err)
+			}
+			taskRevision, requirementsRevision := item.TaskRevision, item.RequirementsRevision
+			if tc.bumpTaskRev {
+				taskRevision++
+			}
+			if tc.changeDigest {
+				requirementsRevision = "sha256:v2:changed"
+			}
+			if _, err = l.RefreshWorkItemRequirements(ctx, item.ID, item.Revision, taskRevision, requirementsRevision); err != nil {
+				t.Fatal(err)
+			}
+			if err = l.AuthorizeManagedWriter(ctx, binding, now); !errors.Is(err, agentwork.ErrManagedLeaseStale) {
+				t.Fatalf("stale task writer authorization = %v", err)
+			}
+			if _, err = service.CurrentAttemptLease(ctx, attempt.ID); !errors.Is(err, agentwork.ErrManagedLeaseStale) {
+				t.Fatalf("stale task current lease lookup = %v", err)
+			}
+			host.proof = agentwork.ManagedWriterQuiescence{Binding: binding, Generation: lease.Generation, CheckedAt: now, Known: true, Quiescent: true, Isolated: true}
+			released, err := service.Release(ctx, lease.ID, lease.Generation, lease.Revision)
+			if err != nil {
+				t.Fatalf("safe release after requirements changed = %v", err)
+			}
+			if released.ReleasedAt == nil {
+				t.Fatal("safe release did not persist released_at")
+			}
+		})
+	}
+}

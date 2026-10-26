@@ -190,6 +190,44 @@ func TestManagedPackageIsEncryptedImmutableAndBoundToFullScope(t *testing.T) {
 	}
 }
 
+func TestManagedPackageReadRejectsTamperedPlaintextSizeMetadata(t *testing.T) {
+	f := newManagedPackageFixture(t)
+	ctx := context.Background()
+	packageRecord, err := f.service.BuildContextPackage(ctx, f.attempt.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.db.ExecContext(ctx, `UPDATE agent_work_packages SET body_size=body_size+1 WHERE id=?`, packageRecord.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.service.ReadContextPackage(ctx, packageRecord.ID); !errors.Is(err, agentwork.ErrManagedPayloadScope) {
+		t.Fatalf("package read with mismatched body size = %v", err)
+	}
+}
+
+func TestManagedArtifactInsertRechecksGroupPolicyInTransaction(t *testing.T) {
+	f := newManagedPackageFixture(t)
+	ctx := context.Background()
+	for _, state := range []string{"session_created", "task_assigned", "prompt_enqueued", "running"} {
+		var err error
+		f.attempt, err = f.ledger.TransitionAttempt(ctx, f.attempt.ID, f.attempt.Revision, state)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	insertActiveArtifactLease(t, f)
+	group, err := f.ledger.GetWorkGroup(ctx, f.group.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.ledger.UpdateGroupPolicy(ctx, group.ID, group.Revision, group.PolicyRevision+1, false, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.service.WriteArtifact(ctx, f.attempt.ID, "test_output", []byte("must not persist while paused")); !errors.Is(err, agentwork.ErrManagedPayloadStale) {
+		t.Fatalf("artifact inserted into paused group = %v", err)
+	}
+}
+
 func TestManagedPackageServiceReadsArtifactsInBoundedRangesAndHonorsLock(t *testing.T) {
 	f := newManagedPackageFixture(t)
 	ctx := context.Background()
@@ -220,7 +258,7 @@ func TestManagedPackageServiceReadsArtifactsInBoundedRangesAndHonorsLock(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	wrongLease := agentwork.PayloadBinding{RecordID: storedArtifact.ID, WorkspaceID: storedArtifact.WorkspaceID, BoardID: storedArtifact.BoardID, ParentTaskID: storedArtifact.ParentTaskID, GroupID: storedArtifact.GroupID, WorkItemID: storedArtifact.WorkItemID, TaskID: storedArtifact.TaskID, AttemptID: storedArtifact.AttemptID, Generation: storedArtifact.Generation, LeaseGeneration: storedArtifact.LeaseGeneration + 1, RequirementsRevision: storedArtifact.RequirementsRevision, SchemaVersion: storedArtifact.SchemaVersion, Kind: agentwork.ManagedPayloadKindArtifact}
+	wrongLease := agentwork.PayloadBinding{RecordID: storedArtifact.ID, WorkspaceID: storedArtifact.WorkspaceID, BoardID: storedArtifact.BoardID, ParentTaskID: storedArtifact.ParentTaskID, GroupID: storedArtifact.GroupID, WorkItemID: storedArtifact.WorkItemID, TaskID: storedArtifact.TaskID, AttemptID: storedArtifact.AttemptID, Generation: storedArtifact.Generation, LeaseGeneration: storedArtifact.LeaseGeneration + 1, RequirementsRevision: storedArtifact.RequirementsRevision, ArtifactKind: storedArtifact.Kind, ArtifactRole: storedArtifact.Role, ArtifactProvenance: storedArtifact.Provenance, ProducerSessionID: storedArtifact.ProducerSessionID, SchemaVersion: storedArtifact.SchemaVersion, Kind: agentwork.ManagedPayloadKindArtifact}
 	if _, err = f.codec.Open(ctx, wrongLease, storedArtifact.SealedBody); err == nil {
 		t.Fatal("artifact opened under a different writer lease generation")
 	}

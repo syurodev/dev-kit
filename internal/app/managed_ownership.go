@@ -109,7 +109,7 @@ func (h *managedOwnershipHost) ResolveManagedWriter(ctx context.Context, attempt
 	if err != nil {
 		return agentwork.ManagedWriterBinding{}, agentwork.ErrManagedLeaseScope
 	}
-	folderID := managedFolderForPath(session.ProjectPath, scope)
+	folderID := managedFolderForCanonicalPaths(session.ProjectPath, root, scope)
 	if folderID == "" {
 		return agentwork.ManagedWriterBinding{}, agentwork.ErrManagedLeaseScope
 	}
@@ -195,15 +195,51 @@ func (h *managedOwnershipHost) CheckManagedWriterQuiescence(context.Context, age
 	return agentwork.ManagedWriterQuiescence{}, agentwork.ErrManagedQuiescenceUnknown
 }
 
-func managedFolderForPath(path string, scope []string) string {
-	path = filepath.Clean(path)
+func managedFolderForCanonicalPaths(sessionPath, worktreeRoot string, scope []string) string {
+	canonicalSession, err := canonicalManagedPath(sessionPath)
+	if err != nil {
+		return ""
+	}
+	canonicalRoot, err := canonicalManagedPath(worktreeRoot)
+	if err != nil {
+		return ""
+	}
+	matchedID, matchedDepth := "", -1
 	for _, entry := range scope {
-		parts := strings.Split(entry, "|")
-		if len(parts) >= 3 && workspace.Within(path, parts[2]) {
-			return parts[0]
+		parts := strings.SplitN(entry, "|", 3)
+		if len(parts) != 3 || parts[0] == "" {
+			continue
+		}
+		allowedPath := parts[2]
+		if parts[1] == "grant" {
+			allowedPath, _, _ = strings.Cut(allowedPath, "|source|")
+		} else if parts[1] != "project" {
+			continue
+		}
+		canonicalScope, err := canonicalManagedPath(allowedPath)
+		if err != nil || !workspace.Within(canonicalSession, canonicalScope) || !workspace.Within(canonicalRoot, canonicalScope) {
+			continue
+		}
+		if len(canonicalScope) > matchedDepth {
+			matchedID, matchedDepth = parts[0], len(canonicalScope)
 		}
 	}
-	return ""
+	return matchedID
+}
+
+func canonicalManagedPath(path string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", fmt.Errorf("managed path is empty")
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	abs, err := filepath.Abs(resolved)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(abs), nil
 }
 
 func (h *managedOwnershipHost) packageScope(ctx context.Context, scope agentwork.PackageScope) (agentwork.GroupState, agentwork.WorkItem, agentwork.Attempt, error) {

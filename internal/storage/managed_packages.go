@@ -15,7 +15,7 @@ func (l *ManagedLedger) InsertContextPackage(ctx context.Context, record agentwo
 	if l == nil || l.db == nil {
 		return fmt.Errorf("managed package database is nil")
 	}
-	if err := record.ContextPackage.ValidateMetadata(); err != nil {
+	if err := record.ValidateMetadata(); err != nil {
 		return ErrManagedInvalid
 	}
 	if err := validateSealedPayload(record.SealedBody, record.BodyHash); err != nil {
@@ -84,7 +84,7 @@ func (l *ManagedLedger) GetContextPackage(ctx context.Context, id string) (agent
 		return record, managedReadErr(err)
 	}
 	record.CreatedAt, _ = parseStamp(created)
-	if err = record.ContextPackage.ValidateMetadata(); err != nil || len(record.SealedBody) != int(size) || validateSealedPayload(record.SealedBody, record.BodyHash) != nil {
+	if err = record.ValidateMetadata(); err != nil || len(record.SealedBody) != int(size) || validateSealedPayload(record.SealedBody, record.BodyHash) != nil {
 		return agentwork.StoredContextPackage{}, ErrManagedInvalid
 	}
 	return record, nil
@@ -94,7 +94,7 @@ func (l *ManagedLedger) InsertArtifact(ctx context.Context, record agentwork.Sto
 	if l == nil || l.db == nil {
 		return fmt.Errorf("managed artifact database is nil")
 	}
-	if err := record.ArtifactMetadata.Validate(); err != nil {
+	if err := record.Validate(); err != nil {
 		return ErrManagedInvalid
 	}
 	if err := validateSealedPayload(record.SealedBody, record.BodyHash); err != nil {
@@ -109,12 +109,12 @@ func (l *ManagedLedger) InsertArtifact(ctx context.Context, record agentwork.Sto
 	}
 	defer tx.Rollback()
 	var groupEnded sql.NullString
-	var groupSchema int
-	err = tx.QueryRowContext(ctx, `SELECT ended_at,schema_version FROM agent_work_groups WHERE id=? AND workspace_id=? AND board_id=? AND parent_task_id=?`, record.GroupID, record.WorkspaceID, record.BoardID, record.ParentTaskID).Scan(&groupEnded, &groupSchema)
+	var groupEnabled, groupPaused, groupSchema int
+	err = tx.QueryRowContext(ctx, `SELECT enabled,paused,ended_at,schema_version FROM agent_work_groups WHERE id=? AND workspace_id=? AND board_id=? AND parent_task_id=?`, record.GroupID, record.WorkspaceID, record.BoardID, record.ParentTaskID).Scan(&groupEnabled, &groupPaused, &groupEnded, &groupSchema)
 	if err != nil {
 		return managedReadErr(err)
 	}
-	if groupEnded.Valid || groupSchema != agentwork.ManagedSchemaVersion {
+	if groupEnabled != 1 || groupPaused != 0 || groupEnded.Valid || groupSchema != agentwork.ManagedSchemaVersion {
 		return agentwork.ErrManagedPayloadStale
 	}
 	var itemRevision, itemSchema int64
@@ -174,7 +174,7 @@ func (l *ManagedLedger) GetArtifact(ctx context.Context, id string) (agentwork.S
 		return record, managedReadErr(err)
 	}
 	record.CreatedAt, _ = parseStamp(created)
-	if err = record.ArtifactMetadata.Validate(); err != nil || len(record.SealedBody) != int(size) || validateSealedPayload(record.SealedBody, record.BodyHash) != nil {
+	if err = record.Validate(); err != nil || len(record.SealedBody) != int(size) || validateSealedPayload(record.SealedBody, record.BodyHash) != nil {
 		return agentwork.StoredArtifact{}, ErrManagedInvalid
 	}
 	return record, nil

@@ -53,6 +53,10 @@ type PayloadBinding struct {
 	Generation           int64
 	LeaseGeneration      int64
 	RequirementsRevision string
+	ArtifactKind         string
+	ArtifactRole         string
+	ArtifactProvenance   string
+	ProducerSessionID    string
 	SchemaVersion        int
 	Kind                 string
 }
@@ -72,6 +76,12 @@ func (b PayloadBinding) RecordType() (string, error) {
 	if b.RecordID == "" || b.WorkspaceID == "" || b.BoardID == "" || b.ParentTaskID == "" || b.GroupID == "" || b.WorkItemID == "" || b.TaskID == "" || b.AttemptID == "" || b.Generation < 1 || b.LeaseGeneration < 0 || b.RequirementsRevision == "" || b.SchemaVersion < 1 || (b.Kind == ManagedPayloadKindPackage && b.LeaseGeneration != 0) || (b.Kind == ManagedPayloadKindArtifact && b.LeaseGeneration < 1) {
 		return "", ErrManagedPayloadScope
 	}
+	if b.Kind == ManagedPayloadKindPackage && (b.ArtifactKind != "" || b.ArtifactRole != "" || b.ArtifactProvenance != "" || b.ProducerSessionID != "") {
+		return "", ErrManagedPayloadScope
+	}
+	if b.Kind == ManagedPayloadKindArtifact && (!validArtifactKind(b.ArtifactKind) || !validManagedArtifactRole(b.ArtifactRole) || b.ArtifactProvenance != "agent_claim" || b.ProducerSessionID == "") {
+		return "", ErrManagedPayloadScope
+	}
 	if _, err := b.KeyID(); err != nil {
 		return "", err
 	}
@@ -87,9 +97,13 @@ func (b PayloadBinding) RecordType() (string, error) {
 		Generation           int64  `json:"generation"`
 		LeaseGeneration      int64  `json:"leaseGeneration"`
 		RequirementsRevision string `json:"requirementsRevision"`
+		ArtifactKind         string `json:"artifactKind,omitempty"`
+		ArtifactRole         string `json:"artifactRole,omitempty"`
+		ArtifactProvenance   string `json:"artifactProvenance,omitempty"`
+		ProducerSessionID    string `json:"producerSessionId,omitempty"`
 		SchemaVersion        int    `json:"schemaVersion"`
 		Kind                 string `json:"kind"`
-	}{"devkit-managed-payload-v1", b.WorkspaceID, b.BoardID, b.ParentTaskID, b.GroupID, b.WorkItemID, b.TaskID, b.AttemptID, b.Generation, b.LeaseGeneration, b.RequirementsRevision, b.SchemaVersion, b.Kind})
+	}{"devkit-managed-payload-v1", b.WorkspaceID, b.BoardID, b.ParentTaskID, b.GroupID, b.WorkItemID, b.TaskID, b.AttemptID, b.Generation, b.LeaseGeneration, b.RequirementsRevision, b.ArtifactKind, b.ArtifactRole, b.ArtifactProvenance, b.ProducerSessionID, b.SchemaVersion, b.Kind})
 	if err != nil {
 		return "", err
 	}
@@ -105,12 +119,13 @@ type PayloadCodec interface {
 }
 
 type PackageScope struct {
-	WorkspaceID, BoardID, ParentTaskID, GroupID, WorkItemID, TaskID string
-	AttemptID                                                       string
-	Generation                                                      int64
-	LeaseGeneration                                                 int64
-	ItemRevision, AttemptRevision                                   int64
-	RequirementsRevision                                            string
+	WorkspaceID, BoardID, ParentTaskID, GroupID, WorkItemID, TaskID   string
+	AttemptID                                                         string
+	ArtifactKind, ArtifactRole, ArtifactProvenance, ProducerSessionID string
+	Generation                                                        int64
+	LeaseGeneration                                                   int64
+	ItemRevision, AttemptRevision                                     int64
+	RequirementsRevision                                              string
 }
 
 // PackageSource is returned only by the trusted task/role adapter. It has no
@@ -359,7 +374,7 @@ func (s *ManagedPayloadService) ReadContextPackage(ctx context.Context, id strin
 	if err = json.Unmarshal(plain, &body); err != nil {
 		return ContextPackage{}, ErrManagedPayloadScope
 	}
-	if body.ID != record.ID || body.WorkspaceID != record.WorkspaceID || body.BoardID != record.BoardID || body.ParentTaskID != record.ParentTaskID || body.GroupID != record.GroupID || body.WorkItemID != record.WorkItemID || body.TaskID != record.TaskID || body.AttemptID != record.AttemptID || body.Role != record.Role || body.SchemaVersion != record.SchemaVersion || body.Generation != record.Generation || body.RequirementsRevision != record.RequirementsRevision {
+	if body.ID != record.ID || body.WorkspaceID != record.WorkspaceID || body.BoardID != record.BoardID || body.ParentTaskID != record.ParentTaskID || body.GroupID != record.GroupID || body.WorkItemID != record.WorkItemID || body.TaskID != record.TaskID || body.AttemptID != record.AttemptID || body.Role != record.Role || body.SchemaVersion != record.SchemaVersion || body.Generation != record.Generation || body.RequirementsRevision != record.RequirementsRevision || int64(len(plain)) != record.BodyBytes {
 		return ContextPackage{}, ErrManagedPayloadScope
 	}
 	digest, digestErr := RequirementsDigest(body.Requirements)
@@ -419,6 +434,8 @@ func (s *ManagedPayloadService) WriteArtifact(ctx context.Context, attemptID, ki
 		RequirementsRevision: scope.RequirementsRevision, Generation: scope.Generation, LeaseGeneration: leaseGeneration,
 		SchemaVersion: ManagedArtifactSchemaVersion, BodyHash: "", BodyBytes: int64(len(body)), CreatedAt: time.Now().UTC(),
 	}
+	scope.ArtifactKind, scope.ArtifactRole = meta.Kind, meta.Role
+	scope.ArtifactProvenance, scope.ProducerSessionID = meta.Provenance, meta.ProducerSessionID
 	sealed, err := s.codec.Seal(ctx, artifactBinding(scope, id), body)
 	if err != nil {
 		return ArtifactMetadata{}, err
@@ -450,7 +467,7 @@ func (s *ManagedPayloadService) ReadArtifactRange(ctx context.Context, id string
 	if sealedBodyHash(record.SealedBody) != record.BodyHash {
 		return nil, offset, ErrManagedPayloadScope
 	}
-	scope := PackageScope{WorkspaceID: record.WorkspaceID, BoardID: record.BoardID, ParentTaskID: record.ParentTaskID, GroupID: record.GroupID, WorkItemID: record.WorkItemID, TaskID: record.TaskID, AttemptID: record.AttemptID, Generation: record.Generation, LeaseGeneration: record.LeaseGeneration, RequirementsRevision: record.RequirementsRevision}
+	scope := PackageScope{WorkspaceID: record.WorkspaceID, BoardID: record.BoardID, ParentTaskID: record.ParentTaskID, GroupID: record.GroupID, WorkItemID: record.WorkItemID, TaskID: record.TaskID, AttemptID: record.AttemptID, Generation: record.Generation, LeaseGeneration: record.LeaseGeneration, RequirementsRevision: record.RequirementsRevision, ArtifactKind: record.Kind, ArtifactRole: record.Role, ArtifactProvenance: record.Provenance, ProducerSessionID: record.ProducerSessionID}
 	plain, err := s.codec.Open(ctx, artifactBinding(scope, record.ID), record.SealedBody)
 	if err != nil {
 		return nil, offset, err
@@ -594,7 +611,16 @@ func packageBinding(scope PackageScope, id string) PayloadBinding {
 }
 
 func artifactBinding(scope PackageScope, id string) PayloadBinding {
-	return PayloadBinding{RecordID: id, WorkspaceID: scope.WorkspaceID, BoardID: scope.BoardID, ParentTaskID: scope.ParentTaskID, GroupID: scope.GroupID, WorkItemID: scope.WorkItemID, TaskID: scope.TaskID, AttemptID: scope.AttemptID, Generation: scope.Generation, LeaseGeneration: scope.LeaseGeneration, RequirementsRevision: scope.RequirementsRevision, SchemaVersion: ManagedArtifactSchemaVersion, Kind: ManagedPayloadKindArtifact}
+	return PayloadBinding{RecordID: id, WorkspaceID: scope.WorkspaceID, BoardID: scope.BoardID, ParentTaskID: scope.ParentTaskID, GroupID: scope.GroupID, WorkItemID: scope.WorkItemID, TaskID: scope.TaskID, AttemptID: scope.AttemptID, Generation: scope.Generation, LeaseGeneration: scope.LeaseGeneration, RequirementsRevision: scope.RequirementsRevision, ArtifactKind: scope.ArtifactKind, ArtifactRole: scope.ArtifactRole, ArtifactProvenance: scope.ArtifactProvenance, ProducerSessionID: scope.ProducerSessionID, SchemaVersion: ManagedArtifactSchemaVersion, Kind: ManagedPayloadKindArtifact}
+}
+
+func validManagedArtifactRole(role string) bool {
+	switch role {
+	case "coordinator", "implementer", "reviewer", "integrator":
+		return true
+	default:
+		return false
+	}
 }
 
 func sealedBodyHash(sealed []byte) string {
