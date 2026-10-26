@@ -135,3 +135,5 @@ Delivered: `internal/harness` (types, `Resolve`, `Classify`, fingerprint) as a s
 Decisions: tiers are `None < Narrowing < Widening < Executable`; a deny removal that exposes a vendor-defined server or skill is executable (the spec's "gains one" rule), any other deny removal widens; each budget field (size, cut) falls back separately; a stored profile that names a vanished tool or group fails `Resolve`.
 
 Open for later slices: command/args facts for vendor-defined servers (the environment report has none), the repair path for profiles naming removed tools, `harness.profileInvalid` publication in `bridge.keptCodes`, and everything in H2–H5/C1.
+
+Review fixes on #344: a denied imported skill is outside the executable set so un-denying it is executable; the fingerprint hashes the canonical targets of skill folders and denied skills; server shapes treat nil and empty `Args`/`EnvKeys` as equal so a storage round trip is not a change.

@@ -52,12 +52,15 @@ contract only; no service calls it yet and behavior is unchanged.
 - Deny lists are V ∪ W. Servers are keyed by name, W replaces V, a duplicate or a name the
   vendor environment already defines is rejected. Skill folders are V ∪ W by canonical path.
 - `Classify(before, after)` compares two effective values: executable > widening > narrowing.
-  A deny entry whose removal exposes a vendor-defined server or skill is *executable*; a
+  A deny entry whose removal exposes a vendor-defined server or skill, or an imported skill
+  folder, is *executable* (a denied imported skill is not in the executable set); a
   cut-mode-only change is neutral in the narrowing tier; budgets compare per tool on the
   effective value (deleting a 16 KiB override widens).
 - `Effective.Fingerprint` (`sha256:v1:`) covers the V/W/S revisions, the registry's tool names
-  and exemptions and the vendor-defined servers/skills (name, command, args, URL, env names,
-  sorted). No env values, no definition sizes.
+  and exemptions, the vendor-defined servers/skills (name, command, args, URL, env names,
+  sorted) and the canonical targets of imported skill folders and denied skills, so re-pointing
+  a symlink moves it. Nil and empty args/env names are one value (storage drops empty lists).
+  No env values, no definition sizes.
 - Known gaps for later slices: `EnvironmentReport` entries carry no command/arguments, so
   the host must add them before a vendor-defined server can be fingerprinted (spike 9); a stored
   profile naming a tool or group that a later build removed makes `Resolve` fail, so H2/H5 need
