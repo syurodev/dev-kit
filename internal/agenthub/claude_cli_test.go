@@ -176,6 +176,41 @@ func TestClaudeCheckSignInSkipsABannerBeforeTheJSON(t *testing.T) {
 	}
 }
 
+// measuredAuthStatusReply is what `claude auth status` printed on Claude Code 2.1.310:
+// one indented object over several lines, not one line of JSON.
+const measuredAuthStatusReply = `{
+  "loggedIn": true,
+  "authMethod": "claude.ai",
+  "apiProvider": "firstParty",
+  "analyticsDisabled": false,
+  "projectsDirectory": "/home/u/acct/projects",
+  "configDirectory": "/home/u/acct",
+  "email": "a@b.c",
+  "orgId": "o",
+  "orgName": "Org",
+  "subscriptionType": "team"
+}`
+
+func TestClaudeCheckSignInReadsAnIndentedMultiLineAnswer(t *testing.T) {
+	a, _, _, _ := claudeWithCLI(t, measuredAuthStatusReply)
+	got, err := a.CheckSignIn(t.Context(), OpenSpec{AccountHome: filepath.Join(t.TempDir(), "acct")})
+	if err != nil || got != (SignInState{SignedIn: true, Email: "a@b.c", Plan: "team"}) {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	a, _, _, _ = claudeWithCLI(t, "Update available: 9.9.9\n"+measuredAuthStatusReply)
+	if got, err := a.CheckSignIn(t.Context(), OpenSpec{}); err != nil || !got.SignedIn {
+		t.Fatalf("with a banner before it: got %+v, %v", got, err)
+	}
+	a, _, _, _ = claudeWithCLI(t, `{"type":"x"}`+"\n"+measuredAuthStatusReply)
+	if got, err := a.CheckSignIn(t.Context(), OpenSpec{}); err != nil || !got.SignedIn {
+		t.Fatalf("with another object before it: got %+v, %v", got, err)
+	}
+	a, _, _, _ = claudeWithCLI(t, "{\n  \"loggedIn\": false,\n  \"authMethod\": \"none\"\n}")
+	if got, err := a.CheckSignIn(t.Context(), OpenSpec{}); err != nil || got != (SignInState{}) {
+		t.Fatalf("signed out: got %+v, %v", got, err)
+	}
+}
+
 func TestClaudeCLIPersistsNoSessionForTheUsageProbe(t *testing.T) {
 	a, args, _, _ := claudeWithCLI(t, measuredUsageReply)
 	if _, err := a.CheckUsage(t.Context(), OpenSpec{}); err != nil {
