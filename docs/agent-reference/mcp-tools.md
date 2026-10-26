@@ -112,3 +112,24 @@ observations; write failures and runs left unclosed are visible in Settings. Shu
 calls, waits for entered observations within five seconds and drains pending/active batches. A crash can lose the unsaved tail;
 there is no durable per-call queue. The report reads persisted data only and never forces a flush. This measures host-served
 text bytes, not vendor request tokens, provider cost or subscription quota.
+- **A session endpoint can serve a prepared harness policy (H4a, inert)** (`internal/mcp/serving.go`, `session_host.go`; plan
+  `docs/superpowers/plans/2026-10-27-harness-h4-session-serving-implementation.md`). `Server.Inventory()` reads the registry
+  from what the server really registers (name, group, serialized definition bytes, the fixed budget exemption), once; `Registry()`
+  hands it to `harness.Resolve`, so validation, serving and the cost tests share one fact set (`TestInventoryIsWhatAClientSees`,
+  `TestGroupDefinitionCostsStayWithinMeasuredCeilings`: a new group needs a measured ceiling). `SessionHost.OpenWithPolicy` (the
+  `agenthub.PolicyEndpoints` seam) stages an immutable `servingHolder` before the socket accepts anything: the SDK instance
+  has the hidden tools **removed** (`RemoveTools`), so no page, cursor or total can name them (tested with a page size of 7), and
+  `withMeasuredResultBudget` — the one existing result middleware, not a second layer — loads the holder **once at call entry** and
+  uses that snapshot for the group decision, the tool's resolved budget (tool > group > 24 KiB, fixed exemptions kept) and the
+  W/S revisions in the observation (the snapshot's, not the host's scope). A registered tool the policy hides answers a tool error
+  `harness.groupOff: The <group> tools are turned off for this session.` before any handler or gateway runs; an unknown or empty
+  name keeps the SDK's normal answer; `harness.profile.propose` is served whatever its group does (nothing is registered under that
+  name yet, so nothing is listed). A policy that does not know a registered tool is refused at open (`harness.notEnforceable`).
+  Each endpoint incarnation owns its holder, token and connections: `Close` is idempotent, ends accepted connections (not only the
+  listener) and removes the socket and registry entry only if they are still its own. Nothing reads SQLite, preferences or a
+  vendor process on that path. The refusals are text results, so `harness.groupOff` / `harness.snapshotUnavailable` are in
+  `bridge.keptCodes` (fixed sentences). Pre-approved and gate-owned lists are narrowed to served tools, never widened. Terminal
+  (shared-socket) and legacy `Open` endpoints are unchanged. **Inert**: no `Harness` provider is constructed in production, so
+  `OpenWithPolicy` is never called there; the prompt and the rest of launch guidance (H4b), live S publication (H4c) and
+  composition (H4d) are not done, and filtered serving must not be switched on before H4b.
+

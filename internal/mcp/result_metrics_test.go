@@ -35,7 +35,7 @@ func TestMeasuredSDKPathCountsServedUTF8AndPreservesMixedResults(t *testing.T) {
 	ms := sdk.NewServer(&sdk.Implementation{Name: "t", Version: "0"}, nil)
 	ms.AddReceivingMiddleware(withMeasuredResultBudget(4096, &ResultObservation{Scope: func() (usagemetrics.Scope, bool) {
 		return usagemetrics.Scope{Vendor: "claude", WorkspaceID: "w1"}, true
-	}, Record: func(o usagemetrics.Observation) { mu.Lock(); observed = append(observed, o); mu.Unlock() }}))
+	}, Record: func(o usagemetrics.Observation) { mu.Lock(); observed = append(observed, o); mu.Unlock() }}, nil))
 	sdk.AddTool(ms, &sdk.Tool{Name: "big.text"}, func(context.Context, *sdk.CallToolRequest, struct{}) (*sdk.CallToolResult, any, error) {
 		return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: strings.Repeat("Việt ", 3000)}}}, nil, nil
 	})
@@ -131,7 +131,7 @@ func BenchmarkResultMeasurement(b *testing.B) {
 					}
 					return &sdk.CallToolResult{Content: content}, nil
 				}
-				handler := withMeasuredResultBudget(ResultBudget, obs)(next)
+				handler := withMeasuredResultBudget(ResultBudget, obs, nil)(next)
 				req := &sdk.CallToolRequest{Params: &sdk.CallToolParamsRaw{Name: "test.result"}}
 				b.ReportAllocs()
 				b.ResetTimer()
@@ -147,7 +147,7 @@ func TestStructuredSDKResultIdenticalWithAndWithoutObserver(t *testing.T) {
 	var o usagemetrics.Observation
 	call := func(observer *ResultObservation) *sdk.CallToolResult {
 		ms := sdk.NewServer(&sdk.Implementation{Name: "t", Version: "0"}, nil)
-		ms.AddReceivingMiddleware(withMeasuredResultBudget(ResultBudget, observer))
+		ms.AddReceivingMiddleware(withMeasuredResultBudget(ResultBudget, observer, nil))
 		sdk.AddTool(ms, &sdk.Tool{Name: "big.page"}, func(context.Context, *sdk.CallToolRequest, struct{}) (*sdk.CallToolResult, any, error) {
 			return nil, bigSearchPage(300), nil
 		})

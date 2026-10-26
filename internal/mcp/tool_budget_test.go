@@ -82,3 +82,49 @@ func TestGateOwnedToolsStillSayTheyAsk(t *testing.T) {
 		}
 	}
 }
+
+// Measured serialized definition bytes per harness group (everything tools/list
+// sends for the group's tools, from the server's own inventory), with a small
+// margin. A profile turns a group off to save exactly this cost, so a group that
+// quietly doubles makes that saving a different promise. A new group must be
+// added here with its measured ceiling; none of the limits above were raised
+// for this.
+var groupDefinitionCeilings = map[string]int{
+	"accounts": 1000, "agenthub": 7000, "api": 11200, "codegraph": 17800, "codex": 1000,
+	"db": 2750, "env": 250, "git": 12800, "kafka": 2250, "notes": 3950,
+	"pdf": 5850, "pr": 8700, "ssh": 1150, "tasks": 7950, "tools": 380,
+	"vault": 580, "workspace": 5300,
+}
+
+const maxTotalInventoryBytes = 89000
+
+func TestGroupDefinitionCostsStayWithinMeasuredCeilings(t *testing.T) {
+	inv, err := NewServer(fullDeps()).Inventory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cost := map[string]int{}
+	total := 0
+	for _, tool := range inv.Tools {
+		cost[tool.Group] += tool.DefinitionBytes
+		total += tool.DefinitionBytes
+	}
+	for group, bytes := range cost {
+		ceiling, known := groupDefinitionCeilings[group]
+		if !known {
+			t.Errorf("group %q (%d bytes) has no measured ceiling: add it to groupDefinitionCeilings", group, bytes)
+			continue
+		}
+		if bytes > ceiling {
+			t.Errorf("group %q definitions are %d bytes, ceiling %d", group, bytes, ceiling)
+		}
+	}
+	for group := range groupDefinitionCeilings {
+		if _, ok := cost[group]; !ok {
+			t.Errorf("ceiling for group %q, which registers no tool", group)
+		}
+	}
+	if total > maxTotalInventoryBytes {
+		t.Errorf("the full registry is %d serialized bytes, ceiling %d", total, maxTotalInventoryBytes)
+	}
+}
