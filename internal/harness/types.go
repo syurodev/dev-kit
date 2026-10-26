@@ -175,6 +175,7 @@ type Effective struct {
 	budgets    map[string]Budget
 	executable map[string]string // what could run or be loaded, keyed by kind:name
 	execDigest string
+	wsDigest   string
 }
 
 // GroupOn reports whether a registry group is on. An unknown group is off.

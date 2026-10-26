@@ -845,3 +845,89 @@ func TestExecutableDigestIgnoresRevisionsAndOrder(t *testing.T) {
 		t.Error("a changed command kept the digest")
 	}
 }
+
+func refFor(t *testing.T, in Inputs) SnapshotRef {
+	t.Helper()
+	e := resolve(t, in)
+	return SnapshotRef{WorkspaceDigest: e.WorkspaceDigest(), ExecutableEntries: e.ExecutableEntries()}
+}
+
+func TestAdoptingNewExecutablesLooksAtWhatChangedAndWhy(t *testing.T) {
+	withW := func(f func(*Profile)) Inputs {
+		in := base()
+		in.Vendor.Servers = []Server{stdio("v", "vc")}
+		in.Workspace = profile(f)
+		return in
+	}
+	applied := refFor(t, withW(func(p *Profile) { p.Servers = []Server{stdio("db", "a")} }))
+
+	if refFor(t, withW(func(p *Profile) { p.Servers = []Server{stdio("db", "b")} })).AdoptsNewExecutables(applied) == false {
+		t.Error("an altered W server must need a new session")
+	}
+	if refFor(t, withW(func(p *Profile) { p.Servers = []Server{stdio("db", "a"), stdio("new", "x")} })).AdoptsNewExecutables(applied) == false {
+		t.Error("a new W server must need a new session")
+	}
+	// W moved but only narrows: a deny that removes a server, fewer servers.
+	if refFor(t, withW(func(p *Profile) { p.Servers = []Server{stdio("db", "a")}; p.DisabledMCP = []string{"db"} })).AdoptsNewExecutables(applied) {
+		t.Error("a deny entry that removes a server is narrowing")
+	}
+	if refFor(t, withW(func(p *Profile) {})).AdoptsNewExecutables(applied) {
+		t.Error("dropping W's server is narrowing")
+	}
+	// A V-only change under identical W content is not this rule's business.
+	vChanged := withW(func(p *Profile) { p.Servers = []Server{stdio("db", "a")} })
+	vChanged.Vendor.Servers = []Server{stdio("v", "other-command")}
+	if refFor(t, vChanged).AdoptsNewExecutables(applied) {
+		t.Error("a V-only change must keep reloading as before")
+	}
+	// W's revision is not the evidence: same content, new revision.
+	same := withW(func(p *Profile) { p.Revision = 42; p.Servers = []Server{stdio("db", "a")} })
+	if refFor(t, same).AdoptsNewExecutables(applied) {
+		t.Error("a revision bump with identical content is no change")
+	}
+}
+
+func TestARetargetedSymlinkInWChangesTheWorkspaceDigestEvenWithTheSameRevision(t *testing.T) {
+	target := "/real/a"
+	in := base()
+	in.Canonical = func(p string) (string, error) {
+		if p == "/link/skills" {
+			return target, nil
+		}
+		return p, nil
+	}
+	in.Workspace = profile(func(p *Profile) { p.SkillFolders = []string{"/link/skills"} })
+	applied := refFor(t, in)
+	target = "/real/b"
+	next := refFor(t, in)
+	if applied.WorkspaceDigest == next.WorkspaceDigest || !next.AdoptsNewExecutables(applied) {
+		t.Fatal("a retargeted symlink in W was treated as no change")
+	}
+	// Order of equal content does not matter.
+	a := base()
+	a.Workspace = profile(func(p *Profile) {
+		p.DisabledMCP = []string{"b", "a"}
+		p.Servers = []Server{stdio("x", "1"), stdio("y", "2")}
+	})
+	b := base()
+	b.Workspace = profile(func(p *Profile) {
+		p.DisabledMCP = []string{"a", "b"}
+		p.Servers = []Server{stdio("y", "2"), stdio("x", "1")}
+	})
+	if refFor(t, a).WorkspaceDigest != refFor(t, b).WorkspaceDigest {
+		t.Error("ordering moved the workspace digest")
+	}
+	if refFor(t, base()).WorkspaceDigest != "none" {
+		t.Error("no profile is 'none'")
+	}
+}
+
+func TestExecutableEntriesHoldNoNamesOrCommands(t *testing.T) {
+	in := base()
+	in.Workspace = profile(func(p *Profile) { p.Servers = []Server{stdio("secret-name", "SECRET-CMD")} })
+	for k, v := range resolve(t, in).ExecutableEntries() {
+		if strings.Contains(k, "secret") || strings.Contains(v, "SECRET") || len(k) != 16 || len(v) != 16 {
+			t.Fatalf("entry %q=%q is not an opaque hash pair", k, v)
+		}
+	}
+}

@@ -1,6 +1,8 @@
 package harness
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"path/filepath"
 	"slices"
@@ -157,6 +159,7 @@ func Resolve(in Inputs) (Effective, error) {
 	}
 	eff.Fingerprint = fingerprint(in, envSkills, folders, disabledSkills)
 	eff.execDigest = executableDigest(eff.executable)
+	eff.wsDigest = workspaceDigest(in.Workspace, w, strict, lenient)
 	return eff, nil
 }
 
@@ -320,6 +323,51 @@ func sortedKeys[V any](m map[string]V) []string {
 	for k := range m {
 		out = append(out, k)
 	}
+	sort.Strings(out)
+	return out
+}
+
+// workspaceDigest identifies everything W contributes after canonicalization:
+// its groups and budgets, deny entries, servers and skill folders with their
+// resolved targets. Two snapshots with the same digest were shaped by the same
+// workspace profile content even when a symlink inside it was retargeted without
+// the revision moving; a reload that changes executables under an unchanged
+// digest comes from the vendor customization or the vendor's own files.
+func workspaceDigest(present *Profile, w Profile, strict func(string) (string, error), lenient func(string) string) string {
+	if present == nil {
+		return "none"
+	}
+	type server struct {
+		Name, Shape string
+		Enabled     bool
+	}
+	facts := struct {
+		Groups                               map[string]bool
+		Budget                               *BudgetProfile
+		DisabledMCP, DisabledSkills, Folders []string
+		Servers                              []server
+	}{Groups: w.ToolGroups, Budget: w.ResultBudget, DisabledMCP: sortedCopy(w.DisabledMCP)}
+	for _, p := range w.DisabledSkills {
+		facts.DisabledSkills = append(facts.DisabledSkills, lenient(p))
+	}
+	sort.Strings(facts.DisabledSkills)
+	for _, f := range w.SkillFolders {
+		if real, err := strict(f); err == nil {
+			facts.Folders = append(facts.Folders, real)
+		}
+	}
+	sort.Strings(facts.Folders)
+	for _, sv := range w.Servers {
+		facts.Servers = append(facts.Servers, server{sv.Name, serverShape(sv), sv.Enabled})
+	}
+	sort.Slice(facts.Servers, func(i, j int) bool { return facts.Servers[i].Name < facts.Servers[j].Name })
+	b, _ := json.Marshal(facts)
+	sum := sha256.Sum256(b)
+	return "sha256:v1:" + hex.EncodeToString(sum[:])
+}
+
+func sortedCopy(in []string) []string {
+	out := slices.Clone(in)
 	sort.Strings(out)
 	return out
 }

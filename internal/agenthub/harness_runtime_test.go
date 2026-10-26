@@ -198,8 +198,9 @@ func snapshotFor(t *testing.T, session, ws, vendor string, mutate func(*harness.
 		t.Fatal(err)
 	}
 	return harness.Snapshot{
+		Vendor: in.Vendor,
 		Ref: harness.SnapshotRef{Schema: harness.SnapshotSchema, WorkspaceID: ws, SessionID: session, Vendor: vendor, Revisions: eff.Revisions,
-			Fingerprint: eff.Fingerprint, ExecutableDigest: eff.ExecutableDigest(), FactsComplete: true, Default: in.Workspace == nil && in.Session == nil},
+			Fingerprint: eff.Fingerprint, ExecutableDigest: eff.ExecutableDigest(), WorkspaceDigest: eff.WorkspaceDigest(), ExecutableEntries: eff.ExecutableEntries(), FactsComplete: true, Default: in.Workspace == nil && in.Session == nil},
 		Effective: eff,
 	}
 }
@@ -283,21 +284,28 @@ func TestWithoutAHarnessNothingIsResolvedOrRecorded(t *testing.T) {
 	}
 }
 
-func TestADefaultSnapshotLaunchesLikeToday(t *testing.T) {
+func TestADefaultSnapshotLaunchesLikeTodayWithTheVendorCustomizationItWasResolvedFrom(t *testing.T) {
 	e := newLaunchEnv(t, plain)
+	e.harness.set(func(s, ws, v string) (harness.Snapshot, error) {
+		return snapshotFor(t, s, ws, v, func(in *harness.Inputs) {
+			in.Vendor = harness.Vendor{Revision: 7, DisabledMCP: []string{"zeta", "alpha"}, Servers: []harness.Server{{Name: "z", Command: "c", Enabled: true}, {Name: "a", Command: "d", Enabled: true}}}
+		}), nil
+	})
+	// Settings is edited after the snapshot was resolved and before the launch
+	// reads its sandbox settings: the runtime must still get the resolved V.
 	e.svc.SandboxExtras = func() preferences.AgentSandboxSettings {
 		s := preferences.DefaultAgentSandbox()
-		s.Customizations = map[string]preferences.AgentCustomization{"mock": {Revision: 7, DisabledMCP: []string{"zeta", "alpha"}}}
+		s.Customizations = map[string]preferences.AgentCustomization{"mock": {Revision: 8, DisabledMCP: []string{"edited"}}}
 		return s
 	}
 	s := e.mustCreate()
 	ref, enforced, ok := e.svc.HarnessApplied(s.ID)
-	if !ok || !ref.Default || enforced || ref.SessionID != s.ID || ref.WorkspaceID != "w1" {
+	if !ok || !ref.Default || enforced || ref.SessionID != s.ID || ref.WorkspaceID != "w1" || ref.Revisions.Vendor != 7 {
 		t.Fatalf("applied = %+v enforced=%v ok=%v", ref, enforced, ok)
 	}
 	got := e.adapter.lastSpec().Customizations["mock"]
-	if got.Revision != 7 || len(got.DisabledMCP) != 2 || got.DisabledMCP[0] != "zeta" {
-		t.Fatalf("a default snapshot must leave the vendor customization exactly as it was: %+v", got)
+	if got.Revision != 7 || len(got.DisabledMCP) != 2 || got.DisabledMCP[0] != "zeta" || len(got.Servers) != 2 || got.Servers[0].Name != "z" {
+		t.Fatalf("the applied reference says V=7 but the runtime got %+v", got)
 	}
 	if e.ev.count("endpoint.open") != 1 || e.ev.index("snapshot") > e.ev.index("endpoint.open") {
 		t.Fatalf("the snapshot is resolved before the endpoint opens: %v", e.ev.all())
@@ -639,5 +647,54 @@ func TestRewindOpensThroughTheSharedLaunchPipeline(t *testing.T) {
 	}
 	if ev.index("endpoint.openWithPolicy") < 0 || ev.count("endpoint.openWithPolicy") != 2 {
 		t.Fatalf("rewind did not stage the endpoint with the policy: %v", ev.all())
+	}
+}
+
+// Review: the gate must look at what changed and why, not at W's revision.
+func TestAReopenAdoptsOnlyWhatTheWorkspaceContentReallyChanged(t *testing.T) {
+	target := "/real/a"
+	snapWith := func(rev int64, mutate func(*harness.Profile)) func(string, string, string) (harness.Snapshot, error) {
+		return func(s, ws, v string) (harness.Snapshot, error) {
+			return snapshotFor(t, s, ws, v, func(in *harness.Inputs) {
+				in.Canonical = func(p string) (string, error) {
+					if p == "/link/skills" {
+						return target, nil
+					}
+					return p, nil
+				}
+				w := &harness.Profile{Schema: 1, Revision: rev, Servers: []harness.Server{{Name: "db", Command: "a", Enabled: true}}, SkillFolders: []string{"/link/skills"}}
+				if mutate != nil {
+					mutate(w)
+				}
+				in.Workspace = w
+			}), nil
+		}
+	}
+	e := newLaunchEnv(t, plain)
+	e.harness.set(snapWith(1, nil))
+	s := e.mustCreate()
+
+	// The symlink inside W now points somewhere else; the revision did not move.
+	target = "/real/b"
+	e.harness.set(snapWith(1, nil))
+	if err := e.reload(s.ID); !errors.Is(err, agenthub.ErrHarnessNewSessionRequired) {
+		t.Fatalf("a retargeted skill symlink in W was adopted as if nothing changed: %v", err)
+	}
+	target = "/real/a"
+
+	// W gets a deny entry that removes its server: narrowing, so it reloads.
+	e.harness.set(snapWith(2, func(w *harness.Profile) { w.DisabledMCP = []string{"db"} }))
+	if err := e.reload(s.ID); err != nil {
+		t.Fatalf("a narrowing W change must not need a new session: %v", err)
+	}
+	// And dropping a server entirely.
+	e.harness.set(snapWith(3, func(w *harness.Profile) { w.Servers = nil }))
+	if err := e.reload(s.ID); err != nil {
+		t.Fatalf("removing a W server must not need a new session: %v", err)
+	}
+	// Putting an executable back is a gain again.
+	e.harness.set(snapWith(4, nil))
+	if err := e.reload(s.ID); !errors.Is(err, agenthub.ErrHarnessNewSessionRequired) {
+		t.Fatalf("re-adding a server after narrowing: %v", err)
 	}
 }
