@@ -45,6 +45,9 @@ type appliedHarness struct {
 	// Enforced is true when the endpoint serves this snapshot's policy. Without
 	// it a W or S revision is not claimed in usage attribution.
 	Enforced bool
+	// Served is the DevKit surface this runtime's guidance was written for. It
+	// lives in memory only: a reopen prepares it again.
+	Served *DevKitServing
 }
 
 // HarnessLifecycle is told when a session is explicitly closed so the override
@@ -64,6 +67,9 @@ type harnessLaunch struct {
 	snapshot      *harness.Snapshot // nil: no harness configured, today's behavior
 	enforced      bool
 	closeEndpoint func()
+	// served is what the endpoint serves under the prepared policy, the one
+	// input of host guidance. nil: no policy was prepared (legacy).
+	served *DevKitServing
 }
 
 // prepareLaunch is the single place an endpoint and a harness snapshot are
@@ -103,6 +109,19 @@ func (s *Service) prepareLaunch(ctx context.Context, spec *OpenSpec, sessionID, 
 		return l, err
 	}
 	l.closeEndpoint = ep.Close
+	if l.enforced {
+		// A prepared policy without the endpoint's served inventory cannot be
+		// described to the model, and the full guidance is not a safe default.
+		if ep.Served == nil {
+			ep.Close()
+			l.closeEndpoint = func() {}
+			l.enforced = false
+			log.Printf("agenthub: session %s: the policy endpoint reported no served tools", sessionID)
+			return l, ErrHarnessUnavailable
+		}
+		l.served = ep.Served.Clone()
+		spec.DevKit = ep.Served.Clone()
+	}
 	spec.UsageToken = ep.UsageToken
 	spec.AllowUnixSockets = []string{ep.SocketPath}
 	spec.McpServers = []acp.McpServerStdio{ep.Server}
@@ -169,7 +188,7 @@ func (s *Service) publishHarnessLocked(sessionID string, l harnessLaunch) {
 		delete(s.harnessApplied, sessionID)
 		return
 	}
-	s.harnessApplied[sessionID] = appliedHarness{Ref: l.snapshot.Ref.Clone(), Enforced: l.enforced}
+	s.harnessApplied[sessionID] = appliedHarness{Ref: l.snapshot.Ref.Clone(), Enforced: l.enforced, Served: l.served.Clone()}
 	if l.enforced {
 		facts := s.runtimeUsage[sessionID]
 		facts.ProfileRevision, facts.OverrideRevision = cloneRevision(l.snapshot.Ref.Revisions.Workspace), cloneRevision(l.snapshot.Ref.Revisions.Session)
@@ -183,6 +202,14 @@ func cloneRevision(r *int64) *int64 {
 	}
 	v := *r
 	return &v
+}
+
+// servedFor is what the session's live runtime was told it can use: nil for a
+// legacy launch or a session with no live runtime record.
+func (s *Service) servedFor(sessionID string) *DevKitServing {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.harnessApplied[sessionID].Served.Clone()
 }
 
 // HarnessApplied reports the configuration the session's runtime was actually

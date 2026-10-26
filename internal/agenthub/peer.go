@@ -1006,7 +1006,7 @@ func (s *Service) steerPeer(ctx context.Context, sess AgentSession, msg *peerMes
 	}
 	steerCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 	defer cancel()
-	outcome, err := steerer.Steer(steerCtx, []acp.ContentBlock{{Type: "text", Text: peerEnvelope(namingFor(sess.AgentType), msg)}})
+	outcome, err := steerer.Steer(steerCtx, []acp.ContentBlock{{Type: "text", Text: peerEnvelope(namingFor(sess.AgentType), s.servedFor(sess.ID), msg)}})
 	if err != nil {
 		log.Printf("agenthub: steering a message from another session into %s: %v", sess.ID, err)
 		return steerNo
@@ -1061,7 +1061,7 @@ func (s *Service) startPeerTurn(msg *peerMessage, keepReservation bool) error {
 	s.turnWork.Add(1)
 	go func() {
 		defer s.turnWork.Add(-1)
-		_, err := s.invoke(context.Background(), InvokeInput{SessionID: msg.to, Prompt: peerEnvelope(s.namingOf(msg.to), msg)}, run)
+		_, err := s.invoke(context.Background(), InvokeInput{SessionID: msg.to, Prompt: peerEnvelope(s.namingOf(msg.to), s.servedFor(msg.to), msg)}, run)
 		run.settle(err) // a turn that never claimed has an error to report
 		if err != nil && !errors.Is(err, ErrSessionBusy) && !errors.Is(err, ErrCancelled) {
 			log.Printf("agenthub: turn on a message from another session, session %s: %v", msg.to, err)
@@ -1349,7 +1349,7 @@ func (s *Service) dropQueuedPeer(sessionID string, msg *peerMessage, code string
 // body sits between two lines carrying the message id — a value the sender did
 // not choose — so nothing in it can close the frame early. The person reads the
 // sender's words alone (the transcript row), never this.
-func peerEnvelope(naming toolNaming, msg *peerMessage) string {
+func peerEnvelope(naming toolNaming, served *DevKitServing, msg *peerMessage) string {
 	var b strings.Builder
 	tool := naming.tool("agenthub.sendMessage")
 	switch msg.from.Kind {
@@ -1369,7 +1369,11 @@ func peerEnvelope(naming toolNaming, msg *peerMessage) string {
 		if msg.sibling {
 			b.WriteString("- It comes from a sibling: another session started by the same parent as you. Settle only the narrow point it raises, then tell YOUR PARENT what was agreed or what is still open; do not take on work for it that your parent did not give you.\n")
 		}
-		fmt.Fprintf(&b, "- If a reply helps the other session, send it with %s (sessionId %q, replyTo %q). Do not reply just to acknowledge; when nothing is left to say, stop. Exchanges are capped.\n", tool, msg.from.SessionID, msg.id)
+		if servesAll(served, "agenthub.sendMessage") {
+			fmt.Fprintf(&b, "- If a reply helps the other session, send it with %s (sessionId %q, replyTo %q). Do not reply just to acknowledge; when nothing is left to say, stop. Exchanges are capped.\n", tool, msg.from.SessionID, msg.id)
+		} else {
+			b.WriteString("- DevKit's message tool is not available in this session, so you cannot reply to it. If the person needs to know something about it, tell the person. Do not reply just to acknowledge; when nothing is left to say, stop.\n")
+		}
 	}
 	fmt.Fprintf(&b, "\n--- message %s begins ---\n%s\n--- message %s ends ---", msg.id, msg.text, msg.id)
 	return b.String()

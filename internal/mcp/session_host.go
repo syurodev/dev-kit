@@ -167,15 +167,28 @@ func (h *SessionHost) open(sessionID string, serving *servingHolder) (agenthub.M
 	go ep.serve(ms)
 
 	gateOwned, preApproved := h.server.GateOwnedTools(), h.server.PreApprovedTools()
+	var served *agenthub.DevKitServing
 	if serving != nil {
+		// What the endpoint serves, from the same inventory and snapshot that
+		// filter discovery: the one input of the host guidance.
+		snap := serving.load()
+		inv, _ := h.server.Inventory()
+		names := make([]string, 0, len(inv.Tools))
+		for _, t := range inv.Tools {
+			if snap.eff.Served(t.Name) {
+				names = append(names, t.Name)
+			}
+		}
+		served = agenthub.NewDevKitServing(names)
+
 		// Narrowing only: a tool the policy hides is neither pre-approved nor
 		// host-gated, and nothing here adds a tool to either list.
-		snap := serving.load()
 		gateOwned, preApproved = servedOnly(gateOwned, snap), servedOnly(preApproved, snap)
 	}
 	return agenthub.MCPEndpoint{
 		UsageToken: token, GateOwnedTools: gateOwned,
 		PreApprovedTools: preApproved,
+		Served:           served,
 		SocketPath:       path,
 		Server: acp.McpServerStdio{
 			Name:    "devkit",

@@ -132,4 +132,28 @@ text bytes, not vendor request tokens, provider cost or subscription quota.
   (shared-socket) and legacy `Open` endpoints are unchanged. **Inert**: no `Harness` provider is constructed in production, so
   `OpenWithPolicy` is never called there; the prompt and the rest of launch guidance (H4b), live S publication (H4c) and
   composition (H4d) are not done, and filtered serving must not be switched on before H4b.
+- **Host guidance, pre-approval and the endpoint come from one prepared value (H4b, inert)** (`internal/agenthub/devkit_guidance.go`,
+  `devkit_prompt.go`, `harness_runtime.go`; plan `docs/superpowers/plans/2026-10-27-harness-h4b-guidance-implementation.md`).
+  `SessionHost.OpenWithPolicy` returns `MCPEndpoint.Served`: the tools its inventory registers *and* its policy lets through,
+  from the same snapshot that filters discovery. `prepareLaunch` copies it into `OpenSpec.DevKit` (`*DevKitServing`) beside
+  the already narrowed `GateOwnedMCP`/`PreApprovedMCP`; an enforcing endpoint that reports no served inventory fails
+  preparation (`harness.snapshotUnavailable`, endpoint closed, nothing published) instead of falling back to the full prompt.
+  **`nil` is the legacy launch** (no policy prepared, full guidance, byte-identical to before, pinned by captured goldens);
+  **non-nil and empty is a positive policy that serves nothing** and renders the safety core only. No second resolver, no read
+  of preferences, W, S or a vendor report. The prompt template is split once into chunks; a chunk renders only if every tool it
+  names is served (derived from its `{{tool}}` references, so there is no second list of names), `{{?a,b}}…{{/}}` keeps text only
+  when those tools are served, `{{+tool}}` requires one without naming it. Hard rules, the headings, "a tool missing from your list
+  is not available" and "respond in the user's language" never depend on a group. With git hidden a fixed guard stays ("Git writes
+  are guarded… do not run `git commit`… in the shell… tell the person"); a hidden group's other sections are simply omitted, and a
+  multi-group section (board delegation: tasks + git + agenthub) needs all of them. The vendor naming note's example is a tool
+  that is served, and is omitted when nothing is; the no-brief fallback names `workspace.list` only if served and otherwise asks the
+  person; the attached-PDF guide and the peer-message reply line likewise say the tool is unavailable instead of naming it. The brief
+  is inserted last and untouched (it used to be spelled like template text; tool-looking text in it is data now).
+  `replacementGuidance` is a pure, 4 KiB-bounded helper for H4c's live S result: the same chunks for one newly served group, no
+  mutation, no approval, no `Live`. Prompt and vendor pre-approval are fixed at open; a later change never implies the vendor
+  saw a refreshed list. Tested against the wire of Claude (`session/new` `systemPrompt.append` and `allowedTools`), Codex
+  (`thread/start` and `thread/resume` developer instructions) and opencode (instructions file and config), and against a real
+  `SessionHost` + resolver + service (`guidance_integration_test.go`). Bytes only, not tokens: all on 19,219 (Claude) /
+  19,572 (Codex) / 19,528 (opencode), git off 16,287 / 16,642 / 16,598, tasks (board) off 15,758 / 16,111 / 16,067, all off 3,437.
+  Still inert: no production `Harness`, no public proposal tool (the prompt never names `harness.profile.propose`), H4c/H4d not done.
 

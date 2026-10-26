@@ -370,7 +370,7 @@ func (a *OpenCodeAdapter) jail(workDir string, l launch, spec OpenSpec) (sandbox
 	if err != nil {
 		return sandbox.Policy{}, sandbox.Cmd{}, err
 	}
-	promptFile, err := writeOpenCodePrompt(roots.prompts, devkitPrompt(opencodeNaming, spec.Brief))
+	promptFile, err := writeOpenCodePrompt(roots.prompts, devkitPrompt(opencodeNaming, spec.Brief, spec.DevKit))
 	if err != nil {
 		return sandbox.Policy{}, sandbox.Cmd{}, err
 	}

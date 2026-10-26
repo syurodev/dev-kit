@@ -124,8 +124,8 @@ DevKit rules above and below. A newer block supersedes earlier workspace
 context, including the initial brief above. An empty instructions status
 retires previously supplied workspace instructions. If you have no such block
 in view — your conversation was compacted, say — a fresh one comes with a
-later request; until then do not guess its contents, and {{workspace.memory.list}}
-shows the memory.
+later request; until then do not guess its contents{{?workspace.memory.list}}, and {{workspace.memory.list}}
+shows the memory{{/}}.
 
 ## Hard rules
 
@@ -144,7 +144,7 @@ shows the memory.
 
 ## When something is blocked
 
-- Vault locked ({{vault.status}}): the user unlocks it in the DevKit window.
+- Vault locked{{?vault.status}} ({{vault.status}}){{/}}: the user unlocks it in the DevKit window.
   Carry on with whatever does not need it.
 - A confirmation that cannot be shown (headless or server mode) fails at
   once. That is not a denial — say the action needs the DevKit desktop app.
@@ -158,7 +158,7 @@ shows the memory.
   Delegate a whole result you can check — a change, an investigation with a
   conclusion — not steps you would then steer one by one, and not what is
   quicker to do yourself.
-- **Briefing a child.** Write as to a capable colleague who has not seen this
+- {{+agenthub.createAgentSession}}**Briefing a child.** Write as to a capable colleague who has not seen this
   conversation: the job and what done looks like, where to start (files, a
   command), any constraint that is not obvious from the code (read-only, a
   behaviour to keep), and the shape of the answer you want. Say what is
@@ -171,8 +171,8 @@ shows the memory.
   delegate.
 - **Delegating through the task board.** For a job that changes code or needs
   acceptance, when {{tasks.board.list}} shows a board for this workspace, make
-  the job a task: {{tasks.create}} (a subtask of the one you hold, or
-  {{tasks.createFromPlan}} for an approved plan; order with blockedBy in
+  the job a task: {{tasks.create}} (a subtask of the one you hold{{?tasks.createFromPlan}}, or
+  {{tasks.createFromPlan}} for an approved plan{{/}}; order with blockedBy in
   {{tasks.setFields}}) and put the brief in its description. The person sees
   it on the board and it survives a restart, which a message does not. Then
   start the child on it with {{agenthub.createAgentSession}} and taskId: DevKit
@@ -290,8 +290,12 @@ var promptToolRef = regexp.MustCompile(`\{\{([A-Za-z_.]+)\}\}`)
 type toolNaming struct {
 	tool func(name string) string
 	// note is said once, up front, when the names below are not the exact
-	// ones in the model's list.
+	// ones in the model's list. %EX% is an example tool in DevKit's own spelling
+	// and %EXU% the same with the dots turned into underscores; the example is
+	// one the session really serves (renderNote).
 	note string
+	// example is the tool the note names when the session serves it.
+	example string
 	// viewHint is added to the PDF guide for a host where an image in a tool's
 	// result has to be forwarded explicitly to reach the model.
 	viewHint string
@@ -309,9 +313,10 @@ var claudeNaming = toolNaming{
 // neutralNaming is DevKit's own name, for a vendor whose spelling is not
 // pinned down here.
 var neutralNaming = toolNaming{
-	tool: func(name string) string { return "`" + name + "`" },
-	note: "\nTool names below are DevKit's own (`git.commit`); your host may prefix or\n" +
-		"reformat them (`devkit__git_commit`). Use the name you actually see.\n",
+	tool:    func(name string) string { return "`" + name + "`" },
+	example: "git.commit",
+	note: "\nTool names below are DevKit's own (`%EX%`); your host may prefix or\n" +
+		"reformat them (`devkit__%EXU%`). Use the name you actually see.\n",
 }
 
 // codexNaming is how Codex's model reaches a DevKit tool. Codex (0.147, measured
@@ -323,9 +328,10 @@ var neutralNaming = toolNaming{
 // that is fetched and not forwarded is never seen by the model, which is why
 // this note exists and why the PDF guide repeats it.
 var codexNaming = toolNaming{
-	tool: claudeNaming.tool,
+	tool:    claudeNaming.tool,
+	example: "git.status",
 	note: "\nYou call DevKit's tools from your `exec` tool, as `await tools.<name>(args)` with the\n" +
-		"names below (e.g. `await tools.mcp__devkit__git_status({})`). A tool returns a result\n" +
+		"names below (e.g. `await tools.mcp__devkit__%EXU%({})`). A tool returns a result\n" +
 		"object `{content, isError, structuredContent}`: print what you need with `text(...)`.\n" +
 		"A result's image blocks reach you only when you forward them with\n" +
 		"`image(result.content[i])`.\n",
@@ -340,23 +346,11 @@ var codexNaming = toolNaming{
 // more than about 20 tools the catalog is cut and the rest is found with the
 // `search` function, so a name below may not be listed until it is searched for.
 var opencodeNaming = toolNaming{
-	tool: func(name string) string { return "`tools.devkit." + strings.ReplaceAll(name, ".", "_") + "`" },
+	tool:    func(name string) string { return "`tools.devkit." + strings.ReplaceAll(name, ".", "_") + "`" },
+	example: "git.status",
 	note: "\nYou call DevKit's tools from your `execute` tool, as `await tools.devkit.<name>(args)` with\n" +
-		"the names below (e.g. `await tools.devkit.git_status({})`). Your Code Mode catalog lists them; if\n" +
+		"the names below (e.g. `await tools.devkit.%EXU%({})`). Your Code Mode catalog lists them; if\n" +
 		"one is missing from it, find it with `search`. A tool returns a result object; `return` what\n" +
 		"you need from your code.\n",
 	viewHint: " You are in opencode: call these from `execute`, and return the result's content; an image block in a result reaches you only if your code returns it.",
-}
-
-// devkitPrompt renders the prompt for one vendor and one session. brief says
-// where the session is (Service.SessionBrief), or is empty.
-func devkitPrompt(naming toolNaming, brief string) string {
-	brief = strings.TrimSpace(brief)
-	if brief == "" {
-		brief = devkitPromptNoBrief
-	}
-	prompt := strings.NewReplacer("%BRIEF%", brief, "%NAMING%", naming.note).Replace(devkitPromptTemplate)
-	return promptToolRef.ReplaceAllStringFunc(prompt, func(ref string) string {
-		return naming.tool(ref[2 : len(ref)-2])
-	})
 }

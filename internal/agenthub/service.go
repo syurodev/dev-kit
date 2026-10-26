@@ -269,6 +269,9 @@ type MCPEndpoint struct {
 	// PreApprovedTools are read-only tools scoped to the session that the vendor
 	// may run without a prompt (see OpenSpec.PreApprovedMCP).
 	PreApprovedTools []string
+	// Served is the DevKit tool surface this endpoint serves under a prepared
+	// policy (OpenWithPolicy). nil: an endpoint with no policy (legacy).
+	Served *DevKitServing
 }
 
 // MCPEndpoints opens one MCPEndpoint per session. nil means sessions get no
@@ -1873,7 +1876,7 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 	if err != nil {
 		return InvokeResult{Status: "error"}, err
 	}
-	prompt, err := buildPromptBlocks(in.Prompt, files, in.Images, in.Refs, documentsPromptBlock(docs, namingFor(sess.AgentType)), sess.ProjectPath, callerIsAgent(invoker))
+	prompt, err := buildPromptBlocks(in.Prompt, files, in.Images, in.Refs, documentsPromptBlock(docs, namingFor(sess.AgentType), s.servedFor(sess.ID)), sess.ProjectPath, callerIsAgent(invoker))
 	if err != nil {
 		return InvokeResult{Status: "error"}, err
 	}
