@@ -1647,20 +1647,14 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	// The close is committed: nothing can add an override to this session any
 	// more (the store refuses closed sessions), so removing it now cannot race a
 	// late approval. A failure is reported, never swallowed; closing again retries.
-	cleanupErr := s.forgetHarnessApplied(ctx, id)
 	if s.HarnessLifecycle != nil {
 		if err := s.HarnessLifecycle.SessionClosed(ctx, id); err != nil {
 			log.Printf("agenthub: harness override cleanup for session %s: %v", id, err)
-			cleanupErr = ErrHarnessCleanupFailed
-		}
-	}
-	if cleanupErr != nil {
-		if !errors.Is(cleanupErr, ErrHarnessCleanupFailed) {
-			log.Printf("agenthub: harness reference cleanup for session %s: %v", id, cleanupErr)
 			return ErrHarnessCleanupFailed
 		}
-		return cleanupErr
 	}
+	// Close parks this conversation; Invoke can reopen the same session. Keep
+	// its last applied reference so that reopen still checks executable changes.
 	return nil
 }
 
@@ -1729,6 +1723,7 @@ func (s *Service) DeleteSession(ctx context.Context, id string) error {
 		s.peers.forget(target) // messages waiting for a session that no longer exists
 		s.mu.Lock()
 		s.forgetSessionAccountLocked(target)
+		delete(s.harnessApplied, target) // durable references cascade with the rows
 		s.mu.Unlock()
 	}
 	return nil

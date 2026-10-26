@@ -235,17 +235,6 @@ func (s *Service) recordHarnessApplied(ctx context.Context, sessionID string, l 
 	return durable.SetHarnessApplied(ctx, sessionID, l.snapshot.Ref, l.enforced, time.Now().UTC())
 }
 
-// forgetHarnessApplied drops the record of a session that was explicitly closed.
-func (s *Service) forgetHarnessApplied(ctx context.Context, sessionID string) error {
-	s.mu.Lock()
-	delete(s.harnessApplied, sessionID)
-	s.mu.Unlock()
-	if durable, ok := s.store.(HarnessAppliedStore); ok {
-		return durable.DeleteHarnessApplied(ctx, sessionID)
-	}
-	return nil
-}
-
 // harnessGate refuses what cannot honestly be launched: a profile that needs the
 // server to enforce it when the endpoint cannot, and a reopen that would adopt a
 // changed set of executables the person has not seen in a new session.

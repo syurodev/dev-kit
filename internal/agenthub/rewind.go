@@ -369,6 +369,10 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 		SafetyCheckpointID:      r.safetyID,
 		At:                      time.Now().UTC(),
 	}
+	if r.launch.snapshot != nil {
+		ref := r.launch.snapshot.Ref.Clone()
+		spec.HarnessRef, spec.HarnessEnforced = &ref, r.launch.enforced
+	}
 	if err := s.store.RewindSession(ctx, spec); err != nil {
 		r.discardFork(ctx)
 		r.abandonSafety(ctx, err)
@@ -379,13 +383,8 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 	// forked session comes up in the vendor's default mode, so the mode and
 	// model the user chose have to be re-applied or a rewind silently changes
 	// how the agent behaves.
-	// The rewind is committed, so a durable reference that cannot be written is
-	// reported, not undone. The older reference left behind can only make a later
-	// reload more cautious (it compares against an earlier configuration), never
-	// let a changed executable through.
-	if err := s.recordHarnessApplied(ctx, r.session.ID, r.launch); err != nil {
-		log.Printf("agenthub: rewind %s: recording the applied harness reference: %v", r.session.ID, err)
-	}
+	// The cut and its applied reference have committed together. A crash before
+	// publication still leaves the restart gate comparing against this fork.
 	s.mu.Lock()
 	s.runtimes[r.session.ID] = r.newRuntime
 	s.runtimeUsage[r.session.ID] = r.usageFacts

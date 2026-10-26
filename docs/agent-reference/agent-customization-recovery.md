@@ -193,8 +193,10 @@ Nothing is published until the runtime opened.
   executable digest, whether the endpoint enforced it): no definition, path, command, env value,
   prompt or token. It is written **before** a create/resume publishes its runtime; if it cannot
   be written the launch is refused and the staged endpoint closed (a create also removes its
-  row). A rewind writes it at its publish step, after the cut is committed, and only logs a
-  failure: an older reference can only make a later reload more cautious.
+  row). A rewind writes it in the **same transaction** as the vendor session id, transcript
+  cut, turn/checkpoint deletions and safety-row completion. A failed reference write rolls back
+  that transaction and discards the staged fork; it is never accepted with an older reference.
+  A crash after commit but before runtime publication still leaves the fork's reference on disk.
 - **What it is for.** After a restart (memory empty) a reload or resume still compares the new
   snapshot with the stored reference: if W moved and the executable digest differs the reopen is
   refused (`harness.newSessionRequired`). DevKit **cannot reconstruct** the old permitted
@@ -202,9 +204,11 @@ Nothing is published until the runtime opened.
   An unreadable reference refuses the launch (`harness.snapshotUnavailable`).
 - **Explicit close.** `CloseSession` commits the status, then calls `HarnessLifecycle.SessionClosed`
   (app adapter → `HarnessStore.ClearOverride`: a tombstone with the next revision, idempotent) and
-  drops the applied reference. Failure is returned as `ErrHarnessCleanupFailed` (the session *is*
-  closed); closing again retries and keeps stamps monotonic. Deleting a session closes each
-  session first, and the rows cascade.
+  keeps the applied reference in memory and on disk: Close parks a conversation, and the next
+  prompt can reopen the same session, so its executable guard must survive Close and restart.
+  Override cleanup failure is returned as `ErrHarnessCleanupFailed` (the session *is* closed);
+  closing again retries and keeps stamps monotonic. Delete closes each session first, then its
+  rows and durable references cascade; in-memory references are dropped only after deletion succeeds.
 - **Close vs approval.** `HarnessStore.Apply` refuses a closed session inside its transaction, so an
   approval that checked scope before the close cannot commit S after it: either the close
   committed first (the write is refused) or the write committed first (the cleanup removes it).
