@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"devkit/internal/agenthub"
+	"devkit/internal/usagemetrics"
 )
 
 // Token usage (Settings → Agents → Accounts & limits). The window's alone, like the
@@ -37,10 +38,15 @@ type AgentUsageSessionInfo struct {
 	Totals      AgentUsageTotalsInfo `json:"totals"`
 }
 
-// AgentUsageReportInfo is what a vendor's turns spent, in tokens. It is not a share
-// of a subscription limit. Every list is non-null. Workspace ids are named by the
-// window from the workspace list it already has.
+type AgentUsageAccountInfo struct {
+	AccountID  string               `json:"accountId"`
+	Generation string               `json:"generation"`
+	Totals     AgentUsageTotalsInfo `json:"totals"`
+}
+
+// AgentUsageReportInfo contains token totals and coverage; every list is non-null.
 type AgentUsageReportInfo struct {
+	ByAccount         []AgentUsageAccountInfo `json:"byAccount"`
 	Vendor            string                  `json:"vendor"`
 	Totals            AgentUsageTotalsInfo    `json:"totals"`
 	ByWorkspace       []AgentUsageGroupInfo   `json:"byWorkspace"`
@@ -70,11 +76,16 @@ func usageGroupsInfo(groups []agenthub.UsageGroup) []AgentUsageGroupInfo {
 }
 
 func usageReportInfo(r agenthub.UsageReport) AgentUsageReportInfo {
+	accounts := make([]AgentUsageAccountInfo, 0, len(r.ByAccount))
+	for _, a := range r.ByAccount {
+		accounts = append(accounts, AgentUsageAccountInfo{a.AccountID, a.Generation, usageTotalsInfo(a.UsageTotals)})
+	}
 	sessions := make([]AgentUsageSessionInfo, 0, len(r.TopSessions))
 	for _, s := range r.TopSessions {
 		sessions = append(sessions, AgentUsageSessionInfo{SessionID: s.SessionID, WorkspaceID: s.WorkspaceID, Totals: usageTotalsInfo(s.UsageTotals)})
 	}
 	return AgentUsageReportInfo{
+		ByAccount:         accounts,
 		Vendor:            string(r.Vendor),
 		Totals:            usageTotalsInfo(r.Totals),
 		ByWorkspace:       usageGroupsInfo(r.ByWorkspace),
@@ -99,4 +110,26 @@ func (s *AppService) AgentUsageReport(ctx context.Context, vendor string) (Agent
 		return AgentUsageReportInfo{}, err
 	}
 	return result.(AgentUsageReportInfo), nil
+}
+
+// AgentToolUsageReport reads persisted host measurements; it never flushes or probes a vendor.
+func (s *AppService) AgentToolUsageReport(ctx context.Context, vendor string, q usagemetrics.Query) (usagemetrics.Report, error) {
+	v := agentRuntimeID(vendor)
+	result, err := s.agentAccountsCall(ctx, "agenthub:read", "usage:tools", map[string]any{"action": "agent_tool_usage_report", "vendor": v}, func(c context.Context, svc *agenthub.Service) (any, error) {
+		return svc.ToolUsageReport(c, agenthub.AgentType(v), q)
+	})
+	if err != nil {
+		return usagemetrics.Report{}, err
+	}
+	return result.(usagemetrics.Report), nil
+}
+func (s *AppService) AgentAccountMoveUsageReport(ctx context.Context, vendor string, q agenthub.AccountMoveQuery) (agenthub.AccountMoveReport, error) {
+	v := agentRuntimeID(vendor)
+	result, err := s.agentAccountsCall(ctx, "agenthub:read", "usage:moves", map[string]any{"action": "agent_account_move_usage_report", "vendor": v}, func(c context.Context, svc *agenthub.Service) (any, error) {
+		return svc.AccountMoveUsageReport(c, agenthub.AgentType(v), q)
+	})
+	if err != nil {
+		return agenthub.AccountMoveReport{}, err
+	}
+	return result.(agenthub.AccountMoveReport), nil
 }

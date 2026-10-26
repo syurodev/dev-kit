@@ -12,6 +12,7 @@ const topSessionsLimit = 10
 // It carries no prompt, no message and no title: only what the turn recorded
 // about its own cost.
 type TurnUsageRow struct {
+	Attribution *TurnAttribution
 	TurnID      string
 	SessionID   string
 	WorkspaceID string
@@ -57,9 +58,17 @@ type UsageSessionGroup struct {
 	UsageTotals
 }
 
+// UsageAccountGroup is one local account configuration lifetime, or unknown.
+type UsageAccountGroup struct {
+	AccountID  string
+	Generation string
+	UsageTotals
+}
+
 // UsageReport is what a vendor's turns spent, in tokens. Tokens are not a share
 // of a subscription limit: how a limit counts cached reads is not known.
 type UsageReport struct {
+	ByAccount   []UsageAccountGroup
 	Vendor      AgentType
 	Totals      UsageTotals
 	ByWorkspace []UsageGroup
@@ -102,6 +111,7 @@ type sessionTotals struct {
 // numbers in their raw meta.
 func BuildUsageReport(vendor AgentType, adapter VendorAdapter, rows []TurnUsageRow) UsageReport {
 	rep := UsageReport{Vendor: vendor}
+	byAccount := map[struct{ id, generation string }]*UsageTotals{}
 	byWorkspace := map[string]*UsageTotals{}
 	byDay := map[string]*UsageTotals{}
 	byModel := map[string]*UsageTotals{}
@@ -117,6 +127,15 @@ func BuildUsageReport(vendor AgentType, adapter VendorAdapter, rows []TurnUsageR
 	for _, row := range rows {
 		u := DeriveTurnUsage(adapter, row.UsageJSON, row.RawMeta)
 		rep.Totals.add(u)
+		key := struct{ id, generation string }{}
+		if row.Attribution != nil {
+			key.id = row.Attribution.Facts.AccountID
+			key.generation = row.Attribution.Facts.AccountGeneration
+		}
+		if byAccount[key] == nil {
+			byAccount[key] = &UsageTotals{}
+		}
+		byAccount[key].add(u)
 		totalsOf(byWorkspace, row.WorkspaceID).add(u)
 		totalsOf(byDay, row.CreatedAt.UTC().Format("2006-01-02")).add(u)
 		s, ok := bySession[row.SessionID]
@@ -135,6 +154,20 @@ func BuildUsageReport(vendor AgentType, adapter VendorAdapter, rows []TurnUsageR
 			t.Total += int64(m.Total)
 		}
 	}
+	rep.ByAccount = make([]UsageAccountGroup, 0, len(byAccount))
+	for k, v := range byAccount {
+		rep.ByAccount = append(rep.ByAccount, UsageAccountGroup{k.id, k.generation, *v})
+	}
+	sort.Slice(rep.ByAccount, func(i, j int) bool {
+		a, b := rep.ByAccount[i], rep.ByAccount[j]
+		if a.Total != b.Total {
+			return a.Total > b.Total
+		}
+		if a.AccountID != b.AccountID {
+			return a.AccountID < b.AccountID
+		}
+		return a.Generation < b.Generation
+	})
 	rep.ByWorkspace = groupsOf(byWorkspace, heaviestFirst)
 	rep.ByModel = groupsOf(byModel, heaviestFirst)
 	rep.ByDay = groupsOf(byDay, oldestFirst)

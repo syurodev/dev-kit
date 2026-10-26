@@ -19,6 +19,7 @@ import (
 	"devkit/internal/acp"
 	"devkit/internal/identity"
 	"devkit/internal/preferences"
+	"devkit/internal/usagemetrics"
 
 	"github.com/google/uuid"
 )
@@ -260,6 +261,7 @@ type InvokeResult struct {
 
 // MCPEndpoint is the identity-bound MCP socket handed to one vendor process.
 type MCPEndpoint struct {
+	UsageToken     string
 	SocketPath     string
 	Server         acp.McpServerStdio
 	Close          func()
@@ -277,6 +279,8 @@ type MCPEndpoints interface {
 
 // Service orchestrates vendor adapters, session persistence, and live runtimes.
 type Service struct {
+	ToolMetrics  usagemetrics.Reader
+	runtimeUsage map[string]RuntimeUsageFacts
 	// SessionTempOwner identifies this database for conservative scratch cleanup.
 	SessionTempOwner string
 	// SessionTempRoot is a test seam; empty preserves the platform default.
@@ -512,6 +516,7 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 	}
 	s := &Service{
 		reg:             reg,
+		runtimeUsage:    make(map[string]RuntimeUsageFacts),
 		store:           store,
 		recorder:        NewRecorder(store),
 		recoveryID:      uuid.NewString(),
@@ -838,6 +843,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 			return AgentSession{}, err
 		}
 		closeEndpoint = ep.Close
+		spec.UsageToken = ep.UsageToken
 		spec.AllowUnixSockets = []string{ep.SocketPath}
 		spec.McpServers = []acp.McpServerStdio{ep.Server}
 		spec.GateOwnedMCP = map[string][]string{ep.Server.Name: ep.GateOwnedTools}
@@ -935,6 +941,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 
 	s.mu.Lock()
 	s.runtimes[sess.ID] = rt
+	s.publishUsageLocked(sess, spec, BuiltinAccountID(sess.AgentType))
 	s.endpoints[sess.ID] = closeEndpoint
 	s.mu.Unlock()
 
@@ -1538,6 +1545,7 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	s.mu.Lock()
 	rt := s.runtimes[id]
 	delete(s.runtimes, id)
+	delete(s.runtimeUsage, id)
 	s.forgetWorkspaceContextLocked(id)
 	s.forgetSessionAccountLocked(id)
 	closeEndpoint := s.endpoints[id]
@@ -2066,6 +2074,7 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 
 	timing.markPromptSent()
 	s.emitTurnPhase(in.SessionID, "waiting_for_model")
+	attribution := s.turnAttribution(in.SessionID)
 	outcome, promptErr := rt.Prompt(ctx, prompt, fileChangeReportRequest(cp.ID()))
 
 	// The closing snapshot, before anything below decides the session's status.
@@ -2138,7 +2147,7 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 				if marshalErr != nil {
 					log.Printf("agenthub: invoke %s session %s: marshal usage from failed turn: %v", sess.AgentType, in.SessionID, marshalErr)
 				} else {
-					turn := TurnRecord{ID: uuid.NewString(), SessionID: in.SessionID, PromptMessageID: promptMessageID, StopReason: "failed", UsageJSON: usageJSON, RawMeta: append(json.RawMessage(nil), outcome.Meta...), CreatedAt: time.Now().UTC()}
+					turn := TurnRecord{Attribution: &attribution, ID: uuid.NewString(), SessionID: in.SessionID, PromptMessageID: promptMessageID, StopReason: "failed", UsageJSON: usageJSON, RawMeta: append(json.RawMessage(nil), outcome.Meta...), CreatedAt: time.Now().UTC()}
 					if err := s.store.InsertTurn(recordCtx, turn); err != nil {
 						log.Printf("agenthub: invoke %s session %s: save usage from failed turn: %v", sess.AgentType, in.SessionID, err)
 						if s.OnRecordError != nil {
@@ -2193,6 +2202,7 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 	}
 
 	turn := TurnRecord{
+		Attribution:     &attribution,
 		ID:              uuid.NewString(),
 		SessionID:       in.SessionID,
 		PromptMessageID: promptMessageID,
@@ -2474,6 +2484,7 @@ func (s *Service) liveRuntime(ctx context.Context, id string) SessionRuntime {
 		return rt
 	}
 	delete(s.runtimes, id)
+	delete(s.runtimeUsage, id)
 	s.forgetWorkspaceContextLocked(id)
 	// Nothing runs as an account now; the reopen writes it again. The switch
 	// memory stays: the session is still the same one.
@@ -2595,6 +2606,7 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 			return nil, err
 		}
 		closeEndpoint = ep.Close
+		spec.UsageToken = ep.UsageToken
 		spec.AllowUnixSockets = []string{ep.SocketPath}
 		spec.McpServers = []acp.McpServerStdio{ep.Server}
 		spec.GateOwnedMCP = map[string][]string{ep.Server.Name: ep.GateOwnedTools}
@@ -2602,7 +2614,10 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 		spec.ReadOnlyPaths = []string{ep.Server.Command}
 	}
 	s.applySandboxExtras(&spec)
-	s.recordSessionAccount(sess.ID, s.fillAccountSpec(ctx, &spec, sess))
+	resolvedAccount := s.fillAccountSpec(ctx, &spec, sess)
+	// Preserve the opening-account reservation used by RemoveAccount's guard.
+	// Measurement facts publish separately, only after the runtime opens.
+	s.recordSessionAccount(sess.ID, resolvedAccount)
 	s.applySubagents(&spec, sess.AgentType)
 
 	if err := prepareSessionTemp(&spec, false); err != nil {
@@ -2655,6 +2670,7 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 
 	s.mu.Lock()
 	s.runtimes[sess.ID] = rt
+	s.publishUsageLocked(sess, spec, resolvedAccount)
 	s.endpoints[sess.ID] = closeEndpoint
 	s.forgetWorkspaceContextLocked(sess.ID)
 	s.mu.Unlock()

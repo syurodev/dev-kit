@@ -104,7 +104,7 @@ func (s *Service) accountProbeSpec(acct AccountRecord) OpenSpec {
 // implements RateLimitReader; for a Claude account there is none and checkUsage starts
 // a probe process on the home (see checkUsage).
 //
-// sessionAccount is filled lazily (CreateSession records nothing), so a runtime with no
+// sessionAccount is published when a runtime opens. A legacy runtime with no
 // entry runs as whatever its session's row names, which observedAccountID reads and
 // remembers. The rows are read with no lock held.
 func (s *Service) liveRateReaderOn(ctx context.Context, accountID string) (RateLimitReader, bool) {

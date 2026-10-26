@@ -19,7 +19,7 @@ describe("reportOf", () => {
     const raw: AgentUsageReportInfo = {
       vendor: "claude",
       totals: totals(),
-      byWorkspace: [{ key: "w1", totals: totals({ total: 10 }) }],
+      byAccount: [], byWorkspace: [{ key: "w1", totals: totals({ total: 10 }) }],
       byDay: [{ key: "2026-10-26", totals: totals() }],
       byModel: [{ key: "opus", totals: totals({ turns: 1 }) }],
       topSessions: [{ sessionId: "s1", workspaceId: "w1", totals: totals() }],
@@ -38,7 +38,7 @@ describe("reportOf", () => {
     const raw: AgentUsageReportInfo = {
       vendor: "codex",
       totals: totals({ turns: 0, turnsWithoutData: 0 }),
-      byWorkspace: null,
+      byAccount: [], byWorkspace: null,
       byDay: null,
       byModel: null,
       topSessions: null,

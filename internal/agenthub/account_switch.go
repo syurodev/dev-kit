@@ -42,6 +42,7 @@ func accountIDOf(sess AgentSession) string {
 // recordSessionAccount.
 func (s *Service) fillAccountSpec(ctx context.Context, spec *OpenSpec, sess AgentSession) string {
 	id := BuiltinAccountID(sess.AgentType)
+	spec.UsageAccountGeneration = "builtin"
 	if s.Accounts == nil || sess.AccountID == "" {
 		return id
 	}
@@ -51,6 +52,7 @@ func (s *Service) fillAccountSpec(ctx context.Context, spec *OpenSpec, sess Agen
 		return id
 	}
 	id = sess.AccountID
+	spec.UsageAccountGeneration = acct.UsageGeneration
 	if acct.Builtin() {
 		return id
 	}
@@ -61,8 +63,8 @@ func (s *Service) fillAccountSpec(ctx context.Context, spec *OpenSpec, sess Agen
 	return id
 }
 
-// recordSessionAccount records which account a session's runtime runs as, where
-// a runtime is actually opened for it (resume, rewind): the id fillAccountSpec
+// recordSessionAccount reserves the account while a runtime is opening, so
+// account removal sees it before publication (resume, rewind): the id fillAccountSpec
 // returned, the built-in one whenever the spec was left alone.
 func (s *Service) recordSessionAccount(sessionID, accountID string) {
 	s.mu.Lock()
@@ -191,7 +193,7 @@ func (s *Service) abandonMove(ctx context.Context, sess *AgentSession, bound, fr
 	}
 	if backErr != nil {
 		log.Printf("agenthub: session %s: could not move back to account %s: %v; it stays on %s", sess.ID, from, backErr, target)
-		s.noteAccountSwitch(ctx, sess.ID, from, target, reason)
+		s.noteAccountSwitch(ctx, sess.ID, from, target, reason, false)
 		return
 	}
 	if turnEnded {
@@ -219,11 +221,27 @@ func switchFailureReason(err error) string {
 
 // noteAccountSwitch remembers a move that stands (for PickAccount's hold and
 // return rules) and records its notice in the transcript.
-func (s *Service) noteAccountSwitch(ctx context.Context, id, from, to, reason string) {
+func (s *Service) noteAccountSwitch(ctx context.Context, id, from, to, reason string, reopened ...bool) {
 	s.mu.Lock()
 	s.accountSwitches[id] = accountSwitch{at: time.Now(), from: from}
 	s.mu.Unlock()
-	s.handleUpdate(context.WithoutCancel(ctx), id, accountSwitchUpdate(from, to, reason))
+	opened := true
+	if len(reopened) > 0 {
+		opened = reopened[0]
+	}
+	parsed := ParseSessionUpdate(accountSwitchUpdate(from, to, reason))
+	s.mu.Lock()
+	facts := s.runtimeUsage[id]
+	s.mu.Unlock()
+	parsed.AccountNotice.RuntimeOpened = &opened
+	if opened && facts.AccountID == to {
+		parsed.AccountNotice.ToGeneration = facts.AccountGeneration
+	}
+	// Host-only qualification is stamped after parsing. Vendor metadata is never trusted for it.
+	s.emit(id, accountSwitchUpdate(from, to, reason))
+	if err := s.recorder.Record(context.WithoutCancel(ctx), id, parsed); err != nil && s.OnRecordError != nil {
+		s.OnRecordError(id, err)
+	}
 	if s.OnAccountSwitched != nil {
 		s.OnAccountSwitched(id, from, to, reason)
 	}
@@ -257,6 +275,7 @@ func (s *Service) moveSession(ctx context.Context, sess *AgentSession, target st
 			rt = s.runtimes[sess.ID]
 			closeEndpoint = s.endpoints[sess.ID]
 			delete(s.runtimes, sess.ID)
+			delete(s.runtimeUsage, sess.ID)
 			delete(s.endpoints, sess.ID)
 			s.forgetWorkspaceContextLocked(sess.ID)
 			s.mu.Unlock()

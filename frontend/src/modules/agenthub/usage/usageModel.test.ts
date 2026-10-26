@@ -31,7 +31,7 @@ const group = (key: string, over: Partial<UsageTotals> = {}): UsageGroup => ({ k
 const report = (over: Partial<UsageReport> = {}): UsageReport => ({
   vendor: "claude",
   totals: totals(),
-  byWorkspace: [],
+  byAccount: [], byWorkspace: [],
   byDay: [],
   byModel: [],
   topSessions: [],

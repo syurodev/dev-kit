@@ -107,6 +107,10 @@ func TestInvokeRefusedTurnLeavesTheSessionIdle(t *testing.T) {
 				if len(turns) != 1 || string(turns[0].RawMeta) != string(tc.out.Meta) {
 					t.Fatalf("turns = %+v, want failed turn with raw quota metadata", turns)
 				}
+				a := turns[0].Attribution
+				if a == nil || a.ContextVersion != 1 || a.StartedAt.IsZero() || a.Facts.AccountID != "refusing-default" || a.Facts.AccountGeneration != "builtin" {
+					t.Fatalf("failed billed turn attribution = %+v", a)
+				}
 				var usage agenthub.NormalizedUsage
 				if err := json.Unmarshal(turns[0].UsageJSON, &usage); err != nil {
 					t.Fatal(err)

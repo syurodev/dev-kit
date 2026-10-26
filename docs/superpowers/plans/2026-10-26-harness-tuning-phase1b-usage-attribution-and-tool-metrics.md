@@ -1,6 +1,6 @@
 # Harness tuning Phase 1b: account attribution and MCP result measurements
 
-Date: 2026-10-26. Status: **implementation plan; not implemented**.
+Date: 2026-10-26. Status: **implemented; validation notes below**.
 
 **Goal:** Extend the Phase 1a report with the account that actually ran each recorded turn, measured MCP text-result sizes,
 and a bounded view of recorded account moves and subsequent cache writes. Collect evidence before changing profiles or failover.
@@ -170,11 +170,11 @@ New invalid-query / unavailable errors need deliberate bridge mappings; never re
 
 ## Task 0 — Prepare against merged main
 
-- [ ] Read `AGENTS.md`, `docs/agent-reference/{agent-hub-accounts,mcp-tools,agent-customization-recovery}.md` and the Phase 1a code.
-- [ ] Start an implementation branch from current `origin/main` using the repo's normal Git workflow; preserve unrelated work.
-- [ ] Recheck latest migration, both production `TurnRecord` constructions, runtime-open/close paths and current grant/error tests.
-- [ ] Confirm `frontend/dist` exists for architecture checks (or build the frontend). Do not start the native GUI in a headless host.
-- [ ] Record baseline Go tests and frontend tests/build; distinguish pre-existing failures from changes made by this plan.
+- [x] Read `AGENTS.md`, `docs/agent-reference/{agent-hub-accounts,mcp-tools,agent-customization-recovery}.md` and the Phase 1a code.
+- [x] Start an implementation branch from current `origin/main` using the repo's normal Git workflow; preserve unrelated work.
+- [x] Recheck latest migration, both production `TurnRecord` constructions, runtime-open/close paths and current grant/error tests.
+- [x] Confirm `frontend/dist` exists for architecture checks (or build the frontend). Do not start the native GUI in a headless host.
+- [x] Record baseline Go tests and frontend tests/build; distinguish pre-existing failures from changes made by this plan.
 
 ```bash
 go test ./internal/storage/ ./internal/agenthub/ ./internal/mcp/ ./internal/bridge/ ./internal/app/ ./internal/arch/ -count=1
@@ -185,17 +185,17 @@ cd frontend && bun test --isolate && bun run build
 
 **Depends on:** Task 0.
 
-- [ ] Write migration tests against a pre-migration fixture: existing usage JSON/raw bytes and aggregate totals remain identical;
+- [x] Write migration tests against a pre-migration fixture: existing usage JSON/raw bytes and aggregate totals remain identical;
   historical turn attribution is NULL, not the current session account; migration can be reopened without regenerating identities.
-- [ ] Implement the schema above; verify uniqueness of unprofiled daily buckets despite nullable revisions.
-- [ ] Extend `TurnRecord`, `InsertTurn`, `ListTurns` and `TurnUsageRows` scan paths using `sql.Null*`/pointers. Update SQL column
+- [x] Implement the schema above; verify uniqueness of unprofiled daily buckets despite nullable revisions.
+- [x] Extend `TurnRecord`, `InsertTurn`, `ListTurns` and `TurnUsageRows` scan paths using `sql.Null*`/pointers. Update SQL column
   counts together. A fake/legacy writer with no context still inserts a valid unknown-attribution turn.
-- [ ] Extend `AccountRecord` and `SQLAccountStore` with an opaque generation. Account rename, usage/sign-in refresh and Put do
+- [x] Extend `AccountRecord` and `SQLAccountStore` with an opaque generation. Account rename, usage/sign-in refresh and Put do
   not change it. Delete/recreate of a freed slug does. Preserve the built-in no-row case and refuse callers' attempts to replace
   an existing generation. Store generates/trusts host ids, not a UI or MCP field.
-- [ ] Test account deletion/recreation, unknown generation from a legacy writer, deliberate unbound workspace vs legacy, revision
+- [x] Test account deletion/recreation, unknown generation from a legacy writer, deliberate unbound workspace vs legacy, revision
   NULL vs 0, and no cascading deletion of historical usage on account removal.
-- [ ] Update explicit migration-version assertions only; leave managed-ledger behavior unchanged.
+- [x] Update explicit migration-version assertions only; leave managed-ledger behavior unchanged.
 
 **Check:** `go test ./internal/storage/ ./internal/agenthub/ -run 'Usage|Account|Migration|Migrate' -count=1`.
 
@@ -203,20 +203,20 @@ cd frontend && bun test --isolate && bun run build
 
 **Depends on:** Task 1.
 
-- [ ] Add immutable runtime facts beside the existing `sessionAccount` binding. Publish them on initial CreateSession, resume,
+- [x] Add immutable runtime facts beside the existing `sessionAccount` binding. Publish them on initial CreateSession, resume,
   reopened-after-move and rewind's `openForked`; clear/replace them when runtimes close, die or are evicted. Failed opens must
   not publish live facts. Include canonical built-in id/generation even when no account book is configured.
-- [ ] `invoke` captures a local attribution value after runtime resolution and immediately before the vendor prompt begins.
+- [x] `invoke` captures a local attribution value after runtime resolution and immediately before the vendor prompt begins.
   Pass it to both successful and metadata-bearing failed `TurnRecord` constructions. Do not read mutable account/workspace state
   again when persisting. Capturing attribution must neither manufacture usage nor create a turn for a refusal that ran nothing.
-- [ ] Implement a memory-only `ToolUsageScope(sessionID)` (name illustrative) that returns a copied runtime/active-turn snapshot,
+- [x] Implement a memory-only `ToolUsageScope(sessionID)` (name illustrative) that returns a copied runtime/active-turn snapshot,
   or “unavailable”. The active turn's snapshot takes precedence. No arbitrary session id accepted from a tool argument.
-- [ ] Keep account-generation provenance from the account actually resolved by `fillAccountSpec`. Missing selected account →
+- [x] Keep account-generation provenance from the account actually resolved by `fillAccountSpec`. Missing selected account →
   built-in runtime must be recorded as built-in even if the session row still names the missing added account.
-- [ ] Test with scripted runtimes: A then switch to B; success and billed failure; disappeared account fallback; ordinary no-policy
+- [x] Test with scripted runtimes: A then switch to B; success and billed failure; disappeared account fallback; ordinary no-policy
   built-in; cancellation without metadata; independent limit follow-up; rename during a turn; delete/recreate same account slug.
   Assert old rows remain unchanged after all later account/session mutations.
-- [ ] Test scope cleanup/replacement on reload, resume, restart, rewind/fork and dead-runtime eviction. Old socket callbacks must
+- [x] Test scope cleanup/replacement on reload, resume, restart, rewind/fork and dead-runtime eviction. Old socket callbacks must
   not adopt a newly opened runtime's snapshot: bind a runtime generation when creating its observation callback, or otherwise
   detect that the endpoint is stale. Calls in flight keep the snapshot they captured at entry.
 
@@ -226,13 +226,13 @@ cd frontend && bun test --isolate && bun run build
 
 **Depends on:** Tasks 1–2.
 
-- [ ] Add id/generation account groups and propagate them through `UsageReport` and its DTO conversion.
-- [ ] For new context-versioned turns use their captured workspace. For legacy rows preserve Phase 1a's session-workspace fallback
+- [x] Add id/generation account groups and propagate them through `UsageReport` and its DTO conversion.
+- [x] For new context-versioned turns use their captured workspace. For legacy rows preserve Phase 1a's session-workspace fallback
   only in the workspace view; account attribution stays unknown. Document the fallback instead of claiming historical precision.
-- [ ] Reuse `UsageTotals.add` and `Known` coverage. Include unknown account/generation buckets and deterministic tie ordering.
-- [ ] Test reconciliation across all account groups for each metric and its coverage, including malformed/unknown usage, genuine
+- [x] Reuse `UsageTotals.add` and `Known` coverage. Include unknown account/generation buckets and deterministic tie ordering.
+- [x] Test reconciliation across all account groups for each metric and its coverage, including malformed/unknown usage, genuine
   zeros and helper-model splits. The by-model split remains separate and is never added to the overall/account totals.
-- [ ] Use account id plus generation as a structured pair, not ambiguous string concatenation in Go or UI keys.
+- [x] Use account id plus generation as a structured pair, not ambiguous string concatenation in Go or UI keys.
 
 **Check:** `go test ./internal/agenthub/ -run 'BuildUsageReport|TurnUsageRows|ServiceUsageReport|DeriveTurnUsage' -count=1`.
 
@@ -240,18 +240,18 @@ cd frontend && bun test --isolate && bun run build
 
 **Depends on:** Task 1; may be implemented independently of Tasks 2–3.
 
-- [ ] Define small `Scope`, `Observation`, `DailyRow`, `RunHealth` and query types. Use `int64` counters/byte sums and deterministic
+- [x] Define small `Scope`, `Observation`, `DailyRow`, `RunHealth` and query types. Use `int64` counters/byte sums and deterministic
   aggregation. Validate counts/byte sizes, string bounds and future profile-key consistency at the host boundary.
-- [ ] Implement pure aggregation with a fixed key bound and a collector with an injectable clock, ticker and store. No sleeps in
+- [x] Implement pure aggregation with a fixed key bound and a collector with an injectable clock, ticker and store. No sleeps in
   unit tests. `Record` is memory-only; slow/failing persistence cannot hold up an MCP response or change its return value.
-- [ ] Implement transactional UPSERT plus the per-run batch watermark, rollback, merge-back, known drop counts and run health.
+- [x] Implement transactional UPSERT plus the per-run batch watermark, rollback, merge-back, known drop counts and run health.
   Test both definite rollback and an error returned after the transaction actually committed. Avoid exactly-once claims for
   observations across process death: committed batches are durable; active buffered samples are best effort and unclean runs mark gaps.
-- [ ] A report reads only requested UTC-day/vendor/workspace ranges (default 30 days, max 90) and a bounded top-tool list. Return
+- [x] A report reads only requested UTC-day/vendor/workspace ranges (default 30 days, max 90) and a bounded top-tool list. Return
   collection start, last flush, drop/failure/unclean status. There is no report-query write or implicit account lookup.
-- [ ] Test 4,096-key saturation, concurrent calls during a blocked flush, rollback and retry without double counting, shutdown
+- [x] Test 4,096-key saturation, concurrent calls during a blocked flush, rollback and retry without double counting, shutdown
   while writes fail, reopening after an unclean run, UTC boundaries, sum/max merge rules, and `MaxOpenConns(1)` without deadlock.
-- [ ] Add an architecture assertion that production `internal/usagemetrics` imports no other in-module package.
+- [x] Add an architecture assertion that production `internal/usagemetrics` imports no other in-module package.
 
 **Check:** `go test -race ./internal/usagemetrics/ -count=1` and `go test ./internal/arch/ -count=1`.
 
@@ -259,23 +259,23 @@ cd frontend && bun test --isolate && bun run build
 
 **Depends on:** Tasks 2 and 4.
 
-- [ ] Keep `withResultBudget(ResultBudget)` valid for existing callers/tests. Add a sibling helper or options-based constructor
+- [x] Keep `withResultBudget(ResultBudget)` valid for existing callers/tests. Add a sibling helper or options-based constructor
   with an optional observer; a nil observer preserves today's behavior with negligible extra work.
-- [ ] Snapshot attribution at call entry; measure response text directly before/after the actual `limitResult` call and emit one
+- [x] Snapshot attribution at call entry; measure response text directly before/after the actual `limitResult` call and emit one
   value-only observation on return. This path also observes uncut, exempt and tool-error results without changing them.
-- [ ] `sdkServerFor(caller)` captures the identity-bound caller directly for the observer. Do not depend on whether `withCaller`
+- [x] `sdkServerFor(caller)` captures the identity-bound caller directly for the observer. Do not depend on whether `withCaller`
   happens to wrap this middleware inside or outside. Only host-registered dispatches keep their actual tool names; unknown/malformed
   dispatch errors use a bounded fixed bucket. `tools/list`, notifications and shared-terminal requests emit no Hub measurements.
-- [ ] Wire observer scope through an injected callback on `mcp.Deps`; never import `storage`, `app` or `bridge` into MCP.
-- [ ] Add real SDK client/server tests, not just direct handler calls: a multi-byte text cut, structured JSON shrink with removed
+- [x] Wire observer scope through an injected callback on `mcp.Deps`; never import `storage`, `app` or `bridge` into MCP.
+- [x] Add real SDK client/server tests, not just direct handler calls: a multi-byte text cut, structured JSON shrink with removed
   cursor, exempt PDF/readFile, mixed image/text, image-only, structured-only, IsError, Go error, nil/empty result, missing scope,
   unknown tool and two concurrent identity-bound sessions in different workspaces. Verify exactly one observation per call.
-- [ ] Assert the existing response bytes/content/structured content and public error semantics are identical with collection on
+- [x] Assert the existing response bytes/content/structured content and public error semantics are identical with collection on
   and off. Include a failing collector and a saturated collector; grants/gates still decide the same calls.
-- [ ] The current SDK exports no public `GetTool`/registry enumeration method. If a dispatch cannot be proven registered from its
+- [x] The current SDK exports no public `GetTool`/registry enumeration method. If a dispatch cannot be proven registered from its
   result shape, record it in the fixed dispatch-error bucket (including handler errors with no result). Do not invent an SDK API,
   call `tools/list` on the hot path, or retain unbounded caller-selected names merely to separate these errors.
-- [ ] Benchmark a small result, a large text cut and an exempt image result. Record observer overhead; do not marshal/copy full
+- [x] Benchmark a small result, a large text cut and an exempt image result. Record observer overhead; do not marshal/copy full
   results for measurement and do not start a goroutine per call.
 
 **Check:** `go test ./internal/mcp/ -run 'Budget|Metrics|Caller|SessionHost' -count=1` and the existing result-budget tests.
@@ -284,19 +284,19 @@ cd frontend && bun test --isolate && bun run build
 
 **Depends on:** Tasks 1–2.
 
-- [ ] Extend host-authored move notices with optional resolved target generation and runtime-opened status. Stamp these only in
+- [x] Extend host-authored move notices with optional resolved target generation and runtime-opened status. Stamp these only in
   the trusted host path after resolving the runtime; ignore matching fields in vendor-supplied update metadata. Keep existing
   notice kind/text and selection/failover behavior intact. Do not persist vendor error/reason text for the measurement report.
-- [ ] Add a focused optional SQL-store interface for projected, paginated notice fields. Use `CreatedAt` (not `UpdatedAt`) and
+- [x] Add a focused optional SQL-store interface for projected, paginated notice fields. Use `CreatedAt` (not `UpdatedAt`) and
   preserve transcript row id/seq as provenance. Test repeated notices remain distinct. Do not call `ReadTranscript` to load bodies.
-- [ ] Query new turn attribution/start times for the affected sessions/window using a bounded query per page, rather than one
+- [x] Query new turn attribution/start times for the affected sessions/window using a bounded query per page, rather than one
   query per notice. Read only accounting JSON needed by `DeriveTurnUsage`, not messages. Validate window/limit/cursor on the service.
-- [ ] Implement pure correlation and statuses: confirmed+matched, confirmed without accounting, failed/undone, binding-only,
+- [x] Implement pure correlation and statuses: confirmed+matched, confirmed without accounting, failed/undone, binding-only,
   legacy-unverified and ambiguous. A NULL start or generation cannot become a confirmed match. Use coverage for cache writes.
-- [ ] Test a long A turn ending after the B notice, two moves before any recorded usage, switch-back, another session with the same
+- [x] Test a long A turn ending after the B notice, two moves before any recorded usage, switch-back, another session with the same
   account, restart, missing/zero cache write, failed reopen with successful/failed rollback, tied timestamps, deleted/recreated id,
   damaged JSON and a forged vendor `_meta.devkit` flag. Avoid silently upgrading legacy notices to confirmed events.
-- [ ] Test filter-bound pagination and deterministic ordering; show an empty next cursor at end and never silently drop a page.
+- [x] Test filter-bound pagination and deterministic ordering; show an empty next cursor at end and never silently drop a page.
 
 **Check:** `go test ./internal/agenthub/ -run 'AccountMoveUsage|AccountSwitch|Transcript|Attribution' -count=1`.
 
@@ -304,21 +304,21 @@ cd frontend && bun test --isolate && bun run build
 
 **Depends on:** Tasks 3–6.
 
-- [ ] In `main.go`, instantiate the metrics SQL adapter and collector after migration, before accepting MCP traffic. Inject its
+- [x] In `main.go`, instantiate the metrics SQL adapter and collector after migration, before accepting MCP traffic. Inject its
   reader into Agent Hub and its value-only observer/scope adapter into MCP. Constructors/tests without it remain valid.
-- [ ] On shutdown stop new MCP accepts and wait for in-flight observations with a bound before final metrics flush. Preserve the
+- [x] On shutdown stop new MCP accepts and wait for in-flight observations with a bound before final metrics flush. Preserve the
   existing Agent Hub transcript flush and cancellation semantics. Keep the DB open until both flush paths finish; handle early
   startup failure with cleanup. Reuse the existing MCP context where appropriate; avoid a leaked background worker.
-- [ ] Add UI-only `Service.ToolUsageReport` / `Service.AccountMoveUsageReport`, corresponding bridge DTOs/methods and the account
+- [x] Add UI-only `Service.ToolUsageReport` / `Service.AccountMoveUsageReport`, corresponding bridge DTOs/methods and the account
   generation field. Existing `AgentUsageReport` gains additive `byAccount` only. Publish safe query/unavailable errors and add
   method names to sorted `legacy_ops_methods.json`. The existing `usage:*` read grant should cover the new scopes; test it rather
   than widening permissions or adding an execute grant.
-- [ ] Tests use the real gateway: UI succeeds, agent/terminal/remote-human callers fail at both bridge and service, invalid vendor
+- [x] Tests use the real gateway: UI succeeds, agent/terminal/remote-human callers fail at both bridge and service, invalid vendor
   or query is refused, collection-disabled is distinguishable from an empty report, every list is `[]`, and account DTOs expose
   no home/credential. Verify no new MCP tool touches accounts or report reads.
-- [ ] Test in server mode: historical token/account reports use pure normalization; spawning/sign-in remain refused. No unavailable
+- [x] Test in server mode: historical token/account reports use pure normalization; spawning/sign-in remain refused. No unavailable
   adapter may turn existing usage into zeros or perform a live provider request for this page.
-- [ ] Regenerate `wails3 generate bindings -clean=true -ts -i`; review the generated diff for additive methods/DTO fields only.
+- [x] Regenerate `wails3 generate bindings -clean=true -ts -i`; review the generated diff for additive methods/DTO fields only.
 
 **Checks:** bridge/app/architecture/MCP suites; generated frontend typecheck.
 
@@ -326,22 +326,22 @@ cd frontend && bun test --isolate && bun run build
 
 **Depends on:** Task 7.
 
-- [ ] Extend typed wrappers and report fixtures. Older/nullable generated lists become `[]`; absent attribution is unknown, not
+- [x] Extend typed wrappers and report fixtures. Older/nullable generated lists become `[]`; absent attribution is unknown, not
   built-in. Preserve Phase 1a's coverage rules and fixed warning that tokens do not measure subscription quota.
-- [ ] Add a “By account” token table. Resolve labels using id **and** generation; display unknown, historical/removed and loading
+- [x] Add a “By account” token table. Resolve labels using id **and** generation; display unknown, historical/removed and loading
   cases deliberately. A failed account-name query must not call all accounts removed. No provider identity is inferred.
-- [ ] Add a separate “DevKit MCP text results” table in the existing usage panel: tool, calls, result/text coverage, before/after
+- [x] Add a separate “DevKit MCP text results” table in the existing usage panel: tool, calls, result/text coverage, before/after
   text bytes, byte reduction, max size and cut rate. State the UTC window, scope exclusions and collection-health information.
   Use bytes/KiB/MiB, not token units. Maxima and sums are not p50/p90; do not manufacture percentiles from daily aggregates.
-- [ ] Add the paginated move table with UTC time, from/to, confirmation status, first recorded-turn time and cache-write value
+- [x] Add the paginated move table with UTC time, from/to, confirmation status, first recorded-turn time and cache-write value
   with coverage. Show unknowns as dashes with a reason/status and the non-causal wording above. Limit the date window and retain
   a visible filter state; changing vendor/window resets pagination and discards late replies for the old filters.
-- [ ] Extend query keys with vendor/window/cursor and explicitly enable stale focus refresh as in Phase 1a. Fetch account names
+- [x] Extend query keys with vendor/window/cursor and explicitly enable stale focus refresh as in Phase 1a. Fetch account names
   with the existing account hook; do not trigger refresh-status/sign-in or quota probes. Give each report an independent error
   state so one failure does not hide token totals. Do not poll or flush synchronously on focus.
-- [ ] Use the shared `DataTable`; do not add raw unvirtualized tables or bypass smoothness/performance ratchets. Test narrow panels,
+- [x] Use the shared `DataTable`; do not add raw unvirtualized tables or bypass smoothness/performance ratchets. Test narrow panels,
   long historical labels, no data, partial data, real zero, drops/unclean recovery, paginated end and one failed subreport.
-- [ ] Add hook tests with real QueryClient defaults for focus refresh, filter separation and stale response isolation; render tests
+- [x] Add hook tests with real QueryClient defaults for focus refresh, filter separation and stale response isolation; render tests
   for account-id reuse and model metrics staying unknown. Add Settings search keywords only if the existing ones do not find it.
 
 **Check:** focused Bun tests, `bun test --isolate`, `bun run build`; browser preview at wide and narrow panel widths.
@@ -350,15 +350,15 @@ cd frontend && bun test --isolate && bun run build
 
 **Depends on:** Tasks 0–8.
 
-- [ ] On a temporary backup of a real database, upgrade and compare Phase 1a totals/coverage before and after. Existing turns stay
+- [x] On a temporary backup of a real database, upgrade and compare Phase 1a totals/coverage before and after. Existing turns stay
   in the unknown-account bucket. Never migrate/write the live database for a test, log raw metadata, or commit the copied DB.
-- [ ] Exercise a synthetic real two-account session stack with known switch and result fixtures. Compare recorded account ids,
+- [x] Exercise a synthetic real two-account session stack with known switch and result fixtures. Compare recorded account ids,
   generations, byte counts and move correlation with independent expected values; failure paths must preserve the same outcome.
-- [ ] Exercise the collector under a blocked SQLite writer and under forced process exit on a disposable DB. After restart, durable
+- [x] Exercise the collector under a blocked SQLite writer and under forced process exit on a disposable DB. After restart, durable
   counters remain and unclean collection is visible; do not claim recovery of samples that were only buffered.
-- [ ] Recheck fixtures and generated DTO mappings for new required account fields; update only the affected callers. No real account
+- [x] Recheck fixtures and generated DTO mappings for new required account fields; update only the affected callers. No real account
   login, exhaustion or expensive provider traffic is required for acceptance.
-- [ ] Update `docs/agent-reference/{agent-hub-accounts,mcp-tools}.md`, spec delivery/status and this plan's execution notes with what
+- [x] Update `docs/agent-reference/{agent-hub-accounts,mcp-tools}.md`, spec delivery/status and this plan's execution notes with what
   actually passed. Explicitly record if the native desktop page was not exercised. No automatic budget/failover tuning is enabled.
 
 ```bash
@@ -391,3 +391,37 @@ Phase 2a adds UI-owned workspace harness profiles and snapshots. It supplies rea
 already nullable fields and dimensions, without rewriting earlier `none` observations. Tool-group filtering must ship together
 with the prompt safety/guidance split; agent proposals, executable/path proposals and mid-session grants follow their vendor spikes.
 Actual cache-cost analysis and changes to `accountFlipHold` remain Phase 4 work, based on data rather than this plan's counters.
+
+## Execution notes
+
+Implemented on `feat/harness-usage-metrics`, from merged main `326140ff`; the plan was committed first as `7f49697e`.
+Migration 51 adds nullable attribution, stable account generations and daily metrics/run watermarks. Runtime facts publish only
+after a successful open and are captured before each prompt; close/replacement invalidates the endpoint token. The two recorded
+turn paths carry the same attribution. The result observer wraps the existing cut boundary without storing payloads. Reports are
+window-only; profile revisions stay `NULL`. There is no account-selection or result-budget policy change. Existing account reservations still guard removal while a runtime opens; measurement publication is separate. Submillisecond candidate ordering stays ambiguous because SQLite timestamp ordering cannot prove which turn was first.
+
+Validation on 2026-10-26:
+
+- Baseline affected Go packages and the original 5,041 frontend tests passed. The completed frontend suite passed **5,050 tests**;
+  typecheck, production build and performance budget passed (initial JS 1,241.7 KiB, CSS 282.8 KiB).
+- Affected Go packages (`usagemetrics`, `storage`, `agenthub`, `mcp`, `bridge`, `app`, `arch`) passed. Additional tests cover account
+  generation reuse, captured vs legacy workspace, a real Service two-account move, successful/billed failed turn attribution,
+  endpoint replacement, preservation of the opening-account removal guard, host-only notice provenance, SQL pagination/correlation, real MCP SDK text/structured/mixed/error paths,
+  committed-but-lost-reply retry, 4,096-key saturation, concurrent observations, a blocked SQLite writer, shutdown and subprocess exit.
+  Race testing of `usagemetrics` and scoped `go vet` passed. Bindings were regenerated; server-mode binary compilation passed.
+- A read-only SQLite backup of the live schema-50 database was migrated in a temporary directory and then deleted. All Phase 1a
+  aggregates and coverage were identical before/after: **516 Claude turns**, **962,611,929 total tokens**; all 516 legacy turns stayed
+  in the unknown-account bucket. The live database was not migrated or written by this check. No copied database was committed.
+- Full `go test ./internal/... ./cmd/... -count=1` passed the affected packages but has unrelated failures in `internal/codegraph`
+  (Java analyzer JAR older than source), `internal/crossservice` (analyzer not configured), and `internal/git`
+  (`TestResolveSideTakesTheStageExactly`, CRLF normalization). Those paths have no diff from the base. This is not a claim of a
+  completely green repository-wide suite.
+- Browser fixture preview checked partial coverage, a removed generation, mixed results, known-zero cache writes, unverified
+  moves and collection gaps at default, 1,200 px and 420 px widths. DOM page width stayed 420 px at the narrow setting; tables use
+  their own horizontal scrollers. Temporary preview files were removed. Native desktop, live provider traffic and real sign-in/
+  exhaustion were not exercised. Provider-gated tests keep their normal skip conditions.
+- The middleware benchmark (100 ms samples; wrapper callback only, not end-to-end vendor latency) showed small result
+  299.5/295.2 ns, large cut 32.7/36.1 µs, exempt image 431.2/439.5 ns for observer off/on respectively. Allocations were unchanged
+  (3/10/6); these short samples are descriptive, not a latency guarantee. Tests inject clock/ticks or drive flushes directly.
+
+The checkbox list records implementation and automated/fixture verification; it does not claim native/provider validation.

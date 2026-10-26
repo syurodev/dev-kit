@@ -440,8 +440,8 @@ func TestEnvironmentReportDoesNotWriteTheSessionAccountCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := rig.svc.SessionAccountCachedForTest(sess.ID); ok {
-		t.Fatal("test premise: CreateSession must not record an account")
+	if got, ok := rig.svc.SessionAccountCachedForTest(sess.ID); !ok || got != agenthub.BuiltinAccountID(agenthub.AgentTypeMock) {
+		t.Fatal("newly opened runtime should publish the builtin account")
 	}
 	// Row on "work", no runtime opened for it: the report still describes the account.
 	if err := rig.svc.BindSessionAccountForTest(context.Background(), sess.ID, "work"); err != nil {
@@ -450,8 +450,8 @@ func TestEnvironmentReportDoesNotWriteTheSessionAccountCache(t *testing.T) {
 	if _, err := rig.svc.Environment(uiCtx(), agenthub.AgentTypeMock, sess.ID); err != nil {
 		t.Fatal(err)
 	}
-	if got, ok := rig.svc.SessionAccountCachedForTest(sess.ID); ok {
-		t.Errorf("Environment recorded %q for a session no runtime was opened for", got)
+	if got, _ := rig.svc.SessionAccountCachedForTest(sess.ID); got != agenthub.BuiltinAccountID(agenthub.AgentTypeMock) {
+		t.Errorf("Environment changed runtime attribution to %q", got)
 	}
 
 	// A runtime opened as the built-in account, then the row moves on (as a

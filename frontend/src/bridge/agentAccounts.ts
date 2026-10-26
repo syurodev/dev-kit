@@ -35,6 +35,7 @@ export type AccountWindow = {
  * when time passes — so a time at or before now means "not limited".
  */
 export type AgentAccount = {
+  usageGeneration?: string;
   id: string;
   vendor: string;
   label: string;
@@ -76,6 +77,7 @@ export type AccountPolicy = {
 export function accountOf(raw: RawAccount): AgentAccount {
   return {
     id: raw.id,
+    usageGeneration: raw.usageGeneration ?? "",
     vendor: raw.vendor,
     label: raw.label,
     builtin: raw.builtin,

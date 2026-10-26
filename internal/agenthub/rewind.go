@@ -287,6 +287,7 @@ type rewindRun struct {
 	forker    RuntimeForker
 	overwrite []string
 
+	usageFacts RuntimeUsageFacts
 	oldRuntime SessionRuntime
 	newRuntime SessionRuntime
 	closeNew   func()
@@ -301,6 +302,7 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 	s.mu.Lock()
 	r.oldRuntime = s.runtimes[r.session.ID]
 	delete(s.runtimes, r.session.ID)
+	delete(s.runtimeUsage, r.session.ID)
 	// The conversation is about to be cut back: the block may be in the part
 	// that goes.
 	s.forgetWorkspaceContextLocked(r.session.ID)
@@ -372,6 +374,8 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 	// how the agent behaves.
 	s.mu.Lock()
 	s.runtimes[r.session.ID] = r.newRuntime
+	s.runtimeUsage[r.session.ID] = r.usageFacts
+	s.sessionAccount[r.session.ID] = r.usageFacts.AccountID
 	s.endpoints[r.session.ID] = r.closeNew
 	s.forgetWorkspaceContextLocked(r.session.ID)
 	s.mu.Unlock()
@@ -462,6 +466,7 @@ func (r *rewindRun) openForked(ctx context.Context) error {
 			return err
 		}
 		r.closeNew = ep.Close
+		spec.UsageToken = ep.UsageToken
 		spec.AllowUnixSockets = []string{ep.SocketPath}
 		spec.McpServers = []acp.McpServerStdio{ep.Server}
 		spec.GateOwnedMCP = map[string][]string{ep.Server.Name: ep.GateOwnedTools}
@@ -474,7 +479,9 @@ func (r *rewindRun) openForked(ctx context.Context) error {
 		return err
 	}
 	s.applySandboxExtras(&spec)
-	s.recordSessionAccount(r.session.ID, s.fillAccountSpec(ctx, &spec, r.session))
+	resolvedAccount := s.fillAccountSpec(ctx, &spec, r.session)
+	s.recordSessionAccount(r.session.ID, resolvedAccount)
+	r.usageFacts = factsForSpec(r.session, spec, resolvedAccount)
 	s.applySubagents(&spec, r.session.AgentType)
 
 	// Nothing before this turn to branch from: the session starts a fresh

@@ -1,7 +1,8 @@
 # Subscription-path harness tuning: measurement, workspace harness profile, smaller context
 
-Date: 2026-10-26. Status: **Phase 1a implemented** (usage reader, UI-only report and Settings table); Phase 1b and phases 2–4
-remain design. Implementation and validation: [Phase 1a plan](../plans/2026-10-26-harness-tuning-phase1a-usage-report.md).
+Date: 2026-10-26. Status: **Phases 1a and 1b implemented** (usage reader, account attribution, host MCP text measurements and Settings reports).
+Phases 2–4 remain design. Implementation and validation: [Phase 1a plan](../plans/2026-10-26-harness-tuning-phase1a-usage-report.md)
+and [Phase 1b execution notes](../plans/2026-10-26-harness-tuning-phase1b-usage-attribution-and-tool-metrics.md#execution-notes).
 Everything under "Measured" was read from the person's database and the code on 2026-10-26.
 
 ## 1. Direction
