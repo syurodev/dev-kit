@@ -99,44 +99,52 @@ func (s *Service) prepareLaunch(ctx context.Context, spec *OpenSpec, sessionID, 
 	return l, nil
 }
 
-// sameWorkspaceRevision is true when W did not move between two snapshots (both
-// absent, or the same revision). A changed set of executables with an unmoved W
-// comes from the vendor customization edited in Settings, which a reload has
-// always adopted; with a moved W the cause is ambiguous, so it needs a new
-// session.
-func sameWorkspaceRevision(a, b harness.SnapshotRef) bool {
-	x, y := a.Revisions.Workspace, b.Revisions.Workspace
-	if x == nil || y == nil {
-		return x == nil && y == nil
-	}
-	return *x == *y
-}
-
 // applyHarnessLaunch puts the snapshot's launch configuration (deny lists,
 // servers, skill folders) into the spec. It runs after applySandboxExtras, which
-// loads the vendor customization (V) this replaces for a profiled session. With
-// no profile and no override the spec keeps V exactly as before.
+// reads the vendor customization (V) from Settings; the snapshot's pinned V (or
+// the effective merge for a profiled session) replaces that read, so the spec
+// and the applied reference come from the same value.
 func (s *Service) applyHarnessLaunch(spec *OpenSpec, l harnessLaunch, vendor AgentType) {
-	if l.snapshot == nil || l.snapshot.Ref.Default {
+	if l.snapshot == nil {
 		return
 	}
-	eff := l.snapshot.Effective
 	custom := make(map[string]preferences.AgentCustomization, len(spec.Customizations)+1)
 	for k, v := range spec.Customizations {
 		custom[k] = v
 	}
-	servers := make([]preferences.AgentMCPConfig, 0, len(eff.Servers))
-	for _, sv := range eff.Servers {
-		servers = append(servers, preferences.AgentMCPConfig{Name: sv.Name, Command: sv.Command, Args: append([]string(nil), sv.Args...), URL: sv.URL, EnvKeys: append([]string(nil), sv.EnvKeys...), Enabled: sv.Enabled})
+	if l.snapshot.Ref.Default {
+		// No profile: the vendor customization is used verbatim, but the one the
+		// snapshot was resolved from, not a second read of Settings. Otherwise an
+		// edit between the two reads would launch a configuration the applied
+		// reference does not describe.
+		v := l.snapshot.Vendor
+		custom[string(vendor)] = preferences.AgentCustomization{
+			Revision:       v.Revision,
+			SkillFolders:   append([]string(nil), v.SkillFolders...),
+			DisabledSkills: append([]string(nil), v.DisabledSkills...),
+			DisabledMCP:    append([]string(nil), v.DisabledMCP...),
+			Servers:        preferencesServers(v.Servers),
+		}
+		spec.Customizations = custom
+		return
 	}
+	eff := l.snapshot.Effective
 	custom[string(vendor)] = preferences.AgentCustomization{
 		Revision:       l.snapshot.Ref.Revisions.Vendor,
 		SkillFolders:   append([]string(nil), eff.SkillFolders...),
 		DisabledSkills: append([]string(nil), eff.DisabledSkills...),
 		DisabledMCP:    append([]string(nil), eff.DisabledMCP...),
-		Servers:        servers,
+		Servers:        preferencesServers(eff.Servers),
 	}
 	spec.Customizations = custom
+}
+
+func preferencesServers(in []harness.Server) []preferences.AgentMCPConfig {
+	out := make([]preferences.AgentMCPConfig, 0, len(in))
+	for _, sv := range in {
+		out = append(out, preferences.AgentMCPConfig{Name: sv.Name, Command: sv.Command, Args: append([]string(nil), sv.Args...), URL: sv.URL, EnvKeys: append([]string(nil), sv.EnvKeys...), Enabled: sv.Enabled})
+	}
+	return out
 }
 
 // publishHarnessLocked records what the just-opened runtime was given. The
@@ -193,7 +201,11 @@ func (s *Service) harnessGate(snap *harness.Snapshot, previous *appliedHarness, 
 	if !snap.Effective.ServingIsDefault() && !canEnforce {
 		return ErrHarnessNotEnforceable
 	}
-	if previous != nil && previous.Ref.ExecutableDigest != snap.Ref.ExecutableDigest && !sameWorkspaceRevision(previous.Ref, snap.Ref) {
+	// Judged on what changed and why, not on a revision: an executable that is new
+	// or altered because the workspace profile's content changed (a retargeted
+	// symlink counts) needs a new session; removals, narrowing and changes that
+	// come from the vendor customization with W's content unchanged do not.
+	if previous != nil && snap.Ref.AdoptsNewExecutables(previous.Ref) {
 		return ErrHarnessNewSessionRequired
 	}
 	return nil

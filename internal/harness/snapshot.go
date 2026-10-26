@@ -43,6 +43,13 @@ type SnapshotRef struct {
 	// read in full. The snapshot is then an honest statement about DevKit's
 	// configuration only; it is not a verified account of what the vendor runs.
 	FactsComplete bool
+	// WorkspaceDigest identifies what the workspace profile contributed, with its
+	// symlinks resolved ("none" when there is no profile). ExecutableEntries lists
+	// each executable that could run or load as a hash of its name and a hash of
+	// its definition: enough to see that an entry is new or altered, without
+	// storing a name, path, command or argument.
+	WorkspaceDigest   string
+	ExecutableEntries map[string]string
 	// Default is true for a positively resolved configuration with no workspace
 	// profile and no session override: today's unprofiled behavior.
 	Default bool
@@ -54,6 +61,18 @@ type SnapshotRef struct {
 type Snapshot struct {
 	Ref       SnapshotRef
 	Effective Effective
+	// Vendor is the vendor customization (V) exactly as this snapshot was resolved
+	// from it. A launch uses this, not a second read of Settings, so what the
+	// runtime receives is what the reference says.
+	Vendor Vendor
+}
+
+func cloneVendor(v Vendor) Vendor {
+	v.SkillFolders = slices.Clone(v.SkillFolders)
+	v.DisabledSkills = slices.Clone(v.DisabledSkills)
+	v.DisabledMCP = slices.Clone(v.DisabledMCP)
+	v.Servers = cloneServers(v.Servers)
+	return v
 }
 
 // ExecutableDigest identifies the set of things that could run or load.
@@ -149,8 +168,9 @@ func (r Revisions) Clone() Revisions {
 // Clone returns a snapshot that shares nothing with s.
 func (s Snapshot) Clone() Snapshot {
 	out := s
-	out.Ref.Revisions = s.Ref.Revisions.Clone()
+	out.Ref = s.Ref.Clone()
 	out.Effective = s.Effective.Clone()
+	out.Vendor = cloneVendor(s.Vendor)
 	return out
 }
 
@@ -160,7 +180,43 @@ func (r SnapshotRef) Equal(o SnapshotRef) bool {
 	return r.Schema == o.Schema && r.WorkspaceID == o.WorkspaceID && r.SessionID == o.SessionID && r.Vendor == o.Vendor &&
 		sameRev(r.Revisions.Workspace, o.Revisions.Workspace) && sameRev(r.Revisions.Session, o.Revisions.Session) &&
 		r.Revisions.Vendor == o.Revisions.Vendor && r.Fingerprint == o.Fingerprint &&
-		r.ExecutableDigest == o.ExecutableDigest && r.FactsComplete == o.FactsComplete && r.Default == o.Default
+		r.ExecutableDigest == o.ExecutableDigest && r.FactsComplete == o.FactsComplete && r.Default == o.Default &&
+		r.WorkspaceDigest == o.WorkspaceDigest
+}
+
+// AdoptsNewExecutables reports whether reopening with r instead of what was
+// applied (previous) would bring in an executable that is new or altered because
+// the workspace profile changed. Removals and narrowing never count, and a change
+// that comes from the vendor customization or the vendor's own files while the
+// workspace content is unchanged is not this rule's business: a reload has always
+// adopted those.
+func (r SnapshotRef) AdoptsNewExecutables(previous SnapshotRef) bool {
+	if r.WorkspaceDigest == previous.WorkspaceDigest {
+		return false
+	}
+	for key, shape := range r.ExecutableEntries {
+		if old, ok := previous.ExecutableEntries[key]; !ok || old != shape {
+			return true
+		}
+	}
+	return false
+}
+
+// ExecutableEntries is the hashed entry table a SnapshotRef carries.
+func (e Effective) ExecutableEntries() map[string]string {
+	out := make(map[string]string, len(e.executable))
+	for k, v := range e.executable {
+		out[shortHash(k)] = shortHash(v)
+	}
+	return out
+}
+
+// WorkspaceDigest is the digest of what W contributed (see SnapshotRef).
+func (e Effective) WorkspaceDigest() string { return e.wsDigest }
+
+func shortHash(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:8])
 }
 
 func sameRev(a, b *int64) bool {
@@ -170,9 +226,10 @@ func sameRev(a, b *int64) bool {
 	return *a == *b
 }
 
-// Clone returns a copy of the reference that shares no pointer with r.
+// Clone returns a copy of the reference that shares no pointer or map with r.
 func (r SnapshotRef) Clone() SnapshotRef {
 	out := r
 	out.Revisions = r.Revisions.Clone()
+	out.ExecutableEntries = cloneMap(r.ExecutableEntries)
 	return out
 }
