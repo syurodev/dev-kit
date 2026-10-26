@@ -29,7 +29,9 @@ type ModelTurnUsage struct {
 	Total int
 }
 
-func (u TurnUsage) known() bool {
+// Known reports whether the turn says anything about its usage. A turn that is
+// not known counts as "no data", never as 0.
+func (u TurnUsage) Known() bool {
 	return u.FreshInput != nil || u.CacheRead != nil || u.CacheWrite != nil ||
 		u.Output != nil || u.Reasoning != nil || u.Total != nil
 }
