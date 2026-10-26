@@ -281,6 +281,8 @@ type MCPEndpoints interface {
 type Service struct {
 	ToolMetrics  usagemetrics.Reader
 	runtimeUsage map[string]RuntimeUsageFacts
+	// harnessApplied is what each opened runtime was actually given (harness_runtime.go).
+	harnessApplied map[string]appliedHarness
 	// SessionTempOwner identifies this database for conservative scratch cleanup.
 	SessionTempOwner string
 	// SessionTempRoot is a test seam; empty preserves the platform default.
@@ -335,6 +337,9 @@ type Service struct {
 	PermissionTimeout         time.Duration // 0 = no deadline: wait for the user
 	// MCPEndpoints opens the per-session MCP socket before the vendor spawns.
 	MCPEndpoints MCPEndpoints
+	// Harness resolves the effective harness configuration each runtime opens
+	// with. Nil keeps today's behavior: nothing is resolved or recorded.
+	Harness HarnessSnapshots
 	// SandboxExtras reads the user's sandbox settings — shared $HOME, Docker,
 	// extra read-only directories — beyond what a session grants on its own.
 	// Read fresh on every spawn, resume and fork, so a change in Settings
@@ -559,6 +564,7 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 	s := &Service{
 		reg:             reg,
 		runtimeUsage:    make(map[string]RuntimeUsageFacts),
+		harnessApplied:  make(map[string]appliedHarness),
 		store:           store,
 		recorder:        NewRecorder(store),
 		recoveryID:      uuid.NewString(),
@@ -879,22 +885,14 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 	} else if parent != nil {
 		spec.ExtraReadWritePaths = inheritedExtraPaths(*parent)
 	}
-	closeEndpoint := func() {}
-	if s.MCPEndpoints != nil {
-		ep, err := s.MCPEndpoints.Open(id)
-		if err != nil {
-			log.Printf("agenthub: %s session: open MCP endpoint: %v", in.AgentType, err)
-			return AgentSession{}, err
-		}
-		closeEndpoint = ep.Close
-		spec.UsageToken = ep.UsageToken
-		spec.AllowUnixSockets = []string{ep.SocketPath}
-		spec.McpServers = []acp.McpServerStdio{ep.Server}
-		spec.GateOwnedMCP = map[string][]string{ep.Server.Name: ep.GateOwnedTools}
-		spec.PreApprovedMCP = map[string][]string{ep.Server.Name: ep.PreApprovedTools}
-		spec.ReadOnlyPaths = []string{ep.Server.Command}
+	launch, err := s.prepareLaunch(ctx, &spec, id, workspaceID, in.AgentType, nil)
+	if err != nil {
+		log.Printf("agenthub: %s session: prepare launch: %v", in.AgentType, err)
+		return AgentSession{}, err
 	}
+	closeEndpoint := launch.closeEndpoint
 	s.applySandboxExtras(&spec)
+	s.applyHarnessLaunch(&spec, launch, in.AgentType)
 	s.applySubagents(&spec, in.AgentType)
 
 	if err := prepareSessionTemp(&spec, true); err != nil {
@@ -986,6 +984,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 	s.mu.Lock()
 	s.runtimes[sess.ID] = rt
 	s.publishUsageLocked(sess, spec, BuiltinAccountID(sess.AgentType))
+	s.publishHarnessLocked(sess.ID, launch)
 	s.endpoints[sess.ID] = closeEndpoint
 	s.mu.Unlock()
 
@@ -2671,21 +2670,13 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 
 	spec := sessionOpenSpec(sess)
 	spec.SessionTempRoot = s.SessionTempRoot
-	closeEndpoint := func() {}
-	if s.MCPEndpoints != nil {
-		ep, err := s.MCPEndpoints.Open(sess.ID)
-		if err != nil {
-			return nil, err
-		}
-		closeEndpoint = ep.Close
-		spec.UsageToken = ep.UsageToken
-		spec.AllowUnixSockets = []string{ep.SocketPath}
-		spec.McpServers = []acp.McpServerStdio{ep.Server}
-		spec.GateOwnedMCP = map[string][]string{ep.Server.Name: ep.GateOwnedTools}
-		spec.PreApprovedMCP = map[string][]string{ep.Server.Name: ep.PreApprovedTools}
-		spec.ReadOnlyPaths = []string{ep.Server.Command}
+	launch, err := s.prepareLaunch(ctx, &spec, sess.ID, sess.WorkspaceID, sess.AgentType, s.previousHarness(sess.ID))
+	if err != nil {
+		return nil, err
 	}
+	closeEndpoint := launch.closeEndpoint
 	s.applySandboxExtras(&spec)
+	s.applyHarnessLaunch(&spec, launch, sess.AgentType)
 	resolvedAccount := s.fillAccountSpec(ctx, &spec, sess)
 	// Preserve the opening-account reservation used by RemoveAccount's guard.
 	// Measurement facts publish separately, only after the runtime opens.
@@ -2744,6 +2735,7 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 	s.mu.Lock()
 	s.runtimes[sess.ID] = rt
 	s.publishUsageLocked(sess, spec, resolvedAccount)
+	s.publishHarnessLocked(sess.ID, launch)
 	s.endpoints[sess.ID] = closeEndpoint
 	s.forgetWorkspaceContextLocked(sess.ID)
 	s.mu.Unlock()

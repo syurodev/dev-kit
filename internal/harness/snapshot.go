@@ -169,3 +169,10 @@ func sameRev(a, b *int64) bool {
 	}
 	return *a == *b
 }
+
+// Clone returns a copy of the reference that shares no pointer with r.
+func (r SnapshotRef) Clone() SnapshotRef {
+	out := r
+	out.Revisions = r.Revisions.Clone()
+	return out
+}
