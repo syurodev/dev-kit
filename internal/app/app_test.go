@@ -265,3 +265,15 @@ func TestNewContainerGrantsAgentAccounts(t *testing.T) {
 		}
 	}
 }
+
+func TestNewContainerGrantsAgentUsageReport(t *testing.T) {
+	container := NewContainer()
+	grant := permissions.Grant{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "usage:report"}
+	if !container.Permissions.Check(permissions.Request(grant)).Allowed {
+		t.Errorf("%s %s on %s was denied", grant.SubjectID, grant.Capability, grant.Scope)
+	}
+	write := permissions.Grant{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "usage:report"}
+	if container.Permissions.Check(permissions.Request(write)).Allowed {
+		t.Errorf("the usage report must be a read: %s on %s was allowed", write.Capability, write.Scope)
+	}
+}

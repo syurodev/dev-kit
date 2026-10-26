@@ -55,6 +55,8 @@ describe("Settings navigation", () => {
     expect(idsOf("threshold")).toEqual(["agents-accounts"]);
     expect(idsOf("subscription")).toEqual(["agents-accounts"]);
     expect(idsOf("quota")).toEqual(["agents-accounts"]);
+    expect(idsOf("tokens")).toEqual(["agents-accounts"]);
+    expect(idsOf("cache")).toEqual(["agents-accounts"]);
     expect(idsOf("accounts limits")).toEqual(["agents-accounts"]);
     expect(resolveSettingsTab("agents-accounts")).toBe("agents-accounts");
   });

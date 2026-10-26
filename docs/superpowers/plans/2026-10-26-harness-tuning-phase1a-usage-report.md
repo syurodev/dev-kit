@@ -4,7 +4,7 @@
 
 **Goal:** Show, under Settings → Agents → Accounts & limits, what a vendor's turns spent in tokens, by workspace, day, model and session, read correctly from the data DevKit already stores.
 
-**Architecture:** A pure function re-derives each turn's usage from its raw vendor meta with the adapter's current `NormalizeUsage` (the stored structured fields hold false zeros for older turns). A pure aggregator groups the rows. An optional `TurnUsageSource` on the SQL store lists the rows, and `Service.UsageReport` ties them together for the window only. A UI-only bridge method returns numbers and ids; the page names workspaces from the list it already has and draws the report with the shared `DataTable`.
+**Architecture:** A pure function re-derives each turn's usage from its raw vendor meta with the adapter's current `NormalizeUsage` (the stored structured fields hold false zeros for older turns). A pure aggregator groups the rows and preserves the number of known values for each metric. An optional `TurnUsageSource` on the SQL store lists the rows, and `Service.UsageReport` ties them together for the window only. A UI-only bridge method returns numbers and ids; the page names workspaces from the list it already has and draws the report with the shared `DataTable`.
 
 **Tech Stack:** Go (`internal/agenthub`, `internal/bridge`, `internal/app`), SQLite, Wails v3 bindings, React + TypeScript + Tailwind, `bun test`.
 
@@ -13,6 +13,41 @@
 **Scope of the plan:** Claude only has data (opencode has 44 turns and Codex 1, with no usable usage); other vendors show "No token data yet". Nothing here is an MCP tool and nothing writes data.
 
 ---
+
+## Reporting contract
+
+- Every metric carries its sum **and coverage**: `known.<metric>` is the number of turns with a known value, including a genuine 0.
+  A missing field contributes neither a value nor coverage. `TurnsWithoutData` counts turns with no known metric; it does not
+  describe coverage of individual fields. Preserve the spec's existing normalizer limitation for plain input/output fields.
+- UI cells show `—` for no known values, the sum for complete coverage, and `<sum> (partial)` for incomplete coverage.
+  Model rows carry coverage for total only; their fresh input, cache and output cells show `—`.
+- Percentages require complete coverage of both operands over the relevant population. Otherwise show `—`; never divide sums
+  from different known subsets. With a known zero denominator also show `—`.
+- Fresh input is visible beside cache read/write and output. A model-split warning says the split is incomplete or differs;
+  it never infers helper models from a mismatch alone.
+- The usage query explicitly enables refetch on window focus, overriding the application's disabled default. An integration
+  test uses the real QueryClient defaults and a focus event to verify a stale active query reads again.
+
+## Implementation status — 2026-10-26
+
+Phase 1a is implemented in the current checkout. The existing branch and the earlier plan edits were preserved; branch creation
+and commit steps below were not executed. The navigation test was checked after implementation, not as a separate red step.
+
+Verified:
+- Go: `go test ./internal/agenthub/ ./internal/bridge/ ./internal/app/ ./internal/arch/ ./internal/mcp/ -count=1` passed.
+  After the server-mode decoder fix, the Agent Hub and architecture suites passed again.
+- `go vet ./internal/agenthub/ ./internal/bridge/ ./internal/app/`, formatting and `git diff --check` passed.
+- Frontend: `bun test --isolate` passed all 5,041 tests on the final run; production build and performance budgets passed.
+  An earlier run under concurrent build/test load hit two existing countdown assertions in `surfaces.test.tsx` (expected 60s,
+  rendered 57s). That file passed independently, and the complete rerun passed without changing those tests.
+- A read-only backup of the local database matched independent SQL: 513 Claude turns, 960,683,040 total tokens,
+  932,811,339 cache-read tokens. The live file was opened read-only and the temporary backup was removed.
+- The report component was checked in a browser preview at wide and 520px panel widths, including unknown model metrics and
+  the Codex no-data state. Horizontal scrolling stays inside each table. The native desktop Settings flow was not exercised.
+- Wails bindings were regenerated and `go build -tags server` passed.
+
+Implementation adjustment: `ForServerMode` retains only each vendor's pure usage-normalization function. Without it the
+server stub made historical reports unknown. Execution and sign-in stay refused; a regression test covers parsing and refusal.
 
 ## Known traps (found while verifying this plan against the repository)
 
@@ -31,7 +66,8 @@
 | File | Responsibility |
 | --- | --- |
 | `internal/agenthub/turn_usage.go` | `TurnUsage`, `DeriveTurnUsage`: what one turn spent, read from raw meta |
-| `internal/agenthub/usage_report.go` | `TurnUsageRow`, `UsageTotals`, `UsageReport`, `BuildUsageReport`: grouping and sums, pure |
+| `internal/agenthub/usage_report.go` | `TurnUsageRow`, `UsageCoverage`, `UsageTotals`, `UsageReport`, `BuildUsageReport`: grouping and sums, pure |
+| `internal/agenthub/adapter_servermode.go`, `adapter_servermode_test.go` | Preserve the pure usage decoder for historical reports while refusing execution |
 | `internal/agenthub/usage_source.go` | `TurnUsageSource` (optional store interface), `SQLStore.TurnUsageRows`, `Service.UsageReport` |
 | `internal/bridge/agenthub_usage.go` | UI-only `AppService.AgentUsageReport` and its DTOs |
 | `internal/app/container.go` | the `usage:*` read grant |
@@ -57,12 +93,12 @@
 git switch -c feat/agent-usage-report main
 ```
 
-- [ ] **Step 2: Confirm the embed directory exists (needed by `go test ./internal/arch/`)**
+- [x] **Step 2: Confirm the embed directory exists (needed by `go test ./internal/arch/`)**
 
 Run: `ls frontend/dist >/dev/null 2>&1 || (mkdir -p frontend/dist && touch frontend/dist/.keep)`
 Expected: no output.
 
-- [ ] **Step 3: Baseline**
+- [x] **Step 3: Baseline**
 
 Run: `go test ./internal/agenthub/ ./internal/bridge/ ./internal/app/ ./internal/arch/ -count=1`
 Expected: four lines starting with `ok`.
@@ -75,7 +111,7 @@ Expected: four lines starting with `ok`.
 - Create: `internal/agenthub/turn_usage.go`
 - Test: `internal/agenthub/turn_usage_test.go`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `internal/agenthub/turn_usage_test.go`:
 
@@ -200,7 +236,20 @@ func TestDeriveTurnUsageReadsTheRawMetaKeptInsideTheStoredUsage(t *testing.T) {
 	wantInt(t, "output", got.Output, 6781)
 }
 
-// The by-model split is the same totals broken down. One that does not add up to the turn total is partial.
+// A malformed, larger or uncomparable split must be marked partial.
+func TestDeriveTurnUsageMarksUnreadableOrUncomparableSplits(t *testing.T) {
+	adapter := agenthub.NewClaudeAdapter(agenthub.ClaudeOptions{})
+	for _, raw := range []string{
+		`{"quota":{"token_count":{"totalTokens":20},"model_usage":[{"model":"a","token_count":{}}]}}`,
+		`{"quota":{"token_count":{"totalTokens":20},"model_usage":[{"model":"a","token_count":{"totalTokens":30}}]}}`,
+		`{"quota":{"model_usage":[{"model":"a","token_count":{"totalTokens":10}}]}}`,
+	} {
+		if got := agenthub.DeriveTurnUsage(adapter, nil, json.RawMessage(raw)); !got.SplitPartial {
+			t.Errorf("unreadable, larger or uncomparable split must be partial: %s", raw)
+		}
+	}
+}
+
 func TestDeriveTurnUsageMarksASplitThatDoesNotAddUpAsPartial(t *testing.T) {
 	adapter := agenthub.NewClaudeAdapter(agenthub.ClaudeOptions{})
 	raw := `{"quota":{"token_count":{"totalTokens":20,"inputTokens":1,"outputTokens":1},"model_usage":[{"model":"a","token_count":{"totalTokens":10}}]}}`
@@ -212,12 +261,12 @@ func TestDeriveTurnUsageMarksASplitThatDoesNotAddUpAsPartial(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `go test ./internal/agenthub/ -run TestDeriveTurnUsage -count=1`
 Expected: FAIL to build, with `undefined: agenthub.DeriveTurnUsage`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 `internal/agenthub/turn_usage.go`:
 
@@ -242,8 +291,8 @@ type TurnUsage struct {
 	// Models is the per-model split of the same totals. It is never added to
 	// the fields above.
 	Models []ModelTurnUsage
-	// SplitPartial is set when the split does not add up to Total, or when an
-	// entry of it could not be read.
+	// SplitPartial is set for unequal totals, unreadable entries, or a nonempty
+	// split that cannot be compared because the turn total is unknown.
 	SplitPartial bool
 }
 
@@ -350,19 +399,19 @@ func modelSplit(meta json.RawMessage, total *int) ([]ModelTurnUsage, bool) {
 		sum += *m.TokenCount.TotalTokens
 	}
 	if len(out) == 0 {
-		return nil, false
+		return nil, partial
 	}
-	if total != nil && sum != *total {
+	if total == nil || sum != *total {
 		partial = true
 	}
 	return out, partial
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `gofmt -l internal/agenthub && go test ./internal/agenthub/ -run TestDeriveTurnUsage -count=1 -v`
-Expected: `gofmt` prints nothing; seven `--- PASS` lines; `ok  	devkit/internal/agenthub`.
+Expected: `gofmt` prints nothing; all `TestDeriveTurnUsage` cases pass; `ok  	devkit/internal/agenthub`.
 
 - [ ] **Step 5: Commit**
 
@@ -384,7 +433,7 @@ current NormalizeUsage and treat a turn with nothing in it as unknown, not 0."
 - Create: `internal/agenthub/usage_report.go`
 - Test: `internal/agenthub/usage_report_test.go`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `internal/agenthub/usage_report_test.go`:
 
@@ -446,6 +495,29 @@ func TestBuildUsageReportGroupsAndSums(t *testing.T) {
 	}
 }
 
+func TestBuildUsageReportKeepsCoverageOfMissingAndZeroMetrics(t *testing.T) {
+	adapter := agenthub.NewClaudeAdapter(agenthub.ClaudeOptions{})
+	at := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
+	rows := []agenthub.TurnUsageRow{
+		// A legacy shape knows input and output, but no total or cache metrics.
+		{SessionID: "s", CreatedAt: at, RawMeta: json.RawMessage(`{"claudeCode":{"inputTokens":5,"outputTokens":7}}`)},
+		claudeRow("zero", "s", "", at, 0, 0, 0, 0, 0, "opus"),
+		{SessionID: "s", CreatedAt: at, RawMeta: json.RawMessage(`{}`)},
+	}
+	rep := agenthub.BuildUsageReport(agenthub.AgentTypeClaude, adapter, rows)
+	if rep.Totals.Turns != 3 || rep.Totals.TurnsWithoutData != 1 || rep.Totals.Total != 0 {
+		t.Fatalf("totals = %+v", rep.Totals)
+	}
+	want := agenthub.UsageCoverage{FreshInput: 2, Output: 2, CacheRead: 1, CacheWrite: 1, Total: 1}
+	if rep.Totals.Known != want || rep.ByDay[0].Known != want || rep.ByWorkspace[0].Known != want || rep.TopSessions[0].Known != want {
+		t.Errorf("coverage lost in an aggregate: %+v", rep)
+	}
+	model := rep.ByModel[0]
+	if model.Known != (agenthub.UsageCoverage{Total: 1}) || model.Total != 0 {
+		t.Errorf("model total is known zero; other model metrics are unknown: %+v", model)
+	}
+}
+
 func TestBuildUsageReportOfNothingHasEmptyListsNotNil(t *testing.T) {
 	rep := agenthub.BuildUsageReport(agenthub.AgentTypeClaude, agenthub.NewClaudeAdapter(agenthub.ClaudeOptions{}), nil)
 	if rep.Totals.Turns != 0 || rep.ByWorkspace == nil || rep.ByDay == nil || rep.ByModel == nil || rep.TopSessions == nil {
@@ -485,12 +557,12 @@ func TestBuildUsageReportCountsTurnsWhoseModelSplitIsNotTheTurnTotal(t *testing.
 }
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `go test ./internal/agenthub/ -run TestBuildUsageReport -count=1`
 Expected: FAIL to build, with `undefined: agenthub.TurnUsageRow` and `undefined: agenthub.BuildUsageReport`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 `internal/agenthub/usage_report.go`:
 
@@ -517,9 +589,20 @@ type TurnUsageRow struct {
 	RawMeta     []byte
 }
 
-// UsageTotals are token sums. A turn whose usage is unknown adds to Turns and
-// TurnsWithoutData and to nothing else.
+// UsageCoverage counts known values, including genuine zeros, per metric.
+// Counts are per turn. Model groups populate Total only.
+type UsageCoverage struct {
+	FreshInput int
+	CacheRead  int
+	CacheWrite int
+	Output     int
+	Total      int
+}
+
+// UsageTotals are sums plus coverage. Missing values never become measured zeros.
+// A turn whose usage is wholly unknown adds to Turns and TurnsWithoutData only.
 type UsageTotals struct {
+	Known            UsageCoverage
 	Turns            int
 	TurnsWithoutData int
 	FreshInput       int64
@@ -530,7 +613,7 @@ type UsageTotals struct {
 }
 
 // UsageGroup is the totals of one workspace, one day or one model. For a model
-// only Turns and Total are filled: the vendor's split carries totals only.
+// only Turns, Total and Known.Total are filled: this report reads model totals only.
 type UsageGroup struct {
 	Key string
 	UsageTotals
@@ -552,17 +635,17 @@ type UsageReport struct {
 	ByDay       []UsageGroup
 	ByModel     []UsageGroup
 	TopSessions []UsageSessionGroup
-	// PartialSplitTurns counts the turns whose per-model split is not the turn
-	// total: a split can include helper models that the turn total leaves out, so
-	// model totals can add up to more than Totals.Total.
+	// PartialSplitTurns counts incomplete, unequal or uncomparable splits.
+	// A mismatch alone does not establish why it differs.
 	PartialSplitTurns int
 }
 
-func val(p *int) int64 {
-	if p == nil {
-		return 0
+func addMetric(sum *int64, known *int, value *int) {
+	if value == nil {
+		return
 	}
-	return int64(*p)
+	*sum += int64(*value)
+	*known += 1
 }
 
 func (t *UsageTotals) add(u TurnUsage) {
@@ -571,11 +654,11 @@ func (t *UsageTotals) add(u TurnUsage) {
 		t.TurnsWithoutData++
 		return
 	}
-	t.FreshInput += val(u.FreshInput)
-	t.CacheRead += val(u.CacheRead)
-	t.CacheWrite += val(u.CacheWrite)
-	t.Output += val(u.Output)
-	t.Total += val(u.Total)
+	addMetric(&t.FreshInput, &t.Known.FreshInput, u.FreshInput)
+	addMetric(&t.CacheRead, &t.Known.CacheRead, u.CacheRead)
+	addMetric(&t.CacheWrite, &t.Known.CacheWrite, u.CacheWrite)
+	addMetric(&t.Output, &t.Known.Output, u.Output)
+	addMetric(&t.Total, &t.Known.Total, u.Total)
 }
 
 type sessionTotals struct {
@@ -617,6 +700,7 @@ func BuildUsageReport(vendor AgentType, adapter VendorAdapter, rows []TurnUsageR
 		for _, m := range u.Models {
 			t := totalsOf(byModel, m.Model)
 			t.Turns++
+			t.Known.Total++
 			t.Total += int64(m.Total)
 		}
 	}
@@ -663,10 +747,10 @@ func topSessions(m map[string]*sessionTotals) []UsageSessionGroup {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `gofmt -l internal/agenthub && go vet ./internal/agenthub/ && go test ./internal/agenthub/ -run 'TestBuildUsageReport|TestDeriveTurnUsage' -count=1 -v`
-Expected: `gofmt` and `go vet` print nothing; four `TestBuildUsageReport...` and seven `TestDeriveTurnUsage...` lines say `PASS`.
+Expected: `gofmt` and `go vet` print nothing; all matching usage tests pass.
 
 - [ ] **Step 5: Commit**
 
@@ -688,7 +772,7 @@ keeps model totals out of the overall total."
 - Create: `internal/agenthub/usage_source.go`
 - Test: `internal/agenthub/usage_source_test.go`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 The helper `newUsageDB` inserts workspaces `w1` and `w2` first (trap 2).
 
@@ -823,12 +907,12 @@ func TestServiceUsageReportIsTheWindowsAndNeedsAKnownVendor(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `go test ./internal/agenthub/ -run 'TestTurnUsageRows|TestServiceUsageReport' -count=1`
 Expected: FAIL to build, with `undefined: agenthub.TurnUsageSource`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 `internal/agenthub/usage_source.go`:
 
@@ -912,10 +996,10 @@ func (s *Service) UsageReport(ctx context.Context, vendor AgentType) (UsageRepor
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `gofmt -l internal/agenthub && go vet ./internal/agenthub/ && go test ./internal/agenthub/ -run 'TestTurnUsageRows|TestServiceUsageReport|TestBuildUsageReport|TestDeriveTurnUsage' -count=1 -v`
-Expected: all fourteen tests `PASS`.
+Expected: all matching usage tests pass.
 
 - [ ] **Step 5: Commit**
 
@@ -936,7 +1020,7 @@ This is the done-criterion of the spec: the report must equal a plain SQL sum of
 **Files:**
 - Create: `internal/agenthub/usage_real_db_test.go`
 
-- [ ] **Step 1: Add the opt-in test**
+- [x] **Step 1: Add the opt-in test**
 
 It runs only when `DEVKIT_USAGE_DB` names a database file, and it must never point at the live file.
 
@@ -988,7 +1072,7 @@ func TestUsageReportOnARealDatabase(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run it on a copy of your database**
+- [x] **Step 2: Run it on a copy of your database**
 
 ```bash
 sqlite3 ~/.config/DevKit/devkit.db ".backup /tmp/usage.db"
@@ -1002,7 +1086,7 @@ usage_real_db_test.go:33: turns=512 withoutData=0 total=960683040 cacheRead=9328
 usage_real_db_test.go:36: partialSplitTurns=95
 ```
 
-- [ ] **Step 3: Compare with a plain SQL sum**
+- [x] **Step 3: Compare with a plain SQL sum**
 
 ```bash
 sqlite3 /tmp/usage.db "select count(*), sum(json_extract(t.raw_meta,'\$.quota.token_count.totalTokens')), sum(json_extract(t.raw_meta,'\$.quota.token_count.cachedInputTokens')) from agent_turns t join agent_sessions s on s.id = t.session_id where s.agent_type = 'claude'"
@@ -1029,7 +1113,7 @@ a hand-written SQL sum."
 - Test: `internal/bridge/agenthub_usage_test.go`
 - Modify: `internal/app/container.go`, `internal/app/app_test.go`, `internal/bridge/testdata/legacy_ops_methods.json`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `internal/bridge/agenthub_usage_test.go`:
 
@@ -1107,12 +1191,12 @@ Append this test to `internal/app/app_test.go`:
 +}
 ```
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 Run: `go test ./internal/bridge/ -run TestAgentUsageReport -count=1 && go test ./internal/app/ -run TestNewContainerGrantsAgentUsageReport -count=1`
 Expected: the bridge package FAILs to build with `svc.AgentUsageReport undefined`; the app test FAILs with `... was denied`.
 
-- [ ] **Step 3: Write the bridge method**
+- [x] **Step 3: Write the bridge method**
 
 `internal/bridge/agenthub_usage.go`:
 
@@ -1133,13 +1217,14 @@ import (
 // AgentUsageTotalsInfo is a sum of tokens. A turn with no token data counts in
 // Turns and TurnsWithoutData and adds nothing else.
 type AgentUsageTotalsInfo struct {
-	Turns            int   `json:"turns"`
-	TurnsWithoutData int   `json:"turnsWithoutData"`
-	FreshInput       int64 `json:"freshInput"`
-	CacheRead        int64 `json:"cacheRead"`
-	CacheWrite       int64 `json:"cacheWrite"`
-	Output           int64 `json:"output"`
-	Total            int64 `json:"total"`
+	Known            map[string]int `json:"known"`
+	Turns            int            `json:"turns"`
+	TurnsWithoutData int            `json:"turnsWithoutData"`
+	FreshInput       int64          `json:"freshInput"`
+	CacheRead        int64          `json:"cacheRead"`
+	CacheWrite       int64          `json:"cacheWrite"`
+	Output           int64          `json:"output"`
+	Total            int64          `json:"total"`
 }
 
 // AgentUsageGroupInfo is one workspace id, UTC day (YYYY-MM-DD) or model.
@@ -1170,6 +1255,10 @@ type AgentUsageReportInfo struct {
 
 func usageTotalsInfo(t agenthub.UsageTotals) AgentUsageTotalsInfo {
 	return AgentUsageTotalsInfo{
+		Known: map[string]int{
+			"freshInput": t.Known.FreshInput, "cacheRead": t.Known.CacheRead,
+			"cacheWrite": t.Known.CacheWrite, "output": t.Known.Output, "total": t.Known.Total,
+		},
 		Turns: t.Turns, TurnsWithoutData: t.TurnsWithoutData, FreshInput: t.FreshInput,
 		CacheRead: t.CacheRead, CacheWrite: t.CacheWrite, Output: t.Output, Total: t.Total,
 	}
@@ -1216,7 +1305,7 @@ func (s *AppService) AgentUsageReport(ctx context.Context, vendor string) (Agent
 }
 ```
 
-- [ ] **Step 4: Add the read grant**
+- [x] **Step 4: Add the read grant**
 
 `internal/app/container.go`:
 
@@ -1234,7 +1323,7 @@ func (s *AppService) AgentUsageReport(ctx context.Context, vendor string) (Agent
  		{SubjectID: "builtin.search", Capability: "vault:search", Scope: "item:search"},
 ```
 
-- [ ] **Step 5: List the method (trap 3)**
+- [x] **Step 5: List the method (trap 3)**
 
 `internal/bridge/testdata/legacy_ops_methods.json`:
 
@@ -1251,7 +1340,7 @@ func (s *AppService) AgentUsageReport(ctx context.Context, vendor string) (Agent
    "ApiCollections",
 ```
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `gofmt -l internal/bridge internal/app && go vet ./internal/bridge/ ./internal/app/ && go test ./internal/bridge/ ./internal/app/ ./internal/arch/ -count=1`
 Expected: `gofmt` and `go vet` print nothing; three lines starting with `ok`.
@@ -1273,15 +1362,15 @@ only. Workspace ids are named by the window from the list it already has."
 **Files:**
 - Modify (generated): `frontend/bindings/devkit/internal/bridge/appservice.ts`, `index.ts`, `models.ts`
 
-- [ ] **Step 1: Generate (trap 4)**
+- [x] **Step 1: Generate (trap 4)**
 
 Run: `wails3 generate bindings -clean=true -ts -i`
 Expected: an `INFO Processed: ... 1 Service, 4xx Methods ...` line and no error.
 
-- [ ] **Step 2: Check the diff is only the new method and its four types**
+- [x] **Step 2: Check the diff is only the new method and its four types**
 
 Run: `git status --short frontend/bindings && git diff --stat -- frontend/bindings`
-Expected: exactly the three files above are modified, about 57 insertions and no deletions. `appservice.ts` gains `AgentUsageReport(vendor: string)`; `models.ts` gains `AgentUsageGroupInfo`, `AgentUsageReportInfo`, `AgentUsageSessionInfo`, `AgentUsageTotalsInfo`, with the list fields typed `T[] | null`.
+Expected: exactly the three files above are modified, the new method, DTOs and per-metric coverage map, with no unrelated changes. `appservice.ts` gains `AgentUsageReport(vendor: string)`; `models.ts` gains `AgentUsageGroupInfo`, `AgentUsageReportInfo`, `AgentUsageSessionInfo`, `AgentUsageTotalsInfo`, with the list fields typed `T[] | null`.
 
 - [ ] **Step 3: Commit**
 
@@ -1298,7 +1387,7 @@ git commit -m "chore(bindings): regenerate for AgentUsageReport"
 - Create: `frontend/src/bridge/agentUsage.ts`, `frontend/src/modules/agenthub/usage/usageModel.ts`
 - Test: `frontend/src/bridge/agentUsage.test.ts`, `frontend/src/modules/agenthub/usage/usageModel.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `frontend/src/modules/agenthub/usage/usageModel.test.ts`:
 
@@ -1308,7 +1397,9 @@ import type { UsageGroup, UsageReport, UsageTotals } from "@/bridge/agentUsage";
 import {
   QUOTA_NOTE,
   cacheReadShare,
+  completeTotal,
   dataNotes,
+  formatMetric,
   formatTokens,
   recentDays,
   rowsOf,
@@ -1324,6 +1415,10 @@ const totals = (over: Partial<UsageTotals> = {}): UsageTotals => ({
   cacheWrite: 0,
   output: 0,
   total: 0,
+  known: {
+    freshInput: over.turns ?? 0, cacheRead: over.turns ?? 0,
+    cacheWrite: over.turns ?? 0, output: over.turns ?? 0, total: over.turns ?? 0,
+  },
   ...over,
 });
 const group = (key: string, over: Partial<UsageTotals> = {}): UsageGroup => ({ key, totals: totals(over) });
@@ -1350,10 +1445,34 @@ describe("formatTokens", () => {
 
 describe("cacheReadShare", () => {
   test("is the share of cache reads in the total, one decimal", () => {
-    expect(cacheReadShare(totals({ total: 960_683_040, cacheRead: 932_811_339 }))).toBe("97.1%");
+    expect(cacheReadShare(totals({ turns: 1, total: 960_683_040, cacheRead: 932_811_339 }))).toBe("97.1%");
   });
   test("is a dash when there is nothing to divide", () => {
     expect(cacheReadShare(totals())).toBe("—");
+  });
+});
+
+describe("metric coverage", () => {
+  const known = { freshInput: 2, cacheRead: 1, cacheWrite: 0, output: 2, total: 1 };
+  test("distinguishes missing metrics, genuine zero and partial sums", () => {
+    const t = totals({ turns: 2, freshInput: 5, total: 0, known });
+    expect(formatMetric(t, "cacheWrite")).toBe("—");
+    expect(formatMetric(t, "total")).toBe("0 (partial)");
+    expect(formatMetric(t, "freshInput")).toBe("5");
+    expect(formatMetric(totals({ turns: 1 }), "total")).toBe("0");
+    expect(completeTotal(t)).toBeNull();
+  });
+  test("suppresses ratios with incomplete numerator or denominator coverage", () => {
+    const t = totals({ turns: 2, total: 100, cacheRead: 50, known });
+    expect(cacheReadShare(t)).toBe("—");
+    expect(cacheReadShare({ ...t, known: { ...known, total: 2 } })).toBe("—");
+    expect(rowsOf([{ key: "w", totals: t }], (key) => key, 100)[0].share).toBe("—");
+    expect(rowsOf([group("w", { turns: 1, total: 100 })], (key) => key, null)[0].share).toBe("—");
+  });
+  test("model rows report fresh input, caches and output as unknown", () => {
+    const row = rowsOf([group("opus", { turns: 1, total: 100,
+      known: { freshInput: 0, cacheRead: 0, cacheWrite: 0, output: 0, total: 1 } })], (key) => key, 100)[0];
+    expect(row).toMatchObject({ total: "100", freshInput: "—", cacheRead: "—", cacheWrite: "—", output: "—" });
   });
 });
 
@@ -1410,6 +1529,9 @@ describe("dataNotes", () => {
     expect(notes).toHaveLength(2);
     expect(notes[0]).toContain("4 of 512 turns have no token data");
     expect(notes[1]).toContain("95 turns");
+    expect(notes[1]).toContain("incomplete or differs");
+    expect(notes[1]).not.toContain("larger than");
+    expect(notes[1]).not.toContain("helper models");
   });
 });
 
@@ -1436,6 +1558,7 @@ const totals = (over: Partial<AgentUsageTotalsInfo> = {}): AgentUsageTotalsInfo 
   cacheWrite: 5,
   output: 6,
   total: 18,
+  known: { freshInput: 1, cacheRead: 1, cacheWrite: 1, output: 1, total: 1 },
   ...over,
 });
 
@@ -1452,7 +1575,8 @@ describe("reportOf", () => {
     };
     const report = reportOf(raw);
     expect(report.vendor).toBe("claude");
-    expect(report.totals).toEqual({ turns: 2, turnsWithoutData: 1, freshInput: 3, cacheRead: 4, cacheWrite: 5, output: 6, total: 18 });
+    expect(report.totals).toEqual({ turns: 2, turnsWithoutData: 1, freshInput: 3, cacheRead: 4, cacheWrite: 5, output: 6, total: 18,
+      known: { freshInput: 1, cacheRead: 1, cacheWrite: 1, output: 1, total: 1 } });
     expect(report.byWorkspace[0]).toEqual({ key: "w1", totals: expect.objectContaining({ total: 10 }) });
     expect(report.topSessions[0]).toMatchObject({ sessionId: "s1", workspaceId: "w1" });
     expect(report.partialSplitTurns).toBe(7);
@@ -1477,12 +1601,12 @@ describe("reportOf", () => {
 });
 ```
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 Run: `cd frontend && bun test src/modules/agenthub/usage/usageModel.test.ts src/bridge/agentUsage.test.ts`
 Expected: FAIL with an error that the module `./usageModel` (and `./agentUsage`) cannot be found.
 
-- [ ] **Step 3: Write the wrapper**
+- [x] **Step 3: Write the wrapper**
 
 `frontend/src/bridge/agentUsage.ts`:
 
@@ -1503,8 +1627,11 @@ import { callBridge } from "./client";
  * subscription limit: how a limit counts cached reads is not known.
  */
 
-/** A sum of tokens. A turn with no token data counts in `turns` and `turnsWithoutData` and adds nothing else. */
+export type UsageMetric = "freshInput" | "cacheRead" | "cacheWrite" | "output" | "total";
+
+/** Sums plus counts of known values; a zero sum without coverage is not measured zero. */
 export type UsageTotals = {
+  known: Record<UsageMetric, number>;
   turns: number;
   turnsWithoutData: number;
   freshInput: number;
@@ -1528,11 +1655,18 @@ export type UsageReport = {
   byModel: UsageGroup[];
   /** Heaviest first. */
   topSessions: UsageSession[];
-  /** Turns whose per-model split is not the turn total (helper models), so model totals can exceed `totals.total`. */
+  /** Turns whose model split is incomplete, differs, or cannot be compared with a known turn total. */
   partialSplitTurns: number;
 };
 
 const totalsOf = (raw: RawTotals): UsageTotals => ({
+  known: {
+    freshInput: raw.known?.["freshInput"] ?? 0,
+    cacheRead: raw.known?.["cacheRead"] ?? 0,
+    cacheWrite: raw.known?.["cacheWrite"] ?? 0,
+    output: raw.known?.["output"] ?? 0,
+    total: raw.known?.["total"] ?? 0,
+  },
   turns: raw.turns,
   turnsWithoutData: raw.turnsWithoutData,
   freshInput: raw.freshInput,
@@ -1568,12 +1702,12 @@ export function agentUsageReport(vendor: string): Promise<UsageReport> {
 }
 ```
 
-- [ ] **Step 4: Write the model**
+- [x] **Step 4: Write the model**
 
 `frontend/src/modules/agenthub/usage/usageModel.ts`:
 
 ```ts
-import type { UsageGroup, UsageReport, UsageSession, UsageTotals } from "@/bridge/agentUsage";
+import type { UsageGroup, UsageMetric, UsageReport, UsageSession, UsageTotals } from "@/bridge/agentUsage";
 
 /** Shown with every report: a token count is not the subscription's own measure. */
 export const QUOTA_NOTE =
@@ -1592,9 +1726,22 @@ function percent(part: number, whole: number): string {
   return whole > 0 ? `${((part / whole) * 100).toFixed(1)}%` : DASH;
 }
 
-/** The share of cache reads in the total tokens. */
+export function formatMetric(totals: UsageTotals, metric: UsageMetric): string {
+  const known = totals.known[metric];
+  if (known === 0) return DASH;
+  return `${formatTokens(totals[metric])}${known < totals.turns ? " (partial)" : ""}`;
+}
+
+/** A usable denominator only when every turn reported its total. */
+export function completeTotal(totals: UsageTotals): number | null {
+  return totals.turns > 0 && totals.known.total === totals.turns ? totals.total : null;
+}
+
+/** Only divide metrics covering the same complete set of turns. */
 export function cacheReadShare(totals: UsageTotals): string {
-  return percent(totals.cacheRead, totals.total);
+  const total = completeTotal(totals);
+  return total !== null && totals.known.cacheRead === totals.turns
+    ? percent(totals.cacheRead, total) : DASH;
 }
 
 /** A workspace id as the window names it: `""` is no workspace, an id it does not know was removed. */
@@ -1607,6 +1754,7 @@ export type UsageRow = {
   key: string;
   name: string;
   turns: number;
+  freshInput: string;
   total: string;
   cacheRead: string;
   cacheWrite: string;
@@ -1616,23 +1764,25 @@ export type UsageRow = {
 };
 
 /** Rows in the order given, each with its share of `grandTotal`. */
-export function rowsOf(groups: UsageGroup[], name: (key: string) => string, grandTotal: number): UsageRow[] {
+export function rowsOf(groups: UsageGroup[], name: (key: string) => string, grandTotal: number | null): UsageRow[] {
   return groups.map((group) => ({
     key: group.key,
     name: name(group.key),
     turns: group.totals.turns,
-    total: formatTokens(group.totals.total),
-    cacheRead: formatTokens(group.totals.cacheRead),
-    cacheWrite: formatTokens(group.totals.cacheWrite),
-    output: formatTokens(group.totals.output),
-    share: percent(group.totals.total, grandTotal),
+    freshInput: formatMetric(group.totals, "freshInput"),
+    total: formatMetric(group.totals, "total"),
+    cacheRead: formatMetric(group.totals, "cacheRead"),
+    cacheWrite: formatMetric(group.totals, "cacheWrite"),
+    output: formatMetric(group.totals, "output"),
+    share: grandTotal !== null && completeTotal(group.totals) !== null
+      ? percent(group.totals.total, grandTotal) : DASH,
   }));
 }
 
 const SHORT_ID = 8;
 
 /** Heaviest-session rows: a short id and the workspace's name, never a title. */
-export function sessionRowsOf(sessions: UsageSession[], names: Record<string, string>, grandTotal: number): UsageRow[] {
+export function sessionRowsOf(sessions: UsageSession[], names: Record<string, string>, grandTotal: number | null): UsageRow[] {
   return sessions.map((session) => ({
     ...rowsOf([{ key: session.sessionId, totals: session.totals }], () => "", grandTotal)[0],
     name: `${session.sessionId.slice(0, SHORT_ID)} · ${workspaceName(session.workspaceId, names)}`,
@@ -1653,17 +1803,17 @@ export function dataNotes(report: UsageReport): string[] {
   }
   if (report.partialSplitTurns > 0) {
     notes.push(
-      `On ${report.partialSplitTurns} turns the per-model split is larger than the turn total (helper models), so model totals can add up to more than the overall total.`,
+      `On ${report.partialSplitTurns} turns the per-model split is incomplete or differs from the turn total. Model totals may not add up to the overall total.`,
     );
   }
   return notes;
 }
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `cd frontend && bun test src/modules/agenthub/usage/usageModel.test.ts src/bridge/agentUsage.test.ts`
-Expected: `13 pass`, `0 fail` (eleven model tests including `sessionRowsOf`, two wrapper tests).
+Expected: all model and wrapper tests pass, including coverage and fresh-input cases.
 
 - [ ] **Step 6: Commit**
 
@@ -1684,7 +1834,7 @@ table always shows."
 - Create: `frontend/src/modules/agenthub/usage/UsageReportTable.tsx`
 - Test: `frontend/src/modules/agenthub/usage/UsageReportTable.test.tsx`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `frontend/src/modules/agenthub/usage/UsageReportTable.test.tsx`:
 
@@ -1703,6 +1853,10 @@ const totals = (over: Partial<UsageTotals> = {}): UsageTotals => ({
   cacheWrite: 0,
   output: 0,
   total: 0,
+  known: {
+    freshInput: over.turns ?? 0, cacheRead: over.turns ?? 0,
+    cacheWrite: over.turns ?? 0, output: over.turns ?? 0, total: over.turns ?? 0,
+  },
   ...over,
 });
 const group = (key: string, over: Partial<UsageTotals> = {}): UsageGroup => ({ key, totals: totals(over) });
@@ -1716,7 +1870,8 @@ const report = (over: Partial<UsageReport> = {}): UsageReport => ({
     group("gone", { turns: 1, total: 791_005 }),
   ],
   byDay: [group("2026-10-25", { turns: 1, total: 1_000 }), group("2026-10-26", { turns: 16, total: 5_000_000 })],
-  byModel: [group("claude-opus-5-5", { turns: 326, total: 637_349_761 })],
+  byModel: [group("claude-opus-5-5", { turns: 326, total: 637_349_761,
+    known: { freshInput: 0, cacheRead: 0, cacheWrite: 0, output: 0, total: 326 } })],
   topSessions: [{ sessionId: "11111111-2222-3333-4444-555555555555", workspaceId: "w1", totals: totals({ turns: 9, total: 90_000_000 }) }],
   partialSplitTurns: 0,
   ...over,
@@ -1742,6 +1897,20 @@ describe("UsageReportTable", () => {
     const html = render();
     expect(html).toContain("960.7M tokens over 512 turns");
     expect(html).toContain("97.1% cache reads");
+  });
+
+  test("renders fresh input and does not turn unknown totals into a zero headline", () => {
+    const t = totals({ turns: 1, freshInput: 5, output: 7,
+      known: { freshInput: 1, output: 1, total: 0, cacheRead: 0, cacheWrite: 0 } });
+    const html = render({ report: report({ totals: t, byWorkspace: [group("w1", t)], byModel: [] }) });
+    expect(html).toContain("Fresh input");
+    expect(html).toContain(">5<");
+    expect(html).toContain("— tokens over 1 turns");
+    expect(html).not.toContain("0 tokens over");
+    expect(html).toContain("— cache reads");
+    const partial = render({ report: report({ totals: { ...t, turns: 2, total: 100,
+      known: { ...t.known, total: 1 } } }) });
+    expect(partial).toContain("100 (partial) tokens over 2 turns");
   });
 
   test("names each workspace by the window's own list", () => {
@@ -1785,12 +1954,12 @@ describe("UsageReportTable", () => {
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd frontend && bun test src/modules/agenthub/usage/UsageReportTable.test.tsx`
 Expected: FAIL with an error that `./UsageReportTable` cannot be found.
 
-- [ ] **Step 3: Write the component (trap 5: the shared `DataTable`)**
+- [x] **Step 3: Write the component (trap 5: the shared `DataTable`)**
 
 `frontend/src/modules/agenthub/usage/UsageReportTable.tsx`:
 
@@ -1801,8 +1970,9 @@ import type { UsageReport } from "@/bridge/agentUsage";
 import {
   QUOTA_NOTE,
   cacheReadShare,
+  completeTotal,
   dataNotes,
-  formatTokens,
+  formatMetric,
   recentDays,
   rowsOf,
   sessionRowsOf,
@@ -1849,12 +2019,12 @@ export function UsageReportTable({ vendorName, report, loadError, workspaceNames
 }
 
 function ReportBody({ report, workspaceNames }: { report: UsageReport; workspaceNames: Record<string, string> }) {
-  const grand = report.totals.total;
+  const grand = completeTotal(report.totals);
   const named = (key: string) => workspaceName(key, workspaceNames);
   return (
     <div className="flex flex-col gap-4">
       <p className="text-body-13 text-text-primary">
-        {formatTokens(grand)} tokens over {report.totals.turns} turns · {cacheReadShare(report.totals)} cache reads
+        {formatMetric(report.totals, "total")} tokens over {report.totals.turns} turns · {cacheReadShare(report.totals)} cache reads
       </p>
       {dataNotes(report).map((note) => (
         <p key={note} className="text-body-12 text-text-tertiary">
@@ -1873,7 +2043,7 @@ function ReportBody({ report, workspaceNames }: { report: UsageReport; workspace
   );
 }
 
-const NUMBER_COLUMNS = ["Turns", "Total", "Cache read", "Cache write", "Output", "Share"];
+const NUMBER_COLUMNS = ["Turns", "Total", "Fresh input", "Cache read", "Cache write", "Output", "Share"];
 
 function UsageTable({ title, nameHeader, rows }: { title: string; nameHeader: string; rows: UsageRow[] }) {
   if (rows.length === 0) return null;
@@ -1889,14 +2059,14 @@ function UsageTable({ title, nameHeader, rows }: { title: string; nameHeader: st
         fill
         caption={title}
         columns={columns}
-        rows={rows.map((row) => [row.name, String(row.turns), row.total, row.cacheRead, row.cacheWrite, row.output, row.share])}
+        rows={rows.map((row) => [row.name, String(row.turns), row.total, row.freshInput, row.cacheRead, row.cacheWrite, row.output, row.share])}
       />
     </div>
   );
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd frontend && bun test src/modules/agenthub/usage src/smoothnessRatchet.test.ts`
 Expected: all pass, including `smoothness ratchet > unvirtualizedTables does not grow` (the file contains no `<table`).
@@ -1908,8 +2078,8 @@ git add frontend/src/modules/agenthub/usage/UsageReportTable.tsx frontend/src/mo
 git commit -m "feat(frontend): token usage table
 
 Presentational. Tokens only, with the note that they are not a share of the
-subscription limit, and notes for turns without data and for splits that
-include helper models. Drawn with the shared DataTable."
+subscription limit, per-metric coverage, fresh input, and neutral notes for
+incomplete or unequal model splits. Drawn with the shared DataTable."
 ```
 
 ---
@@ -1918,9 +2088,10 @@ include helper models. Drawn with the shared DataTable."
 
 **Files:**
 - Create: `frontend/src/modules/agenthub/usage/useAgentUsage.ts`, `frontend/src/modules/agenthub/usage/AgentUsageSetting.tsx`
+- Test: `frontend/src/modules/agenthub/usage/useAgentUsage.test.ts`
 - Modify: `frontend/src/modules/settings/AgentsPages.tsx`, `frontend/src/modules/settings/settingsNavigation.ts`, `frontend/src/modules/settings/settingsNavigation.test.ts`
 
-- [ ] **Step 1: Write the failing navigation test**
+- [x] **Step 1: Write the failing navigation test**
 
 `frontend/src/modules/settings/settingsNavigation.test.ts`:
 
@@ -1943,7 +2114,56 @@ include helper models. Drawn with the shared DataTable."
 Run: `cd frontend && bun test src/modules/settings/settingsNavigation.test.ts`
 Expected: FAIL on `idsOf("tokens")` (received `[]`).
 
-- [ ] **Step 3: Write the hooks**
+- [x] **Step 2a: Add the focus regression test**
+
+Create `frontend/src/modules/agenthub/usage/useAgentUsage.test.ts`. It imports the hook's options and the application's real
+QueryClient defaults, mounts an active observer, then simulates losing and regaining focus. It must fail if the explicit
+`refetchOnWindowFocus: true` is removed; checking `staleTime` alone is not sufficient.
+
+```ts
+import { expect, test } from "bun:test";
+import { focusManager, QueryClient, QueryObserver } from "@tanstack/react-query";
+import { queryClient } from "@/lib/query";
+import { agentUsageOptions } from "./useAgentUsage";
+
+test("a stale active usage report refetches on focus despite the shared disabled default", async () => {
+  const client = new QueryClient({ defaultOptions: queryClient.getDefaultOptions() });
+  let reads = 0;
+  const observer = new QueryObserver(client, {
+    ...agentUsageOptions("claude"),
+    queryFn: async () => ++reads,
+    staleTime: 0,
+  });
+  focusManager.setFocused(false);
+  client.mount();
+  const off = observer.subscribe(() => {});
+  let stopWaiting = () => {};
+  try {
+    await observer.refetch();
+    const before = reads;
+    const refreshed = new Promise<void>((resolve) => {
+      stopWaiting = observer.subscribe((result) => {
+        if (result.isSuccess && result.data > before) resolve();
+      });
+    });
+    focusManager.setFocused(true);
+    await refreshed;
+    expect(reads).toBe(before + 1);
+  } finally {
+    stopWaiting();
+    off();
+    client.unmount();
+    client.clear();
+    focusManager.setFocused(undefined);
+  }
+}, 2_000);
+```
+
+Run: `cd frontend && bun test src/modules/agenthub/usage/useAgentUsage.test.ts`
+Expected before implementation: the hook module does not exist. After implementation: pass. If focus refresh is removed, the
+regression test times out. Run in the suite with `--isolate`, since `focusManager` is shared state.
+
+- [x] **Step 3: Write the hooks**
 
 `frontend/src/modules/agenthub/usage/useAgentUsage.ts`:
 
@@ -1957,12 +2177,16 @@ export const AGENT_USAGE_KEY = ["agenthub", "usage"] as const;
 export const agentUsageKey = (vendor: string) => [...AGENT_USAGE_KEY, vendor] as const;
 
 /** What a vendor's turns spent, in tokens. Read when the page opens and again when the window regains focus. */
+export const agentUsageOptions = (vendor: string) => ({
+  queryKey: agentUsageKey(vendor),
+  queryFn: () => agentUsageReport(vendor),
+  staleTime: 30_000,
+  // The shared QueryClient disables this; staleTime alone does not schedule reads.
+  refetchOnWindowFocus: true,
+});
+
 export function useAgentUsage(vendor: string) {
-  return useQuery({
-    queryKey: agentUsageKey(vendor),
-    queryFn: () => agentUsageReport(vendor),
-    staleTime: 30_000,
-  });
+  return useQuery(agentUsageOptions(vendor));
 }
 
 /** Workspace id → name. The report carries ids only; the window names them. */
@@ -1975,7 +2199,7 @@ export function useWorkspaceNames() {
 }
 ```
 
-- [ ] **Step 4: Write the connected panel**
+- [x] **Step 4: Write the connected panel**
 
 `frontend/src/modules/agenthub/usage/AgentUsageSetting.tsx`:
 
@@ -2008,7 +2232,7 @@ function VendorUsage({ vendor }: { vendor: string }) {
 }
 ```
 
-- [ ] **Step 5: Mount it and add the keywords**
+- [x] **Step 5: Mount it and add the keywords**
 
 `frontend/src/modules/settings/AgentsPages.tsx`:
 
@@ -2062,7 +2286,7 @@ function VendorUsage({ vendor }: { vendor: string }) {
      { id: "agents-notifications", label: "Notifications & remote", keywords: "notify alerts telegram bot pairing phone approvals remote control" },
 ```
 
-- [ ] **Step 6: Run the tests, the whole suite and the build**
+- [x] **Step 6: Run the tests, the whole suite and the build**
 
 Run: `cd frontend && bun test --isolate && bun run build`
 Expected: `0 fail` (5,036 tests at the time of writing), then `built in ...s` and `Performance budget: initial JS ... KiB, CSS ... KiB` with no error. If the CSS budget trips, raise the budget; never inline the styles.
@@ -2070,7 +2294,7 @@ Expected: `0 fail` (5,036 tests at the time of writing), then `built in ...s` an
 - [ ] **Step 7: Commit**
 
 ```bash
-git add frontend/src/modules/agenthub/usage/useAgentUsage.ts frontend/src/modules/agenthub/usage/AgentUsageSetting.tsx frontend/src/modules/settings/AgentsPages.tsx frontend/src/modules/settings/settingsNavigation.ts frontend/src/modules/settings/settingsNavigation.test.ts
+git add frontend/src/modules/agenthub/usage/useAgentUsage.ts frontend/src/modules/agenthub/usage/useAgentUsage.test.ts frontend/src/modules/agenthub/usage/AgentUsageSetting.tsx frontend/src/modules/settings/AgentsPages.tsx frontend/src/modules/settings/settingsNavigation.ts frontend/src/modules/settings/settingsNavigation.test.ts
 git commit -m "feat(settings): token usage under Accounts & limits
 
 One panel per vendor below the accounts. Searchable as tokens, cache and report."
@@ -2083,7 +2307,7 @@ One panel per vendor below the accounts. Searchable as tokens, cache and report.
 **Files:**
 - Modify: `docs/agent-reference/agent-hub-accounts.md`
 
-- [ ] **Step 1: Append this bullet to `docs/agent-reference/agent-hub-accounts.md`**
+- [x] **Step 1: Append this bullet to `docs/agent-reference/agent-hub-accounts.md`**
 
 ```markdown
 - **Token usage report: Settings → Agents → Accounts & limits** (`internal/agenthub/turn_usage.go`, `usage_report.go`, `usage_source.go`;
@@ -2091,15 +2315,20 @@ One panel per vendor below the accounts. Searchable as tokens, cache and report.
   `docs/superpowers/specs/2026-10-26-subscription-harness-tuning-design.md`, phase 1a). Numbers and ids only, never a prompt, title or path.
   **Usage is re-derived from each turn's raw meta** with the vendor's current `NormalizeUsage`, because the stored `InputTokens` /
   `OutputTokens` / `CostUSD` are always serialized and turns stored before the normalizer read `quota.token_count` hold a false 0 beside
-  real numbers in `RawMeta`; the stored fields are used only for a row with no raw meta. A turn whose normalized answer has no pointer
-  field and only zeros is **unknown** (counted in `TurnsWithoutData`, never added as 0), so a turn that really reported zeros everywhere
-  is indistinguishable from no data. `model_usage` is the per-model split and can include helper models that the turn total leaves out,
-  so model totals can exceed the overall total; `PartialSplitTurns` counts those turns. The panel says these are tokens, not a share of
+  real numbers in `RawMeta`; the stored fields are used only for a row with no raw meta. Every aggregate carries `Known` coverage per metric (DTO `known`):
+  missing values do not increase coverage, real zeros do. Cells without coverage show `—`, incomplete sums say `(partial)`, and
+  percentages require complete coverage of both operands. Model rows expose total coverage only; other cells show `—`.
+  Fresh input is displayed beside cache read/write and output. The query explicitly refetches stale data on window focus.
+  A turn whose normalized answer has no pointer
+  field and only zeros is **unknown** (counted in `TurnsWithoutData`, never added as 0), so legacy input/output-only meta reporting zeros
+  is indistinguishable from no data; explicit pointer counters at 0 remain known. `model_usage` is the per-model split and can include helper models that the turn total leaves out,
+  so model totals can differ from the overall total; `PartialSplitTurns` counts incomplete, unequal or uncomparable splits.
+  The warning does not attribute a mismatch to helper models without evidence. The panel says these are tokens, not a share of
   the subscription limit (how the limit counts cached reads is not known). Claude only; opencode and Codex have no usable usage rows.
   **Not done:** the account id and profile revision on each turn and tool result sizes (plan 1b), so there is no per-account view yet.
 ```
 
-- [ ] **Step 2: Full verification**
+- [x] **Step 2: Full verification**
 
 ```bash
 gofmt -l internal/
@@ -2112,7 +2341,7 @@ Expected: `gofmt` and `go vet` print nothing; five lines starting with `ok`; `0 
 
 - [ ] **Step 3: Look at it in the running app**
 
-Build and run DevKit (`task run` on a desktop, or see `docs/agent-reference/core-development.md`), open Settings → Agents → Accounts & limits, and check, with Claude selected, that: the headline shows tokens over turns and the cache-read share; the workspace rows carry workspace names, not ids; the note that tokens are not a share of the subscription limit is visible; switching to Codex shows "No token data yet for Codex.". If you cannot run the desktop app, say so in the pull request instead of claiming it was checked.
+Build and run DevKit (`task run` on a desktop, or see `docs/agent-reference/core-development.md`), open Settings → Agents → Accounts & limits, and check, with Claude selected, that: the headline shows tokens over turns and the cache-read share when coverage is complete; missing totals show `—`, partial sums say `(partial)`, fresh input is visible, non-total model metrics show `—`, and refocusing after another turn refreshes the report; the workspace rows carry workspace names, not ids; the note that tokens are not a share of the subscription limit is visible; switching to Codex shows "No token data yet for Codex.". If you cannot run the desktop app, say so in the pull request instead of claiming it was checked.
 
 - [ ] **Step 4: Commit**
 
@@ -2134,7 +2363,8 @@ that model totals can exceed the overall total."
 | 2. Report by workspace, session, model, day; UI-only bridge method; numbers only | Tasks 2, 3, 5 (account view moves to plan 1b, noted in the spec's Delivery paragraph) |
 | 4. UI under Settings → Agents, wording "tokens" and the subscription caveat | Tasks 8, 9 |
 | 5. Claude only, other vendors show no data | Task 8 (`No token data yet`), Task 10 doc |
-| Done criteria: reproduces the numbers; the five fixtures (false zero, real zero, absent field, no tokens, no raw) and a split that does not add up | Tasks 1, 4 |
+| Done criteria: reproduces the numbers; the five fixtures (false zero, real zero, absent field, no tokens, no raw), per-metric coverage, and incomplete/unequal/uncomparable splits | Tasks 1, 2, 4, 7, 8 |
+| Fresh input visible, missing/partial values marked, focus refresh despite shared defaults | Tasks 7, 8, 9 |
 | 3. Per-turn account and profile revision, tool result sizes | **Plan 1b**, not in this plan |
 
-Names used across tasks: `TurnUsage`, `DeriveTurnUsage`, `TurnUsageRow`, `UsageTotals`, `UsageGroup`, `UsageSessionGroup`, `UsageReport` (with `PartialSplitTurns`), `BuildUsageReport`, `TurnUsageSource`, `TurnUsageRows`, `Service.UsageReport`, `ErrUsageUnavailable`; bridge `AgentUsageReport` and `AgentUsage{Totals,Group,Session,Report}Info`; frontend `agentUsageReport`, `reportOf`, `UsageReport`, `usageModel` helpers, `UsageReportTable`, `useAgentUsage`, `useWorkspaceNames`, `AgentUsageSetting`.
+Names used across tasks: `TurnUsage`, `DeriveTurnUsage`, `TurnUsageRow`, `UsageCoverage`, `UsageTotals`, `UsageGroup`, `UsageSessionGroup`, `UsageReport` (with `PartialSplitTurns`), `BuildUsageReport`, `TurnUsageSource`, `TurnUsageRows`, `Service.UsageReport`, `ErrUsageUnavailable`; bridge `AgentUsageReport` and `AgentUsage{Totals,Group,Session,Report}Info`; frontend `agentUsageReport`, `reportOf`, `UsageReport`, `usageModel` helpers, `UsageReportTable`, `useAgentUsage`, `useWorkspaceNames`, `AgentUsageSetting`.

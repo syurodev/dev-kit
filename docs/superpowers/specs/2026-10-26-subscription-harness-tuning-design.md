@@ -1,7 +1,8 @@
 # Subscription-path harness tuning: measurement, workspace harness profile, smaller context
 
-Date: 2026-10-26. Status: **design, not built**. Nothing here is implemented. Everything under "Measured" was read from the
-person's database and the code on 2026-10-26.
+Date: 2026-10-26. Status: **Phase 1a implemented** (usage reader, UI-only report and Settings table); Phase 1b and phases 2–4
+remain design. Implementation and validation: [Phase 1a plan](../plans/2026-10-26-harness-tuning-phase1a-usage-report.md).
+Everything under "Measured" was read from the person's database and the code on 2026-10-26.
 
 ## 1. Direction
 

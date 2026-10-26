@@ -2,6 +2,7 @@ package agenthub
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -66,5 +67,19 @@ func TestServerModeAdapterRefusesSignInAndFork(t *testing.T) {
 	var forker RuntimeForker = a
 	if _, err := forker.Fork(context.Background(), OpenSpec{Cwd: "/tmp"}, "acp-1", "msg-1"); !errors.Is(err, ErrUnavailableInServerMode) {
 		t.Fatalf("Fork err = %v, want ErrUnavailableInServerMode", err)
+	}
+}
+
+// Server mode refuses to run an agent, but its Settings report still reads
+// the usage that desktop sessions recorded with that vendor's decoder.
+func TestForServerModePreservesStoredUsageNormalization(t *testing.T) {
+	adapter := ForServerMode(NewClaudeAdapter(ClaudeOptions{}))[0]
+	raw := json.RawMessage(`{"quota":{"token_count":{"totalTokens":100,"inputTokens":5,"cachedInputTokens":80,"cachedWriteTokens":3,"outputTokens":12}}}`)
+	usage := DeriveTurnUsage(adapter, json.RawMessage(`{"InputTokens":0,"OutputTokens":0}`), raw)
+	if usage.Total == nil || *usage.Total != 100 || usage.CacheRead == nil || *usage.CacheRead != 80 || usage.FreshInput == nil || *usage.FreshInput != 5 {
+		t.Fatalf("server report lost the vendor's stored usage: %+v", usage)
+	}
+	if _, err := adapter.Open(context.Background(), OpenSpec{}); !errors.Is(err, ErrUnavailableInServerMode) {
+		t.Fatalf("preserving the decoder must not enable execution: %v", err)
 	}
 }
