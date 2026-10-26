@@ -2651,6 +2651,15 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 		close(call.done)
 	}()
 
+	// The one place a process is started for an existing session. Whoever got
+	// here, a sealed barrier or a fence that no longer passes stops the start,
+	// before an endpoint, a temp directory or an account reservation exists.
+	leaveAdmission, err := s.enterWriterAdmission(ctx, sess.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer leaveAdmission()
+
 	// The row, not the caller's copy, names the account: a caller that read the
 	// session before an account move (and waited on the move's barrier above)
 	// must reopen where the session is bound now, not where it was.

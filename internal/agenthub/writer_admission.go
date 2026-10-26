@@ -2,8 +2,13 @@ package agenthub
 
 import (
 	"context"
+	"errors"
 	"sync"
 )
+
+// errWriterAdmissionSealed is the cause carried by ErrManagedWriterBlocked while
+// a release holds the session's admission barrier.
+var errWriterAdmissionSealed = errors.New("writer admission sealed for release")
 
 // writerAdmission is the host-owned barrier between "a managed session may
 // start work" and "an owner paused it". A path that can start a runtime or send
@@ -23,20 +28,46 @@ type writerAdmission struct {
 }
 
 type admissionSlot struct {
-	n    int
-	idle []chan struct{}
+	n      int
+	sealed int
+	idle   []chan struct{}
 }
 
 func newWriterAdmission() *writerAdmission {
 	return &writerAdmission{slots: map[string]*admissionSlot{}}
 }
 
-func (a *writerAdmission) enter(sessionID string) func() {
-	a.mu.Lock()
+func (a *writerAdmission) slot(sessionID string) *admissionSlot {
 	slot := a.slots[sessionID]
 	if slot == nil {
 		slot = &admissionSlot{}
 		a.slots[sessionID] = slot
+	}
+	return slot
+}
+
+func (a *writerAdmission) settle(sessionID string, slot *admissionSlot) {
+	if slot.n == 0 {
+		for _, w := range slot.idle {
+			close(w)
+		}
+		slot.idle = nil
+		if slot.sealed == 0 {
+			delete(a.slots, sessionID)
+		}
+	}
+}
+
+// enter registers an admission, or reports false while the session is sealed.
+// A sealed session refuses every new admission, including one nested inside an
+// admission that registered before the seal.
+func (a *writerAdmission) enter(sessionID string) (func(), bool) {
+	a.mu.Lock()
+	slot := a.slot(sessionID)
+	if slot.sealed > 0 {
+		a.settle(sessionID, slot)
+		a.mu.Unlock()
+		return nil, false
 	}
 	slot.n++
 	a.mu.Unlock()
@@ -46,15 +77,9 @@ func (a *writerAdmission) enter(sessionID string) func() {
 			a.mu.Lock()
 			defer a.mu.Unlock()
 			slot.n--
-			if slot.n > 0 {
-				return
-			}
-			for _, w := range slot.idle {
-				close(w)
-			}
-			delete(a.slots, sessionID)
+			a.settle(sessionID, slot)
 		})
-	}
+	}, true
 }
 
 func (a *writerAdmission) drain(ctx context.Context, sessionID string) error {
@@ -75,13 +100,40 @@ func (a *writerAdmission) drain(ctx context.Context, sessionID string) error {
 	}
 }
 
+// seal refuses new admissions until the returned end is called, then waits for
+// the ones already registered to leave. If the context ends first the seal is
+// lifted again.
+func (a *writerAdmission) seal(ctx context.Context, sessionID string) (func(), error) {
+	a.mu.Lock()
+	slot := a.slot(sessionID)
+	slot.sealed++
+	a.mu.Unlock()
+	var once sync.Once
+	end := func() {
+		once.Do(func() {
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			slot.sealed--
+			a.settle(sessionID, slot)
+		})
+	}
+	if err := a.drain(ctx, sessionID); err != nil {
+		end()
+		return nil, err
+	}
+	return end, nil
+}
+
 // enterWriterAdmission registers the caller and rechecks the fence while
 // registered. The returned leave is idempotent.
 func (s *Service) enterWriterAdmission(ctx context.Context, sessionID string) (func(), error) {
 	if s == nil || s.admission == nil {
 		return func() {}, s.authorizeManagedWriter(ctx, sessionID)
 	}
-	leave := s.admission.enter(sessionID)
+	leave, ok := s.admission.enter(sessionID)
+	if !ok {
+		return nil, managedWriterBlocked(errWriterAdmissionSealed)
+	}
 	if err := s.authorizeManagedWriter(ctx, sessionID); err != nil {
 		leave()
 		return nil, err
@@ -98,4 +150,18 @@ func (s *Service) DrainWriterAdmission(ctx context.Context, sessionID string) er
 		return nil
 	}
 	return s.admission.drain(ctx, sessionID)
+}
+
+// SealWriterAdmission is the release half of the barrier. Until end is called
+// nothing may start a runtime, send a prompt or write files for the session:
+// every Invoke, Steer, resume, rewind and restore is refused, including one that
+// registered before the seal and only now reaches the point of starting. It
+// returns once the admissions already registered have left. A host holds the seal
+// across its stop proof AND the release commit, so a positive proof cannot be
+// overtaken by a start that passed an earlier fence check.
+func (s *Service) SealWriterAdmission(ctx context.Context, sessionID string) (func(), error) {
+	if s == nil || s.admission == nil || sessionID == "" {
+		return nil, ErrManagedWriterBlocked
+	}
+	return s.admission.seal(ctx, sessionID)
 }

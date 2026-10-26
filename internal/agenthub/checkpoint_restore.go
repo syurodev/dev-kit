@@ -249,6 +249,12 @@ func (s *Service) ApplyRestore(ctx context.Context, token string, overwrite []st
 	if !ok {
 		return RestoreResult{}, ErrRestorePlanStale
 	}
+	// Writing files into the session's worktree is a writer action too.
+	leaveAdmission, err := s.enterWriterAdmission(ctx, held.request.SessionID)
+	if err != nil {
+		return RestoreResult{}, err
+	}
+	defer leaveAdmission()
 	session, err := s.store.GetSession(ctx, held.request.SessionID)
 	if err != nil {
 		return RestoreResult{}, err

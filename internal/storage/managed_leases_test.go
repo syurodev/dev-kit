@@ -349,3 +349,102 @@ func TestManagedWriterLeaseRejectsChangedTaskRequirementsButCanReleaseSafely(t *
 		})
 	}
 }
+
+// barrierHostFake records the order Release uses a host's barrier in.
+type barrierHostFake struct {
+	*leaseHostFake
+	t        *testing.T
+	l        *ManagedLedger
+	events   []string
+	beginErr error
+	endSaw   *agentwork.ManagedWriterLease
+}
+
+func (h *barrierHostFake) BeginManagedRelease(ctx context.Context, lease agentwork.ManagedWriterLease) (func(), error) {
+	h.events = append(h.events, "begin")
+	if h.beginErr != nil {
+		return nil, h.beginErr
+	}
+	return func() {
+		h.events = append(h.events, "end")
+		committed, err := h.l.GetManagedWriterLease(ctx, lease.ID)
+		if err != nil {
+			h.t.Error(err)
+			return
+		}
+		h.endSaw = &committed
+	}, nil
+}
+
+func (h *barrierHostFake) CheckManagedWriterQuiescence(ctx context.Context, l agentwork.ManagedWriterLease) (agentwork.ManagedWriterQuiescence, error) {
+	h.events = append(h.events, "check")
+	return h.leaseHostFake.CheckManagedWriterQuiescence(ctx, l)
+}
+
+// The barrier is taken before the proof and kept until the release has been
+// committed, so a start cannot slip in between a positive proof and the commit.
+func TestReleaseHoldsTheHostBarrierAcrossProofAndCommit(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
+	l, db := openManagedLeaseTest(t, clock)
+	defer db.Close()
+	i1, a1 := createLeaseAttempt(t, l, "g1", "p1", "i1", "task1", "a1", "session1")
+	b1 := agentwork.ManagedWriterBinding{WorkspaceID: "ws", BoardID: "board", ParentTaskID: "p1", TaskID: "task1", GroupID: "g1", WorkItemID: i1.ID, AttemptID: a1.ID, SessionID: "session1", ResourceKey: "worktree-key-1"}
+	base := &leaseHostFake{bindings: map[string]agentwork.ManagedWriterBinding{"a1": b1}, current: map[string]agentwork.ManagedWriterResolution{"session1": {Managed: true, Binding: b1}}}
+	h := &barrierHostFake{leaseHostFake: base, t: t, l: l}
+	svc := agentwork.NewManagedLeaseServiceWithClock(h, l, clock)
+	lease, err := svc.Acquire(ctx, a1.ID, a1.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base.proof = agentwork.ManagedWriterQuiescence{Binding: b1, Generation: lease.Generation, CheckedAt: now, Known: true, Quiescent: true, Isolated: true}
+
+	// A barrier that cannot be taken refuses the release before any proof.
+	h.beginErr = errors.New("admission in flight")
+	if _, err = svc.Release(ctx, lease.ID, lease.Generation, lease.Revision); !errors.Is(err, h.beginErr) {
+		t.Fatalf("release without the barrier = %v", err)
+	}
+	if len(h.events) != 1 || h.events[0] != "begin" {
+		t.Fatalf("a proof was taken without the barrier: %v", h.events)
+	}
+	if current, err := l.GetManagedWriterLease(ctx, lease.ID); err != nil || current.ReleasedAt != nil {
+		t.Fatalf("lease released without the barrier: %+v %v", current, err)
+	}
+
+	h.beginErr, h.events = nil, nil
+	if _, err = svc.Release(ctx, lease.ID, lease.Generation, lease.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.events; len(got) != 3 || got[0] != "begin" || got[1] != "check" || got[2] != "end" {
+		t.Fatalf("barrier order = %v, want begin, check, end", got)
+	}
+	if h.endSaw == nil || h.endSaw.ReleasedAt == nil {
+		t.Fatalf("the barrier ended before the release was committed: %+v", h.endSaw)
+	}
+}
+
+// A refused proof also ends the barrier: a failed release must not leave the
+// session sealed.
+func TestReleaseEndsTheBarrierWhenTheProofIsRefused(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
+	l, db := openManagedLeaseTest(t, clock)
+	defer db.Close()
+	i1, a1 := createLeaseAttempt(t, l, "g1", "p1", "i1", "task1", "a1", "session1")
+	b1 := agentwork.ManagedWriterBinding{WorkspaceID: "ws", BoardID: "board", ParentTaskID: "p1", TaskID: "task1", GroupID: "g1", WorkItemID: i1.ID, AttemptID: a1.ID, SessionID: "session1", ResourceKey: "worktree-key-1"}
+	base := &leaseHostFake{bindings: map[string]agentwork.ManagedWriterBinding{"a1": b1}, current: map[string]agentwork.ManagedWriterResolution{"session1": {Managed: true, Binding: b1}}, proofErr: agentwork.ErrManagedQuiescenceUnknown}
+	h := &barrierHostFake{leaseHostFake: base, t: t, l: l}
+	svc := agentwork.NewManagedLeaseServiceWithClock(h, l, clock)
+	lease, err := svc.Acquire(ctx, a1.ID, a1.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.Release(ctx, lease.ID, lease.Generation, lease.Revision); !errors.Is(err, agentwork.ErrManagedQuiescenceUnknown) {
+		t.Fatalf("release = %v", err)
+	}
+	if got := h.events; len(got) != 3 || got[2] != "end" {
+		t.Fatalf("barrier events = %v, want it ended after the refusal", got)
+	}
+}

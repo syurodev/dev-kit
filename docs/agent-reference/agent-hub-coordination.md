@@ -128,6 +128,18 @@
   created after `EpochStart`, so a restart never turns an earlier process's writer into a released one. A restart leaves the lease
   pinned until a person resolves it. Reasons are bounded codes (`runtime_live`, `exit_unobserved`, `no_descendant_containment`,
   `lease_predates_process`, …) appended to `ErrManagedQuiescenceUnknown`; no pid, path or payload.
+- **Release seal.** `ManagedLeaseService.Release` takes the host's optional `ManagedReleaseBarrier` *before* the stop proof and holds it
+  until the release is committed or refused (`defer end()`); the app host implements it with `Service.SealWriterAdmission`, which
+  refuses every new admission for the session — including one nested inside an admission that registered before the seal — and waits
+  for registered ones to leave. A positive proof therefore cannot be overtaken by a start that passed an earlier fence check, and a
+  failed release never leaves the session sealed. A hub that cannot seal makes release unavailable (`no_admission_barrier`).
+- **Every start path is admitted.** The single place a process is started for an existing session (`resumeRuntime`, reached by Invoke,
+  Steer, resume, settings calls and account moves) now registers an admission and rechecks the fence at the start, as do `ApplyRewind`
+  (it restores files and forks a runtime) and `ApplyRestore` (it writes files). A new session cannot hold a lease yet and is not
+  fenced.
+- **Bounded table.** The proof table keeps only each process's exit channel and containment flag (no runtime reference), identifies the
+  live runtime by that channel, and drops reaped entries whenever a runtime opens, so closing and reopening a session does not
+  accumulate runtimes.
 - **Pause vs start.** Invoke, Steer and resume register an admission (`enterWriterAdmission`), recheck the managed-writer fence while
   registered, and Invoke/Steer recheck once more immediately before the prompt leaves. A pause flips its durable state and then calls
   `Service.DrainWriterAdmission(ctx, sessionID)`; anything that checked earlier is either sent or refused when it returns. A prompt
