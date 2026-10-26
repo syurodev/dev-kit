@@ -165,6 +165,8 @@ type Container struct {
 	// wired by main after opening the database; no public bridge surface is
 	// installed in this increment.
 	ManagedTeams          *agentwork.ManagedService
+	ManagedLeases         *agentwork.ManagedLeaseService
+	ManagedPayloads       *agentwork.ManagedPayloadService
 	managedTerminalPolicy *managedTerminalPolicy
 	// AgentHubPermissions completes UI permission prompts for AgentHub.
 	// Nil when AgentHub is unset.

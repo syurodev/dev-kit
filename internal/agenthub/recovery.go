@@ -59,6 +59,9 @@ func (s *Service) resumeSession(ctx context.Context, id string, reload bool) err
 	if err != nil {
 		return err
 	}
+	if err := s.authorizeManagedWriter(ctx, id); err != nil {
+		return err
+	}
 	if reload {
 		adapter, found := s.reg.Get(sess.AgentType)
 		if !found {

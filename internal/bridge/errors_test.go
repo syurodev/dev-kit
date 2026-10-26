@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"devkit/internal/agenthub"
 	"devkit/internal/app"
 	"devkit/internal/apperrors"
 	"devkit/internal/cloudconfig"
@@ -222,5 +223,16 @@ func TestPublicErrorNeverPublishesAPDFCause(t *testing.T) {
 		if got.Unwrap() != nil || strings.Contains(got.Error(), "wasm") {
 			t.Errorf("%s published its cause: %+v", tc.code, got)
 		}
+	}
+}
+
+func TestManagedWriterRefusalIsPublishedWithoutHostDetails(t *testing.T) {
+	err := publicError("builtin.agenthub", fmt.Errorf("%w: secret path and payload", agenthub.ErrManagedWriterBlocked))
+	var got *apperrors.AppError
+	if !errors.As(err, &got) || got.Code != codeManagedWriterBlocked || !keptCodes[got.Code] {
+		t.Fatalf("public refusal = %v", err)
+	}
+	if strings.Contains(got.Message, "secret") || !strings.Contains(got.Message, "lease") {
+		t.Fatalf("unsafe or unhelpful message: %q", got.Message)
 	}
 }

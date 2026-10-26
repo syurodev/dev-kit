@@ -83,6 +83,7 @@ const (
 	// answer is to show where the task is now, not to report a failure.
 	codeTaskStatusChanged       = "task_status_changed"
 	codeManagedTerminalNotReady = "tasks.managedTerminalNotReady"
+	codeManagedWriterBlocked    = "agenthub.managedWriterBlocked"
 	// The three states of an agent runtime the UI answers with an action of
 	// its own: offer the install, show what Node is missing, show the log.
 	codeAgentNotInstalled  = "agent_not_installed"
@@ -383,6 +384,8 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.New(codeValidationFailed, message, true)
 		}
 		switch {
+		case errors.Is(err, agenthub.ErrManagedWriterBlocked):
+			return apperrors.New(codeManagedWriterBlocked, "Managed writer is blocked. Renew the current lease or resolve ownership before continuing.", true)
 		case errors.Is(err, agenthub.ErrUnavailableInServerMode):
 			return apperrors.New(codeValidationFailed, "Agent Hub needs the desktop app. In server mode an agent could answer its own permission prompts.", false)
 		case errors.Is(err, errAgentHubUnavailable), errors.Is(err, agenthub.ErrUnavailable):
@@ -754,6 +757,7 @@ func logPDFCause(subject string, existing *apperrors.AppError) {
 // its explicit redacted-on-purpose list.
 var keptCodes = map[string]bool{
 	codeManagedTerminalNotReady: true,
+	codeManagedWriterBlocked:    true,
 	"pdf.notFound":              true,
 	"pdf.sessionDenied":         true,
 	"pdf.pageRange":             true,

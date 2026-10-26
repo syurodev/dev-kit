@@ -294,7 +294,9 @@ func repositoryPolicyKey(ctx context.Context, r runner, projectPath string) (str
 	gitDir := strings.TrimSpace(string(gitDirOut))
 	commonDir := strings.TrimSpace(string(commonOut))
 	if !filepath.IsAbs(commonDir) {
-		commonDir = filepath.Join(top, commonDir)
+		// --git-common-dir is relative to the invocation directory, which can
+		// be a subdirectory of the worktree root.
+		commonDir = filepath.Join(projectPath, commonDir)
 	}
 	gitDir, err = filepath.EvalSymlinks(gitDir)
 	if err != nil {
@@ -333,6 +335,46 @@ func (s *Service) PolicyAliases() []string {
 		return nil
 	}
 	return []string{s.project}
+}
+
+// WorktreeIdentity returns the canonical checkout root and per-worktree Git
+// directory for the service's active project. Unlike PolicyProject, this does
+// not collapse linked worktrees to their shared common repository: each
+// checkout is an independent writer resource. Callers must authorize the
+// active project path before using this host-internal identity.
+func (s *Service) WorktreeIdentity(ctx context.Context) (root, gitDir string, err error) {
+	r, err := s.active()
+	if err != nil {
+		return "", "", err
+	}
+	rootOut, err := r.run(ctx, nil, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", "", ErrNoRepository
+	}
+	root = strings.TrimSpace(string(rootOut))
+	if !filepath.IsAbs(root) {
+		root, err = filepath.Abs(filepath.Join(r.work, root))
+		if err != nil {
+			return "", "", err
+		}
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", "", err
+	}
+	gitOut, err := r.run(ctx, nil, "rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return "", "", ErrNoRepository
+	}
+	gitDir = strings.TrimSpace(string(gitOut))
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(root, gitDir)
+	}
+	gitDir, err = filepath.EvalSymlinks(gitDir)
+	if err != nil {
+		return "", "", err
+	}
+	return filepath.Clean(root), filepath.Clean(gitDir), nil
 }
 
 // Project is the open project's path, empty when none is open.

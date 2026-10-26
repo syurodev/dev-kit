@@ -25,6 +25,8 @@ func TestManagedLedgerUpgradeFrom48PreservesExistingData(t *testing.T) {
 		`DROP TABLE agent_work_groups`,
 		`DELETE FROM schema_migrations WHERE version=49`,
 		`DELETE FROM schema_migrations WHERE version=50`,
+		`DELETE FROM schema_migrations WHERE version=51`,
+		`DELETE FROM schema_migrations WHERE version=52`,
 		`INSERT INTO ui_state (key,value) VALUES ('upgrade-sentinel','{"retained":true}')`,
 	} {
 		if _, err := db.ExecContext(ctx, statement); err != nil {
@@ -48,8 +50,8 @@ func TestManagedLedgerUpgradeFrom48PreservesExistingData(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 50 {
-		t.Fatalf("schema version %d, want 50", version)
+	if version != 52 {
+		t.Fatalf("schema version %d, want 52", version)
 	}
 	var tables int
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('agent_work_groups','agent_work_items','agent_work_attempts')`).Scan(&tables); err != nil {

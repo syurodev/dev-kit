@@ -37,6 +37,60 @@ func TestWorktreeAddCreatesNewBranch(t *testing.T) {
 	}
 }
 
+func TestWorktreeIdentityNormalizesAliasesAndSeparatesLinkedCheckouts(t *testing.T) {
+	svc, root := newRepo(t)
+	ctx := context.Background()
+	if err := os.Mkdir(filepath.Join(root, "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "repo-link")
+	if err := os.Symlink(root, alias); err != nil {
+		t.Fatal(err)
+	}
+	fromRoot, err := svc.At(ctx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fromNested, err := svc.At(ctx, filepath.Join(root, "nested"))
+	if err != nil {
+		t.Fatalf("At nested root %q: %v", root, err)
+	}
+	fromAlias, err := svc.At(ctx, filepath.Join(alias, "nested"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r1, g1, err := fromRoot.WorktreeIdentity(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r2, g2, err := fromNested.WorktreeIdentity(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r3, g3, err := fromAlias.WorktreeIdentity(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r1 != r2 || r1 != r3 || g1 != g2 || g1 != g3 {
+		t.Fatalf("aliases differ: root=(%q,%q), nested=(%q,%q), symlink=(%q,%q)", r1, g1, r2, g2, r3, g3)
+	}
+	linked, err := svc.WorktreeAdd(ctx, WorktreeAddInput{Branch: "feature/resource-identity"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	linkedSvc, err := svc.At(ctx, linked.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r4, g4, err := linkedSvc.WorktreeIdentity(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r4 == r1 || g4 == g1 {
+		t.Fatalf("linked checkout reused resource identity: main=(%q,%q), linked=(%q,%q)", r1, g1, r4, g4)
+	}
+}
+
 func TestWorktreeAddAttachesExistingBranch(t *testing.T) {
 	svc, _ := newRepo(t)
 	ctx := context.Background()
@@ -294,8 +348,12 @@ func TestWorktreeOutsideRepoRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if root != dir {
-		t.Fatalf("worktreeRoot = %q, want %q", root, dir)
+	canonicalDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root != canonicalDir {
+		t.Fatalf("worktreeRoot = %q, want %q", root, canonicalDir)
 	}
 }
 
@@ -455,7 +513,11 @@ func TestLinkedWorktreeSupportsCommitStatusAndPush(t *testing.T) {
 func TestLinkedWorktreeKeepsParentRepositoryGuard(t *testing.T) {
 	ctx := context.Background()
 	root, dir := newRepo(t)
-	root.SetGuards(guardsFor{dir: {{Pattern: "feature/*", Env: "prod"}}})
+	canonicalDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root.SetGuards(guardsFor{canonicalDir: {{Pattern: "feature/*", Env: "prod"}}})
 	root.SetEnvs(stubEnvs{"prod": true})
 	allowAdd := &stubConfirm{allow: true}
 	root.SetConfirmer(allowAdd)
@@ -469,8 +531,8 @@ func TestLinkedWorktreeKeepsParentRepositoryGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if linked.Project() != wt.Path || linked.policyKey() != dir {
-		t.Fatalf("linked project/policy = %q/%q; want checkout %q, policy %q", linked.Project(), linked.policyKey(), wt.Path, dir)
+	if linked.Project() != wt.Path || linked.policyKey() != canonicalDir {
+		t.Fatalf("linked project/policy = %q/%q; want checkout %q, policy %q", linked.Project(), linked.policyKey(), wt.Path, canonicalDir)
 	}
 	write(t, wt.Path, "guarded.txt", "guarded\n")
 	if err := linked.Stage(ctx, []string{"guarded.txt"}); err != nil {

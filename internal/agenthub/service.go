@@ -299,8 +299,12 @@ type Service struct {
 	// resuming marks a session whose runtime is being reopened. A second
 	// caller waits on it rather than spawning a second process onto the same
 	// MCP socket path, and gets the same outcome.
-	resuming              map[string]*resumeCall
-	mu                    sync.Mutex
+	resuming map[string]*resumeCall
+	mu       sync.Mutex
+	// managedWriterGuard is an optional host-installed fence. It is checked at
+	// each path that can send new work to a runtime; a missing guard preserves
+	// the historical behavior for ordinary, unmanaged containers.
+	managedWriterGuard    ManagedWriterGuard
 	emit                  func(sessionID string, update json.RawMessage)
 	ResolvePermission     PermissionResolver // nil = fail closed (no auto-approve)
 	ResolveGatePermission PermissionResolver
@@ -503,6 +507,39 @@ type Service struct {
 	// than a nil check at each of the four places it would need one. Set with
 	// SetCheckpoints.
 	checkpoints Checkpoints
+}
+
+// ManagedWriterGuard fences managed sessions before invoke, steer and resume.
+// The implementation must positively identify unmanaged sessions before
+// allowing them through and fail closed when managed ownership is uncertain.
+type ManagedWriterGuard interface {
+	AuthorizeCurrentWriter(context.Context, string) error
+}
+
+// SetManagedWriterGuard installs (or replaces) the host ownership fence.
+func (s *Service) SetManagedWriterGuard(guard ManagedWriterGuard) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.managedWriterGuard = guard
+	s.mu.Unlock()
+}
+
+func (s *Service) authorizeManagedWriter(ctx context.Context, sessionID string) error {
+	if s == nil {
+		return managedWriterBlocked(ErrPermissionDenied)
+	}
+	s.mu.Lock()
+	guard := s.managedWriterGuard
+	s.mu.Unlock()
+	if guard == nil {
+		return nil
+	}
+	if err := guard.AuthorizeCurrentWriter(ctx, sessionID); err != nil {
+		return managedWriterBlocked(err)
+	}
+	return nil
 }
 
 // NewService wires registry + store. emit may be nil (no-op).
@@ -1750,6 +1787,9 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 			return InvokeResult{}, err
 		}
 	}
+	if err := s.authorizeManagedWriter(ctx, in.SessionID); err != nil {
+		return InvokeResult{}, err
+	}
 	if caller, _ := identity.FromContext(ctx); peer == nil && caller.IsAgent() {
 		if in.CallerSessionID != "" && in.CallerSessionID != caller.SessionID {
 			return InvokeResult{}, ErrCallerMismatch
@@ -2825,6 +2865,9 @@ func (s *Service) Steer(ctx context.Context, id, text string) (SteerOutcome, err
 	}
 	sess, err := s.store.GetSession(ctx, id)
 	if err != nil {
+		return "", err
+	}
+	if err := s.authorizeManagedWriter(ctx, id); err != nil {
 		return "", err
 	}
 	rt, err := s.runtimeFor(ctx, sess)
