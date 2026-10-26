@@ -216,6 +216,11 @@ const (
 	CodeProfileConflict = "harness.profileConflict"
 	CodeProposalStale   = "harness.proposalStale"
 	CodeGroupOff        = "harness.groupOff"
+	// Raised by the proposal service (internal/harnessconfig).
+	CodeProfileDenied    = "harness.profileDenied"
+	CodeFactsUnavailable = "harness.factsUnavailable"
+	CodeNotAvailable     = "harness.notAvailable"
+	CodeNoChange         = "harness.noChange"
 )
 
 // Error carries a public code and host-authored text only: never a command,
