@@ -185,6 +185,32 @@ Nothing is published until the runtime opened.
   untouched.
 - No production code sets `Service.Harness` or an enforcing endpoint yet, so nothing changes at
   runtime.
+
+### Durable applied reference and session-override lifecycle (H3c)
+
+- **Applied reference (migration 55).** `agent_session_harness_applied` keeps, per session, the
+  `SnapshotRef` of what its runtime was last opened with (ids, revisions, fingerprint,
+  executable digest, whether the endpoint enforced it): no definition, path, command, env value,
+  prompt or token. It is written **before** a create/resume publishes its runtime; if it cannot
+  be written the launch is refused and the staged endpoint closed (a create also removes its
+  row). A rewind writes it at its publish step, after the cut is committed, and only logs a
+  failure: an older reference can only make a later reload more cautious.
+- **What it is for.** After a restart (memory empty) a reload or resume still compares the new
+  snapshot with the stored reference: if W moved and the executable digest differs the reopen is
+  refused (`harness.newSessionRequired`). DevKit **cannot reconstruct** the old permitted
+  executables from a reference, so it refuses instead of restoring from today's different values.
+  An unreadable reference refuses the launch (`harness.snapshotUnavailable`).
+- **Explicit close.** `CloseSession` commits the status, then calls `HarnessLifecycle.SessionClosed`
+  (app adapter → `HarnessStore.ClearOverride`: a tombstone with the next revision, idempotent) and
+  drops the applied reference. Failure is returned as `ErrHarnessCleanupFailed` (the session *is*
+  closed); closing again retries and keeps stamps monotonic. Deleting a session closes each
+  session first, and the rows cascade.
+- **Close vs approval.** `HarnessStore.Apply` refuses a closed session inside its transaction, so an
+  approval that checked scope before the close cannot commit S after it: either the close
+  committed first (the write is refused) or the write committed first (the cleanup removes it).
+  Reload, resume, rewind, account moves, crashes and runtime teardown do not call the cleanup.
+- Not yet: the read model (H3d), a real `HarnessLifecycle`/`Harness` wiring in the container, and an
+  end-to-end close-vs-apply test against the H2c `Apply` (H2c is not in this branch's base).
 ### Confirm, recheck and commit (H2c)
 
 `Service.Apply(ctx, proposalID)` is the only way a prepared proposal becomes a write. Order:

@@ -42,3 +42,20 @@ func HarnessProfilesMigration(db *sql.DB) Migration {
 		return nil
 	}}
 }
+
+// HarnessAppliedMigration records, per session, which harness configuration its
+// runtime was last opened with: a reference (ids, revisions, fingerprint and
+// executable digest), never a definition, path, command or environment value.
+// It lets a restart refuse to adopt a changed set of executables without being
+// able to reconstruct the old configuration.
+func HarnessAppliedMigration(db *sql.DB) Migration {
+	return Migration{Version: 55, Name: "session harness applied references", Up: func(ctx context.Context) error {
+		_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS agent_session_harness_applied (
+ session_id TEXT PRIMARY KEY REFERENCES agent_sessions(id) ON DELETE CASCADE,
+ schema_version INTEGER NOT NULL CHECK(schema_version > 0),
+ ref TEXT NOT NULL,
+ enforced INTEGER NOT NULL CHECK(enforced IN (0,1)),
+ applied_at TEXT NOT NULL)`)
+		return err
+	}}
+}
