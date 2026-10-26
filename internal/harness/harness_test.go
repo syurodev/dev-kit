@@ -920,6 +920,48 @@ func TestWhatWDeniedAndNoLongerDeniesIsTheWorkspacesDoing(t *testing.T) {
 	if !shown.AdoptsNewExecutables(hidden) {
 		t.Fatal("removing W's deny exposes a vendor server and a V server: new session")
 	}
+	// Each source is judged on its own: a V-configured server hidden by W's deny,
+	// and a vendor-defined one.
+	onlyV := func(w func(*Profile)) Inputs {
+		in := base()
+		in.Vendor.Servers = []Server{stdio("v", "vc")}
+		in.Workspace = profile(w)
+		return in
+	}
+	if !refFor(t, onlyV(func(p *Profile) {})).AdoptsNewExecutables(refFor(t, onlyV(func(p *Profile) { p.DisabledMCP = []string{"v"} }))) {
+		t.Fatal("un-denying a V server W was hiding must need a new session")
+	}
+	onlyEnv := func(w func(*Profile)) Inputs {
+		in := base()
+		in.Environment.Servers = []Server{stdio("vendor-db", "theirs")}
+		in.Workspace = profile(w)
+		return in
+	}
+	if !refFor(t, onlyEnv(func(p *Profile) {})).AdoptsNewExecutables(refFor(t, onlyEnv(func(p *Profile) { p.DisabledMCP = []string{"vendor-db"} }))) {
+		t.Fatal("un-denying a vendor server W was hiding must need a new session")
+	}
+	// Skills the same way.
+	skills := func(w func(*Profile)) Inputs {
+		in := base()
+		in.Vendor.SkillFolders = []string{"/skills/v"}
+		in.Environment.Skills = []string{"/home/.claude/skills/x/SKILL.md"}
+		in.Workspace = profile(w)
+		return in
+	}
+	denied := refFor(t, skills(func(p *Profile) { p.DisabledSkills = []string{"/skills/v/SKILL.md", "/home/.claude/skills/x/SKILL.md"} }))
+	if !refFor(t, skills(func(p *Profile) {})).AdoptsNewExecutables(denied) {
+		t.Fatal("un-denying skills W was hiding must need a new session")
+	}
+	folderOnly := func(w func(*Profile)) Inputs {
+		in := base()
+		in.Vendor.SkillFolders = []string{"/skills/v"}
+		in.Workspace = profile(w)
+		return in
+	}
+	hiddenFolder := refFor(t, folderOnly(func(p *Profile) { p.DisabledSkills = []string{"/skills/v/SKILL.md"} }))
+	if !refFor(t, folderOnly(func(p *Profile) {})).AdoptsNewExecutables(hiddenFolder) {
+		t.Fatal("un-denying a V skill folder W was hiding must need a new session")
+	}
 	// V's own deny is not W's: it stays hidden either way.
 	in := mk(func(p *Profile) {})
 	in.Vendor.DisabledMCP = []string{"vendor-db"}
