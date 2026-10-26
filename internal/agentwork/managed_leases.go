@@ -70,6 +70,16 @@ type ManagedLeaseHost interface {
 	CheckManagedWriterQuiescence(context.Context, ManagedWriterLease) (ManagedWriterQuiescence, error)
 }
 
+// ManagedReleaseBarrier is an optional host capability. Release calls it before
+// it asks for the quiescence proof and holds it until the release has been
+// committed (or refused), so no start can slip between a positive proof and the
+// commit. A host that has one must refuse every new writer start while it is
+// held; a host without one gets no such guarantee, and the production host
+// always implements it.
+type ManagedReleaseBarrier interface {
+	BeginManagedRelease(context.Context, ManagedWriterLease) (end func(), err error)
+}
+
 type ManagedLeaseStore interface {
 	GetManagedAttempt(context.Context, string) (Attempt, error)
 	GetCurrentManagedAttempt(context.Context, string) (Attempt, error)
@@ -175,6 +185,13 @@ func (s *ManagedLeaseService) Release(ctx context.Context, leaseID string, gener
 	}
 	if lease.Generation != generation || lease.Revision != expectedRevision || lease.ReleasedAt != nil {
 		return ManagedWriterLease{}, ErrManagedLeaseStale
+	}
+	if barrier, ok := s.host.(ManagedReleaseBarrier); ok {
+		end, err := barrier.BeginManagedRelease(ctx, lease)
+		if err != nil {
+			return ManagedWriterLease{}, err
+		}
+		defer end()
 	}
 	proof, err := s.host.CheckManagedWriterQuiescence(ctx, lease)
 	if err != nil {

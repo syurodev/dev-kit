@@ -105,11 +105,25 @@ func TestManagedOwnershipHostResolvesRealTaskScopeAndPinsUnknownWriter(t *testin
 	if err != nil || released.ReleasedAt == nil {
 		t.Fatalf("release on a positive proof = %+v, %v", released, err)
 	}
+	if proving.seals != 2 || proving.ends != 2 {
+		t.Fatalf("barrier taken %d times and ended %d times across two releases, want both 2", proving.seals, proving.ends)
+	}
 }
 
 type provingHub struct {
 	sessionHub
 	proof agenthub.WriterStopProof
+	// seals records SealWriterAdmission calls; sealErr fails them.
+	seals, ends int
+	sealErr     error
+}
+
+func (h *provingHub) SealWriterAdmission(_ context.Context, _ string) (func(), error) {
+	h.seals++
+	if h.sealErr != nil {
+		return nil, h.sealErr
+	}
+	return func() { h.ends++ }, nil
 }
 
 func (h *provingHub) WriterStopProof(_ context.Context, _ string) agenthub.WriterStopProof {
@@ -266,4 +280,31 @@ func initTestGitRepository(t *testing.T, root string) {
 	}
 	run("add", ".")
 	run("commit", "-m", "test")
+}
+
+func TestManagedReleaseTakesTheAdmissionBarrierOrRefuses(t *testing.T) {
+	lease := agentwork.ManagedWriterLease{ID: "l", Binding: agentwork.ManagedWriterBinding{SessionID: "s1"}, Generation: 1}
+	hub := &provingHub{}
+	end, err := (&managedOwnershipHost{hubOverride: hub}).BeginManagedRelease(context.Background(), lease)
+	if err != nil || hub.seals != 1 {
+		t.Fatalf("seal = %v, %d", err, hub.seals)
+	}
+	end()
+	if hub.ends != 1 {
+		t.Fatalf("barrier not ended: %d", hub.ends)
+	}
+
+	hub = &provingHub{sealErr: errors.New("registered admission never left")}
+	_, err = (&managedOwnershipHost{hubOverride: hub}).BeginManagedRelease(context.Background(), lease)
+	if !errors.Is(err, agentwork.ErrManagedQuiescenceUnknown) || !strings.Contains(err.Error(), "admission_in_flight") {
+		t.Fatalf("failed seal = %v", err)
+	}
+	// A hub that cannot seal cannot be released against: no barrier, no release.
+	_, err = (&managedOwnershipHost{hubOverride: sessionHub{}}).BeginManagedRelease(context.Background(), lease)
+	if !errors.Is(err, agentwork.ErrManagedQuiescenceUnknown) || !strings.Contains(err.Error(), "no_admission_barrier") {
+		t.Fatalf("hub without a barrier = %v", err)
+	}
+	if _, err = (&managedOwnershipHost{hubOverride: hub}).BeginManagedRelease(context.Background(), agentwork.ManagedWriterLease{}); !errors.Is(err, agentwork.ErrManagedQuiescenceUnknown) {
+		t.Fatalf("lease without a session = %v", err)
+	}
 }

@@ -233,6 +233,14 @@ func (s *Service) ApplyRewind(ctx context.Context, token string, overwrite []str
 	if !ok {
 		return RewindResult{}, ErrRestorePlanStale
 	}
+	// A rewind restores files and starts a forked runtime on the session's
+	// worktree: both are writer actions, so the managed-writer fence applies
+	// before either, and a release that holds the barrier refuses it.
+	leaveAdmission, err := s.enterWriterAdmission(ctx, held.request.SessionID)
+	if err != nil {
+		return RewindResult{}, err
+	}
+	defer leaveAdmission()
 	// Code only is a restore wearing a different name; there is no reason for
 	// it to take the conversation apart to do a thing the restore path already
 	// does correctly.

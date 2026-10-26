@@ -66,8 +66,11 @@ type WriterStopProof struct {
 // Positive is the only combination that may release an ownership slot.
 func (p WriterStopProof) Positive() bool { return p.Known && p.Stopped && p.Isolated }
 
+// trackedRuntime is only the evidence of one process: the channel its reap
+// closes and what its jail guarantees. It deliberately holds no reference to the
+// runtime, so a closed runtime and everything it owns can be collected, and its
+// identity is its Exited channel, which the runtime itself exposes.
 type trackedRuntime struct {
-	rt      SessionRuntime
 	witness StopWitness
 }
 
@@ -89,6 +92,21 @@ type runtimeTracker struct {
 
 func newRuntimeTracker() *runtimeTracker {
 	return &runtimeTracker{epoch: uuid.NewString(), epochStart: time.Now().UTC(), now: time.Now, sessions: map[string]*sessionRuntimes{}}
+}
+
+// sweep settles every tracked process whose exit was observed. One without the
+// containment guarantee leaves the session unprovable for the epoch.
+func (r *sessionRuntimes) sweep() {
+	for id, item := range r.open {
+		select {
+		case <-item.witness.Exited:
+			delete(r.open, id)
+			if !item.witness.Contained && r.poison == "" {
+				r.poison = StopNoContainment
+			}
+		default:
+		}
+	}
 }
 
 func (t *runtimeTracker) record(id string) *sessionRuntimes {
@@ -132,7 +150,10 @@ func (s *Service) openTracked(sessionID string, open func() (SessionRuntime, err
 		}
 		return rt, nil
 	}
-	r.open[uuid.NewString()] = trackedRuntime{rt: rt, witness: witness}
+	// Drop what was reaped already, so the table is bounded by the processes
+	// that are still running, whether or not anyone ever asks for a proof.
+	r.sweep()
+	r.open[uuid.NewString()] = trackedRuntime{witness: witness}
 	return rt, nil
 }
 
@@ -162,7 +183,7 @@ func (s *Service) WriterStopProof(ctx context.Context, sessionID string) WriterS
 		proof.Known, proof.Reason = true, StopOpening
 		return proof
 	}
-	poison := rec.poison
+	rec.sweep()
 	pending := make(map[string]trackedRuntime, len(rec.open))
 	for id, item := range rec.open {
 		pending[id] = item
@@ -172,10 +193,14 @@ func (s *Service) WriterStopProof(ctx context.Context, sessionID string) WriterS
 	s.mu.Lock()
 	live := s.runtimes[sessionID]
 	s.mu.Unlock()
-	for _, item := range pending {
-		if live != nil && live == item.rt {
-			proof.Known, proof.Reason = true, StopLive
-			return proof
+	if w, ok := live.(RuntimeStopWitness); ok {
+		if lw, ok := w.StopWitness(); ok {
+			for _, item := range pending {
+				if lw.Exited == item.witness.Exited {
+					proof.Known, proof.Reason = true, StopLive
+					return proof
+				}
+			}
 		}
 	}
 
@@ -209,7 +234,7 @@ func (s *Service) WriterStopProof(ctx context.Context, sessionID string) WriterS
 	if uncontained && rec.poison == "" {
 		rec.poison = StopNoContainment
 	}
-	poison = rec.poison
+	poison := rec.poison
 	opening, remaining := rec.opening, len(rec.open)
 	t.mu.Unlock()
 
@@ -227,4 +252,21 @@ func (s *Service) WriterStopProof(ctx context.Context, sessionID string) WriterS
 		proof.Known, proof.Stopped, proof.Isolated, proof.Reason = true, true, true, StopOK
 	}
 	return proof
+}
+
+// TrackedRuntimeCount is how many processes the proof table still waits on for
+// a session (tests and diagnostics). It sweeps the reaped first.
+func (s *Service) TrackedRuntimeCount(sessionID string) int {
+	t := s.stops
+	if t == nil {
+		return 0
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	rec := t.sessions[sessionID]
+	if rec == nil {
+		return 0
+	}
+	rec.sweep()
+	return len(rec.open)
 }

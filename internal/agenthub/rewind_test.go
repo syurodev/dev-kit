@@ -857,3 +857,68 @@ func TestASubagentMessageIsNotABranchPoint(t *testing.T) {
 	}
 	_ = prompts
 }
+
+// A session that lost its ownership cannot be rewound or restored either: both
+// restore files into the worktree, and a rewind starts a forked runtime on it.
+func TestRewindAndRestoreAreFencedByTheManagedWriterGuard(t *testing.T) {
+	svc, store, mock, sessionID, project, prompts := rewindHarness(t)
+	ctx := context.Background()
+	rewindPlan, err := svc.PlanRewind(ctx, agenthub.RewindRequest{SessionID: sessionID, PromptMessageID: prompts[1], Mode: agenthub.RewindBoth})
+	if err != nil {
+		t.Fatal(err)
+	}
+	codePlan, err := svc.PlanRewind(ctx, agenthub.RewindRequest{SessionID: sessionID, PromptMessageID: prompts[1], Mode: agenthub.RewindCode})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := store.GetSession(ctx, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forksBefore := len(mock.Forks())
+
+	svc.SetManagedWriterGuard(writerGuardFunc(func(context.Context, string) error { return errors.New("ownership lost") }))
+	for name, token := range map[string]string{"rewind": rewindPlan.Token, "code rewind": codePlan.Token} {
+		if _, err := svc.ApplyRewind(ctx, token, nil); !errors.Is(err, agenthub.ErrManagedWriterBlocked) {
+			t.Fatalf("%s = %v, want managed writer blocked", name, err)
+		}
+	}
+	if got := len(mock.Forks()); got != forksBefore {
+		t.Fatalf("a forked runtime was started without ownership (%d -> %d forks)", forksBefore, got)
+	}
+	after, err := store.GetSession(ctx, sessionID)
+	if err != nil || after.ACPSessionID != before.ACPSessionID {
+		t.Fatalf("session changed by a refused rewind: %v", err)
+	}
+	for _, name := range []string{"turn1.txt", "turn2.txt", "turn3.txt"} {
+		if _, err := os.Stat(filepath.Join(project, name)); err != nil {
+			t.Errorf("%s was touched by a refused rewind: %v", name, err)
+		}
+	}
+	if got := transcriptTexts(t, store, sessionID); len(got) != 3 {
+		t.Fatalf("prompts = %v, want all three still there", got)
+	}
+
+	restorePlan, err := svc.PlanRestore(ctx, agenthub.RestoreRequest{SessionID: sessionID, Mode: agenthub.RestoreToBeforeTurn, PromptMessageID: prompts[0]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ApplyRestore(ctx, restorePlan.Token, nil); !errors.Is(err, agenthub.ErrManagedWriterBlocked) {
+		t.Fatalf("restore = %v, want managed writer blocked", err)
+	}
+	for _, name := range []string{"turn1.txt", "turn2.txt", "turn3.txt"} {
+		if _, err := os.Stat(filepath.Join(project, name)); err != nil {
+			t.Errorf("%s was touched by a refused restore: %v", name, err)
+		}
+	}
+
+	// With ownership back the same operations are not blocked by the fence.
+	svc.SetManagedWriterGuard(writerGuardFunc(func(context.Context, string) error { return nil }))
+	fresh, err := svc.PlanRewind(ctx, agenthub.RewindRequest{SessionID: sessionID, PromptMessageID: prompts[1], Mode: agenthub.RewindBoth})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ApplyRewind(ctx, fresh.Token, nil); err != nil {
+		t.Fatalf("rewind with ownership = %v", err)
+	}
+}

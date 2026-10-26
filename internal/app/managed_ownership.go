@@ -231,6 +231,33 @@ func (h *managedOwnershipHost) CheckManagedWriterQuiescence(ctx context.Context,
 	}, nil
 }
 
+// writerAdmissionSealer is the Agent Hub's release barrier
+// (agenthub.Service.SealWriterAdmission).
+type writerAdmissionSealer interface {
+	SealWriterAdmission(ctx context.Context, sessionID string) (func(), error)
+}
+
+// BeginManagedRelease seals the session's admissions: from here until the
+// release commit nothing can start a runtime, send a prompt or write files for
+// it, including a start that passed an earlier fence check. The stop proof is
+// taken inside the seal, so a positive proof stays true until the lease is
+// released.
+func (h *managedOwnershipHost) BeginManagedRelease(ctx context.Context, lease agentwork.ManagedWriterLease) (func(), error) {
+	hub := h.hub()
+	if h == nil || hub == nil || lease.Binding.SessionID == "" {
+		return nil, agentwork.ErrManagedQuiescenceUnknown
+	}
+	sealer, ok := hub.(writerAdmissionSealer)
+	if !ok {
+		return nil, quiescenceUnknown("no_admission_barrier")
+	}
+	end, err := sealer.SealWriterAdmission(ctx, lease.Binding.SessionID)
+	if err != nil {
+		return nil, quiescenceUnknown("admission_in_flight")
+	}
+	return end, nil
+}
+
 func quiescenceUnknown(reason string) error {
 	return fmt.Errorf("%w: %s", agentwork.ErrManagedQuiescenceUnknown, reason)
 }
@@ -533,5 +560,6 @@ func managedRoleContract(role string) (string, agentwork.PackageOutputContract, 
 }
 
 var _ agentwork.ManagedLeaseHost = (*managedOwnershipHost)(nil)
+var _ agentwork.ManagedReleaseBarrier = (*managedOwnershipHost)(nil)
 var _ agentwork.PackageHost = (*managedOwnershipHost)(nil)
 var _ agentwork.PayloadCodec = managedVaultPayloadCodec{}

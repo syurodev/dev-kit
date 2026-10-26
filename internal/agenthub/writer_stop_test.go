@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -66,6 +67,12 @@ func (a *witnessAdapter) Open(ctx context.Context, spec agenthub.OpenSpec) (agen
 	a.runtimes = append(a.runtimes, rt)
 	a.mu.Unlock()
 	return rt, nil
+}
+
+// Load reopens a conversation the way a resume does, so a session that has been
+// prompted can be closed and reopened.
+func (a *witnessAdapter) Load(ctx context.Context, spec agenthub.OpenSpec, _ string) (agenthub.SessionRuntime, error) {
+	return a.Open(ctx, spec)
 }
 
 func (a *witnessAdapter) last() *witnessRuntime {
@@ -360,5 +367,145 @@ func TestDrainWriterAdmissionWaitsForAnAdmissionInFlight(t *testing.T) {
 	}
 	if err := svc.DrainWriterAdmission(context.Background(), "other-session"); err != nil {
 		t.Fatalf("drain of an idle session = %v", err)
+	}
+}
+
+// The seal outranks a start that passed an earlier check. An Invoke that
+// registered before the seal and only then reaches the point of starting a
+// runtime is refused there, so a positive stop proof cannot be overtaken.
+func TestSealedAdmissionRefusesAStartThatRegisteredBeforeTheSeal(t *testing.T) {
+	svc, adapter := newWitnessService(t, true, true)
+	sess := newMockSession(t, svc)
+	ctx := context.Background()
+	if err := svc.CloseSession(ctx, sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	close(adapter.last().exited)
+	opensBefore := func() int { adapter.mu.Lock(); defer adapter.mu.Unlock(); return adapter.opens }
+
+	reached, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	svc.SetManagedWriterGuard(&guardSteps{hold: func(call int) {
+		if call == 2 { // Invoke is registered and has passed nothing past the barrier yet
+			once.Do(func() { close(reached) })
+			<-release
+		}
+	}})
+	invoked := make(chan error, 1)
+	go func() {
+		_, err := svc.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: "reopen"})
+		invoked <- err
+	}()
+	<-reached
+
+	type sealed struct {
+		end func()
+		err error
+	}
+	sealing := make(chan sealed, 1)
+	go func() {
+		end, err := svc.SealWriterAdmission(ctx, sess.ID)
+		sealing <- sealed{end, err}
+	}()
+	// The seal is waiting for the registered Invoke; it must not return yet.
+	select {
+	case <-sealing:
+		t.Fatal("seal returned while an admission was still registered")
+	case <-time.After(40 * time.Millisecond):
+	}
+	close(release)
+	if err := <-invoked; !errors.Is(err, agenthub.ErrManagedWriterBlocked) {
+		t.Fatalf("Invoke after the seal = %v, want managed writer blocked", err)
+	}
+	s := <-sealing
+	if s.err != nil {
+		t.Fatal(s.err)
+	}
+	if got := opensBefore(); got != 1 {
+		t.Fatalf("a runtime was started under the seal (%d opens)", got)
+	}
+	if p := svc.WriterStopProof(ctx, sess.ID); !p.Positive() {
+		t.Fatalf("proof under the seal = %+v", p)
+	}
+	// Every other way in is refused too, with the guard allowing it.
+	if _, err := svc.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: "x"}); !errors.Is(err, agenthub.ErrManagedWriterBlocked) {
+		t.Fatalf("Invoke under the seal = %v", err)
+	}
+	if err := svc.ResumeSession(ctx, sess.ID, false); !errors.Is(err, agenthub.ErrManagedWriterBlocked) {
+		t.Fatalf("ResumeSession under the seal = %v", err)
+	}
+	if _, err := svc.Steer(ctx, sess.ID, "x"); !errors.Is(err, agenthub.ErrManagedWriterBlocked) {
+		t.Fatalf("Steer under the seal = %v", err)
+	}
+	if got := opensBefore(); got != 1 {
+		t.Fatalf("a runtime was started under the seal (%d opens)", got)
+	}
+	s.end()
+	s.end() // idempotent
+	if _, err := svc.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: "after"}); err != nil {
+		t.Fatalf("Invoke after the seal ended = %v", err)
+	}
+}
+
+func TestSealWriterAdmissionGivesUpWithItsContext(t *testing.T) {
+	svc, _ := newWitnessService(t, true, true)
+	sess := newMockSession(t, svc)
+	reached, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	svc.SetManagedWriterGuard(&guardSteps{hold: func(call int) {
+		if call == 2 {
+			once.Do(func() { close(reached) })
+			<-release
+		}
+	}})
+	done := make(chan error, 1)
+	go func() {
+		_, err := svc.Invoke(context.Background(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "x"})
+		done <- err
+	}()
+	<-reached
+	short, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if end, err := svc.SealWriterAdmission(short, sess.ID); err == nil {
+		end()
+		t.Fatal("seal returned although an admission never left")
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("Invoke after a failed seal = %v (a failed seal must not stay in force)", err)
+	}
+}
+
+// The closed runtimes of a session are not kept alive by the proof table, even
+// when nobody ever asks for a proof.
+func TestClosedRuntimesAreNotRetainedByTheProofTable(t *testing.T) {
+	svc, adapter := newWitnessService(t, true, true)
+	sess := newMockSession(t, svc)
+	ctx := context.Background()
+	collected := make(chan struct{}, 64)
+	for i := 0; i < 20; i++ {
+		rt := adapter.last()
+		runtime.SetFinalizer(rt, func(*witnessRuntime) { collected <- struct{}{} })
+		if err := svc.CloseSession(ctx, sess.ID); err != nil {
+			t.Fatal(err)
+		}
+		close(rt.exited)
+		adapter.mu.Lock()
+		adapter.runtimes = adapter.runtimes[:0] // the test's own references
+		adapter.mu.Unlock()
+		if _, err := svc.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: "reopen"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for len(collected) < 15 && time.Now().Before(deadline) {
+		runtime.GC()
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(collected) < 15 {
+		t.Fatalf("only %d of 20 closed runtimes were collected: the proof table retains them", len(collected))
+	}
+	if n := svc.TrackedRuntimeCount(sess.ID); n > 1 {
+		t.Fatalf("tracked runtimes = %d, want only the live one", n)
 	}
 }
