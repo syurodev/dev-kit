@@ -3,6 +3,7 @@ package harness
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -804,5 +805,240 @@ func TestFingerprintKeepsToolNamesAndExemptionsApart(t *testing.T) {
 	}
 	if fa != fd {
 		t.Error("tool order must not matter")
+	}
+}
+
+func TestServingIsDefaultOnlyWhenNothingChangesWhatTheServerServes(t *testing.T) {
+	if !resolve(t, base()).ServingIsDefault() {
+		t.Fatal("no profile serves the default")
+	}
+	off := base()
+	off.Workspace = profile(func(p *Profile) { p.ToolGroups = map[string]bool{"git": false} })
+	if resolve(t, off).ServingIsDefault() {
+		t.Error("a group off is not the default")
+	}
+	b := base()
+	b.Workspace = profile(func(p *Profile) {
+		p.ResultBudget = &BudgetProfile{Tools: map[string]BudgetRule{"git.status": {Bytes: ptr(4096)}}}
+	})
+	if resolve(t, b).ServingIsDefault() {
+		t.Error("a smaller budget is not the default")
+	}
+	// Lists and servers change the launch, not what the server serves.
+	l := base()
+	l.Workspace = profile(func(p *Profile) { p.DisabledMCP = []string{"x"} })
+	if !resolve(t, l).ServingIsDefault() {
+		t.Error("a deny list does not change the served tools")
+	}
+}
+
+func TestExecutableDigestIgnoresRevisionsAndOrder(t *testing.T) {
+	a := base()
+	a.Workspace = profile(func(p *Profile) { p.Servers = []Server{stdio("a", "x"), stdio("b", "y")} })
+	b := base()
+	b.Workspace = profile(func(p *Profile) { p.Revision = 99; p.Servers = []Server{stdio("b", "y"), stdio("a", "x")} })
+	if resolve(t, a).ExecutableDigest() != resolve(t, b).ExecutableDigest() {
+		t.Error("revisions or order moved the executable digest")
+	}
+	c := base()
+	c.Workspace = profile(func(p *Profile) { p.Servers = []Server{stdio("a", "x"), stdio("b", "z")} })
+	if resolve(t, a).ExecutableDigest() == resolve(t, c).ExecutableDigest() {
+		t.Error("a changed command kept the digest")
+	}
+}
+
+func refFor(t *testing.T, in Inputs) SnapshotRef {
+	t.Helper()
+	e := resolve(t, in)
+	return SnapshotRef{ExecutableEntries: e.ExecutableEntries(), WorkspaceOwned: e.WorkspaceOwned(), WorkspaceSuppressed: e.WorkspaceSuppressed()}
+}
+
+func TestAdoptingNewExecutablesLooksAtWhatChangedAndWhy(t *testing.T) {
+	withW := func(f func(*Profile)) Inputs {
+		in := base()
+		in.Vendor.Servers = []Server{stdio("v", "vc")}
+		in.Workspace = profile(f)
+		return in
+	}
+	applied := refFor(t, withW(func(p *Profile) { p.Servers = []Server{stdio("db", "a")} }))
+
+	if !refFor(t, withW(func(p *Profile) { p.Servers = []Server{stdio("db", "b")} })).AdoptsNewExecutables(applied) {
+		t.Error("an altered W server must need a new session")
+	}
+	if !refFor(t, withW(func(p *Profile) { p.Servers = []Server{stdio("db", "a"), stdio("new", "x")} })).AdoptsNewExecutables(applied) {
+		t.Error("a new W server must need a new session")
+	}
+	// W moved but only narrows: a deny that removes a server, fewer servers.
+	if refFor(t, withW(func(p *Profile) { p.Servers = []Server{stdio("db", "a")}; p.DisabledMCP = []string{"db"} })).AdoptsNewExecutables(applied) {
+		t.Error("a deny entry that removes a server is narrowing")
+	}
+	if refFor(t, withW(func(p *Profile) {})).AdoptsNewExecutables(applied) {
+		t.Error("dropping W's server is narrowing")
+	}
+	// A V-only change under identical W content is not this rule's business.
+	vChanged := withW(func(p *Profile) { p.Servers = []Server{stdio("db", "a")} })
+	vChanged.Vendor.Servers = []Server{stdio("v", "other-command")}
+	if refFor(t, vChanged).AdoptsNewExecutables(applied) {
+		t.Error("a V-only change must keep reloading as before")
+	}
+	// W's revision is not the evidence: same content, new revision.
+	same := withW(func(p *Profile) { p.Revision = 42; p.Servers = []Server{stdio("db", "a")} })
+	if refFor(t, same).AdoptsNewExecutables(applied) {
+		t.Error("a revision bump with identical content is no change")
+	}
+}
+
+// The vendor customization changes a server's command in the same reopen in
+// which the workspace only narrows. The executable change is not W's doing.
+func TestAVendorExecutableChangeIsNotBlamedOnAConcurrentNarrowingOfW(t *testing.T) {
+	before := base()
+	before.Vendor.Servers = []Server{stdio("v", "old-command")}
+	after := base()
+	after.Vendor.Servers = []Server{stdio("v", "new-command")}
+	after.Workspace = profile(func(p *Profile) { p.ToolGroups = map[string]bool{"git": false} })
+	if refFor(t, after).AdoptsNewExecutables(refFor(t, before)) {
+		t.Fatal("a vendor command change was attributed to a workspace change that only turns a group off")
+	}
+	// The same V change together with a W change that does touch executables is
+	// still the workspace's: its own entry is new.
+	after.Workspace = profile(func(p *Profile) { p.Servers = []Server{stdio("w", "x")} })
+	if !refFor(t, after).AdoptsNewExecutables(refFor(t, before)) {
+		t.Fatal("a new W server must be caught even beside a V change")
+	}
+}
+
+func TestWhatWDeniedAndNoLongerDeniesIsTheWorkspacesDoing(t *testing.T) {
+	mk := func(w func(*Profile)) Inputs {
+		in := base()
+		in.Vendor.Servers = []Server{stdio("v", "vc")}
+		in.Environment.Servers = []Server{stdio("vendor-db", "theirs")}
+		in.Workspace = profile(w)
+		return in
+	}
+	hidden := refFor(t, mk(func(p *Profile) { p.DisabledMCP = []string{"v", "vendor-db"} }))
+	shown := refFor(t, mk(func(p *Profile) {}))
+	if !shown.AdoptsNewExecutables(hidden) {
+		t.Fatal("removing W's deny exposes a vendor server and a V server: new session")
+	}
+	// Each source is judged on its own: a V-configured server hidden by W's deny,
+	// and a vendor-defined one.
+	onlyV := func(w func(*Profile)) Inputs {
+		in := base()
+		in.Vendor.Servers = []Server{stdio("v", "vc")}
+		in.Workspace = profile(w)
+		return in
+	}
+	if !refFor(t, onlyV(func(p *Profile) {})).AdoptsNewExecutables(refFor(t, onlyV(func(p *Profile) { p.DisabledMCP = []string{"v"} }))) {
+		t.Fatal("un-denying a V server W was hiding must need a new session")
+	}
+	onlyEnv := func(w func(*Profile)) Inputs {
+		in := base()
+		in.Environment.Servers = []Server{stdio("vendor-db", "theirs")}
+		in.Workspace = profile(w)
+		return in
+	}
+	if !refFor(t, onlyEnv(func(p *Profile) {})).AdoptsNewExecutables(refFor(t, onlyEnv(func(p *Profile) { p.DisabledMCP = []string{"vendor-db"} }))) {
+		t.Fatal("un-denying a vendor server W was hiding must need a new session")
+	}
+	// Skills the same way.
+	skills := func(w func(*Profile)) Inputs {
+		in := base()
+		in.Vendor.SkillFolders = []string{"/skills/v"}
+		in.Environment.Skills = []string{"/home/.claude/skills/x/SKILL.md"}
+		in.Workspace = profile(w)
+		return in
+	}
+	denied := refFor(t, skills(func(p *Profile) { p.DisabledSkills = []string{"/skills/v/SKILL.md", "/home/.claude/skills/x/SKILL.md"} }))
+	if !refFor(t, skills(func(p *Profile) {})).AdoptsNewExecutables(denied) {
+		t.Fatal("un-denying skills W was hiding must need a new session")
+	}
+	folderOnly := func(w func(*Profile)) Inputs {
+		in := base()
+		in.Vendor.SkillFolders = []string{"/skills/v"}
+		in.Workspace = profile(w)
+		return in
+	}
+	hiddenFolder := refFor(t, folderOnly(func(p *Profile) { p.DisabledSkills = []string{"/skills/v/SKILL.md"} }))
+	if !refFor(t, folderOnly(func(p *Profile) {})).AdoptsNewExecutables(hiddenFolder) {
+		t.Fatal("un-denying a V skill folder W was hiding must need a new session")
+	}
+	// V's own deny is not W's: it stays hidden either way.
+	in := mk(func(p *Profile) {})
+	in.Vendor.DisabledMCP = []string{"vendor-db"}
+	vDenied := refFor(t, in)
+	in2 := mk(func(p *Profile) { p.DisabledMCP = []string{"vendor-db"} })
+	in2.Vendor.DisabledMCP = []string{"vendor-db"}
+	if refFor(t, in).AdoptsNewExecutables(refFor(t, in2)) || vDenied.AdoptsNewExecutables(refFor(t, in2)) {
+		t.Fatal("an entry V denies is not W's to expose")
+	}
+	// Falling back to V's server by dropping W's override of it.
+	over := mk(func(p *Profile) { p.Servers = []Server{stdio("v", "w-override")} })
+	fallback := mk(func(p *Profile) {})
+	if !refFor(t, fallback).AdoptsNewExecutables(refFor(t, over)) {
+		t.Fatal("dropping a W override brings V's server back: new session")
+	}
+}
+
+// One canonicalization feeds the executables, the fingerprint and the ownership
+// tables: a symlink retargeted while Resolve runs cannot make them disagree.
+func TestOneResolutionOfAPathFeedsEverythingResolveReports(t *testing.T) {
+	calls := 0
+	in := base()
+	in.Canonical = func(p string) (string, error) {
+		if p == "/link/skills" {
+			calls++
+			return fmt.Sprintf("/real/%d", calls), nil
+		}
+		return p, nil
+	}
+	in.Workspace = profile(func(p *Profile) { p.SkillFolders = []string{"/link/skills"} })
+	e := resolve(t, in)
+	if calls != 1 {
+		t.Fatalf("the folder was resolved %d times", calls)
+	}
+	want := shortHash("skill:/real/1/SKILL.md")
+	if e.SkillFolders[0] != "/real/1" || e.ExecutableEntries()[want] == "" {
+		t.Fatalf("folders %v entries %v", e.SkillFolders, e.ExecutableEntries())
+	}
+	owned := e.WorkspaceOwned()
+	if len(owned) != 1 || owned[0] != want {
+		t.Fatalf("owned = %v, want the same resolved skill", owned)
+	}
+}
+
+func TestARetargetedSymlinkInWIsAWorkspaceChange(t *testing.T) {
+	target := "/real/a"
+	in := base()
+	in.Canonical = func(p string) (string, error) {
+		if p == "/link/skills" {
+			return target, nil
+		}
+		return p, nil
+	}
+	in.Workspace = profile(func(p *Profile) { p.SkillFolders = []string{"/link/skills"} })
+	applied := refFor(t, in)
+	target = "/real/b"
+	if !refFor(t, in).AdoptsNewExecutables(applied) {
+		t.Fatal("a retargeted symlink in W was treated as no change")
+	}
+	// A retargeted symlink in V's folders is the vendor customization's business.
+	v := base()
+	v.Canonical = in.Canonical
+	v.Vendor.SkillFolders = []string{"/link/skills"}
+	target = "/real/a"
+	appliedV := refFor(t, v)
+	target = "/real/b"
+	if refFor(t, v).AdoptsNewExecutables(appliedV) {
+		t.Fatal("a V-side symlink retarget must keep reloading as before")
+	}
+}
+
+func TestExecutableEntriesHoldNoNamesOrCommands(t *testing.T) {
+	in := base()
+	in.Workspace = profile(func(p *Profile) { p.Servers = []Server{stdio("secret-name", "SECRET-CMD")} })
+	for k, v := range resolve(t, in).ExecutableEntries() {
+		if strings.Contains(k, "secret") || strings.Contains(v, "SECRET") || len(k) != 16 || len(v) != 16 {
+			t.Fatalf("entry %q=%q is not an opaque hash pair", k, v)
+		}
 	}
 }

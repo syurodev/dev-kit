@@ -83,23 +83,47 @@ func Resolve(in Inputs) (Effective, error) {
 		}
 	}
 	disabledMCP := union(in.Vendor.DisabledMCP, w.DisabledMCP)
-	disabledSkills := map[string]bool{}
-	for _, p := range slices.Concat(in.Vendor.DisabledSkills, w.DisabledSkills) {
-		disabledSkills[lenient(p)] = true
+	vDenyMCP, wDenyMCP := setOf(in.Vendor.DisabledMCP), setOf(w.DisabledMCP)
+	// Every path is canonicalized exactly once. The executables, the fingerprint
+	// and the ownership tables below are all built from these results, so they
+	// cannot disagree if a symlink is retargeted while Resolve runs.
+	disabledSkills, vDenySkills, wDenySkills := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	for _, p := range in.Vendor.DisabledSkills {
+		c := lenient(p)
+		vDenySkills[c], disabledSkills[c] = true, true
+	}
+	for _, p := range w.DisabledSkills {
+		c := lenient(p)
+		wDenySkills[c], disabledSkills[c] = true, true
 	}
 
 	servers, err := mergeServers(in.Vendor.Servers, w.Servers, in.Environment.Servers)
 	if err != nil {
 		return Effective{}, err
 	}
+	wServers := map[string]bool{}
+	for _, sv := range w.Servers {
+		wServers[sv.Name] = true
+	}
 
-	folders := map[string]bool{}
-	for _, f := range slices.Concat(in.Vendor.SkillFolders, w.SkillFolders) {
+	folders, wFolders := map[string]bool{}, map[string]bool{}
+	for _, f := range in.Vendor.SkillFolders {
 		real, err := strict(f)
 		if err != nil {
 			return Effective{}, err
 		}
 		folders[real] = true
+	}
+	for _, f := range w.SkillFolders {
+		real, err := strict(f)
+		if err != nil {
+			return Effective{}, err
+		}
+		folders[real], wFolders[real] = true, true
+	}
+	skillOf := make(map[string]string, len(folders))
+	for f := range folders {
+		skillOf[f] = lenient(filepath.Join(f, "SKILL.md"))
 	}
 	envSkills := map[string]bool{}
 	for _, p := range in.Environment.Skills {
@@ -132,30 +156,75 @@ func Resolve(in Inputs) (Effective, error) {
 	// What could run or load. A DevKit server counts when enabled and not
 	// denied; a vendor-defined server or skill counts when not denied, so a
 	// deny entry whose removal exposes one is an executable change.
-	for _, s := range servers {
-		if s.Enabled && !slices.Contains(disabledMCP, s.Name) {
-			eff.executable["mcp:"+s.Name] = serverShape(s)
+	//
+	// Each entry also records where it came from. owned entries are defined by W
+	// (its servers and skill folders); suppressed entries exist in V or the
+	// vendor's files and are hidden only by W's own deny lists. A reopen that
+	// brings in an owned entry, or one W stopped suppressing, is the workspace
+	// profile's doing; any other new or altered entry is the vendor customization
+	// or the vendor's files and reloads as it always has.
+	owned, suppressed := map[string]bool{}, map[string]bool{}
+	for _, sv := range servers {
+		key := "mcp:" + sv.Name
+		if !sv.Enabled {
+			continue
+		}
+		if slices.Contains(disabledMCP, sv.Name) {
+			if !wServers[sv.Name] && wDenyMCP[sv.Name] && !vDenyMCP[sv.Name] {
+				suppressed[key] = true
+			}
+			continue
+		}
+		eff.executable[key] = serverShape(sv)
+		if wServers[sv.Name] {
+			owned[key] = true
 		}
 	}
-	for _, s := range in.Environment.Servers {
-		if _, mine := eff.executable["mcp:"+s.Name]; !mine && !slices.Contains(disabledMCP, s.Name) {
-			eff.executable["mcp:"+s.Name] = serverShape(s)
+	for _, sv := range in.Environment.Servers {
+		key := "mcp:" + sv.Name
+		if _, mine := eff.executable[key]; mine {
+			continue
 		}
+		if slices.Contains(disabledMCP, sv.Name) {
+			if wDenyMCP[sv.Name] && !vDenyMCP[sv.Name] {
+				suppressed[key] = true
+			}
+			continue
+		}
+		eff.executable[key] = serverShape(sv)
 	}
 	// An imported skill that is denied is not loaded, so it is not executable
 	// until its deny entry goes: removing that entry is an executable change.
 	for f := range folders {
-		skill := lenient(filepath.Join(f, "SKILL.md"))
-		if !disabledSkills[skill] {
-			eff.executable["skill:"+skill] = "folder"
+		skill := skillOf[f]
+		key := "skill:" + skill
+		if disabledSkills[skill] {
+			if !wFolders[f] && wDenySkills[skill] && !vDenySkills[skill] {
+				suppressed[key] = true
+			}
+			continue
+		}
+		eff.executable[key] = "folder"
+		if wFolders[f] {
+			owned[key] = true
 		}
 	}
 	for p := range envSkills {
-		if _, mine := eff.executable["skill:"+p]; !mine && !disabledSkills[p] {
-			eff.executable["skill:"+p] = "vendor"
+		key := "skill:" + p
+		if _, mine := eff.executable[key]; mine {
+			continue
 		}
+		if disabledSkills[p] {
+			if wDenySkills[p] && !vDenySkills[p] {
+				suppressed[key] = true
+			}
+			continue
+		}
+		eff.executable[key] = "vendor"
 	}
+	eff.owned, eff.suppressed = owned, suppressed
 	eff.Fingerprint = fingerprint(in, envSkills, folders, disabledSkills)
+	eff.execDigest = executableDigest(eff.executable)
 	return eff, nil
 }
 
@@ -320,5 +389,13 @@ func sortedKeys[V any](m map[string]V) []string {
 		out = append(out, k)
 	}
 	sort.Strings(out)
+	return out
+}
+
+func setOf(in []string) map[string]bool {
+	out := make(map[string]bool, len(in))
+	for _, s := range in {
+		out[s] = true
+	}
 	return out
 }
