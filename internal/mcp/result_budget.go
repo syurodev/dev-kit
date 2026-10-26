@@ -69,7 +69,7 @@ const genericResultHint = "Ask for less: a smaller limit, a narrower query or fi
 // text in an agent's context. It sits in front of every registered tool, so a
 // new tool is covered without knowing about it.
 func withResultBudget(budget int) sdk.Middleware {
-	return withMeasuredResultBudget(budget, nil)
+	return withMeasuredResultBudget(budget, nil, nil)
 }
 
 // limitResult shrinks call in place when its text is over budget.

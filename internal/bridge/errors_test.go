@@ -13,6 +13,7 @@ import (
 	"devkit/internal/app"
 	"devkit/internal/apperrors"
 	"devkit/internal/cloudconfig"
+	"devkit/internal/harness"
 	"devkit/internal/notes"
 	"devkit/internal/syncclient"
 	"devkit/internal/tasks"
@@ -234,5 +235,14 @@ func TestManagedWriterRefusalIsPublishedWithoutHostDetails(t *testing.T) {
 	}
 	if strings.Contains(got.Message, "secret") || !strings.Contains(got.Message, "lease") {
 		t.Fatalf("unsafe or unhelpful message: %q", got.Message)
+	}
+}
+
+func TestHarnessServingRefusalsAreKeptAsWritten(t *testing.T) {
+	for _, code := range []string{harness.CodeGroupOff, harness.CodeSnapshotUnavailable} {
+		got := publicErrorForCode("builtin.git", errors.New(code), &apperrors.AppError{Code: code, Message: "The git tools are turned off for this session.", Recoverable: true})
+		if got.Code != code || got.Message != "The git tools are turned off for this session." {
+			t.Errorf("%s = %+v", code, got)
+		}
 	}
 }

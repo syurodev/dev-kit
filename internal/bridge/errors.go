@@ -24,6 +24,7 @@ import (
 	"devkit/internal/environments"
 	gitservice "devkit/internal/git"
 	"devkit/internal/gitssh"
+	"devkit/internal/harness"
 	"devkit/internal/interaction"
 	"devkit/internal/kafka"
 	"devkit/internal/mcp/install"
@@ -819,6 +820,13 @@ var keptCodes = map[string]bool{
 	// a fixed sentence per stop kind, the stop's time, and the vendor's text folded
 	// to one line, clipped to 300 runes and said to be third-party.
 	"agenthub.resumeRefused": true,
+	// internal/mcp/serving.go: the refusals an endpoint serving a harness
+	// policy answers itself. Fixed sentences; the only variable part is a group
+	// name from the server's own registry. They are text results of a call, not
+	// errors raised inside Caller.Call, so this entry is what keeps them
+	// published should the same code ever travel that path.
+	harness.CodeGroupOff:            true,
+	harness.CodeSnapshotUnavailable: true,
 }
 
 // unexpectedError is the bottom of publicError's funnel: every cause that

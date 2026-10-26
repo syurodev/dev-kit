@@ -237,6 +237,16 @@ type Server struct {
 	deps      Deps
 	mcp       *sdk.Server
 	gateOwned sync.Map
+
+	// inv is the registry as registered (Inventory), read once.
+	invOnce sync.Once
+	inv     Inventory
+	invErr  error
+	// pageSize is the SDK's tools/list page size; zero keeps its default. Tests
+	// set it small to exercise pagination.
+	pageSize int
+	// extraTools registers more tools on every instance. Tests only.
+	extraTools func(*sdk.Server)
 }
 
 // gateOwnedTool is an explicit registration declaration: the handler must
@@ -289,14 +299,29 @@ func NewServer(d Deps) *Server {
 // instance per identity — the shared socket gets user-terminal, each agent
 // socket its own — so there is no per-connection lookup to race against.
 func (s *Server) sdkServerFor(caller identity.Caller, token ...string) *sdk.Server {
-	ms := sdk.NewServer(&sdk.Implementation{Name: "devkit", Version: "0.1.0"}, nil)
+	endpointToken := ""
+	if len(token) > 0 {
+		endpointToken = token[0]
+	}
+	return s.sdkServerWith(&caller, endpointToken, nil)
+}
+
+// sdkServerWith builds one instance. A nil caller is the throwaway instance
+// Inventory reads. With a serving holder the instance lists only what the
+// policy serves and answers a refusal for a registered tool it hides; without
+// one it is today's server, byte for byte.
+func (s *Server) sdkServerWith(c *identity.Caller, endpointToken string, serving *servingHolder) *sdk.Server {
+	caller := identity.UserTerminal()
+	if c != nil {
+		caller = *c
+	}
+	ms := sdk.NewServer(&sdk.Implementation{Name: "devkit", Version: "0.1.0"}, &sdk.ServerOptions{PageSize: s.pageSize})
 	ms.AddReceivingMiddleware(withCaller(caller))
 	var observer *ResultObservation
-	if caller.IsAgent() && len(token) > 0 && s.deps.RecordUsage != nil && s.deps.UsageScope != nil {
-		endpointToken := token[0]
+	if caller.IsAgent() && endpointToken != "" && s.deps.RecordUsage != nil && s.deps.UsageScope != nil {
 		observer = &ResultObservation{Begin: s.deps.BeginUsage, End: s.deps.EndUsage, Scope: func() (usagemetrics.Scope, bool) { return s.deps.UsageScope(caller.SessionID, endpointToken) }, Record: s.deps.RecordUsage, Drop: s.deps.DropUsage}
 	}
-	ms.AddReceivingMiddleware(withMeasuredResultBudget(ResultBudget, observer))
+	ms.AddReceivingMiddleware(withMeasuredResultBudget(ResultBudget, observer, serving))
 	s.registerVault(ms)
 	RegisterOps(ms, ops.Runtime{Deps: ops.Deps{Notes: s.deps.Notes}, Caller: s.deps.Caller, Origin: "mcp"}, ops.Notes()...)
 	s.registerTools(ms)
@@ -316,6 +341,18 @@ func (s *Server) sdkServerFor(caller identity.Caller, token ...string) *sdk.Serv
 	s.registerWorkspace(ms)
 	s.registerWorkspaceMemory(ms)
 	s.registerPDF(ms)
+	if s.extraTools != nil {
+		s.extraTools(ms)
+	}
+	// Hide what the policy does not serve from discovery itself: the instance
+	// never holds those tools, so no page, cursor or total can name them.
+	if snap := serving.load(); snap != nil {
+		if inv, err := s.Inventory(); err == nil {
+			if hidden := hiddenTools(inv, snap.eff); len(hidden) > 0 {
+				ms.RemoveTools(hidden...)
+			}
+		}
+	}
 	return ms
 }
 

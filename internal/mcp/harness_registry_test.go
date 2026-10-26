@@ -1,29 +1,21 @@
 package mcp
 
 import (
-	"encoding/json"
 	"testing"
 
 	"devkit/internal/harness"
 )
 
-// harnessRegistry is the registry fact set the host will hand to
-// harness.Resolve: every tool the product can offer, with the cost of its
-// definition and the fixed exemption this package owns.
+// harnessRegistry is the registry fact set the host hands to harness.Resolve:
+// the server's own inventory, so validation, serving and these tests share one
+// definition of "every tool the product can offer".
 func harnessRegistry(t *testing.T) harness.Registry {
 	t.Helper()
-	var reg harness.Registry
-	for _, tool := range listAllTools(t) {
-		in, _ := json.Marshal(tool.InputSchema)
-		out, _ := json.Marshal(tool.OutputSchema)
-		_, exempt := budgetExempt[tool.Name]
-		reg.Tools = append(reg.Tools, harness.Tool{
-			Name:            tool.Name,
-			DefinitionBytes: len(tool.Description) + len(in) + len(out),
-			BudgetExempt:    exempt,
-		})
+	inv, err := NewServer(fullDeps()).Inventory()
+	if err != nil {
+		t.Fatal(err)
 	}
-	return reg
+	return inv.Registry()
 }
 
 // The harness contract and the MCP server must agree on the numbers a profile
