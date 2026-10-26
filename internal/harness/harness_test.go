@@ -702,3 +702,91 @@ func TestClassifyCutModeAloneIsNeutralAndTakesTheNarrowingTier(t *testing.T) {
 		t.Fatalf("cut-only change = %+v", c)
 	}
 }
+
+// An imported skill that is denied does not load. Removing the deny entry makes
+// it load, which is the same executable change as adding the folder.
+func TestClassifyUndenyingAnImportedSkillIsExecutable(t *testing.T) {
+	denied := base()
+	denied.Vendor.SkillFolders = []string{"/skills/a"}
+	denied.Workspace = profile(func(p *Profile) { p.DisabledSkills = []string{"/skills/a/SKILL.md"} })
+	open := denied
+	open.Workspace = profile(func(p *Profile) { p.DisabledSkills = []string{} })
+	if c := classify(t, denied, open); c.Tier != TierExecutable {
+		t.Fatalf("un-denying an imported skill = %+v", c)
+	}
+	if c := classify(t, open, denied); c.Tier != TierNarrowing {
+		t.Fatalf("denying it again = %v", c.Tier)
+	}
+	// Denied from the start, a folder that is added changes nothing it can run.
+	none := base()
+	none.Workspace = profile(func(p *Profile) { p.DisabledSkills = []string{"/skills/a/SKILL.md"} })
+	if c := classify(t, none, denied); c.Tier != TierNone {
+		t.Errorf("adding a folder whose skill is denied = %+v", c)
+	}
+}
+
+// Same revisions, same names; a symlink now points somewhere else.
+func TestFingerprintFollowsWhereASkillPathResolves(t *testing.T) {
+	target := "/skills/a"
+	in := base()
+	in.Canonical = func(p string) (string, error) {
+		if p == "/link/skill" {
+			return target, nil
+		}
+		return p, nil
+	}
+	in.Workspace = profile(func(p *Profile) { p.SkillFolders = []string{"/link/skill"} })
+	a := resolve(t, in)
+	target = "/skills/b"
+	b := resolve(t, in)
+	if a.Fingerprint == b.Fingerprint {
+		t.Fatal("re-pointing a symlink must change the fingerprint")
+	}
+	if c := Classify(a, b); c.Tier != TierExecutable {
+		t.Errorf("the effective set changed: %+v", c)
+	}
+
+	// A denied skill's target is part of what the deny entry means.
+	target = "/skills/a"
+	in.Workspace = profile(func(p *Profile) { p.DisabledSkills = []string{"/link/skill/SKILL.md"} })
+	in.Canonical = func(p string) (string, error) {
+		if p == "/link/skill/SKILL.md" {
+			return target + "/SKILL.md", nil
+		}
+		return p, nil
+	}
+	d1 := resolve(t, in).Fingerprint
+	target = "/skills/b"
+	if resolve(t, in).Fingerprint == d1 {
+		t.Error("a deny entry's resolved target must be in the fingerprint")
+	}
+}
+
+// Storage writes empty Args/EnvKeys as absent; nothing may change by saving.
+func TestServersAreUnchangedByAStorageRoundTrip(t *testing.T) {
+	orig := Server{Name: "db", Command: "cmd", Args: []string{}, EnvKeys: []string{}, Enabled: true}
+	raw, err := json.Marshal([]Server{orig})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var loaded []Server
+	if err := json.Unmarshal(raw, &loaded); err != nil {
+		t.Fatal(err)
+	}
+	if loaded[0].Args != nil || loaded[0].EnvKeys != nil {
+		t.Fatalf("test premise: empty lists should come back absent, got %+v", loaded[0])
+	}
+	mk := func(s Server) Inputs {
+		in := base()
+		in.Vendor.Servers = []Server{s}
+		in.Environment.Servers = []Server{{Name: "vendor", Command: "v", Args: s.Args, EnvKeys: s.EnvKeys}}
+		return in
+	}
+	before, after := resolve(t, mk(orig)), resolve(t, mk(loaded[0]))
+	if c := Classify(before, after); c.Tier != TierNone {
+		t.Errorf("a round trip looks like a change: %+v", c)
+	}
+	if before.Fingerprint != after.Fingerprint {
+		t.Error("a round trip moved the fingerprint")
+	}
+}
