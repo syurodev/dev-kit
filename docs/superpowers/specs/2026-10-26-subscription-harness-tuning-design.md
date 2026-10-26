@@ -47,11 +47,15 @@ model (grants stay per subject, gates stay where they are).
 
 ## 3. Phase 1: measurement
 
-1. **Reading usage.** Per field (fresh input, cache read, cache write, output, reasoning, total) the structured value is used when
-   the field is present, even if 0; otherwise the raw `quota.token_count` value; otherwise the field is **unknown**. Unknown is not
-   0: reports count turns without data separately and never add them as 0. The turn total is `totalTokens`. `model_usage` is the
-   per-model split of the same totals, so it is used only for the by-model view and never added to `token_count`; a split that does
-   not match its total is shown as partial. No migration; raw is preserved.
+1. **Reading usage.** The stored structured fields are not trusted. `NormalizedUsage.InputTokens`, `OutputTokens` and `CostUSD`
+   are plain numbers that `json.Marshal` always writes, so a row stored while the normalizer did not understand the meta carries
+   0 beside real numbers in `RawMeta` (a real row: 0 input and 0 output next to `inputTokens: 8` and `outputTokens: 6781`). A
+   present field therefore says nothing about provenance. The report re-derives usage from `RawMeta` with the current normalizer
+   of the turn's vendor, and uses the stored structured values only when `RawMeta` is empty. After that, a field is **known** only
+   if the raw meta had it (a real 0 is known); otherwise it is **unknown**. Unknown is not 0: reports count turns without data
+   separately and never add them as 0. The turn total is `totalTokens`. `model_usage` is the per-model split of the same totals,
+   so it is used only for the by-model view and never added to `token_count`; a split that does not match its total is shown as
+   partial. No migration; raw is preserved. New rows may also record a `usageVersion`, but the report does not depend on it.
 2. **Report.** A Go service aggregates by workspace, session, model, account and day: turns, fresh input, cache read, cache write,
    output, and turns without data. UI-only bridge method (`uiOnly`, like the account methods), not an MCP tool. Numbers only.
 3. **What each turn and tool call records** (no content, no arguments):
@@ -64,7 +68,8 @@ model (grants stay per subject, gates stay where they are).
    fewer tokens does not show a smaller share of the subscription limit, because how limits weigh cache reads is not known.
 5. **Scope.** Claude only. Other vendors show "no data".
 
-Done when the report reproduces the §2 numbers and tests cover both usage shapes, a field that is 0, and a field that is absent.
+Done when the report reproduces the §2 numbers and tests cover: a row whose stored fields are a false 0 next to real numbers in
+`RawMeta`; a real 0 in the raw meta; a field absent from the raw meta; and a row with no `RawMeta`.
 
 ## 4. Phase 2: workspace harness profile
 
@@ -77,7 +82,7 @@ An absent field in W inherits; a present field, even an empty list, is taken as 
 | Field | Rule |
 | --- | --- |
 | `toolGroups` (group → on/off; a group is the part of a tool name before the first dot) | Absent group is on. S can only turn groups on. |
-| `resultBudget` (by tool or group, size and cut mode) | Precedence tool, then group, then the 24 KB default. Size 2 KB to 64 KB; above 24 KB is widening. `budgetExempt` tools cannot be overridden (validation error). `headTail` applies only to the plain-text cut; structured results keep `shrinkValue` and drop `nextCursor` as today. |
+| `resultBudget` (by tool or group, size and cut mode) | Precedence tool, then group, then the 24 KB default. Size 2 KB to 64 KB. `budgetExempt` tools cannot be overridden (validation error). `headTail` applies only to the plain-text cut; structured results keep `shrinkValue` and drop `nextCursor` as today. |
 | `disabledSkills`, `disabledMCP` | Effective list is V ∪ W. W cannot remove an entry of V. |
 | `servers` | Keyed by name. A W server replaces the V server of the same name. A duplicate name inside W is rejected. A name that collides with a server in the vendor's environment report is rejected, because which one wins is the vendor's rule. |
 | `skillFolders` | V ∪ W, de-duplicated by resolved absolute path. |
@@ -85,13 +90,25 @@ An absent field in W inherits; a present field, even an empty list, is taken as 
 **Classifying a change.** It is computed on the effective configuration before and after, never on the patch. Removing a W deny
 entry can make a vendor-defined server or skill active again, so it is widening even though the patch only deletes a line.
 - *Executable*: the effective set of server definitions or skill folders gains or alters one (command, arguments, URL, env var names, path).
-- *Widening*: any other increase of capability (a group turned on, a budget above 24 KB, an effective deny entry gone).
-- *Narrowing*: only decreases (a group off, a smaller budget, a larger deny set, fewer servers or folders).
+- *Widening*: any other increase of capability (a group turned on, a larger effective budget for any tool, an effective deny entry gone).
+- *Narrowing*: only decreases (a group off, a smaller effective budget for every tool that changed, a larger deny set, fewer servers or folders).
 A patch with several effects takes the strictest tier: executable, then widening, then narrowing.
+Budgets are compared per tool on the effective value (the tool's entry, else its group's, else 24 KB), not against the default:
+2 KB to 16 KB is widening, 64 KB to 32 KB is narrowing, and deleting an override or changing a group's budget counts by the
+tools whose effective value it changes. A change of cut mode alone is neutral and takes the narrowing tier.
 
-**Applying.** The effective configuration is resolved when `OpenSpec` is built (where `Customizations` is merged today). The
-session's MCP socket filters `tools/list` by the effective groups and applies the effective budgets. A tool of an off group is also
-refused when called directly. Saved changes apply to new or reloaded sessions.
+**Applying: what is fixed at open and what is live.** The effective configuration is first resolved when `OpenSpec` is built
+(where `Customizations` is merged today).
+
+| Part | When it can change |
+| --- | --- |
+| Skills, MCP servers, skill folders, the appended prompt, the vendor's pre-approved tool list (`--allowedTools`, `PreApprovedMCP`) | Only at open or reload. They reach the vendor as launch arguments or session metadata. |
+| Which tool groups the session's MCP server serves, and the result budgets | Live. The server evaluates the effective groups and budgets on every call, so a refusal or a new budget takes effect at once. |
+| The vendor's view of the tool list | Only if the vendor refreshes on `tools/list_changed`; otherwise at reload. |
+
+A call to a tool of an off group is refused by the server whatever the vendor's list shows (`harness.groupOff`). Saved changes to
+W reach other running sessions only at their next open or reload; they keep the snapshot they opened with, and the UI marks them
+"profile changed, reload to apply".
 
 **Session override (S).** Table `session_harness_overrides` (session id, groups turned on, when). Version 1 holds group names only.
 - It is a separate record from the saved profile and is never copied into it unless the person chose "save to workspace".
@@ -100,16 +117,30 @@ refused when called directly. Saved changes apply to new or reloaded sessions.
 - Closing or deleting the session removes it.
 - A rewind fork keeps the override of the session it continues (how rewind assigns session rows is checked in the plan). A child
   session never inherits it: a child starts from the saved profile, so a parent cannot hand a child more than the person approved.
-- The person can revoke it at any time; the session's summary card lists active overrides.
+- The person can revoke it at any time; the session's summary card lists active overrides. Revoking takes effect at the server
+  at once: later calls to that group are refused (`harness.groupOff`) even if the vendor's list still shows the tools, and the
+  server sends `tools/list_changed` for vendors that honor it. The UI shows three states: active, revoked with the vendor's list
+  waiting for a reload, and gone after the reload or close.
 
 **Asking for a group mid-session.** An always-present tool, `harness.profile.propose`, lists the groups that are off, one line each
 with its estimated definition cost, so an agent knows what it can ask for. The person chooses **this session only** (writes S) or
-**save to the workspace** (writes W). If the vendor refreshes tools on `notifications/tools/list_changed`, the group is usable on the
-next model call, at the cost of rewriting the cache once. Otherwise S is already stored and the UI says "Reload to apply".
+**save to the workspace** (writes W **and** S for the requesting session, so that session has the group now as in the first case;
+other sessions follow the table above). The server serves the group from the next call. If the vendor refreshes on
+`notifications/tools/list_changed`, the tools appear in its list at the cost of rewriting the cache once; otherwise S is stored and
+the UI says "Reload to apply". The prompt and the pre-approved list are fixed at open, so the result of the grant returns a short
+paragraph generated from the same guidance section as the prompt, and says it replaces what the prompt said about that group being
+off. A tool that would be pre-approved at open asks through the normal permission flow until the next reload.
 
 **Agent edits.** Tools `harness.profile.get` (read) and `harness.profile.propose` (write), scoped to the caller's own workspace.
 Go computes the effective before and after and shows the person that diff; the agent's rationale appears only as labelled untrusted
-text. Approval applies by compare-and-swap, and a moved revision is a conflict. No allow-always. Server mode and a missing prompt
+text. The proposal is bound to a fingerprint of **all** inputs of the diff: the revisions of V, W and S, and a digest of the
+vendor-defined parts the diff depends on (the servers and skills in the vendor's environment report, with their commands). On
+approval Go resolves the effective before and after again, under the same lock as the write, and refuses with
+`harness.proposalStale` unless both match what the person saw; a moved W revision alone is `harness.profileConflict`. This closes
+the case where a proposal removes a server override to fall back to the vendor's server and the vendor's config changes command
+while the dialog is open. The applied record stores the fingerprint, and a session that opens with a different effective set of
+executables than the one approved shows a notice. The vendor's own files are outside DevKit's control, so the guarantee covers what
+the person saw at approval, not later edits to those files. No allow-always. Server mode and a missing prompt
 handler fail closed. Every change is audited without content.
 
 | Tier | Default |
@@ -122,7 +153,7 @@ handler fail closed. Every change is audited without content.
 the approval policy itself, and the auto-narrowing setting.
 
 **Errors.** New public codes (names are proposals): `harness.profileConflict`, `harness.profileDenied`, `harness.groupUnknown`,
-`harness.budgetInvalid`. Each is published in `bridge.keptCodes`.
+`harness.budgetInvalid`, `harness.proposalStale`, `harness.groupOff`. Each is published in `bridge.keptCodes`.
 
 ## 5. Phase 3: smaller context
 
@@ -156,13 +187,18 @@ the approval policy itself, and the auto-narrowing setting.
 6. Why opencode records no usage.
 7. How each vendor pays for tool definitions (up front or when fetched).
 8. How rewind assigns session rows, and whether the account-move notice carries a usable time.
+9. Whether the environment report gives enough of the vendor-defined servers and skills (name, command, arguments) to fingerprint
+   them and show them in the confirmation.
 
 ## 8. Testing
 
-Unit tests for usage reading (structured, raw-only, zero, absent, split that does not match), effective configuration (absent vs
-empty, duplicate and colliding server names, removing a deny entry), classification on before/after including mixed patches,
-override lifecycle (reload, resume, restart, fork, child, close), group filtering and direct-call refusal, budget precedence,
-range and exemptions, and `headTail` against structured results and cursors. Prompt tests: with each group off the always-present
+Unit tests for usage reading (the four fixtures in phase 1, and a split that does not match its total), effective configuration
+(absent vs empty, duplicate and colliding server names, removing a deny entry), classification on before/after including mixed
+patches and per-tool budget changes (2 to 16 KB, 64 to 32 KB, a deleted override, a changed group budget), proposal binding (the
+vendor-defined server changes command, V changes, or S changes between proposal and approval, each refused as stale), override
+lifecycle (reload, resume, restart, fork, child, close, revoke while running, calls refused after revoke), save-to-workspace
+reaching the requesting session but not other running ones, group filtering and direct-call refusal, budget precedence, range and
+exemptions, and `headTail` against structured results and cursors. Prompt tests: with each group off the always-present
 rules are unchanged and no tool of that group is named. Grants tests for the new tools (`TestNewContainerGrants*` style).
 `go test ./internal/arch/` for any new package. Extended `TestToolDefinitionsStayWithinBudget`. Frontend: `bun test --isolate` and
 `bun run build`. Bindings regenerated after any `AppService` change.
