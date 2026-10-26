@@ -21,6 +21,7 @@ import (
 func WireManagedOwnership(c *Container, store interface {
 	agentwork.ManagedLeaseStore
 	agentwork.ManagedPayloadStore
+	managedItemByTask
 }) {
 	if c == nil || c.AgentHub == nil || c.Tasks == nil || c.Workspace == nil || c.Vault == nil || store == nil {
 		return
@@ -39,6 +40,7 @@ type managedOwnershipHost struct {
 	store       interface {
 		agentwork.ManagedLeaseStore
 		agentwork.ManagedPayloadStore
+		managedItemByTask
 	}
 }
 
@@ -358,13 +360,19 @@ func (h *managedOwnershipHost) requirements(ctx context.Context, scope agentwork
 	if err != nil {
 		return agentwork.RequirementsSnapshot{}, err
 	}
+	return h.requirementsOf(ctx, group, scope.TaskID)
+}
+
+// requirementsOf assembles the host's current requirements for one task of the
+// group. A task outside the group's parent or board is a scope error.
+func (h *managedOwnershipHost) requirementsOf(ctx context.Context, group agentwork.GroupState, taskID string) (agentwork.RequirementsSnapshot, error) {
 	c := h.container
 	hub := h.hub()
 	if c == nil || hub == nil || c.Tasks == nil || c.Workspace == nil {
 		return agentwork.RequirementsSnapshot{}, agentwork.ErrManagedHostUnavailable
 	}
-	task, err := c.Tasks.Get(managedTasksCaller(ctx), scope.TaskID)
-	if err != nil || task.ID != scope.TaskID || task.ParentID != group.ParentTaskID || task.BoardID != group.BoardID {
+	task, err := c.Tasks.Get(managedTasksCaller(ctx), taskID)
+	if err != nil || task.ID != taskID || task.ParentID != group.ParentTaskID || task.BoardID != group.BoardID {
 		return agentwork.RequirementsSnapshot{}, agentwork.ErrManagedLeaseScope
 	}
 	board, err := c.Tasks.Board(managedTasksCaller(ctx), group.BoardID)
@@ -493,8 +501,15 @@ func (h *managedOwnershipHost) BuildPackageSource(ctx context.Context, scope age
 	if item.Role != attempt.Role {
 		return agentwork.PackageSource{}, agentwork.ErrManagedPayloadStale
 	}
-	// Selected references are empty until a separate host-owned selector exists.
-	return agentwork.PackageSource{Requirements: requirements, Role: item.Role, RoleContract: contract, Output: output}, nil
+	group, _, _, err := h.packageScope(ctx, scope)
+	if err != nil {
+		return agentwork.PackageSource{}, err
+	}
+	references, err := h.selectDependencyReferences(ctx, group, item, requirements)
+	if err != nil {
+		return agentwork.PackageSource{}, err
+	}
+	return agentwork.PackageSource{Requirements: requirements, Role: item.Role, RoleContract: contract, Output: output, References: references}, nil
 }
 
 func managedRoleContract(role string) (string, agentwork.PackageOutputContract, error) {

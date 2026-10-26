@@ -136,3 +136,29 @@
   the drain yet (`ManagedService.ConfigureGroup` has no caller); the dispatcher/pause owner must call flip → drain.
 - Other processes that write the same worktree outside the Agent Hub (an unmanaged session, a person) are outside this proof; the
   single-writer resource slot is what excludes other *managed* sessions.
+
+## Managed package references (host-selected, bound, re-checkable)
+
+`OPT-2e96ed` (plan slice D, internal part). A context package's `References` are chosen by the host and bound to something
+immutable; no public transport or MCP tool exposes them yet.
+
+- **Selection** (`managedOwnershipHost.selectDependencyReferences`): the task's `blockedBy` tasks that the *same group* actively
+  tracks, each as `{task, id, Revision = that task's current requirements digest (v2)}`. A blocker the group does not track is board
+  ordering, not an input, and is left out; a tracked dependency whose task vanished fails the build (typed
+  `ErrManagedReferenceMissing`) instead of being dropped. Nothing the agent, a caller or coordinator prose names is consulted, and no
+  transcript, comment or memory body is read. Artifacts are never auto-selected (they are agent claims until results are reviewed).
+- **Resolution** (`PackageHost.ResolvePackageReference`): the host re-derives a reference's canonical form from its own state and
+  never trusts the revision it was handed. Task refs must be a blocker of the item and tracked in the same group; managed-artifact refs
+  (`Revision v<schema>.g<generation>`, `Digest` = sealed-body hash, required) must belong to the same group and to a work item that is
+  a declared dependency. `document` and unknown kinds are `ErrManagedReferenceUnsupported`; wrong workspace/group/non-dependency is
+  `…Foreign`; unknown ids `…Missing`; a changed revision/hash `…Stale`. A locked vault is `ErrManagedPayloadLocked`.
+- **Build**: references are sorted (kind, id), duplicates rejected, each re-resolved and required to equal what was selected, over the
+  existing 100-reference bound (refused, not truncated). A refused build stores nothing and does not consume the attempt.
+- **Staleness without mutation**: `ManagedPayloadService.CheckPackageReferences(packageID)` reports each stored reference as
+  `current|stale|missing|foreign|unsupported` (ids and states only). A dispatcher uses it to rebuild an *unsent* package; the stored
+  package stays immutable history. A host/vault failure is an error, never a state. Task-content staleness (requirements digest) and
+  reference staleness are separate checks.
+- **Not done**: *decisions.* There is no durable decision record yet (they belong with result ingestion and `team.decision.resolve`,
+  `OPT-9324dc`/`OPT-f3831a`), so `PackageSource.Decisions` stays empty; inventing one from comments or transcripts would break the
+  isolation rule. Also not done: explicit artifact selection, document references, budget-aware read transport, retention cleanup.
+  `ErrManagedNotFound` in storage is now an alias of `agentwork.ErrManagedRecordNotFound` so hosts can classify absence.

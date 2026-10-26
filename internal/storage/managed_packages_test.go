@@ -65,6 +65,24 @@ func managedPackageAD(binding agentwork.PayloadBinding) (crypto.AssociatedData, 
 type managedPackageHostFake struct {
 	source agentwork.PackageSource
 	deny   error
+	// current overrides what a reference resolves to now (keyed kind/id), and
+	// resolveErr what resolving it answers. Unlisted references resolve to
+	// themselves.
+	current    map[string]agentwork.PackageReference
+	resolveErr map[string]error
+	resolved   int
+}
+
+func (h *managedPackageHostFake) ResolvePackageReference(_ context.Context, _ agentwork.PackageScope, ref agentwork.PackageReference) (agentwork.PackageReference, error) {
+	h.resolved++
+	key := ref.Kind + "/" + ref.RecordID
+	if err := h.resolveErr[key]; err != nil {
+		return agentwork.PackageReference{}, err
+	}
+	if current, ok := h.current[key]; ok {
+		return current, nil
+	}
+	return ref, nil
 }
 
 func (h *managedPackageHostFake) BuildPackageSource(context.Context, agentwork.PackageScope) (agentwork.PackageSource, error) {
@@ -342,5 +360,186 @@ func TestManagedPayloadRejectsStaleAttemptAndUnsafeReference(t *testing.T) {
 	artifact := agentwork.StoredArtifact{ArtifactMetadata: agentwork.ArtifactMetadata{ID: "stale-artifact", WorkspaceID: f.group.WorkspaceID, BoardID: f.group.BoardID, ParentTaskID: f.group.ParentTaskID, GroupID: f.group.ID, WorkItemID: item.ID, TaskID: item.TaskID, AttemptID: f.attempt.ID, Kind: "test_output", Provenance: "agent_claim", ProducerSessionID: f.attempt.SessionID, Role: f.attempt.Role, RequirementsRevision: f.attempt.RequirementsRevision, Generation: f.attempt.Generation, LeaseGeneration: 1, SchemaVersion: agentwork.ManagedArtifactSchemaVersion, BodyHash: "sha256:" + hex.EncodeToString(sealedHash[:]), BodyBytes: 10, CreatedAt: time.Now()}, ItemRevision: item.Revision, AttemptRevision: f.attempt.Revision, SealedBody: sealed}
 	if err = f.ledger.InsertArtifact(ctx, artifact); !errors.Is(err, agentwork.ErrManagedPayloadStale) {
 		t.Fatalf("stale attempt artifact insert = %v", err)
+	}
+}
+
+func taskRef(f *managedPackageFixture, id, digest string) agentwork.PackageReference {
+	return agentwork.PackageReference{Kind: agentwork.ManagedReferenceTask, RecordID: id, Revision: digest, WorkspaceID: f.group.WorkspaceID, GroupID: f.group.ID}
+}
+
+func artifactRef(f *managedPackageFixture, id string) agentwork.PackageReference {
+	return agentwork.PackageReference{Kind: agentwork.ManagedReferenceArtifact, RecordID: id, Revision: "v1.g1", Digest: "sha256:" + hex.EncodeToString(make([]byte, 32)), WorkspaceID: f.group.WorkspaceID, GroupID: f.group.ID}
+}
+
+func TestManagedPackageSealsCanonicalResolvedReferences(t *testing.T) {
+	f := newManagedPackageFixture(t)
+	ctx := context.Background()
+	b, a := taskRef(f, "task-b", "sha256:v2:bb"), artifactRef(f, "artifact-a")
+	f.host.source.References = []agentwork.PackageReference{b, a}
+	built, err := f.service.BuildContextPackage(ctx, f.attempt.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.host.resolved != 2 {
+		t.Fatalf("host resolved %d references, want each checked once", f.host.resolved)
+	}
+	read, err := f.service.ReadContextPackage(ctx, built.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Sorted by kind then id regardless of the order the host listed them in.
+	want := []agentwork.PackageReference{a, b}
+	if len(read.References) != 2 || read.References[0] != want[0] || read.References[1] != want[1] {
+		t.Fatalf("stored references = %+v, want %+v", read.References, want)
+	}
+}
+
+func TestManagedPackageBuildRefusesAReferenceThatIsNotCurrent(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  func(f *managedPackageFixture, ref agentwork.PackageReference)
+		want error
+	}{
+		{"revision changed", func(f *managedPackageFixture, ref agentwork.PackageReference) {
+			changed := ref
+			changed.Revision = "sha256:v2:other"
+			f.host.current = map[string]agentwork.PackageReference{"task/task-b": changed}
+		}, agentwork.ErrManagedReferenceStale},
+		{"missing", func(f *managedPackageFixture, _ agentwork.PackageReference) {
+			f.host.resolveErr = map[string]error{"task/task-b": agentwork.ErrManagedReferenceMissing}
+		}, agentwork.ErrManagedReferenceMissing},
+		{"foreign", func(f *managedPackageFixture, _ agentwork.PackageReference) {
+			f.host.resolveErr = map[string]error{"task/task-b": agentwork.ErrManagedReferenceForeign}
+		}, agentwork.ErrManagedReferenceForeign},
+		{"unsupported kind", func(f *managedPackageFixture, _ agentwork.PackageReference) {
+			f.host.resolveErr = map[string]error{"task/task-b": agentwork.ErrManagedReferenceUnsupported}
+		}, agentwork.ErrManagedReferenceUnsupported},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newManagedPackageFixture(t)
+			ctx := context.Background()
+			ref := taskRef(f, "task-b", "sha256:v2:bb")
+			f.host.source.References = []agentwork.PackageReference{ref}
+			tc.set(f, ref)
+			if _, err := f.service.BuildContextPackage(ctx, f.attempt.ID); !errors.Is(err, tc.want) {
+				t.Fatalf("build = %v, want %v", err, tc.want)
+			}
+			var n int
+			if err := f.db.QueryRowContext(ctx, `SELECT count(*) FROM agent_work_packages`).Scan(&n); err != nil || n != 0 {
+				t.Fatalf("a package was stored for a refused build: rows=%d err=%v", n, err)
+			}
+			// The refusal does not consume the attempt: a corrected selection builds.
+			f.host.current, f.host.resolveErr = nil, nil
+			if _, err := f.service.BuildContextPackage(ctx, f.attempt.ID); err != nil {
+				t.Fatalf("rebuild after correction: %v", err)
+			}
+		})
+	}
+}
+
+func TestManagedPackageRejectsDuplicateAndUnboundArtifactReferences(t *testing.T) {
+	f := newManagedPackageFixture(t)
+	ctx := context.Background()
+	dup := taskRef(f, "task-b", "sha256:v2:bb")
+	other := dup
+	other.Revision = "sha256:v2:cc"
+	f.host.source.References = []agentwork.PackageReference{dup, other}
+	if _, err := f.service.BuildContextPackage(ctx, f.attempt.ID); !errors.Is(err, agentwork.ErrManagedPayloadScope) {
+		t.Fatalf("same record listed twice = %v", err)
+	}
+	unbound := artifactRef(f, "artifact-a")
+	unbound.Digest = ""
+	f.host.source.References = []agentwork.PackageReference{unbound}
+	if _, err := f.service.BuildContextPackage(ctx, f.attempt.ID); !errors.Is(err, agentwork.ErrManagedPayloadScope) {
+		t.Fatalf("artifact reference without a hash = %v", err)
+	}
+	foreign := taskRef(f, "task-b", "sha256:v2:bb")
+	foreign.WorkspaceID = "another-workspace"
+	f.host.source.References = []agentwork.PackageReference{foreign}
+	if _, err := f.service.BuildContextPackage(ctx, f.attempt.ID); !errors.Is(err, agentwork.ErrManagedPayloadScope) {
+		t.Fatalf("other-workspace reference = %v", err)
+	}
+}
+
+func TestManagedPackageReferencesTooManyAreRefusedNotTruncated(t *testing.T) {
+	f := newManagedPackageFixture(t)
+	var refs []agentwork.PackageReference
+	for i := 0; i <= agentwork.ManagedPackageReferenceMax; i++ {
+		refs = append(refs, taskRef(f, "task-"+string(rune('a'+i%26))+string(rune('a'+i/26)), "sha256:v2:x"))
+	}
+	f.host.source.References = refs
+	if _, err := f.service.BuildContextPackage(context.Background(), f.attempt.ID); !errors.Is(err, agentwork.ErrManagedPayloadLimit) {
+		t.Fatalf("over the reference bound = %v", err)
+	}
+}
+
+func TestCheckPackageReferencesReportsEachStateWithoutChangingThePackage(t *testing.T) {
+	f := newManagedPackageFixture(t)
+	ctx := context.Background()
+	refs := []agentwork.PackageReference{
+		taskRef(f, "task-current", "sha256:v2:a"), taskRef(f, "task-stale", "sha256:v2:b"),
+		taskRef(f, "task-missing", "sha256:v2:c"), taskRef(f, "task-foreign", "sha256:v2:d"),
+		taskRef(f, "task-unsupported", "sha256:v2:e"),
+	}
+	f.host.source.References = refs
+	built, err := f.service.BuildContextPackage(ctx, f.attempt.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := refs[1]
+	stale.Revision = "sha256:v2:moved"
+	f.host.current = map[string]agentwork.PackageReference{"task/task-stale": stale}
+	f.host.resolveErr = map[string]error{
+		"task/task-missing": agentwork.ErrManagedReferenceMissing, "task/task-foreign": agentwork.ErrManagedReferenceForeign,
+		"task/task-unsupported": agentwork.ErrManagedReferenceUnsupported,
+	}
+	before, err := f.ledger.GetContextPackage(ctx, built.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.service.CheckPackageReferences(ctx, built.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := map[string]string{}
+	for _, status := range got {
+		states[status.RecordID] = status.State
+	}
+	want := map[string]string{"task-current": agentwork.ReferenceCurrent, "task-stale": agentwork.ReferenceStale, "task-missing": agentwork.ReferenceMissing, "task-foreign": agentwork.ReferenceForeign, "task-unsupported": agentwork.ReferenceUnsupported}
+	if len(states) != len(want) {
+		t.Fatalf("states = %v", states)
+	}
+	for id, state := range want {
+		if states[id] != state {
+			t.Errorf("%s = %q, want %q", id, states[id], state)
+		}
+	}
+	after, err := f.ledger.GetContextPackage(ctx, built.ID)
+	if err != nil || !bytes.Equal(before.SealedBody, after.SealedBody) || before.BodyHash != after.BodyHash {
+		t.Fatalf("the stored package changed: %v", err)
+	}
+	// A host failure is an error, never a state.
+	f.host.resolveErr = map[string]error{"task/task-current": errors.New("host down")}
+	if _, err = f.service.CheckPackageReferences(ctx, built.ID); err == nil {
+		t.Fatal("a host failure was reported as a reference state")
+	}
+}
+
+func TestGetWorkItemByTaskIsGroupScoped(t *testing.T) {
+	f := newManagedPackageFixture(t)
+	ctx := context.Background()
+	got, err := f.ledger.GetWorkItemByTask(ctx, f.group.ID, f.item.TaskID)
+	if err != nil || got.ID != f.item.ID {
+		t.Fatalf("lookup = %+v, %v", got, err)
+	}
+	// Another group, an unknown task and empty ids never match; absence is the
+	// shared sentinel a host can classify without importing storage.
+	for _, c := range [][2]string{{"other-group", f.item.TaskID}, {f.group.ID, "no-such-task"}} {
+		if _, err = f.ledger.GetWorkItemByTask(ctx, c[0], c[1]); !errors.Is(err, agentwork.ErrManagedRecordNotFound) {
+			t.Fatalf("lookup %v = %v, want not found", c, err)
+		}
+	}
+	if _, err = f.ledger.GetWorkItemByTask(ctx, "", f.item.TaskID); !errors.Is(err, storage.ErrManagedInvalid) {
+		t.Fatalf("empty group = %v", err)
 	}
 }

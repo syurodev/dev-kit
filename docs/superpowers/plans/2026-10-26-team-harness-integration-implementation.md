@@ -101,6 +101,10 @@ Tests: effective budgets 2/24/64 KB, UTF-8 boundaries, JSON escaping, exact rang
 
 Exit: backend references and public transport are separately reviewable. `OPT-2e96ed` stays open for unfinished acceptance items; do not close it solely because encrypted bytes can be stored.
 
+### Slice D internal delivery record (2026-10-26)
+
+Branch `team/package-references`; `OPT-2e96ed` stays In progress. Done: host-selected dependency references (tracked `blockedBy` tasks bound to their v2 requirements digest), host-side resolution with typed missing/foreign/stale/unsupported errors, build-time re-resolution, and `CheckPackageReferences` for rebuild decisions. **Not done:** decisions (no durable record exists; packages carry none), explicit artifact/document selection, public transport and budget-aware reads, retention cleanup. See `docs/agent-reference/agent-hub-coordination.md`.
+
 ## Slice E — Integrate one managed dispatch saga
 
 1. Extend B7 `agentwork.Handoff` through an additive idempotent host interface; preserve unmanaged callers. Use B5's existing durable peer outbox and delivery states. No second outbox, generic scheduler, runner or vendor loop.
