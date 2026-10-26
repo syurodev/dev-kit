@@ -200,3 +200,26 @@ func TestStatusNoticesAChangeInFactCoverage(t *testing.T) {
 		t.Fatalf("state = %s", st.State)
 	}
 }
+
+// The status agrees with the reopen gate for a vendor change beside a narrowing W.
+func TestStatusCallsAVendorCommandChangeAReloadNotANewSession(t *testing.T) {
+	e := newLaunchEnv(t, policy)
+	snap := func(cmd string, wRev int64, gitOn bool) func(string, string, string) (harness.Snapshot, error) {
+		return func(sid, ws, v string) (harness.Snapshot, error) {
+			return snapshotFor(t, sid, ws, v, func(in *harness.Inputs) {
+				in.Vendor.Servers = []harness.Server{{Name: "vendor-db", Command: cmd, Enabled: true}}
+				in.Workspace = &harness.Profile{Schema: 1, Revision: wRev, ToolGroups: map[string]bool{"git": gitOn}}
+			}), nil
+		}
+	}
+	e.harness.set(snap("old", 1, true))
+	s := e.mustCreate()
+	e.harness.set(snap("new", 2, false))
+	if st := e.status(s.ID); st.State != agenthub.HarnessReloadRequired {
+		t.Fatalf("state = %s", st.State)
+	}
+	e.mustReloadWith(s.ID)
+	if st := e.status(s.ID); st.State != agenthub.HarnessCurrent {
+		t.Fatalf("after the reload = %s", st.State)
+	}
+}
