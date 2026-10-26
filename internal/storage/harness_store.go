@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io"
 	"slices"
 	"time"
 
@@ -88,14 +89,28 @@ func readHarnessRow(ctx context.Context, q harnessQuerier, profile bool, key str
 func decodeStrict(body string, into any) error {
 	dec := json.NewDecoder(bytes.NewReader([]byte(body)))
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(into); err != nil || dec.More() {
+	if err := dec.Decode(into); err != nil {
+		return harness.ErrStoreCorrupt
+	}
+	// Anything after the document, even a stray closing bracket, is corruption.
+	// More() is not enough: it reports false before a ']' or '}'. A second
+	// decode must reach the end of the input.
+	var extra json.RawMessage
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
 		return harness.ErrStoreCorrupt
 	}
 	return nil
 }
 
+// tombstoneOK: a deleted record is "absent" only if this build understands it.
+// A tombstone written under another schema could be hiding anything.
+func tombstoneOK(r harnessRow) bool { return r.schema == harness.SchemaVersion && r.body == "" }
+
 func decodeProfile(r harnessRow) (*harness.Profile, harness.Stamp, error) {
 	if r.deleted {
+		if !tombstoneOK(r) {
+			return nil, harness.Stamp{}, harness.ErrStoreCorrupt
+		}
 		return nil, harness.Stamp{Revision: r.revision}, nil
 	}
 	var p harness.Profile
@@ -108,6 +123,9 @@ func decodeProfile(r harnessRow) (*harness.Profile, harness.Stamp, error) {
 
 func decodeOverride(r harnessRow) (*harness.Override, harness.Stamp, error) {
 	if r.deleted {
+		if !tombstoneOK(r) {
+			return nil, harness.Stamp{}, harness.ErrStoreCorrupt
+		}
 		return nil, harness.Stamp{Revision: r.revision}, nil
 	}
 	var o harness.Override
