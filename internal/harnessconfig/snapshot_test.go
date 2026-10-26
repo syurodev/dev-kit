@@ -245,3 +245,26 @@ func TestAStaleReferenceIsNotEqualToTheCurrentOne(t *testing.T) {
 		t.Fatal("a clone must be equal to its source")
 	}
 }
+
+func TestTheSnapshotPinsTheVendorCustomizationItWasResolvedFrom(t *testing.T) {
+	e := newEnv(t)
+	e.vendors.set("claude", func(s *VendorState) {
+		s.Vendor.Revision = 4
+		s.Vendor.Servers = []harness.Server{{Name: "z", Command: "c1", Enabled: true}, {Name: "a", Command: "c2", Enabled: true}}
+	})
+	snap, err := e.provider().Snapshot(context.Background(), snapReq("s1", "w1", "claude"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Verbatim, in the original order, and detached from the vendor's own slices.
+	if snap.Vendor.Revision != 4 || len(snap.Vendor.Servers) != 2 || snap.Vendor.Servers[0].Name != "z" {
+		t.Fatalf("pinned V = %+v", snap.Vendor)
+	}
+	e.vendors.set("claude", func(s *VendorState) { s.Vendor.Revision = 5; s.Vendor.Servers[0].Command = "changed" })
+	if snap.Vendor.Revision != 4 || snap.Vendor.Servers[0].Command != "c1" {
+		t.Fatal("a later Settings change reached a snapshot that was already resolved")
+	}
+	if snap.Ref.WorkspaceDigest != "none" || len(snap.Ref.ExecutableEntries) == 0 {
+		t.Fatalf("ref = %+v", snap.Ref)
+	}
+}
