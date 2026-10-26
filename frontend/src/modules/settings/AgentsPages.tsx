@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ACCOUNT_VENDORS } from "@/modules/agenthub/accounts/accountModel";
 import { AgentAccountsSetting } from "@/modules/agenthub/accounts/AgentAccountsSetting";
+import { AgentUsageSetting } from "@/modules/agenthub/usage/AgentUsageSetting";
 import { AgentEnvironmentPanel } from "@/modules/agenthub/environment/AgentEnvironment";
 import { CODEX_INFO, SHIPPED_VENDORS, vendorInfo } from "@/modules/agenthub/vendors";
 import { AgentRuntimeSetting } from "./AgentRuntimeSetting";
@@ -99,9 +100,18 @@ export function AgentAccountsPage() {
     <TabColumn>
       <SectionHeader
         title="Accounts & limits"
-        description="Several accounts per agent, in the order DevKit should use them, and when a session should move to the next one."
+        description="Several accounts per agent, in the order DevKit should use them, when a session should move to the next one, and what the sessions spent in tokens."
       />
-      <VendorSwitch label="Agent accounts" vendors={ACCOUNT_VENDORS} render={(vendor) => <AgentAccountsSetting vendor={vendor} />} />
+      <VendorSwitch
+        label="Agent accounts"
+        vendors={ACCOUNT_VENDORS}
+        render={(vendor) => (
+          <div className="flex flex-col gap-6">
+            <AgentAccountsSetting vendor={vendor} />
+            <AgentUsageSetting vendor={vendor} />
+          </div>
+        )}
+      />
     </TabColumn>
   );
 }

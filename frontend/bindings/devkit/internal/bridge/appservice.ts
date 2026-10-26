@@ -955,6 +955,13 @@ export function AgentRuntimeStatus(agent: string): $CancellablePromise<agentrunt
 }
 
 /**
+ * AgentUsageReport reports what a vendor's turns spent, in tokens.
+ */
+export function AgentUsageReport(vendor: string): $CancellablePromise<$models.AgentUsageReportInfo> {
+    return $Call.ByID(1777128644, vendor);
+}
+
+/**
  * ApiCancelSend stops a send in flight. Stopping one that already finished is
  * not an error: the person pressed Cancel as the answer arrived.
  */
