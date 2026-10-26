@@ -1,6 +1,6 @@
 # H2 implementation: revisioned harness storage and approval-bound writes
 
-Date: 2026-10-26. Status: **in progress; H2a delivered, H2b in review (see Execution record), H2c not started**.
+Date: 2026-10-26. Status: **in progress; H2a delivered, H2b and H2c in review (see Execution record)**.
 
 ## Objective and dependencies
 
@@ -140,3 +140,9 @@ Not in H2a: the service, proposals, confirmation, the V-writer participation, ve
 `internal/harnessconfig` (ports, patch normalization, `Prepare`/`Cancel`, view, binding) with an architecture rule, and new codes in `internal/harness` (`profileDenied`, `factsUnavailable`, `notAvailable`, `noChange`). Tests use the real `storage.HarnessStore`. Covered: agent cannot choose workspace/session, UI session must belong to the workspace, terminal/remote/no caller denied, gone/moved scope, no-op proposals, vendor facts gate (needed vs not, unreadable), deny removal exposing a vendor server, server fallback, mixed tiers, narrowing vs auto-narrowing vs widening, per-vendor judgement of a workspace change, binding moves with V/W/S/policy/vendor facts/patch, equivalent representations, caller-owned values after Prepare, symlink retarget, corrupt/obsolete stored profile, validator failure, rationale handling, cancel ownership and the pending bound. Mutation checks fail the matching tests.
 
 Not in H2b: confirmation, revalidation and the single commit (H2c); the production adapters (`Vendors` with real facts, `Directory`, `Validator`, `Policy`) and a production registry source, which H2c/H4 own. No production code constructs the service yet.
+
+### H2c (branch `harness/h2c-apply`, stacked on H2b)
+
+`Service.Apply` (single-use take, fail-closed confirmer check, ask with nothing held, recheck inside the boundary, one CAS commit), `preferences.Service.HoldAgentCustomization`, `interaction.KindHarness` and `Hub.CanAsk` (binding enum regenerated with `wails3 generate bindings -ts -i`; unrelated drift in `bridge/models.ts` was not committed), `agenthub.Service.HarnessScope`, and the app adapters. Adversarial matrix covered: V change through the real setter, W moved / deleted and recreated, S changed / revoked, vendor command change, policy change, session closed or moved, workspace deleted, registry change, executable appearing after approval, W+S rollback by SQL trigger, a CAS lost between recheck and commit (W and S), duplicate and cross-caller apply, restart, denial / malformed / cancelled / prompt failure, headless with and without auto-narrowing, no allow-always, rationale separation. Mutation checks fail the matching tests; one surviving mutant (`Store.Apply(p.bound.write)`) is equivalent because the digest guarantees both writes are identical.
+
+Not done (still open for H2): ordinary UI reset/delete of W and removal of overrides through the service (the store supports delete; the service has only the revoke patch), a real vendor-facts reader (so server/deny/skill proposals stay unavailable), the structured executable view (executable proposals stay refused), the production registry source and construction of the service, the S cleanup hook on explicit session close (H3), and any public transport (H5). The "no lease release / model call / account rotation" row of the matrix holds by construction (the service has no port for them) and is not separately exercised.

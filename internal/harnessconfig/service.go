@@ -24,6 +24,10 @@ type Config struct {
 	Validator Validator
 	Registry  func() harness.Registry
 	Canonical func(string) (string, error)
+	// Confirmer and Boundary are required by Apply. Audit is optional.
+	Confirmer Confirmer
+	Boundary  Boundary
+	Audit     func(Event)
 }
 
 // maxPending bounds the in-memory proposals. There is no timer: a proposal ends
@@ -190,6 +194,9 @@ func (s *Service) evaluate(ctx context.Context, caller identity.Caller, req Requ
 		}
 		if (req.WorkspaceID != "" && req.WorkspaceID != sc.WorkspaceID) || (req.SessionID != "" && req.SessionID != caller.SessionID) {
 			return ev, none, ErrDenied
+		}
+		if exists, err := s.cfg.Directory.WorkspaceExists(ctx, sc.WorkspaceID); err != nil || !exists {
+			return ev, none, ErrScopeGone
 		}
 		scope, ev.SessionID = sc, caller.SessionID
 	case caller.Kind == identity.KindUI:
