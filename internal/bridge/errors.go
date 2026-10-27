@@ -154,6 +154,12 @@ func publicError(subject string, err error) *apperrors.AppError {
 	if errors.Is(err, interaction.ErrInteractionTimeout) {
 		return apperrors.New(codeOperationCancelled, "Operation cancelled.", true)
 	}
+	// The public tool-group controls: their refusals are fixed host sentences.
+	if subject == "builtin.harness" {
+		if refusal := harnessControlRefusal(err); refusal != nil {
+			return refusal
+		}
+	}
 	// A window-only refusal from a settings-subject method (the preferences' UI-only
 	// reads and writes) would otherwise fall through to internal_error: only the
 	// agenthub subject's switch maps it.
@@ -730,6 +736,33 @@ func harnessRefusal(err error) *apperrors.AppError {
 	return nil
 }
 
+// harnessControlCodes are the codes the public tool-group controls (the
+// harness.profile.* tools and the window's editor) answer with. Every message is
+// a fixed sentence written by the host: harness.Error carries no command, path,
+// URL, SQL or vendor text, and a wrapped cause is never part of it.
+var harnessControlCodes = map[string]bool{
+	harness.CodeProfileDenied:       true,
+	harness.CodeProfileInvalid:      true,
+	harness.CodeProfileConflict:     true,
+	harness.CodeProposalStale:       true,
+	harness.CodeGroupUnknown:        true,
+	harness.CodeFactsUnavailable:    true,
+	harness.CodeNotAvailable:        true,
+	harness.CodeNoChange:            true,
+	harness.CodeSnapshotUnavailable: true,
+}
+
+// harnessControlRefusal maps a refusal of the public controls to its published
+// code and host sentence. A context error, a store error or any other cause is
+// not here: it falls through to the ordinary redaction.
+func harnessControlRefusal(err error) *apperrors.AppError {
+	var he *harness.Error
+	if errors.As(err, &he) && harnessControlCodes[he.Code] {
+		return apperrors.New(he.Code, he.Message, true)
+	}
+	return nil
+}
+
 func publicErrorForCode(subject string, err error, existing *apperrors.AppError) *apperrors.AppError {
 	code := existing.Code
 	switch code {
@@ -860,6 +893,15 @@ var keptCodes = map[string]bool{
 	// Launch refusals (harnessRefusal): fixed host sentences, no value in them.
 	harness.CodeNotEnforceable:     true,
 	harness.CodeNewSessionRequired: true,
+	// The public controls' refusals (harnessControlRefusal): fixed host sentences.
+	harness.CodeProfileDenied:    true,
+	harness.CodeProfileInvalid:   true,
+	harness.CodeProfileConflict:  true,
+	harness.CodeProposalStale:    true,
+	harness.CodeGroupUnknown:     true,
+	harness.CodeFactsUnavailable: true,
+	harness.CodeNotAvailable:     true,
+	harness.CodeNoChange:         true,
 }
 
 // unexpectedError is the bottom of publicError's funnel: every cause that

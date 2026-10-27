@@ -256,6 +256,7 @@ type compRig struct {
 	agents   *agenthub.Service
 	vendors  map[agenthub.AgentType]*scriptedVendor
 	asm      *HarnessAssembly
+	port     *HarnessPort
 	dbEnv    atomic.Value // string: the env tag of the stub database profile
 	book     *agenthub.SQLAccountStore
 	home     string
@@ -281,6 +282,11 @@ type compOptions struct {
 	realEnvs bool
 	// serverMode refuses agent sessions the way the server-mode adapters do.
 	serverMode bool
+	// controls registers the public harness.profile.* tools through the startup
+	// port and composes the graph with ComposeHarness.
+	controls bool
+	// wrapStore puts a fault-injecting store in front of the SQL HarnessStore.
+	wrapStore func(harnessPersistence) harnessPersistence
 }
 
 func newCompRig(t *testing.T, opt compOptions) *compRig {
@@ -392,6 +398,13 @@ func (r *compRig) build() {
 	if r.opt.noPDF {
 		deps.PDFDocuments = nil // the optional module is not wired
 	}
+	r.port = nil
+	if r.opt.controls {
+		// Created before the server, bound after the graph is built from the
+		// server's own inventory: the order production has to follow.
+		r.port = NewHarnessPort()
+		deps.Harness = r.port
+	}
 	r.server = mcp.NewServer(deps)
 
 	dir, err := os.MkdirTemp("/tmp", "h4d")
@@ -404,11 +417,22 @@ func (r *compRig) build() {
 	t.Cleanup(r.host.Close)
 	r.agents.MCPEndpoints = r.host
 
-	r.asm, err = NewHarnessAssembly(HarnessAssemblyConfig{
-		Store: storage.NewHarnessStore(r.db), Preferences: r.prefs, Hub: r.hub, Workspaces: r.ws, Agents: r.agents, Vendors: productionVendors,
+	var hstore harnessPersistence = storage.NewHarnessStore(r.db)
+	if r.opt.wrapStore != nil {
+		hstore = r.opt.wrapStore(hstore)
+	}
+	cfg := HarnessAssemblyConfig{
+		Store: hstore, Preferences: r.prefs, Hub: r.hub, Workspaces: r.ws, Agents: r.agents, Vendors: productionVendors,
 		Inventory: r.inventory,
 		Audit:     func(e harnessconfig.Event) { r.evMu.Lock(); r.events = append(r.events, e); r.evMu.Unlock() },
-	})
+	}
+	if r.opt.controls {
+		if r.asm, err = ComposeHarness(r.port, cfg, r.agents); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	r.asm, err = NewHarnessAssembly(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

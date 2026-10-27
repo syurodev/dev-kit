@@ -229,7 +229,12 @@ type Deps struct {
 	// sessions. Nil leaves them unregistered, so an agent is never offered a
 	// tool that cannot answer.
 	PDFDocuments PDFDocumentsAPI
-	Hub          *interaction.Hub // optional nil → headless
+	// Harness backs harness.profile.get and harness.profile.propose. Nil leaves
+	// them unregistered. It must be a value created before the server and bound,
+	// once, to the real graph before any listener or session is admitted; a nil
+	// pointer assigned here would pass the check below (the typed-nil trap).
+	Harness HarnessAPI
+	Hub     *interaction.Hub // optional nil → headless
 }
 
 // Server hosts the MCP tool registry for DevKit.
@@ -331,6 +336,7 @@ func (s *Server) registerAll(ms *sdk.Server) {
 	s.registerWorkspace(ms)
 	s.registerWorkspaceMemory(ms)
 	s.registerPDF(ms)
+	s.registerHarness(ms)
 	if s.extraTools != nil {
 		s.extraTools(ms)
 	}

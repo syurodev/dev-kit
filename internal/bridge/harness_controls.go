@@ -1,0 +1,111 @@
+package bridge
+
+import (
+	"context"
+
+	"devkit/internal/harnessconfig"
+)
+
+// The window's tool-group controls (H5a). Each method is a thin call into the
+// shared facade (internal/app.HarnessPort → the assembly's controls): scope is
+// resolved there from the identity and the persisted rows, and the facade itself
+// refuses any caller but the window, so a terminal or an agent that reached this
+// service could not use them. A committed change whose publication failed comes
+// back as a normal Outcome (status paused or unknown) rather than as an error, so
+// the window never loses what was saved.
+
+// HarnessAvailable reports whether the controls are wired. The window shows its
+// entry points only from this; it is not a feature flag, it is whether the graph
+// exists.
+func (s *AppService) HarnessAvailable() bool { return s.container.Harness.Bound() }
+
+// HarnessWorkspaceProfile reads a workspace's tool groups.
+func (s *AppService) HarnessWorkspaceProfile(workspaceID string) (harnessconfig.ProfileView, error) {
+	result, err := s.call(context.Background(), "builtin.harness", "harness:read", "ui:profile", map[string]any{
+		"action": "workspace_profile", "workspace_id": recordID(workspaceID),
+	}, func(ctx context.Context) (any, error) {
+		return s.container.Harness.WorkspaceProfile(ctx, workspaceID)
+	})
+	if err != nil {
+		return harnessconfig.ProfileView{}, err
+	}
+	return result.(harnessconfig.ProfileView), nil
+}
+
+// HarnessSessionProfile reads one session's tool groups: saved and running.
+func (s *AppService) HarnessSessionProfile(workspaceID, sessionID string) (harnessconfig.ProfileView, error) {
+	result, err := s.call(context.Background(), "builtin.harness", "harness:read", "ui:profile", map[string]any{
+		"action": "session_profile", "workspace_id": recordID(workspaceID), "session_id": recordID(sessionID),
+	}, func(ctx context.Context) (any, error) {
+		return s.container.Harness.SessionProfile(ctx, workspaceID, sessionID)
+	})
+	if err != nil {
+		return harnessconfig.ProfileView{}, err
+	}
+	return result.(harnessconfig.ProfileView), nil
+}
+
+// HarnessPrepareWorkspaceGroups prepares an edit of a workspace's group entries.
+// It writes nothing; HarnessApply asks and commits.
+func (s *AppService) HarnessPrepareWorkspaceGroups(workspaceID string, edits []harnessconfig.GroupEdit) (harnessconfig.Review, error) {
+	result, err := s.call(context.Background(), "builtin.harness", "harness:write", "ui:change", map[string]any{
+		"action": "prepare_workspace_groups", "workspace_id": recordID(workspaceID), "edits": len(edits),
+	}, func(ctx context.Context) (any, error) {
+		return s.container.Harness.PrepareWorkspaceGroups(ctx, workspaceID, edits)
+	})
+	if err != nil {
+		return harnessconfig.Review{}, err
+	}
+	return result.(harnessconfig.Review), nil
+}
+
+// HarnessPrepareRevoke prepares removing groups from a session's override.
+func (s *AppService) HarnessPrepareRevoke(workspaceID, sessionID string, groups []string) (harnessconfig.Review, error) {
+	result, err := s.call(context.Background(), "builtin.harness", "harness:write", "ui:change", map[string]any{
+		"action": "prepare_revoke", "workspace_id": recordID(workspaceID), "session_id": recordID(sessionID), "groups": len(groups),
+	}, func(ctx context.Context) (any, error) {
+		return s.container.Harness.PrepareRevoke(ctx, workspaceID, sessionID, groups)
+	})
+	if err != nil {
+		return harnessconfig.Review{}, err
+	}
+	return result.(harnessconfig.Review), nil
+}
+
+// HarnessApply asks the person through the shared confirmation flow and commits
+// a prepared change. A change that was saved but not published returns an
+// Outcome, not an error.
+func (s *AppService) HarnessApply(id string) (harnessconfig.Outcome, error) {
+	result, err := s.call(context.Background(), "builtin.harness", "harness:write", "ui:change", map[string]any{
+		"action": "apply",
+	}, func(ctx context.Context) (any, error) {
+		return s.container.Harness.Apply(ctx, id)
+	})
+	if err != nil {
+		return harnessconfig.Outcome{}, err
+	}
+	return result.(harnessconfig.Outcome), nil
+}
+
+// HarnessCancel withdraws a prepared change.
+func (s *AppService) HarnessCancel(id string) error {
+	_, err := s.call(context.Background(), "builtin.harness", "harness:write", "ui:change", map[string]any{
+		"action": "cancel",
+	}, func(ctx context.Context) (any, error) {
+		return nil, s.container.Harness.Cancel(ctx, id)
+	})
+	return err
+}
+
+// HarnessReconcile brings a session's endpoint to its latest saved override.
+func (s *AppService) HarnessReconcile(workspaceID, sessionID string) (harnessconfig.Outcome, error) {
+	result, err := s.call(context.Background(), "builtin.harness", "harness:write", "ui:reconcile", map[string]any{
+		"action": "reconcile", "workspace_id": recordID(workspaceID), "session_id": recordID(sessionID),
+	}, func(ctx context.Context) (any, error) {
+		return s.container.Harness.Reconcile(ctx, workspaceID, sessionID)
+	})
+	if err != nil {
+		return harnessconfig.Outcome{}, err
+	}
+	return result.(harnessconfig.Outcome), nil
+}
