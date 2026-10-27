@@ -647,7 +647,7 @@ func TestOpenCodeNamingMatchesCodeMode(t *testing.T) {
 	if namingFor(AgentTypeOpenCode).tool("pdf.list") != opencodeNaming.tool("pdf.list") {
 		t.Fatal("opencode sessions do not get opencode's naming")
 	}
-	prompt := devkitPrompt(opencodeNaming, "")
+	prompt := devkitPrompt(opencodeNaming, "", nil)
 	if !strings.Contains(prompt, "execute") || strings.Contains(prompt, "mcp__devkit__") {
 		t.Fatalf("the prompt does not teach opencode's way of calling a tool:\n%s", prompt)
 	}

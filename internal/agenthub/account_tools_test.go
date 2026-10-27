@@ -16,7 +16,7 @@ func TestNoToolTouchesAgentAccounts(t *testing.T) {
 			t.Errorf("tool %s touches the vendor accounts; only the window may", name)
 		}
 	}
-	prompt := strings.ToLower(devkitPrompt(claudeNaming, ""))
+	prompt := strings.ToLower(devkitPrompt(claudeNaming, "", nil))
 	for _, phrase := range []string{"account policy", "switch account", "vendor account"} {
 		if strings.Contains(prompt, phrase) {
 			t.Errorf("the prompt tells agents about vendor accounts (%q)", phrase)

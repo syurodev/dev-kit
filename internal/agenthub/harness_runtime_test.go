@@ -180,13 +180,26 @@ func (p *plainEndpoints) open(sessionID, kind string) (agenthub.MCPEndpoint, err
 type policyEndpoints struct {
 	plainEndpoints
 	policies []harness.Effective
+	// noServed makes the endpoint omit the inventory it serves (a broken port).
+	noServed bool
 }
 
 func (p *policyEndpoints) OpenWithPolicy(sessionID string, e harness.Effective) (agenthub.MCPEndpoint, error) {
 	p.mu.Lock()
 	p.policies = append(p.policies, e)
 	p.mu.Unlock()
-	return p.open(sessionID, "endpoint.openWithPolicy")
+	ep, err := p.open(sessionID, "endpoint.openWithPolicy")
+	if err != nil || p.noServed {
+		return ep, err
+	}
+	var names []string
+	for _, t := range tinyRegistry.Tools {
+		if e.Served(t.Name) {
+			names = append(names, t.Name)
+		}
+	}
+	ep.Served = agenthub.NewDevKitServing(names)
+	return ep, nil
 }
 
 var tinyRegistry = harness.Registry{Tools: []harness.Tool{

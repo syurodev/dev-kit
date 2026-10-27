@@ -107,7 +107,7 @@ func TestNoToolTouchesSubagentLimits(t *testing.T) {
 			t.Errorf("tool %s touches the subagent limits; only the window may", name)
 		}
 	}
-	if prompt := devkitPrompt(claudeNaming, ""); strings.Contains(strings.ToLower(prompt), "subagent limit") {
+	if prompt := devkitPrompt(claudeNaming, "", nil); strings.Contains(strings.ToLower(prompt), "subagent limit") {
 		t.Error("the prompt tells agents about the limits")
 	}
 }

@@ -13,6 +13,10 @@ import (
 
 // OpenSpec is everything an adapter needs to spawn one session.
 type OpenSpec struct {
+	// DevKit is what the prepared endpoint serves, for the host guidance and the
+	// naming note. nil is the legacy launch: full guidance. Set only by the
+	// prepared launch (prepareLaunch), never from a tool or a caller.
+	DevKit                 *DevKitServing
 	UsageToken             string
 	UsageAccountGeneration string
 	// SessionID is set by the service, never a tool input.

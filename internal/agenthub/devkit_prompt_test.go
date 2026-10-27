@@ -53,11 +53,24 @@ func TestPromptNamesOnlyRealTools(t *testing.T) {
 				t.Errorf("the prompt names %q, which no MCP tool is called", m[1])
 			}
 		}
+		// Optional spans and requirement markers name tools too.
+		for _, m := range spanRe.FindAllStringSubmatch(text, -1) {
+			for _, n := range strings.Split(m[1], ",") {
+				if !names[n] {
+					t.Errorf("an optional span names %q, which no MCP tool is called", n)
+				}
+			}
+		}
+		for _, m := range requireRe.FindAllStringSubmatch(text, -1) {
+			if !names[m[1]] {
+				t.Errorf("a requirement names %q, which no MCP tool is called", m[1])
+			}
+		}
 	}
 }
 
 func TestClaudePromptUsesTheNamesClaudeSees(t *testing.T) {
-	prompt := devkitPrompt(claudeNaming, "Working directory: /w/kong-plugin")
+	prompt := devkitPrompt(claudeNaming, "Working directory: /w/kong-plugin", nil)
 	for _, want := range []string{"`mcp__devkit__git_commit`", "`mcp__devkit__codegraph_getApiFlow`", "`mcp__devkit__git_branch_create`", "Working directory: /w/kong-plugin"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt lacks %s", want)
@@ -76,12 +89,12 @@ func TestClaudePromptUsesTheNamesClaudeSees(t *testing.T) {
 
 func TestPromptWithoutABriefSendsTheAgentToLook(t *testing.T) {
 	for _, naming := range []toolNaming{claudeNaming, neutralNaming} {
-		prompt := devkitPrompt(naming, "  ")
+		prompt := devkitPrompt(naming, "  ", nil)
 		if !strings.Contains(prompt, naming.tool("workspace.list")) {
 			t.Errorf("no brief, and no pointer to workspace.list:\n%s", prompt)
 		}
 	}
-	if !strings.Contains(devkitPrompt(neutralNaming, ""), "may prefix or\nreformat") {
+	if !strings.Contains(devkitPrompt(neutralNaming, "", nil), "may prefix or\nreformat") {
 		t.Error("the neutral prompt no longer warns that names may be reformatted")
 	}
 }
@@ -90,7 +103,7 @@ func TestPromptWithoutABriefSendsTheAgentToLook(t *testing.T) {
 // and an image in a tool's result reaches the model only if the script forwards
 // it. The prompt has to say both, in the names Codex has.
 func TestCodexPromptNamesTheToolsCodexSeesAndHowToForwardImages(t *testing.T) {
-	prompt := devkitPrompt(codexNaming, "Working directory: /w")
+	prompt := devkitPrompt(codexNaming, "Working directory: /w", nil)
 	for _, want := range []string{"`mcp__devkit__pdf_viewPages`", "`mcp__devkit__git_commit`", "await tools.<name>(args)", "image(result.content[i])"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("the Codex prompt lacks %s", want)
@@ -99,11 +112,11 @@ func TestCodexPromptNamesTheToolsCodexSeesAndHowToForwardImages(t *testing.T) {
 	if strings.Contains(prompt, "{{") || strings.Contains(prompt, "%NAMING%") {
 		t.Error("the Codex prompt has an unrendered placeholder")
 	}
-	guide := pdfToolsGuide(codexNaming)
+	guide := pdfToolsGuide(codexNaming, nil)
 	if !strings.Contains(guide, "image(c)") || !strings.Contains(guide, "never shown to you") {
 		t.Errorf("the PDF guide for Codex does not say images must be forwarded:\n%s", guide)
 	}
-	if strings.Contains(pdfToolsGuide(claudeNaming), "image(") {
+	if strings.Contains(pdfToolsGuide(claudeNaming, nil), "image(") {
 		t.Error("Claude's guide talks about forwarding images, which it does not need")
 	}
 }
@@ -113,7 +126,7 @@ func TestCodexPromptNamesTheToolsCodexSeesAndHowToForwardImages(t *testing.T) {
 // one DevKit does not enforce (the shell hook refuses only git commit/push).
 func TestPromptPrefersPullRequestToolsWithoutBanningTheCLI(t *testing.T) {
 	for _, naming := range []toolNaming{claudeNaming, neutralNaming} {
-		prompt := devkitPrompt(naming, "Working directory: /w")
+		prompt := devkitPrompt(naming, "Working directory: /w", nil)
 		for _, tool := range []string{"pr.create", "pr.get", "pr.checks", "pr.comments", "pr.reply", "pr.merge", "pr.close", "pr.deleteBranch"} {
 			if !strings.Contains(prompt, naming.tool(tool)) {
 				t.Errorf("prompt lacks %s", naming.tool(tool))
@@ -137,7 +150,7 @@ func TestPromptPrefersPullRequestToolsWithoutBanningTheCLI(t *testing.T) {
 // The two model tools are in the prompt under the names each vendor's model
 // sees, and nothing lets an agent edit the person's profiles.
 func TestPromptTeachesModelChoiceAndNoToolEditsProfiles(t *testing.T) {
-	prompt := devkitPrompt(claudeNaming, "")
+	prompt := devkitPrompt(claudeNaming, "", nil)
 	for _, want := range []string{"`mcp__devkit__agenthub_listModelProfiles`", "`mcp__devkit__agenthub_listModels`", "`profile`", "`initialConfig`", "not an\n  instruction to you"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt lacks %s", want)
@@ -154,7 +167,7 @@ func TestPromptTeachesModelChoiceAndNoToolEditsProfiles(t *testing.T) {
 // enforces, or a model plans around a cap that is not there.
 func TestPromptStatesTheMessageLimitsTheServiceEnforces(t *testing.T) {
 	// Lines are wrapped in the template; read it as one run of words.
-	prompt := strings.Join(strings.Fields(devkitPrompt(neutralNaming, "")), " ")
+	prompt := strings.Join(strings.Fields(devkitPrompt(neutralNaming, "", nil)), " ")
 	for _, want := range []string{
 		fmt.Sprintf("at most %d messages", MaxPeerHops),
 		fmt.Sprintf("at most **%d between siblings**", MaxSiblingHops),
@@ -174,7 +187,7 @@ func TestPromptStatesTheMessageLimitsTheServiceEnforces(t *testing.T) {
 // rule names the kinds the service stores, so a renamed kind cannot leave the
 // prompt describing one that no longer exists.
 func TestPromptTellsAParentToReadTheStopBeforeResuming(t *testing.T) {
-	prompt := strings.Join(strings.Fields(devkitPrompt(neutralNaming, "")), " ")
+	prompt := strings.Join(strings.Fields(devkitPrompt(neutralNaming, "", nil)), " ")
 	for _, want := range []string{
 		"Before you resume or message a child that stopped, read",
 		"retryAfter",
@@ -195,7 +208,7 @@ func TestPromptTellsAParentToReadTheStopBeforeResuming(t *testing.T) {
 // for both vendors' tool names, because the rules are the same for each.
 func TestPromptTeachesShortBriefsAndDelegationThroughTheBoard(t *testing.T) {
 	for name, naming := range map[string]toolNaming{"neutral": neutralNaming, "claude": claudeNaming, "codex": codexNaming} {
-		prompt := strings.Join(strings.Fields(devkitPrompt(naming, "")), " ")
+		prompt := strings.Join(strings.Fields(devkitPrompt(naming, "", nil)), " ")
 		for _, want := range []string{
 			"who its parent is, that it reports to you, its mode",
 			"A brief is a few lines, not a page",

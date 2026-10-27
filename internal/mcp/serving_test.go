@@ -891,3 +891,33 @@ func TestAPolicyCannotAddABudgetExemption(t *testing.T) {
 		t.Fatalf("a forged exemption let %d bytes through a %d byte budget", n, ResultBudget)
 	}
 }
+
+// A shutdown (or any Close) can reach an endpoint the moment it is registered,
+// before OpenWithPolicy has returned. What the returned endpoint says about
+// itself was fixed from the policy before it was published, so there is nothing
+// left to load from a holder that is already closed.
+func TestACloseBetweenPublicationAndReturnDoesNotPanic(t *testing.T) {
+	r := newServingRig(t, nil)
+	r.host.publishedHook = func() { r.host.Close() }
+	ep, err := r.host.OpenWithPolicy(sidA, r.resolve(groupOff("git", 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ep.Served == nil || len(ep.Served.Tools) == 0 {
+		t.Fatalf("the endpoint lost what it serves: %+v", ep.Served)
+	}
+	for _, n := range ep.Served.Tools {
+		if harness.Group(n) == "git" {
+			t.Fatalf("%s is reported served", n)
+		}
+	}
+	for _, n := range ep.PreApprovedTools {
+		if harness.Group(n) == "git" {
+			t.Fatalf("%s is pre-approved", n)
+		}
+	}
+	if _, err := os.Stat(ep.SocketPath); !os.IsNotExist(err) {
+		t.Fatalf("the closed endpoint left its socket: %v", err)
+	}
+	ep.Close() // idempotent after the host closed it
+}

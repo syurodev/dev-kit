@@ -68,7 +68,11 @@ func namingFor(agent AgentType) toolNaming {
 }
 
 // pdfToolsGuide says how to read a document, in the tool names the model has.
-func pdfToolsGuide(naming toolNaming) string {
+func pdfToolsGuide(naming toolNaming, served *DevKitServing) string {
+	if served != nil && !servesAll(served, "pdf.info", "pdf.search", "pdf.readText", "pdf.viewPages", "pdf.list") {
+		return "The text is not in this message and the file cannot be opened by path. DevKit's PDF tools are not available in this session, " +
+			"so you cannot read the document here: tell the person."
+	}
 	t := naming.tool
 	return fmt.Sprintf("The text is not in this message and the file cannot be opened by path. Read it with DevKit's PDF tools, giving the document's id: "+
 		"%s (metadata, whether it has a text layer, and any page chrome found), "+
@@ -118,7 +122,7 @@ func humanBytes(n int64) string {
 
 // documentsPromptBlock is what the prompt carries for the PDFs attached with
 // it: what each is, and how to read it. The text of a document is not in it.
-func documentsPromptBlock(docs []attachedDocument, naming toolNaming) string {
+func documentsPromptBlock(docs []attachedDocument, naming toolNaming, served *DevKitServing) string {
 	if len(docs) == 0 {
 		return ""
 	}
@@ -137,7 +141,7 @@ func documentsPromptBlock(docs []attachedDocument, naming toolNaming) string {
 		b.WriteByte('\n')
 	}
 	b.WriteString("\n")
-	b.WriteString(pdfToolsGuide(naming))
+	b.WriteString(pdfToolsGuide(naming, served))
 	return b.String()
 }
 
@@ -166,7 +170,7 @@ func (s *Service) documentsContext(ctx context.Context, sess AgentSession) (stri
 		b.WriteByte('\n')
 	}
 	b.WriteString("\n")
-	b.WriteString(pdfToolsGuide(namingFor(sess.AgentType)))
+	b.WriteString(pdfToolsGuide(namingFor(sess.AgentType), s.servedFor(sess.ID)))
 	b.WriteByte('\n')
 	return b.String(), nil
 }
