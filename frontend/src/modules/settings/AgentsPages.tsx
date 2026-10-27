@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ACCOUNT_VENDORS } from "@/modules/agenthub/accounts/accountModel";
 import { AgentAccountsSetting } from "@/modules/agenthub/accounts/AgentAccountsSetting";
@@ -9,6 +10,8 @@ import { AgentRuntimeSetting } from "./AgentRuntimeSetting";
 import { AgentModelProfilesSetting } from "./AgentModelProfilesSetting";
 import { AgentSubagentLimitsSetting } from "./AgentSubagentLimitsSetting";
 import { AgentCheckpointSetting } from "./AgentCheckpointSetting";
+import { AgentHarnessPolicySetting } from "./AgentHarnessPolicySetting";
+import { harnessAvailable } from "@/bridge/harness";
 import { AgentSandboxSetting } from "./AgentSandboxSetting";
 import { AgentNotificationSetting } from "./AgentNotificationSetting";
 import { CodexSessionsSetting } from "./CodexSessionsSetting";
@@ -128,6 +131,20 @@ export function AgentSkillsPage() {
   );
 }
 
+/** Its heading appears only with the control: nothing is shown where the controls are not wired. */
+function AgentHarnessPolicySection() {
+  const { data: wired } = useQuery({ queryKey: ["harness", "available"], queryFn: harnessAvailable });
+  if (wired !== true) {
+    return null;
+  }
+  return (
+    <div className="flex flex-col gap-3">
+      <GroupLabel>TOOL RESULT LIMITS</GroupLabel>
+      <AgentHarnessPolicySetting />
+    </div>
+  );
+}
+
 export function AgentSafetyPage() {
   return (
     <TabColumn>
@@ -147,6 +164,7 @@ export function AgentSafetyPage() {
         <GroupLabel>SCOPED APPROVALS</GroupLabel>
         <ScopedApprovalsSetting />
       </div>
+      <AgentHarnessPolicySection />
     </TabColumn>
   );
 }

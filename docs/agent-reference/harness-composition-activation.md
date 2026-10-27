@@ -198,3 +198,26 @@ cancelled by navigating away (that would close the open question). Discarding an
 backend may have committed, and that is read back, never inferred. The card reads the backend again on an interval while the
 window is visible, on focus and on this window's own apply/reconcile (`onHarnessChanged`); reads are single-flight and nothing is
 optimistic (`Live` comes only from a read).
+
+## H5b — result budgets, head-and-tail cuts and the narrowing opt-in (integration record)
+
+Two stacked PRs on `origin/main` `7fd1dd21` (#370): the cutter and measurements (#371), then budget editing and the policy
+(stacked on it). Integration only: **`main.go` is unchanged, the harness is still not activated**, and none of the A6 gates
+above is waived. Executable proposals, vendor facts and `AllowExecutable` are untouched (always false).
+
+| Area | Behavior |
+| --- | --- |
+| Cutter (#371) | `headTail` is a real cut of **plain text**; structured JSON, errors and fixed exemptions are never head-and-tail cut. Mode and size come from the call's one admission snapshot. The default/legacy/terminal path stays head. |
+| Measurements (#371) | New rows are `text-utf8-v2` with the algorithm that actually ran (`none`/`head`/`headTail`/`structured`/`exempt`/`error`/`unrecorded`); v1 rows are never relabelled. Host text bytes only. |
+| Partial edits | `BudgetEdit` (tool or group): size and cut each *omitted / set / reset*, translated over the current W in the shared preparation path; a rule left empty is removed; no other W field moves; exempt tools and all-exempt groups are refused; classification stays on the effective before and after (`Classify`), with exact numbers in the review (`results from <tool>: limit 16384 → 24576 bytes, cut head → headTail`). |
+| Scope | A budget edit is a saved-workspace edit: **S still holds group names only**, the requester keeps its pinned limits until a reload, and an S enable after a budget edit resolves against the pinned launch basis (`TestAGroupEnabledAfterABudgetEditUsesThePinnedLaunchBasis`). |
+| Reads | `ProfileWithBudgets` (agent, own workspace) and `WorkspaceBudgets` (window): bounded pages by tool, filter-bound cursors, explicit rules beside the effective value and its source (tool / group / default). |
+| Agent form | `harness.profile.propose {budgets:[…]}`, exclusive with `groups`, workspace only (no scope question, no "this session"), no policy, approval, target or executable field in the schema (`TestTheAgentFormsCarryNoPolicyApprovalOrExecutableField`). No new tool, no new grant, no pre-approval. |
+| Policy | `preferences.AgentHarnessPolicy{Revision, AutoNarrowing}`: default off, monotonic revision advanced by every change, CAS setter (`ErrHarnessPolicyConflict`), unreadable value reads as off. The setter takes the lock the final recheck and commit hold (`HoldAgentCustomization`) and is never held while a person decides. Window-only (`AgentHarnessPolicyGet/AutoNarrowingSet`, refused to agent and terminal in Go). `Policy.Revision` binds an approval, so a toggle — or off and on again — between Prepare and commit makes the proposal stale. |
+| What the opt-in skips | Only an **agent's** pure **narrowing budget** edit's question. Window edits, widening, mixed, group/deny/server requests and executable tiers ask; headless and nil-prompter still refuse. |
+| Window | "Result limits" tab in the lazy workspace dialog (`WorkspaceBudgetsPanel` + `BudgetsController`): KiB with exact bytes, independently resettable size and cut, exempt tools shown as never cut, a made-up sample illustrating the modes (not the cutter), drafts that survive conflict/read failure, stale-response protection and external refresh with the same epoch rules as the session card. Settings → Agents → Safety shows the opt-in only where the controls are wired. |
+
+Evidence: `internal/mcp/result_headtail_test.go`, `internal/usagemetrics/cutmode_test.go`, `internal/harnessconfig/budget_test.go`,
+`internal/preferences/harnesspolicy_test.go`, `internal/app/harness_budgets_test.go`, `internal/bridge/harness_policy_test.go`;
+frontend `workspaceBudgetModel.test.ts`, `budgetsController.test.ts`, `HarnessDialogs.test.tsx`. Production wiring still
+requires the A6 gates; `TestProductionDoesNotWireTheHarnessYet` is unchanged.
