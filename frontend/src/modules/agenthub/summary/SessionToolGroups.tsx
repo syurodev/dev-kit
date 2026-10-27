@@ -1,98 +1,98 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { errorMessage } from "@/bridge/errors";
 import {
   applyReview,
   cancelReview,
   harnessAvailable,
+  onHarnessChanged,
   prepareRevoke,
   reconcileSession,
   sessionProfile,
-  type Outcome,
-  type ProfileView,
-  type Review,
 } from "@/bridge/harness";
 import { agentHubResumeSession } from "@/bridge/agenthub";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
 import { HarnessReviewBody } from "@/workbench/HarnessReviewBody";
-import { LatestRequest } from "@/workbench/WorkspaceMemoryModel";
 import { needsReconcile, outcomeNotice, rows, sessionStatusLine } from "@/workbench/workspaceHarnessModel";
+import { keepFresh, ToolGroupsController, type ToolGroupsOps } from "./toolGroupsController";
+
+/** How often an open card reads the backend again while the window is visible. */
+const REFRESH_MS = 4000;
+
+const ops: ToolGroupsOps = {
+  profile: sessionProfile,
+  prepareRevoke,
+  apply: applyReview,
+  cancel: cancelReview,
+  reconcile: reconcileSession,
+  reload: (sessionId) => agentHubResumeSession(sessionId, true),
+};
 
 /**
  * The session's tool groups: what it is actually served, what is saved, and the
- * recovery controls. Revoke goes through the same review and confirmation as any
- * other change (deleting an override is not exempt just because the person asked);
- * Reconcile finishes a saved change whose publication failed and never proposes it
- * again; Reload is the existing explicit runtime reload. Nothing here closes or
- * reopens the session on its own, and leaving the card does not clear an override.
+ * recovery controls. All behavior lives in ToolGroupsController (stale answers for
+ * a session the card has left are never shown, and a change made elsewhere is read
+ * back); this is its view. Revoke goes through the same review and confirmation as
+ * any other change; Reconcile finishes a saved change whose publication failed and
+ * never proposes it again; Reload is the existing explicit runtime reload. Nothing
+ * here closes or reopens the session, and leaving the card does not clear an
+ * override.
  */
 export function SessionToolGroups({ sessionId }: { sessionId: string }) {
   const workspaceId = useAgentSessionsStore((state) => state.sessionsById[sessionId]?.workspaceId ?? "");
+  const [controller] = useState(() => new ToolGroupsController(ops));
   const [wired, setWired] = useState(false);
-  const [view, setView] = useState<ProfileView | null>(null);
-  const [review, setReview] = useState<Review | null>(null);
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
-  const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
-  const latest = useRef(new LatestRequest());
-  const reviewRef = useRef<Review | null>(null);
-  reviewRef.current = review;
+  const state = useSyncExternalStore(controller.subscribe, controller.getState);
 
-  const load = useCallback(async () => {
-    if (!workspaceId) {
-      return;
-    }
-    const current = latest.current.begin();
-    try {
-      const next = await sessionProfile(workspaceId, sessionId);
-      // A late answer for another session (the card was re-pointed) is dropped.
-      if (current() && next.sessionId === sessionId) {
-        setView(next);
-        setError("");
-      }
-    } catch (e) {
-      if (current()) {
-        setError(errorMessage(e));
-      }
-    }
-  }, [workspaceId, sessionId]);
-
+  // Whether the host wired the controls at all. Until it says so, nothing is read.
   useEffect(() => {
     let live = true;
-    setView(null);
-    setReview(null);
-    setOutcome(null);
-    setError("");
     harnessAvailable()
-      .then((ok) => {
-        if (live) {
-          setWired(ok);
-          if (ok) {
-            void load();
-          }
-        }
-      })
+      .then((ok) => live && setWired(ok))
       .catch(() => live && setWired(false));
-    const generation = latest.current;
     return () => {
       live = false;
-      generation.invalidate();
     };
-  }, [load]);
+  }, []);
 
-  // A prepared review is a lookup key held by Go; withdraw it when the card goes.
-  useEffect(
-    () => () => {
-      const open = reviewRef.current;
-      if (open) {
-        void cancelReview(open.id).catch(() => {});
-      }
-    },
-    [],
-  );
+  // Point the controller at this session. Re-pointing (or unmounting) invalidates
+  // everything it still has in flight and withdraws a review it was holding.
+  useEffect(() => {
+    controller.setTarget(wired && workspaceId ? { workspaceId, sessionId } : null);
+  }, [controller, wired, workspaceId, sessionId]);
+  useEffect(() => () => controller.dispose(), [controller]);
 
-  if (!wired || !workspaceId || !view) {
+  // Changes made outside the card: this window's editor and recovery actions, and
+  // anything else (an agent's request, a failed publication, a reconcile elsewhere)
+  // through a periodic read while the window is visible and when it wakes.
+  useEffect(() => {
+    if (!wired || !workspaceId) {
+      return;
+    }
+    const stopEvents = onHarnessChanged(() => void controller.refresh());
+    const stopPolling = keepFresh(controller, {
+      intervalMs: REFRESH_MS,
+      setInterval: (handler, ms) => window.setInterval(handler, ms),
+      clearInterval: (handle) => window.clearInterval(handle as number),
+      visible: () => document.visibilityState === "visible",
+      onWake: (callback) => {
+        window.addEventListener("focus", callback);
+        document.addEventListener("visibilitychange", callback);
+        return () => {
+          window.removeEventListener("focus", callback);
+          document.removeEventListener("visibilitychange", callback);
+        };
+      },
+    });
+    return () => {
+      stopEvents();
+      stopPolling();
+    };
+  }, [controller, wired, workspaceId, sessionId]);
+
+  const { view, review, outcome, busy, error, loadError } = state;
+  // A view read for another session is never drawn on this card.
+  if (!wired || !workspaceId || !view || state.target?.sessionId !== sessionId || view.sessionId !== sessionId) {
     return null;
   }
   const session = view.session ?? null;
@@ -102,62 +102,7 @@ export function SessionToolGroups({ sessionId }: { sessionId: string }) {
   // Reload is the runtime's own explicit action. An executable change cannot be
   // adopted by a reload, so the card offers it only when a reload can help.
   const reload = Boolean(session?.reloadRequired && !session.newSessionRequired);
-
-  async function run(label: string, action: () => Promise<void>) {
-    setBusy(label);
-    setError("");
-    try {
-      await action();
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setBusy("");
-    }
-  }
-
-  const revoke = (group: string) =>
-    run("prepare", async () => {
-      setOutcome(null);
-      setReview(await prepareRevoke(workspaceId, sessionId, [group]));
-    });
-
-  const back = async () => {
-    const open = review;
-    setReview(null);
-    if (open) {
-      await cancelReview(open.id).catch(() => {});
-    }
-  };
-
-  const apply = () =>
-    run("apply", async () => {
-      if (!review) {
-        return;
-      }
-      const spent = review;
-      try {
-        // The review stays on screen while DevKit waits for the person; the busy
-        // state disables every control, so it cannot be submitted a second time.
-        setOutcome(await applyReview(spent.id));
-      } finally {
-        // Spent whatever the answer: it is never submitted again.
-        setReview(null);
-        reviewRef.current = null;
-        await load();
-      }
-    });
-
-  const reconcileNow = () =>
-    run("reconcile", async () => {
-      setOutcome(await reconcileSession(workspaceId, sessionId));
-      await load();
-    });
-
-  const reloadNow = () =>
-    run("reload", async () => {
-      await agentHubResumeSession(sessionId, true);
-      await load();
-    });
+  const shownError = error || loadError;
 
   return (
     <section
@@ -176,9 +121,9 @@ export function SessionToolGroups({ sessionId }: { sessionId: string }) {
           <p className="mt-0.5 text-text-secondary">{notice.body}</p>
         </div>
       ) : null}
-      {error ? (
+      {shownError ? (
         <p role="alert" className="text-caption-11 text-status-danger">
-          {error}
+          {shownError}
         </p>
       ) : null}
 
@@ -186,10 +131,10 @@ export function SessionToolGroups({ sessionId }: { sessionId: string }) {
         <div className="space-y-2">
           <HarnessReviewBody review={review} />
           <div className="flex justify-end gap-2">
-            <Button type="button" size="sm" variant="outline" autoFocus disabled={busy === "apply"} onClick={() => void back()}>
+            <Button type="button" size="sm" variant="outline" autoFocus disabled={busy === "apply"} onClick={() => void controller.back()}>
               Back
             </Button>
-            <Button type="button" size="sm" disabled={busy !== ""} onClick={() => void apply()}>
+            <Button type="button" size="sm" disabled={busy !== ""} onClick={() => void controller.apply()}>
               {busy === "apply" ? <Loader2 className="size-3.5 animate-spin" /> : null}
               {busy === "apply" ? "Waiting for confirmation…" : "Apply"}
             </Button>
@@ -209,7 +154,7 @@ export function SessionToolGroups({ sessionId }: { sessionId: string }) {
                         {row ? `running ${row.running}` : "this session only"}
                       </span>
                     </span>
-                    <Button type="button" size="sm" variant="outline" disabled={busy !== ""} onClick={() => void revoke(group)} aria-label={`Revoke ${group}`}>
+                    <Button type="button" size="sm" variant="outline" disabled={busy !== ""} onClick={() => void controller.revoke(group)} aria-label={`Revoke ${group}`}>
                       Revoke
                     </Button>
                   </li>
@@ -221,13 +166,13 @@ export function SessionToolGroups({ sessionId }: { sessionId: string }) {
           )}
           <div className="flex flex-wrap gap-2">
             {reconcile ? (
-              <Button type="button" size="sm" disabled={busy !== ""} onClick={() => void reconcileNow()}>
+              <Button type="button" size="sm" disabled={busy !== ""} onClick={() => void controller.reconcile()}>
                 {busy === "reconcile" ? <Loader2 className="size-3.5 animate-spin" /> : null}
                 Reconcile
               </Button>
             ) : null}
             {reload ? (
-              <Button type="button" size="sm" variant="outline" disabled={busy !== ""} onClick={() => void reloadNow()}>
+              <Button type="button" size="sm" variant="outline" disabled={busy !== ""} onClick={() => void controller.reload()}>
                 {busy === "reload" ? <Loader2 className="size-3.5 animate-spin" /> : null}
                 Reload session
               </Button>

@@ -46,9 +46,27 @@ export function prepareRevoke(
   return callBridge(() => AppService.HarnessPrepareRevoke(workspaceId, sessionId, groups));
 }
 
+const changeListeners = new Set<() => void>();
+
+/**
+ * Something in this window may have changed a workspace's or a session's tool
+ * groups (an apply, a reconcile). Views that show them read the backend again; the
+ * event carries no data, so none of them can be handed a stale copy.
+ */
+export function onHarnessChanged(listener: () => void): () => void {
+  changeListeners.add(listener);
+  return () => changeListeners.delete(listener);
+}
+
+function harnessChanged(): void {
+  for (const listener of [...changeListeners]) {
+    listener();
+  }
+}
+
 /** Asks through the shared confirmation flow, then commits. */
 export function applyReview(id: string): Promise<Outcome> {
-  return callBridge(() => AppService.HarnessApply(id));
+  return callBridge(() => AppService.HarnessApply(id)).finally(harnessChanged);
 }
 
 export function cancelReview(id: string): Promise<void> {
@@ -59,5 +77,5 @@ export function reconcileSession(
   workspaceId: string,
   sessionId: string,
 ): Promise<Outcome> {
-  return callBridge(() => AppService.HarnessReconcile(workspaceId, sessionId));
+  return callBridge(() => AppService.HarnessReconcile(workspaceId, sessionId)).finally(harnessChanged);
 }

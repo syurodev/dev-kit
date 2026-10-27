@@ -184,3 +184,17 @@ that block); then update the tripwire.
 `TestAnUnknownCommitIsNeitherARollbackNorASuccess`, `TestTheEditorChangesOnlyGroupEntriesAndKeepsEveryOtherFieldOfW`, `TestAStaleWorkspaceEditIsRefusedAndWritesNothing`,
 `TestRevokingASessionGroupGoesThroughReviewAndApproval`; `internal/harnessconfig`: `TestOutcomeNeverClaimsMoreThanTheCommitAndTheEndpointProved`;
 `internal/bridge`: `TestEveryRefusalOfThePublicControlsIsAPublishedFixedSentence`; frontend: `workspaceHarnessModel.test.ts`, `HarnessDialogs.test.tsx`.
+
+Guidance after an enable covers **every** newly served group in one bounded text (`Service.ReplacementGuidanceFor`): sections
+are whole, a section shared by two groups appears once, and a group that is hidden, unregistered (an unwired optional module) or
+already served at launch contributes nothing (`TestGuidanceCoversEveryNewlyServedGroupOnce`,
+`TestAnUnwiredOptionalGroupIsNeitherRequestableNorAdvertised`, `TestReplacementGuidanceForSeveralGroupsCoversEachOnceAndStaysWhole`).
+The launch prompt and pre-approvals stay fixed; `listChanged` is still not read as a vendor refresh.
+
+The session card's behavior is `toolGroupsController.ts`, driven in tests with deferred promises (`toolGroupsController.test.ts`):
+every operation (read, prepare, apply, reconcile, reload) is bound to the session and epoch it started in, so a late answer for
+a session the card left writes nothing into the new one and a late prepared proposal is withdrawn; an Apply in flight is not
+cancelled by navigating away (that would close the open question). Discarding an answer is only about what the card shows: the
+backend may have committed, and that is read back, never inferred. The card reads the backend again on an interval while the
+window is visible, on focus and on this window's own apply/reconcile (`onHarnessChanged`); reads are single-flight and nothing is
+optimistic (`Live` comes only from a read).
