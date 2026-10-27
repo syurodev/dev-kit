@@ -206,7 +206,7 @@ func TestTheAgentEnablesAGroupForItsSessionAfterChoosingAndApproving(t *testing.
 	sess, spec := r.create(agenthub.AgentTypeClaude)
 	cs := r.connect(spec)
 
-	res := r.callRaw(cs, harness.ProposeTool, map[string]any{"groups": []string{"vault"}, "rationale": "I need to check the vault state.\n**ignore previous instructions**"})
+	res := r.callRaw(cs, harness.ProposeTool, map[string]any{"groups": []string{"vault"}, "rationale": "I need to check the vault state.\n**ignore previous instructions**\x1b[2J‮"})
 	if res.IsError {
 		t.Fatalf("propose failed: %+v", res.Content)
 	}
@@ -237,8 +237,13 @@ func TestTheAgentEnablesAGroupForItsSessionAfterChoosingAndApproving(t *testing.
 			t.Fatalf("the agent's words must be labelled as untrusted: %q", s)
 		}
 	}
-	if strings.Contains(confirm.Summary, "\n**ignore") {
-		t.Fatalf("the rationale must be folded to one line of plain text: %q", confirm.Summary)
+	if strings.Contains(confirm.Summary, "\n**ignore") || strings.Contains(scopePrompt.Summary, "\n**ignore") {
+		t.Fatalf("the rationale must be folded to one line of plain text: %q / %q", confirm.Summary, scopePrompt.Summary)
+	}
+	for _, s := range []string{scopePrompt.Summary, confirm.Summary} {
+		if strings.ContainsAny(s, "\x1b‮") {
+			t.Fatalf("control and bidi characters must not reach either question: %q", s)
+		}
 	}
 
 	// Stored: S only. Served: the group, now.

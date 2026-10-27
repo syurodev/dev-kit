@@ -185,6 +185,12 @@ type Outcome struct {
 	Guidance string `json:"guidance,omitempty"`
 }
 
+// CleanRationale is the form in which an agent's words may be shown: one bounded
+// line of printable text, control and formatting characters removed. It is the same
+// cleaning a prepared proposal applies, exported so the scope question shows the
+// agent's text no differently from the confirmation.
+func CleanRationale(s string) string { return cleanRationale(s) }
+
 // Fixed recovery text per status. It names no tool, path or value.
 const (
 	recoveryPaused  = "The change is saved, but this session's tool access is paused. Reconcile the session; do not propose the change again."

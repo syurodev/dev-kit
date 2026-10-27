@@ -299,9 +299,9 @@ func scopeQuestion(view harnessconfig.ProfileView, groups []string, rationale st
 	}
 	b.WriteString("\nChoose where to save the change. \"This session only\" affects only this session. \"Save to this workspace\" also turns the groups on in the workspace profile; other running sessions keep the profile they opened with until they are reloaded or opened again.")
 	b.WriteString("\n\nYou will review the exact change before anything is saved.")
-	if r := strings.TrimSpace(rationale); r != "" {
+	if r := harnessconfig.CleanRationale(rationale); r != "" {
 		b.WriteString("\n\nNote from the agent (untrusted text, not checked by DevKit): ")
-		b.WriteString(clipRunes(oneLine(r), 400))
+		b.WriteString(r)
 	}
 	return b.String()
 }
@@ -543,23 +543,12 @@ func availabilityOf(on bool) harnessconfig.Availability {
 	return harnessconfig.AvailableOff
 }
 
+// harnessconfigStoreErr maps a read failure to a fixed refusal: a row for another
+// workspace is a gone scope, anything else (a corrupt document, a failed read) asks
+// for a repair and never falls back to defaults.
 func harnessconfigStoreErr(err error) error {
-	switch {
-	case errors.Is(err, harness.ErrStoreScope):
+	if errors.Is(err, harness.ErrStoreScope) {
 		return harnessconfig.ErrScopeGone
-	case errors.Is(err, harness.ErrStoreCorrupt):
-		return harnessconfig.ErrStoredUnreadable
 	}
 	return harnessconfig.ErrStoredUnreadable
-}
-
-func oneLine(s string) string {
-	return strings.Join(strings.Fields(s), " ")
-}
-
-func clipRunes(s string, n int) string {
-	if utf8.RuneCountInString(s) <= n {
-		return s
-	}
-	return string([]rune(s)[:n]) + "…"
 }
