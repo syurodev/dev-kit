@@ -345,6 +345,12 @@ func publicError(subject string, err error) *apperrors.AppError {
 		}
 	}
 	if subject == "builtin.agenthub" {
+		// The harness's own refusals of a launch or a close. Fixed host sentences
+		// with a published code (see keptCodes); anything else of the harness's
+		// stays redacted.
+		if refusal := harnessRefusal(err); refusal != nil {
+			return refusal
+		}
 		// Runtime errors first: a session that cannot start because Node is
 		// missing also carries ErrProcessFailed, and "Agent process failed."
 		// would hide the one thing the user can fix.
@@ -700,6 +706,30 @@ func codeGraphNotFoundMessage(err error) string {
 	return "CodeGraph file or directory not found."
 }
 
+// harnessLaunchCodes are the harness codes a session launch, reload or close can
+// answer a window with. Each message is a fixed sentence written by the host
+// (harness.Error never carries a command, path, URL or third-party text), so it
+// is published as it is.
+var harnessLaunchCodes = map[string]bool{
+	harness.CodeSnapshotUnavailable: true,
+	harness.CodeNotEnforceable:      true,
+	harness.CodeNewSessionRequired:  true,
+}
+
+// harnessRefusal maps the harness's launch and close refusals. A session whose
+// override could not be removed at close is told to close it again (the retry the
+// error promises); it is not an unexpected error.
+func harnessRefusal(err error) *apperrors.AppError {
+	if errors.Is(err, agenthub.ErrHarnessCleanupFailed) {
+		return apperrors.New(codeValidationFailed, "The session was closed, but its tool override could not be removed. Close it again to retry.", true)
+	}
+	var he *harness.Error
+	if errors.As(err, &he) && harnessLaunchCodes[he.Code] {
+		return apperrors.New(he.Code, he.Message, true)
+	}
+	return nil
+}
+
 func publicErrorForCode(subject string, err error, existing *apperrors.AppError) *apperrors.AppError {
 	code := existing.Code
 	switch code {
@@ -827,6 +857,9 @@ var keptCodes = map[string]bool{
 	// published should the same code ever travel that path.
 	harness.CodeGroupOff:            true,
 	harness.CodeSnapshotUnavailable: true,
+	// Launch refusals (harnessRefusal): fixed host sentences, no value in them.
+	harness.CodeNotEnforceable:     true,
+	harness.CodeNewSessionRequired: true,
 }
 
 // unexpectedError is the bottom of publicError's funnel: every cause that
