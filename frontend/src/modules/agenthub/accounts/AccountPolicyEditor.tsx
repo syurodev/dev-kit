@@ -211,7 +211,10 @@ export function AccountPolicyEditor({
       <AccountRiskDialog
         open={askRisk}
         vendorName={vendorName}
-        onCancel={() => move(riskFlow.cancel(flow))}
+        // Radix runs `onOpenChange(false)` right after the "Turn on" click, in the same
+        // batch, so this closes the dialog from the state that confirm just queued, never
+        // from the render's own `flow`, which would put the switch back off.
+        onCancel={() => setFlow(riskFlow.cancel)}
         onConfirm={() => move(riskFlow.confirm())}
       />
     </section>

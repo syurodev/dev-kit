@@ -172,6 +172,15 @@ describe("riskFlow", () => {
     expect(cancelled).toEqual({ enabled: false, askRisk: false, accepted: false });
   });
 
+  test("the dialog closing right after a confirm, from the state the confirm produced, keeps the switch on", () => {
+    // Radix reports the close of the dialog (onOpenChange(false)) in the same batch as the
+    // "Turn on" click, so the editor applies cancel to the confirmed state, not to the render's.
+    const asked = riskFlow.toggle(off, true, false);
+    expect(riskFlow.cancel(riskFlow.confirm())).toEqual({ enabled: true, askRisk: false, accepted: true });
+    // Applied to the stale state it would undo the confirm: that is the bug the updater form avoids.
+    expect(riskFlow.cancel(asked)).toEqual({ enabled: false, askRisk: false, accepted: false });
+  });
+
   test("switching on when the terms were acknowledged before asks nothing", () => {
     expect(riskFlow.toggle(off, true, true)).toEqual({ enabled: true, askRisk: false, accepted: false });
   });
