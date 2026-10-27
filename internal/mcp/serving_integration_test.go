@@ -209,12 +209,14 @@ func (l liveLive) Reconcile(ctx context.Context, id string, read func(context.Co
 }
 
 func toLiveTarget(v agenthub.ServingView) harnessconfig.LiveTarget {
-	return harnessconfig.LiveTarget{Active: v.Active, Incarnation: v.Incarnation, Epoch: v.Epoch, Basis: v.Basis, Serving: v.Serving, Quarantined: v.Quarantined}
+	return harnessconfig.LiveTarget{Active: v.Active, Staged: v.Staged, Incarnation: v.Incarnation, Epoch: v.Epoch, Basis: v.Basis, Serving: v.Serving, Quarantined: v.Quarantined}
 }
 
 func toPublication(p agenthub.ServingPublication) harnessconfig.Publication {
 	out := harnessconfig.Publication{Serving: p.Serving, ToolsChanged: p.ToolsChanged, NotificationScheduled: p.NotificationScheduled}
 	switch {
+	case p.Installed && p.Staged:
+		out.State = harnessconfig.PublicationStaged
 	case p.Installed:
 		out.State = harnessconfig.PublicationInstalled
 	case p.Pending:
@@ -746,8 +748,8 @@ func TestAnSChangeWhileTheVendorStartsReachesTheStagedEndpointAndDiscardsTheLaun
 	}
 	err := r.svc.ResumeSession(identityUI(), sess.ID, true)
 	r.loader.onLoad = nil
-	if duringErr != nil || !staged || !during.Live {
-		t.Fatalf("the staged endpoint must be updated like a published one: staged=%v %+v %v", staged, during, duringErr)
+	if duringErr != nil || !staged || during.Live || during.Publication.State != harnessconfig.PublicationStaged {
+		t.Fatalf("the staged endpoint must install without claiming live: staged=%v %+v %v", staged, during, duringErr)
 	}
 	if !errors.Is(err, agenthub.ErrHarnessLaunchStale) {
 		t.Fatalf("the launch read S before the commit and must be discarded, got %v", err)

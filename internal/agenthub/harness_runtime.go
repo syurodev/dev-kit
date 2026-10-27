@@ -71,8 +71,9 @@ type harnessLaunch struct {
 	// input of host guidance. nil: no policy was prepared (legacy).
 	served *DevKitServing
 	// reservation is the session's S/lifecycle epoch as this launch saw it before
-	// it read S; launchCurrent checks it again right before publication.
+	// it read S; publishServingLaunch validates it through publication.
 	reservation servingReservation
+	incarnation string
 }
 
 // prepareLaunch is the single place an endpoint and a harness snapshot are
@@ -100,7 +101,11 @@ func (s *Service) prepareLaunch(ctx context.Context, spec *OpenSpec, sessionID, 
 func (s *Service) prepareLaunchOnce(ctx context.Context, spec *OpenSpec, sessionID, workspaceID string, vendor AgentType, previous *appliedHarness) (harnessLaunch, error) {
 	l := harnessLaunch{closeEndpoint: func() {}}
 	// Before S is read: any S commit after this point makes the launch stale.
-	l.reservation = s.reserveServing(sessionID)
+	var reserveErr error
+	l.reservation, reserveErr = s.reserveServing(sessionID)
+	if reserveErr != nil {
+		return l, reserveErr
+	}
 	if s.Harness != nil && workspaceID != "" {
 		snap, err := s.Harness.Snapshot(ctx, sessionID, workspaceID, string(vendor))
 		if err != nil {
@@ -151,6 +156,7 @@ func (s *Service) prepareLaunchOnce(ctx context.Context, spec *OpenSpec, session
 				return l, err
 			}
 			closeEp, incarnation := ep.Close, ep.Live.Incarnation()
+			l.incarnation = incarnation
 			l.closeEndpoint = func() {
 				closeEp()
 				s.detachServing(sessionID, incarnation)

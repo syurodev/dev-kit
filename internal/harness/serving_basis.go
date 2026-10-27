@@ -27,7 +27,6 @@ type ServingBasis struct {
 	canon     map[string]canonAnswer
 	launch    Effective
 	execDig   string
-	factsDone bool
 }
 
 // ServingIdentity names exactly what an endpoint serves: the durable S stamp it

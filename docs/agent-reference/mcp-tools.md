@@ -166,7 +166,7 @@ text bytes, not vendor request tokens, provider cost or subscription quota.
   that supersede each other, `Quarantine`/`Restore`/`Install`); `Install` checks the policy covers the registry, then
   re-registers returning tools through `Server.registerAll` and drops the rest with `RemoveTools` (supported SDK APIs
   only), then swaps the policy and reopens admission in one store; a failed or panicking step leaves the endpoint paused.
-  Policy endpoints set `HasTools`, so a configured-empty endpoint advertises `listChanged` and a later enable is
+  Policy endpoints explicitly set `Capabilities.Tools.ListChanged`, so a configured-empty endpoint advertises `listChanged` and a later enable is
   discoverable; the SDK's debounced list-changed notification is reported as *scheduled*, not as a vendor refresh.
   Result budgets, schemas, the bootstrap exception, host-owned exemptions and the definition ceilings are untouched
   (`registerAll` is the one declaration of the registry). Integration tests run the real H2 `Apply`, SQLite

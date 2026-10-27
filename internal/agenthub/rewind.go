@@ -360,15 +360,6 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 		files = &applied
 	}
 
-	// A committed change to S (or a close) since the fork's configuration was
-	// read makes that fork's launch stale: discard it instead of committing its
-	// reference as the session's. A live S install never writes this reference.
-	if err := s.launchCurrent(r.session.ID, r.launch); err != nil {
-		r.discardFork(ctx)
-		r.abandonSafety(ctx, err)
-		return RewindResult{}, err
-	}
-
 	// 7. The one write. Everything or nothing.
 	spec := RewindSpec{
 		SessionID:               r.session.ID,
@@ -382,27 +373,30 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 		ref := r.launch.snapshot.Ref.Clone()
 		spec.HarnessRef, spec.HarnessEnforced = &ref, r.launch.enforced
 	}
-	if err := s.store.RewindSession(ctx, spec); err != nil {
+	// Keep the rewind transaction (including its applied reference) and runtime
+	// publication under the same epoch/Close boundary as create and resume.
+	if err := s.publishServingLaunch(r.session.ID, r.launch, func() error {
+		if err := s.store.RewindSession(ctx, spec); err != nil {
+			return err
+		}
+		s.mu.Lock()
+		s.runtimes[r.session.ID] = r.newRuntime
+		s.runtimeUsage[r.session.ID] = r.usageFacts
+		s.publishHarnessLocked(r.session.ID, r.launch)
+		s.sessionAccount[r.session.ID] = r.usageFacts.AccountID
+		s.endpoints[r.session.ID] = r.closeNew
+		s.forgetWorkspaceContextLocked(r.session.ID)
+		s.mu.Unlock()
+		return nil
+	}); err != nil {
 		r.discardFork(ctx)
 		r.abandonSafety(ctx, err)
 		return RewindResult{}, err
 	}
 
-	// 8. Publish, and put the session's settings back. Measured (spike S2): a
-	// forked session comes up in the vendor's default mode, so the mode and
-	// model the user chose have to be re-applied or a rewind silently changes
-	// how the agent behaves.
-	// The cut and its applied reference have committed together. A crash before
-	// publication still leaves the restart gate comparing against this fork.
-	s.mu.Lock()
-	s.runtimes[r.session.ID] = r.newRuntime
-	s.runtimeUsage[r.session.ID] = r.usageFacts
-	s.publishHarnessLocked(r.session.ID, r.launch)
-	s.sessionAccount[r.session.ID] = r.usageFacts.AccountID
-	s.endpoints[r.session.ID] = r.closeNew
-	s.forgetWorkspaceContextLocked(r.session.ID)
-	s.mu.Unlock()
-	s.syncServingFacts(r.session.ID)
+	// 8. Vendor settings and callbacks run outside the coordinator. The cut and
+	// reference committed atomically; a crash still leaves the restart guard.
+
 	s.attachUpdates(r.session.ID, r.newRuntime)
 	s.reapplySessionSettings(ctx, r.session.ID, r.newRuntime)
 

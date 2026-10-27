@@ -36,6 +36,7 @@ type Live interface {
 // cannot enforce a policy). Basis is nil only then.
 type LiveTarget struct {
 	Active bool
+	Staged bool // an enforcing endpoint whose vendor runtime is still opening
 	// Incarnation is opaque and unique to one endpoint instance. A replacement
 	// endpoint, even one serving an identical policy, has another.
 	Incarnation string
@@ -83,6 +84,9 @@ const (
 	// PublicationInstalled: the current endpoint installed the exact committed
 	// serving identity and acknowledged it.
 	PublicationInstalled PublicationState = "installed"
+	// PublicationStaged: the endpoint installed the policy, but the vendor runtime
+	// has not been published and may still fail or be discarded. It is not live.
+	PublicationStaged PublicationState = "staged"
 	// PublicationPending: the change is stored but the endpoint is unavailable (its
 	// admission stays closed) until it is reconciled with the latest durable S.
 	PublicationPending PublicationState = "pending"
@@ -136,6 +140,7 @@ func (e *PublicationError) Unwrap() error { return ErrPublicationPending }
 // basis and durable S, never from the saved W.
 type liveEffect struct {
 	Incarnation string
+	Staged      bool
 	Epoch       uint64
 	Serving     harness.ServingIdentity
 	// Pinned launch facts the effect is judged under.
@@ -176,7 +181,7 @@ func liveEffectFor(lt LiveTarget, o, o2 *harness.Override, oStamp harness.Stamp)
 	}
 	class := harness.Classify(before, after)
 	le := &liveEffect{
-		Incarnation: lt.Incarnation, Epoch: lt.Epoch, Serving: lt.Serving,
+		Incarnation: lt.Incarnation, Staged: lt.Staged, Epoch: lt.Epoch, Serving: lt.Serving,
 		PinnedVendor: lt.Basis.VendorRevision(), PinnedWorkspace: lt.Basis.WorkspaceStamp(), LaunchSession: lt.Basis.LaunchSession(),
 		Executable: lt.Basis.ExecutableDigest(),
 		Before:     before.Fingerprint, After: after.Fingerprint,
