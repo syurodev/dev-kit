@@ -266,6 +266,7 @@ type compRig struct {
 	events   []harnessconfig.Event
 	evMu     sync.Mutex
 	opt      compOptions
+	work     *workRig
 }
 
 type compOptions struct {
@@ -287,6 +288,9 @@ type compOptions struct {
 	controls bool
 	// wrapStore puts a fault-injecting store in front of the SQL HarnessStore.
 	wrapStore func(harnessPersistence) harnessPersistence
+	// work wires the real Tasks and Git services (workRig) behind the MCP tools in
+	// place of the exposure stubs.
+	work bool
 }
 
 func newCompRig(t *testing.T, opt compOptions) *compRig {
@@ -390,6 +394,9 @@ func (r *compRig) build() {
 	}
 	deps.Vault = vaultOK{}
 	deps.Hub = r.hub
+	if r.opt.work {
+		r.wireWork(&deps)
+	}
 	deps.UsageScope = r.agents.ToolUsageScope
 	deps.RecordUsage = func(o usagemetrics.Observation) { r.usage.record(o); collector.Record(o) }
 	deps.BeginUsage = collector.Begin
