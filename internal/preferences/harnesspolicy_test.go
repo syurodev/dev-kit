@@ -52,7 +52,7 @@ func TestEveryChangeAdvancesTheRevisionSoOffAndOnAgainIsNotTheSamePolicy(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p3.AutoNarrowing != p1.AutoNarrowing || p3.Revision <= p1.Revision || !(p1.Revision < p2.Revision && p2.Revision < p3.Revision) {
+	if p3.AutoNarrowing != p1.AutoNarrowing || p3.Revision <= p1.Revision || p1.Revision >= p2.Revision || p2.Revision >= p3.Revision {
 		t.Fatalf("off→on must come back as a different revision: %d, %d, %d", p1.Revision, p2.Revision, p3.Revision)
 	}
 	// Setting the value it already has is not a change.
