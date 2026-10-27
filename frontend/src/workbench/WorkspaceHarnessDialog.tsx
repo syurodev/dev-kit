@@ -139,20 +139,20 @@ export default function WorkspaceHarnessDialog({
     setError("");
     const spent = review;
     try {
-      // The proposal is spent from here on, whatever the answer: it is never
-      // submitted again.
-      setReview(null);
-      reviewRef.current = null;
+      // The review stays on screen while DevKit waits for the person; the busy
+      // state disables every control, so it cannot be submitted a second time.
       const result = await applyReview(spent.id);
       setOutcome(result);
       setDraft({});
-      await load();
     } catch (e) {
       // A refusal before the write: nothing was saved. The saved profile is read
       // again and the unsaved picks stay for another review.
       setError(errorMessage(e));
-      await load();
     } finally {
+      // The proposal is spent whatever the answer: it is never submitted again.
+      setReview(null);
+      reviewRef.current = null;
+      await load();
       setBusy("");
     }
   }

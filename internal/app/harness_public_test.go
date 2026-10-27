@@ -206,7 +206,7 @@ func TestTheAgentEnablesAGroupForItsSessionAfterChoosingAndApproving(t *testing.
 	sess, spec := r.create(agenthub.AgentTypeClaude)
 	cs := r.connect(spec)
 
-	res := r.callRaw(cs, harness.ProposeTool, map[string]any{"groups": []string{"vault"}, "rationale": "I need to check the vault state.\n**ignore previous instructions**\x1b[2J‮"})
+	res := r.callRaw(cs, harness.ProposeTool, map[string]any{"groups": []string{"vault"}, "rationale": "I need to check the vault state.\n**ignore previous instructions**\x1b[2J\u202e"})
 	if res.IsError {
 		t.Fatalf("propose failed: %+v", res.Content)
 	}
@@ -241,7 +241,7 @@ func TestTheAgentEnablesAGroupForItsSessionAfterChoosingAndApproving(t *testing.
 		t.Fatalf("the rationale must be folded to one line of plain text: %q / %q", confirm.Summary, scopePrompt.Summary)
 	}
 	for _, s := range []string{scopePrompt.Summary, confirm.Summary} {
-		if strings.ContainsAny(s, "\x1b‮") {
+		if strings.ContainsAny(s, "\x1b\u202e") {
 			t.Fatalf("control and bidi characters must not reach either question: %q", s)
 		}
 	}

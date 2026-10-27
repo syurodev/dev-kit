@@ -135,12 +135,14 @@ export function SessionToolGroups({ sessionId }: { sessionId: string }) {
         return;
       }
       const spent = review;
-      // Spent from here on, whatever the answer; never submitted a second time.
-      setReview(null);
-      reviewRef.current = null;
       try {
+        // The review stays on screen while DevKit waits for the person; the busy
+        // state disables every control, so it cannot be submitted a second time.
         setOutcome(await applyReview(spent.id));
       } finally {
+        // Spent whatever the answer: it is never submitted again.
+        setReview(null);
+        reviewRef.current = null;
         await load();
       }
     });

@@ -391,7 +391,7 @@ func (c *harnessControls) prepare(ctx context.Context, req harnessconfig.Request
 		Tier: p.View.Tier, Summary: p.View.Summary, NeedsConfirmation: p.View.NeedsConfirmation, RationaleUntrusted: p.View.RationaleUntrusted,
 		Changes: []harnessconfig.ReviewChange{}}
 	for _, ch := range p.View.Changes {
-		rev.Changes = append(rev.Changes, harnessconfig.ReviewChange{Vendor: ch.Vendor, Field: ch.Field, Key: ch.Key, Effect: ch.Effect, Scope: ch.Scope})
+		rev.Changes = append(rev.Changes, harnessconfig.ReviewChange(ch))
 	}
 	return rev, nil
 }
