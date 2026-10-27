@@ -277,7 +277,7 @@ func (c *harnessControls) discoveryReload(sessionID string) bool {
 // derived by Agent Hub from the acknowledged serving set, so it names nothing that
 // is not served.
 func (c *harnessControls) guidance(sessionID, vendor string, groups []string) string {
-	return c.agents.ReplacementGuidanceFor(sessionID, groups,agenthub.AgentType(vendor))
+	return c.agents.ReplacementGuidanceFor(sessionID, groups, agenthub.AgentType(vendor))
 }
 
 // scopeQuestion is the host-authored text of the selection. The agent's own
