@@ -82,12 +82,53 @@ func (s *Server) gitScopeFor(ctx context.Context) (gitScope, error) {
 	return scope, nil
 }
 
+// realPath resolves the symbolic links of path, or of its longest existing
+// ancestor when the path itself does not exist yet. A link inside a folder is
+// only inside it if what it points at is, so every containment decision below
+// compares resolved paths: the repository a git command then runs in is the one
+// the scope was checked against, not a lexical name that happens to sit under a
+// granted folder.
+func realPath(path string) string {
+	path = filepath.Clean(path)
+	rest := ""
+	for p := path; ; {
+		if resolved, err := filepath.EvalSymlinks(p); err == nil {
+			return filepath.Join(resolved, rest)
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return path
+		}
+		rest = filepath.Join(filepath.Base(p), rest)
+		p = parent
+	}
+}
+
+// within reports whether path, once links are resolved, is root or inside it.
+func within(path, root string) bool {
+	if path == "" || root == "" {
+		return false
+	}
+	return workspace.Within(realPath(path), realPath(root))
+}
+
+// covers reports whether path, once links are resolved, is one of the roots the
+// session was granted or inside one.
+func (g gitScope) covers(path string) bool {
+	for _, root := range g.granted {
+		if within(path, root) {
+			return true
+		}
+	}
+	return false
+}
+
 // folderOf is the workspace folder holding path — the deepest, for a service
 // nested in another — or "" when none does.
 func (g gitScope) folderOf(path string) string {
 	best := ""
 	for _, f := range g.folders {
-		if workspace.Within(path, f.Path) && len(f.Path) > len(best) {
+		if within(path, f.Path) && len(f.Path) > len(best) {
 			best = f.Path
 		}
 	}
@@ -160,11 +201,11 @@ func (s *Server) gitFor(ctx context.Context, repo string, write bool) (GitAPI, s
 	folder := scope.folderOf(target)
 	if scope.agent {
 		switch {
-		case write && !workspace.Covered(target, scope.granted):
+		case write && !scope.covers(target):
 			return nil, "", apperrors.New("git.repoNotGranted",
 				target+" is not a folder your session may write. Ask the person to add it to the session, "+
 					"or work in "+scope.cwd+".", false)
-		case !write && folder == "" && !workspace.Covered(target, scope.granted):
+		case !write && folder == "" && !scope.covers(target):
 			return nil, "", scope.unknown(repo)
 		}
 	} else if folder == "" {
@@ -180,7 +221,7 @@ func (s *Server) gitFor(ctx context.Context, repo string, write bool) (GitAPI, s
 	// A repository of its own inside the folder (a submodule, a nested
 	// checkout) is itself, not the folder around it.
 	candidates := []string{target}
-	if folder != "" && folder != target && workspace.Within(target, folder) && !hasGitDir(target) {
+	if folder != "" && folder != target && within(target, folder) && !hasGitDir(target) {
 		candidates = []string{folder, target}
 	}
 	for _, key := range candidates {

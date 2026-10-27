@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"devkit/internal/apperrors"
-	"devkit/internal/workspace"
 
 	gitservice "devkit/internal/git"
 	"devkit/internal/gitparse"
@@ -154,7 +153,7 @@ func (s *Server) requireGitWritePaths(ctx context.Context, paths ...string) erro
 		return nil
 	}
 	for _, path := range paths {
-		if !workspace.Covered(path, scope.granted) {
+		if !scope.covers(path) {
 			return apperrors.New("git.repoNotGranted", path+" is not a folder your session may write. Ask the person to add it to the session, or work in "+scope.cwd+".", false)
 		}
 	}
@@ -662,7 +661,7 @@ func (s *Server) gitRepos(ctx context.Context) ([]GitRepoInfo, error) {
 		out = append(out, GitRepoInfo{
 			Repository: repo,
 			Cwd:        scope.agent && repo.Path == cwdFolder,
-			Granted:    !scope.agent || workspace.Covered(repo.Path, scope.granted),
+			Granted:    !scope.agent || scope.covers(repo.Path),
 		})
 	}
 	return out, nil
