@@ -1,0 +1,42 @@
+// Review-only reproduction for finding F-C of docs/reviews/2026-10-27-harness-ap1-completion.md.
+// Not compiled: the file has a .txt suffix on purpose. To run it, copy it to
+// internal/app/zz_ap1_stale_group_test.go at the reviewed SHA and run:
+//
+//   go test ./internal/app -run TestProbeStaleGroupInStoredProfile -v -count=1
+//
+// It stores a workspace profile that turns the optional "pdf" group off while the PDF module
+// is wired, then rebuilds the graph without the module (same database), and shows that a new
+// session cannot start and that neither the window editor nor the agent request can repair it.
+package app
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"devkit/internal/agenthub"
+	"devkit/internal/harnessconfig"
+	"devkit/internal/harness"
+)
+
+// Probe: a stored profile that names a tool group the registry no longer has.
+func TestProbeStaleGroupInStoredProfile(t *testing.T) {
+	r := newCompRig(t, compOptions{controls: true})
+	r.workspaceOff("pdf") // stored while the optional PDF module was wired
+	// A later build without the module: same database and preferences.
+	r.opt.noPDF = true
+	r.restart()
+
+	_, err := r.agents.CreateSession(r.ui(), agenthub.CreateInput{AgentType: agenthub.AgentTypeClaude, Cwd: r.root, WorkspaceID: r.wsID})
+	t.Logf("create session: %v (unavailable=%v)", err, errors.Is(err, agenthub.ErrHarnessUnavailable))
+
+	// Can the person repair it with the window's editor?
+	on := true
+	_, perr := r.asm.Controls().PrepareWorkspaceGroups(r.ui(), r.wsID, []harnessconfig.GroupEdit{{Group: "vault", Setting: harnessconfig.SettingOff}})
+	_ = on
+	t.Logf("edit another group: %v", perr)
+	_, perr = r.asm.Controls().PrepareWorkspaceGroups(r.ui(), r.wsID, []harnessconfig.GroupEdit{{Group: "pdf", Setting: harnessconfig.SettingInherit}})
+	t.Logf("edit the stale group itself: %v", perr)
+	_, _, _ = r.asm.Store.GetProfile(context.Background(), r.wsID)
+	_ = harness.SchemaVersion
+}
