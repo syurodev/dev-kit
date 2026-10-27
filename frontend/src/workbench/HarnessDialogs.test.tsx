@@ -4,6 +4,35 @@ import type { PendingInteraction } from "@/bridge/interaction";
 import { HarnessReviewBody } from "./HarnessReviewBody";
 import { HarnessScopeDialog } from "./HarnessScopeDialog";
 import WorkspaceHarnessDialog from "./WorkspaceHarnessDialog";
+import { WorkspaceBudgetsPanel } from "./WorkspaceBudgetsPanel";
+import { AgentHarnessPolicySetting } from "../modules/settings/AgentHarnessPolicySetting";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+test("the dialog offers result limits as a second tab", () => {
+  const html = renderToString(
+    <WorkspaceHarnessDialog workspace={{ id: "ws-1", name: "Payments" }} onClose={() => {}} portal={false} />,
+  );
+  expect(html).toContain("Result limits");
+  expect(html).toContain('role="tablist"');
+  // The limits panel is mounted only once opened, so nothing is read for it yet.
+  expect(html).not.toContain("Review limit changes");
+});
+
+test("the limits panel explains what a limit is and shows only made-up sample text", () => {
+  const html = renderToString(<WorkspaceBudgetsPanel workspaceId="ws-1" active />);
+  expect(html).toContain("not tokens or cost");
+  expect(html).toContain("Review limit changes");
+  expect(html).toContain("made-up sample text");
+});
+
+test("the narrowing opt-in is not shown where the controls are not wired", () => {
+  const html = renderToString(
+    <QueryClientProvider client={new QueryClient()}>
+      <AgentHarnessPolicySetting />
+    </QueryClientProvider>,
+  );
+  expect(html).toBe("");
+});
 
 const pending: PendingInteraction = {
   id: "p1",

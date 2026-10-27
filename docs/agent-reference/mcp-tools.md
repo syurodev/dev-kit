@@ -188,6 +188,11 @@ text bytes, not vendor request tokens, provider cost or subscription quota.
   authority to *ask*, never to run a tool; no pre-approval is added and the launch permission lists stay fixed. A committed
   change whose publication failed, or whose commit is unknown, is an `isError` result whose `structuredContent` is the same
   `RequestResult` with its `Outcome` (status, commit, publication, stamps, serving identity, `Live`, `ReloadRequired`,
-  recovery text); reconcile, never propose again. Published codes (`bridge.keptCodes`): `harness.profileDenied`,
+  recovery text); reconcile, never propose again. H5b adds, without a new tool or grant: `get {budgets, group, cursor}` returns a
+  bounded page of the workspace's per-tool result limits (explicit rules, effective value and source), and
+  `propose {budgets:[{kind, name, bytes|resetBytes, cut|resetCut}]}` — exclusive with `groups`, at most 16 edits, **saved
+  workspace profile only** (never a session), taking effect at the next open/reload. The person's opt-in (a UI-only
+  preference, off by default) lets only an agent's narrowing budget edit skip the question; the tool schema carries no
+  policy, approval or target field. Published codes (`bridge.keptCodes`): `harness.profileDenied`,
   `profileInvalid`, `profileConflict`, `proposalStale`, `groupUnknown`, `factsUnavailable`, `notAvailable`, `noChange`.
 

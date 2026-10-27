@@ -42,7 +42,7 @@ export function SessionToolGroups({ sessionId }: { sessionId: string }) {
   const workspaceId = useAgentSessionsStore((state) => state.sessionsById[sessionId]?.workspaceId ?? "");
   const [controller] = useState(() => new ToolGroupsController(ops));
   const [wired, setWired] = useState(false);
-  const state = useSyncExternalStore(controller.subscribe, controller.getState);
+  const state = useSyncExternalStore(controller.subscribe, controller.getState, controller.getState);
 
   // Whether the host wired the controls at all. Until it says so, nothing is read.
   useEffect(() => {

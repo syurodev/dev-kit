@@ -17,6 +17,68 @@ export enum Availability {
 };
 
 /**
+ * BudgetEdit changes the result budget of one tool or group in the WORKSPACE
+ * profile, and nothing else. Size and cut mode are separate fields with three
+ * intents each: omitted leaves the field alone, a value sets it, and a reset
+ * removes it so the next level (group, then the 24 KiB / head default) applies. A
+ * rule left with neither field is removed. Sibling fields and every other rule are
+ * never touched. Sizes are bytes, 2,048 to 65,536 inclusive; the modes are the
+ * strings "head" and "headTail".
+ */
+export interface BudgetEdit {
+    "kind": BudgetKind;
+    "name": string;
+    "bytes"?: number | null;
+    "resetBytes"?: boolean;
+    "cut"?: string;
+    "resetCut"?: boolean;
+}
+
+/**
+ * BudgetKind says whether a budget edit names one tool or a whole tool group.
+ */
+export enum BudgetKind {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    BudgetTool = "tool",
+    BudgetGroup = "group",
+};
+
+/**
+ * BudgetPage is a bounded page of the workspace's result limits. Groups appear on
+ * the first page only.
+ */
+export interface BudgetPage {
+    "workspaceId": string;
+    "profileRevision": number;
+    "profilePresent": boolean;
+    "defaultBytes": number;
+    "minBytes": number;
+    "maxBytes": number;
+    "group"?: string;
+    "groups"?: GroupBudgetRow[] | null;
+    "tools": ToolBudgetRow[] | null;
+    "nextCursor"?: string;
+}
+
+/**
+ * BudgetSource says which level an effective budget field comes from.
+ */
+export enum BudgetSource {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    BudgetFromTool = "tool",
+    BudgetFromGroup = "group",
+    BudgetFromDefault = "default",
+};
+
+/**
  * CommitState is what is known about the durable write.
  */
 export enum CommitState {
@@ -33,6 +95,18 @@ export enum CommitState {
      */
     CommitUnknown = "unknown",
 };
+
+/**
+ * GroupBudgetRow is one group's explicit rule and how many of its tools a rule can
+ * reach (the others are exempt from cutting).
+ */
+export interface GroupBudgetRow {
+    "group": string;
+    "tools": number;
+    "cuttable": number;
+    "bytes"?: number | null;
+    "cut"?: string;
+}
 
 /**
  * GroupEdit is one W change from the editor: Inherit removes the entry.
@@ -197,6 +271,11 @@ export interface ProfileView {
     "overridePresent"?: boolean;
     "groups": GroupRow[] | null;
     "session"?: SessionState | null;
+
+    /**
+     * Budgets is set only when the read asked for them.
+     */
+    "budgets"?: BudgetPage | null;
 }
 
 /**
@@ -305,4 +384,30 @@ export interface SessionState {
      * Overrides are the groups the session override turns on.
      */
     "overrides": string[] | null;
+}
+
+/**
+ * ToolBudgetRow is one registered tool's result limit: what the workspace profile
+ * says explicitly for the tool and for its group, what is in effect, and where each
+ * field of the effective value comes from. An exempt tool is never cut and has no
+ * limit to show. Sizes are bytes of host text, not tokens.
+ */
+export interface ToolBudgetRow {
+    "tool": string;
+    "group": string;
+    "definitionBytes": number;
+    "exempt": boolean;
+
+    /**
+     * ToolBytes and ToolCut are the explicit rule on the tool itself (nil / empty:
+     * none). GroupBytes and GroupCut are the group's.
+     */
+    "toolBytes"?: number | null;
+    "toolCut"?: string;
+    "groupBytes"?: number | null;
+    "groupCut"?: string;
+    "effectiveBytes"?: number;
+    "effectiveCut"?: string;
+    "bytesFrom"?: BudgetSource;
+    "cutFrom"?: BudgetSource;
 }

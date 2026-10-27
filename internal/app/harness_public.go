@@ -195,6 +195,14 @@ func (c *harnessControls) Request(ctx context.Context, req harnessconfig.GroupRe
 	if err != nil {
 		return harnessconfig.RequestResult{}, err
 	}
+	if len(req.Budgets) > 0 {
+		// The two forms are exclusive: a group request chooses a scope with the
+		// person, a budget edit has only the workspace.
+		if len(req.Groups) > 0 {
+			return harnessconfig.RequestResult{}, harnessconfig.ErrInvalid
+		}
+		return c.requestBudgets(ctx, sessionID, scope, req)
+	}
 	groups, err := c.validGroups(req.Groups)
 	if err != nil {
 		return harnessconfig.RequestResult{}, err

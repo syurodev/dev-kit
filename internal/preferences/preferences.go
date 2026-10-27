@@ -274,6 +274,10 @@ type Repository interface {
 	SetAgentSubagentLimits(limits AgentSubagentLimits) error
 	GetAgentAccountPolicy() (AgentAccountPolicy, bool, error)
 	SetAgentAccountPolicy(policy AgentAccountPolicy) error
+	// GetAgentHarnessPolicy reads a value it cannot parse as unset (off, revision
+	// 0): every proposal then asks, which is the closed state.
+	GetAgentHarnessPolicy() (AgentHarnessPolicy, bool, error)
+	SetAgentHarnessPolicy(policy AgentHarnessPolicy) error
 }
 
 type Service struct {

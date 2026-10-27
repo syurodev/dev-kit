@@ -439,6 +439,22 @@ export function AgentAccountsStartSignIn(id: string, methodID: string, rows: num
 }
 
 /**
+ * AgentHarnessAutoNarrowingSet turns the opt-in on or off when expectRevision is
+ * the stored revision; a stale revision is a conflict, not a write. Window only.
+ */
+export function AgentHarnessAutoNarrowingSet(expectRevision: number, on: boolean): $CancellablePromise<$models.AgentHarnessPolicyState> {
+    return $Call.ByID(2853609689, expectRevision, on);
+}
+
+/**
+ * AgentHarnessPolicyGet reads the setting. Window only: the check is made here in
+ * Go and no MCP tool reaches this method.
+ */
+export function AgentHarnessPolicyGet(): $CancellablePromise<$models.AgentHarnessPolicyState> {
+    return $Call.ByID(1936911389);
+}
+
+/**
  * AgentHubApplyRestore carries out a plan. overwrite names the conflicts the
  * user chose to force; the backend honours only the ones that can be forced.
  */
@@ -2031,6 +2047,15 @@ export function HarnessCancel(id: string): $CancellablePromise<void> {
 }
 
 /**
+ * HarnessPrepareBudgetEdits prepares partial result-budget edits of a workspace's
+ * profile (size and cut mode independently settable or resettable). It writes
+ * nothing; HarnessApply asks and commits.
+ */
+export function HarnessPrepareBudgetEdits(workspaceID: string, edits: harnessconfig$0.BudgetEdit[] | null): $CancellablePromise<harnessconfig$0.Review> {
+    return $Call.ByID(3729077945, workspaceID, edits);
+}
+
+/**
  * HarnessPrepareRevoke prepares removing groups from a session's override.
  */
 export function HarnessPrepareRevoke(workspaceID: string, sessionID: string, groups: string[] | null): $CancellablePromise<harnessconfig$0.Review> {
@@ -2057,6 +2082,15 @@ export function HarnessReconcile(workspaceID: string, sessionID: string): $Cance
  */
 export function HarnessSessionProfile(workspaceID: string, sessionID: string): $CancellablePromise<harnessconfig$0.ProfileView> {
     return $Call.ByID(1383054555, workspaceID, sessionID);
+}
+
+/**
+ * HarnessWorkspaceBudgets reads a bounded page of a workspace's result limits:
+ * the explicit rules, the effective values and where each comes from. group
+ * filters; cursor is the previous page's, valid for the same group only.
+ */
+export function HarnessWorkspaceBudgets(workspaceID: string, group: string, cursor: string): $CancellablePromise<harnessconfig$0.BudgetPage> {
+    return $Call.ByID(2013977175, workspaceID, group, cursor);
 }
 
 /**

@@ -216,14 +216,24 @@ func TestExecutableChangesAreRefusedWithAReason(t *testing.T) {
 func TestNarrowingAsksUnlessTheUIOnlySettingIsOn(t *testing.T) {
 	e := newEnv(t)
 	narrow := Request{Target: TargetWorkspace, Patch: Patch{Workspace: &ProfilePatch{Groups: map[string]*bool{"git": boolp(false)}}}}
+	narrowBudget := Request{Target: TargetWorkspace, Patch: Patch{BudgetEdits: []BudgetEdit{{Kind: BudgetTool, Name: "git.status", Bytes: kib(8)}}}}
 	p, err := e.svc.Prepare(agent("s1"), narrow)
 	if err != nil || p.View.Tier != "narrowing" || !p.View.NeedsConfirmation {
 		t.Fatalf("narrowing asks by default: %+v %v", p, err)
 	}
 	e.policy.p = Policy{Revision: "p2", AutoNarrowing: true}
+	// The opt-in covers an agent's narrowing result-budget edit, not a group change.
 	p, err = e.svc.Prepare(agent("s1"), narrow)
-	if err != nil || p.View.NeedsConfirmation {
+	if err != nil || !p.View.NeedsConfirmation {
+		t.Fatalf("a group change still asks under the opt-in: %+v %v", p, err)
+	}
+	p, err = e.svc.Prepare(agent("s1"), narrowBudget)
+	if err != nil || p.View.Tier != "narrowing" || p.View.NeedsConfirmation {
 		t.Fatalf("auto-narrowing: %+v %v", p, err)
+	}
+	narrowBudget.WorkspaceID = "w1"
+	if p, err = e.svc.Prepare(ui(), narrowBudget); err != nil || !p.View.NeedsConfirmation {
+		t.Fatalf("the window is always asked: %+v %v", p, err)
 	}
 	// Widening always asks, whatever the setting.
 	gitOff(e, "w2")

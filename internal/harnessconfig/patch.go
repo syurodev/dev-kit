@@ -29,6 +29,13 @@ type Patch struct {
 	EnableGroups []string      `json:"enableGroups,omitempty"`
 	RevokeGroups []string      `json:"revokeGroups,omitempty"`
 	Workspace    *ProfilePatch `json:"workspace,omitempty"`
+	// BudgetEdits are partial edits of result budgets in W, translated over the
+	// current W before anything is classified. They never touch S.
+	BudgetEdits []BudgetEdit `json:"budgetEdits,omitempty"`
+}
+
+func (p Patch) isBudgetOnly() bool {
+	return len(p.BudgetEdits) > 0 && len(p.EnableGroups) == 0 && len(p.RevokeGroups) == 0 && p.Workspace == nil
 }
 
 // ProfilePatch edits W. A map value of nil removes that entry; a list pointer
@@ -81,6 +88,9 @@ func (p Patch) normalized() (Patch, error) {
 			return Patch{}, ErrInvalid
 		}
 	}
+	if err := normalizeBudgetEdits(&out); err != nil {
+		return Patch{}, err
+	}
 	if w := out.Workspace; w != nil {
 		for _, l := range []*[]string{w.DisabledMCP, w.DisabledSkills, w.SkillFolders} {
 			if l != nil {
@@ -95,6 +105,112 @@ func (p Patch) normalized() (Patch, error) {
 		}
 	}
 	return out, nil
+}
+
+const maxBudgetEdits = 64
+
+// normalizeBudgetEdits checks the shape of the edits and puts them in a canonical
+// order, so equal intents are equal bytes. Whether a named tool or group exists
+// is the resolver's to say (against the real registry); this refuses what can be
+// seen without it: an unknown kind or mode, a size out of range, duplicate
+// targets, contradictory intents and an edit that does nothing.
+func normalizeBudgetEdits(p *Patch) error {
+	if len(p.BudgetEdits) == 0 {
+		p.BudgetEdits = nil
+		return nil
+	}
+	if len(p.BudgetEdits) > maxBudgetEdits {
+		return ErrInvalid
+	}
+	seen := map[[2]string]bool{}
+	for _, e := range p.BudgetEdits {
+		if e.Kind != BudgetTool && e.Kind != BudgetGroup {
+			return ErrInvalid
+		}
+		if e.Name == "" || len(e.Name) > 128 || strings.ContainsAny(e.Name, " \t\r\n") {
+			return ErrInvalid
+		}
+		key := [2]string{string(e.Kind), e.Name}
+		if seen[key] {
+			return ErrInvalid
+		}
+		seen[key] = true
+		if e.Bytes != nil && e.ResetBytes || e.Cut != "" && e.ResetCut {
+			return ErrInvalid
+		}
+		if e.Bytes == nil && !e.ResetBytes && e.Cut == "" && !e.ResetCut {
+			return ErrInvalid
+		}
+		if e.Bytes != nil && (*e.Bytes < harness.MinResultBudget || *e.Bytes > harness.MaxResultBudget) {
+			return ErrInvalidBudget
+		}
+		if e.Cut != "" && e.Cut != string(harness.CutHead) && e.Cut != string(harness.CutHeadTail) {
+			return ErrInvalidBudget
+		}
+	}
+	sort.SliceStable(p.BudgetEdits, func(i, j int) bool {
+		a, b := p.BudgetEdits[i], p.BudgetEdits[j]
+		if a.Kind != b.Kind {
+			return a.Kind < b.Kind
+		}
+		return a.Name < b.Name
+	})
+	return nil
+}
+
+// applyBudgetEdits returns W' = W with the edits applied to its result budgets.
+// Each field is edited alone: a size edit keeps the rule's cut mode and the other
+// way round; a rule left empty is removed, and empty maps and an empty budget
+// profile are dropped so an unbudgeted profile is the same bytes as before.
+func applyBudgetEdits(base *harness.Profile, edits []BudgetEdit) *harness.Profile {
+	out := clone(base)
+	if out == nil {
+		out = &harness.Profile{Schema: harness.SchemaVersion}
+	}
+	if len(edits) == 0 {
+		return out
+	}
+	if out.ResultBudget == nil {
+		out.ResultBudget = &harness.BudgetProfile{}
+	}
+	for _, e := range edits {
+		rules := &out.ResultBudget.Tools
+		if e.Kind == BudgetGroup {
+			rules = &out.ResultBudget.Groups
+		}
+		rule := (*rules)[e.Name] // zero when absent
+		switch {
+		case e.ResetBytes:
+			rule.Bytes = nil
+		case e.Bytes != nil:
+			n := *e.Bytes
+			rule.Bytes = &n
+		}
+		switch {
+		case e.ResetCut:
+			rule.Cut = harness.CutDefault
+		case e.Cut != "":
+			rule.Cut = harness.CutMode(e.Cut)
+		}
+		if rule.Bytes == nil && rule.Cut == harness.CutDefault {
+			delete(*rules, e.Name)
+			continue
+		}
+		if *rules == nil {
+			*rules = map[string]harness.BudgetRule{}
+		}
+		(*rules)[e.Name] = rule
+	}
+	if len(out.ResultBudget.Tools) == 0 {
+		out.ResultBudget.Tools = nil
+	}
+	if len(out.ResultBudget.Groups) == 0 {
+		out.ResultBudget.Groups = nil
+	}
+	if out.ResultBudget.Tools == nil && out.ResultBudget.Groups == nil {
+		out.ResultBudget = nil
+	}
+	return out
 }
 
 func setOf(in []string) []string {

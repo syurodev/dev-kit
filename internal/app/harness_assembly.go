@@ -115,7 +115,7 @@ func NewHarnessAssembly(cfg HarnessAssemblyConfig) (*HarnessAssembly, error) {
 		Store:     store,
 		Directory: harnessDirectory{sessions: cfg.Agents, workspaces: cfg.Workspaces},
 		Vendors:   vendors,
-		Policy:    harnessPolicy{},
+		Policy:    harnessPolicy{prefs: cfg.Preferences},
 		Validator: harnessValidator{},
 		Registry:  registryOf,
 		Canonical: filepath.EvalSymlinks,

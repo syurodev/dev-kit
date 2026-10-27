@@ -22,6 +22,7 @@ import {
 } from "@/bridge/harness";
 import { GroupSetting } from "../../bindings/devkit/internal/harnessconfig/models";
 import { HarnessReviewBody } from "./HarnessReviewBody";
+import { WorkspaceBudgetsPanel } from "./WorkspaceBudgetsPanel";
 import { LatestRequest } from "./WorkspaceMemoryModel";
 import {
   buildEdits,
@@ -157,6 +158,11 @@ export default function WorkspaceHarnessDialog({
     }
   }
 
+  const [tab, setTab] = useState<"groups" | "limits">("groups");
+  const [visited, setVisited] = useState<Set<string>>(() => new Set(["groups"]));
+  useEffect(() => {
+    setVisited((previous) => (previous.has(tab) ? previous : new Set(previous).add(tab)));
+  }, [tab]);
   const notice = outcome ? outcomeNotice(outcome) : null;
   const list = rows(view);
   const dirty = isDirty(draft);
@@ -178,6 +184,24 @@ export default function WorkspaceHarnessDialog({
           </DialogDescription>
         </DialogHeader>
 
+        <div role="tablist" aria-label="Agent tool settings" className="flex gap-1 border-b border-border-subtle">
+          {([["groups", "Tool groups"], ["limits", "Result limits"]] as const).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              id={`harness-tab-${id}`}
+              aria-selected={tab === id}
+              aria-controls={`harness-panel-${id}`}
+              className={`-mb-px border-b-2 px-3 py-1.5 text-body-12 ${tab === id ? "border-primary text-text-primary" : "border-transparent text-text-tertiary hover:text-text-secondary"}`}
+              onClick={() => setTab(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div role="tabpanel" id="harness-panel-groups" aria-labelledby="harness-tab-groups" hidden={tab !== "groups"} className="flex min-h-0 flex-1 flex-col gap-4">
         {error ? (
           <p role="alert" className="rounded-lg bg-(--feedback-danger-soft) px-3 py-2 text-body-12 text-status-danger">
             {error}{" "}
@@ -287,6 +311,17 @@ export default function WorkspaceHarnessDialog({
             </>
           )}
         </DialogFooter>
+        </div>
+
+        <div role="tabpanel" id="harness-panel-limits" aria-labelledby="harness-tab-limits" hidden={tab !== "limits"} className="flex min-h-0 flex-1 flex-col gap-4">
+          {/* Mounted once opened and kept, so an unsaved limit edit survives a switch of tab. */}
+          {visited.has("limits") ? <WorkspaceBudgetsPanel workspaceId={workspace.id} active={tab === "limits"} /> : null}
+          {tab === "limits" ? (
+            <div className="flex justify-start">
+              <Button type="button" variant="outline" onClick={onClose}>Close</Button>
+            </div>
+          ) : null}
+        </div>
       </DialogContent>
     </Dialog>
   );

@@ -3,6 +3,8 @@
 
 export {
     Availability,
+    BudgetKind,
+    BudgetSource,
     CommitState,
     GroupSetting,
     OutcomeStatus,
@@ -10,11 +12,15 @@ export {
 } from "./models.js";
 
 export type {
+    BudgetEdit,
+    BudgetPage,
+    GroupBudgetRow,
     GroupEdit,
     GroupRow,
     Outcome,
     ProfileView,
     Review,
     ReviewChange,
-    SessionState
+    SessionState,
+    ToolBudgetRow
 } from "./models.js";

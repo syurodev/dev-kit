@@ -439,6 +439,10 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_subagent_limits"},
 		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_account_policy"},
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_account_policy"},
+		// The harness's automatic-narrowing opt-in: the window's own setting. The
+		// methods refuse any caller but the window; no agent tool reaches them.
+		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_harness_policy"},
+		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_harness_policy"},
 		// Which Accounts token Codex signs in with: the id, never the key.
 		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_codex_api_key"},
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_codex_api_key"},

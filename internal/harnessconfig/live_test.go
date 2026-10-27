@@ -300,12 +300,18 @@ func TestAutoNarrowingCannotSkipALiveWidening(t *testing.T) {
 	if got.View.Tier != "widening" || !got.View.NeedsConfirmation {
 		t.Fatalf("the strictest of stored and live decides, auto-narrowing included: %+v", got.View)
 	}
-	// Control: the same stored narrowing with no running endpoint is auto-applied.
+	// The opt-in covers an agent's narrowing result-budget edit only; a group
+	// revoke, narrowing as it is, still asks.
 	plain := l.storedOnly()
 	plain.cfg.Policy = l.policy
 	p2, err := plain.Prepare(agent("s1"), Request{Target: TargetSession, Patch: Patch{RevokeGroups: []string{"git"}}})
-	if err != nil || p2.View.NeedsConfirmation {
-		t.Fatalf("control: %v %+v", err, p2.View)
+	if err != nil || !p2.View.NeedsConfirmation {
+		t.Fatalf("a group revoke asks even with the opt-in: %v %+v", err, p2.View)
+	}
+	// Control: a stored-only narrowing budget edit by the agent is auto-applied.
+	p3, err := plain.Prepare(agent("s1"), Request{Target: TargetWorkspace, Patch: Patch{BudgetEdits: []BudgetEdit{{Kind: BudgetTool, Name: "git.status", Bytes: kib(8)}}}})
+	if err != nil || p3.View.NeedsConfirmation {
+		t.Fatalf("control: %v %+v", err, p3.View)
 	}
 }
 

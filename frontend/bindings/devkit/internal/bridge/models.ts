@@ -73,6 +73,22 @@ export interface AgentAccountVendorPolicyState {
 }
 
 /**
+ * AgentHarnessPolicyState is the person's setting for the harness as the window
+ * sees it. Revision rises with every change; a save names the revision it read.
+ */
+export interface AgentHarnessPolicyState {
+    "revision": number;
+
+    /**
+     * AutoNarrowing lets an agent's narrowing result-budget edit be applied without
+     * being asked. Off unless the person turned it on. It never approves a tool
+     * call, an environment confirmation or a permission, and widening, mixed and
+     * executable changes always ask.
+     */
+    "autoNarrowing": boolean;
+}
+
+/**
  * AgentModelProfilesState is the person's list as Settings edits it. Statuses
  * are left empty here — checking one asks its vendor for the model list, which
  * can take seconds — and AgentHubCheckModelProfiles fills them in.

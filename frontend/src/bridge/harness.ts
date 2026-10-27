@@ -1,15 +1,32 @@
 import { AppService } from "../../bindings/devkit/internal/bridge";
 import type {
+  BudgetEdit,
+  BudgetPage,
+  GroupBudgetRow,
   GroupEdit,
   GroupRow,
   Outcome,
   ProfileView,
   Review,
   SessionState,
+  ToolBudgetRow,
 } from "../../bindings/devkit/internal/harnessconfig/models";
+import type { AgentHarnessPolicyState } from "../../bindings/devkit/internal/bridge/models";
 import { callBridge } from "./client";
 
-export type { GroupEdit, GroupRow, Outcome, ProfileView, Review, SessionState };
+export type {
+  AgentHarnessPolicyState,
+  BudgetEdit,
+  BudgetPage,
+  GroupBudgetRow,
+  GroupEdit,
+  GroupRow,
+  Outcome,
+  ProfileView,
+  Review,
+  SessionState,
+  ToolBudgetRow,
+};
 
 /** The three states a workspace profile can give a group. */
 export type GroupSettingValue = "inherit" | "on" | "off";
@@ -36,6 +53,39 @@ export function prepareWorkspaceGroups(
   edits: GroupEdit[],
 ): Promise<Review> {
   return callBridge(() => AppService.HarnessPrepareWorkspaceGroups(workspaceId, edits));
+}
+
+/**
+ * A bounded page of a workspace's result limits. The cursor is valid for the same
+ * group filter only; the first page also carries the groups.
+ */
+export function workspaceBudgets(
+  workspaceId: string,
+  group = "",
+  cursor = "",
+): Promise<BudgetPage> {
+  return callBridge(() => AppService.HarnessWorkspaceBudgets(workspaceId, group, cursor));
+}
+
+/** Writes nothing: the review (exact limits before and after) is written by Go. */
+export function prepareBudgetEdits(
+  workspaceId: string,
+  edits: BudgetEdit[],
+): Promise<Review> {
+  return callBridge(() => AppService.HarnessPrepareBudgetEdits(workspaceId, edits));
+}
+
+/** The person's own opt-in for an agent's narrowing result-budget edits. */
+export function harnessPolicy(): Promise<AgentHarnessPolicyState> {
+  return callBridge(() => AppService.AgentHarnessPolicyGet());
+}
+
+/** Fails with a "changed" conflict when expectRevision is not the stored one. */
+export function setAutoNarrowing(
+  expectRevision: number,
+  on: boolean,
+): Promise<AgentHarnessPolicyState> {
+  return callBridge(() => AppService.AgentHarnessAutoNarrowingSet(expectRevision, on));
 }
 
 export function prepareRevoke(

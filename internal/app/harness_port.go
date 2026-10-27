@@ -123,6 +123,30 @@ func (p *HarnessPort) PrepareRevoke(ctx context.Context, workspaceID, sessionID 
 	return c.PrepareRevoke(ctx, workspaceID, sessionID, groups)
 }
 
+func (p *HarnessPort) ProfileWithBudgets(ctx context.Context, f harnessconfig.BudgetFilter) (harnessconfig.ProfileView, error) {
+	c, err := p.get()
+	if err != nil {
+		return harnessconfig.ProfileView{}, err
+	}
+	return c.ProfileWithBudgets(ctx, f)
+}
+
+func (p *HarnessPort) WorkspaceBudgets(ctx context.Context, workspaceID string, f harnessconfig.BudgetFilter) (harnessconfig.BudgetPage, error) {
+	c, err := p.get()
+	if err != nil {
+		return harnessconfig.BudgetPage{}, err
+	}
+	return c.WorkspaceBudgets(ctx, workspaceID, f)
+}
+
+func (p *HarnessPort) PrepareBudgetEdits(ctx context.Context, workspaceID string, edits []harnessconfig.BudgetEdit) (harnessconfig.Review, error) {
+	c, err := p.get()
+	if err != nil {
+		return harnessconfig.Review{}, err
+	}
+	return c.PrepareBudgetEdits(ctx, workspaceID, edits)
+}
+
 func (p *HarnessPort) Apply(ctx context.Context, id string) (harnessconfig.Outcome, error) {
 	c, err := p.get()
 	if err != nil {
