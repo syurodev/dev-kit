@@ -294,6 +294,72 @@ func TestGuidanceNamesOnlyGroupsTheEndpointActuallyServes(t *testing.T) {
 	}
 }
 
+// Guidance covers every group a change turned on and that the endpoint really
+// serves: not only the first. Shared sections are not repeated and the text stays
+// bounded, whole and within what is registered.
+func TestGuidanceCoversEveryNewlyServedGroupOnce(t *testing.T) {
+	r := newCompRig(t, compOptions{controls: true})
+	r.prompter.answers = answers("session")
+	r.workspaceOff("db", "pdf")
+	sess, spec := r.create(agenthub.AgentTypeClaude)
+	cs := r.connect(spec)
+
+	res := decode[harnessconfig.RequestResult](t, r.callRaw(cs, harness.ProposeTool, map[string]any{"groups": []string{"db", "pdf"}}))
+	if res.Outcome == nil || !res.Outcome.Live {
+		t.Fatalf("expected a live change: %+v", res.Outcome)
+	}
+	g := res.Outcome.Guidance
+	dbOnly := r.agents.ReplacementGuidance(sess.ID, "db", agenthub.AgentTypeClaude)
+	pdfOnly := r.agents.ReplacementGuidance(sess.ID, "pdf", agenthub.AgentTypeClaude)
+	if dbOnly == "" || pdfOnly == "" {
+		t.Fatalf("fixture needs guidance for both groups: db %q pdf %q", dbOnly, pdfOnly)
+	}
+	for name, want := range map[string]string{"db": "db_listProfiles", "pdf": "pdf_"} {
+		if !strings.Contains(g, want) {
+			t.Errorf("the %s group is live but its instructions were dropped: %q", name, g)
+		}
+	}
+	if n := strings.Count(g, "DevKit tools are now available"); n != 1 {
+		t.Errorf("one header expected, got %d: %q", n, g)
+	}
+	if len(g) > 4096+400 {
+		t.Errorf("%d bytes is not bounded", len(g))
+	}
+	// Reversing the request order changes nothing: groups are normalized.
+	again := r.agents.ReplacementGuidanceFor(sess.ID, []string{"pdf", "db", "db"}, agenthub.AgentTypeClaude)
+	if again != g {
+		t.Error("guidance depends on the order or repetition of the request")
+	}
+	// The launch prompt and permission lists did not move.
+	if got := r.vendors[agenthub.AgentTypeClaude].LastSpec(); strings.Join(got.PreApprovedMCP["devkit"], ",") != strings.Join(spec.PreApprovedMCP["devkit"], ",") {
+		t.Error("guidance must not change the launch pre-approvals")
+	}
+}
+
+// A group of an optional module that is not wired is not registered, so it can
+// neither be requested nor appear in guidance for another group.
+func TestAnUnwiredOptionalGroupIsNeitherRequestableNorAdvertised(t *testing.T) {
+	r := newCompRig(t, compOptions{controls: true, noPDF: true})
+	r.prompter.answers = answers("session")
+	r.workspaceOff("db")
+	_, spec := r.create(agenthub.AgentTypeClaude)
+	cs := r.connect(spec)
+
+	if res := r.callRaw(cs, harness.ProposeTool, map[string]any{"groups": []string{"pdf"}}); !res.IsError {
+		t.Fatalf("a group that is not registered cannot be requested: %+v", res)
+	}
+	res := decode[harnessconfig.RequestResult](t, r.callRaw(cs, harness.ProposeTool, map[string]any{"groups": []string{"db"}}))
+	if res.Outcome == nil || !res.Outcome.Live {
+		t.Fatalf("expected a live change: %+v", res.Outcome)
+	}
+	if strings.Contains(res.Outcome.Guidance, "pdf_") || strings.Contains(res.Outcome.Guidance, "pdf.") {
+		t.Fatalf("guidance advertised tools that are not registered: %q", res.Outcome.Guidance)
+	}
+	if hasGroup(r.listed(cs), "pdf") {
+		t.Fatal("the unwired module must stay absent")
+	}
+}
+
 func TestSavingToTheWorkspaceCommitsWAndSTogetherAndLeavesOtherSessionsOnTheirPinnedW(t *testing.T) {
 	r := newCompRig(t, compOptions{controls: true})
 	r.prompter.answers = answers("workspace")

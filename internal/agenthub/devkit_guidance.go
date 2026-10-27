@@ -3,6 +3,7 @@ package agenthub
 import (
 	"devkit/internal/acp"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -292,10 +293,22 @@ const replacementGuidanceLimit = 4096
 // the launch-time prompt and pre-approved list stay as they were until a
 // reload. Empty when the group has no section.
 func replacementGuidance(naming toolNaming, served *DevKitServing, group string) string {
-	if served == nil {
+	return replacementGuidanceFor(naming, served, []string{group})
+}
+
+// replacementGuidanceFor is replacementGuidance for several groups at once: one
+// header, and each section that names a tool of any of the groups exactly once
+// (a section shared by two groups is not repeated). Sections are whole: one that
+// would push the text past the limit is left out entirely, never cut, and a
+// later, smaller section may still fit.
+func replacementGuidanceFor(naming toolNaming, served *DevKitServing, groups []string) string {
+	if served == nil || len(groups) == 0 {
 		return ""
 	}
-	inGroup := func(tool string) bool { g, _, _ := strings.Cut(tool, "."); return g == group }
+	inGroups := func(tool string) bool {
+		g, _, _ := strings.Cut(tool, ".")
+		return slices.Contains(groups, g)
+	}
 	var out []string
 	size := 0
 	for _, c := range promptChunks {
@@ -304,14 +317,14 @@ func replacementGuidance(naming toolNaming, served *DevKitServing, group string)
 		}
 		touches := false
 		for _, n := range c.needs {
-			touches = touches || inGroup(n)
+			touches = touches || inGroups(n)
 		}
 		if !touches {
 			continue
 		}
 		piece := renderChunk(naming, served, c)
 		if size+len(piece) > replacementGuidanceLimit {
-			break
+			continue
 		}
 		size += len(piece)
 		out = append(out, piece)

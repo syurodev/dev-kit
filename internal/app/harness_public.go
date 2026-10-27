@@ -272,16 +272,12 @@ func (c *harnessControls) discoveryReload(sessionID string) bool {
 	return err == nil && hs.Serving.DiscoveryReloadRequired
 }
 
-// guidance is the replacement note for the model, for the first requested group
-// the endpoint actually serves and the launch did not. It is derived by Agent
-// Hub from the acknowledged serving set, so it names nothing that is not served.
+// guidance is the replacement note for the model, covering every requested group
+// the endpoint actually serves and the launch did not, in one bounded text. It is
+// derived by Agent Hub from the acknowledged serving set, so it names nothing that
+// is not served.
 func (c *harnessControls) guidance(sessionID, vendor string, groups []string) string {
-	for _, g := range groups {
-		if text := c.agents.ReplacementGuidance(sessionID, g, agenthub.AgentType(vendor)); text != "" {
-			return text
-		}
-	}
-	return ""
+	return c.agents.ReplacementGuidanceFor(sessionID, groups,agenthub.AgentType(vendor))
 }
 
 // scopeQuestion is the host-authored text of the selection. The agent's own
