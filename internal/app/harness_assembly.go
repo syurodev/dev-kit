@@ -129,12 +129,14 @@ func NewHarnessAssembly(cfg HarnessAssemblyConfig) (*HarnessAssembly, error) {
 // Attach gives Agent Hub its provider and its lifecycle owner, together or not at
 // all. It refuses unless the session host can serve a prepared policy, so a
 // configured session is never started unfiltered, and refuses a second
-// attachment. Call it before any session can start.
+// attachment. Live publication is checked on each returned endpoint at launch;
+// PolicyEndpoints alone only proves that launch filtering is supported.
+// Call it before any session can start.
 func (a *HarnessAssembly) Attach(agents *agenthub.Service) error {
 	if a == nil || a.Provider == nil || a.Store == nil || agents == nil || agents != a.agents {
 		return ErrHarnessAssemblyIncomplete
 	}
-	if _, ok := agents.MCPEndpoints.(agenthub.PolicyEndpoints); !ok {
+	if _, ok := agents.MCPEndpoints.(agenthub.PolicyEndpoints); !ok || isNilInterface(agents.MCPEndpoints) {
 		return ErrHarnessAssemblyEndpoints
 	}
 	if agents.Harness != nil || agents.HarnessLifecycle != nil {

@@ -12,6 +12,7 @@ import (
 	"devkit/internal/harness"
 	"devkit/internal/identity"
 	"devkit/internal/interaction"
+	"devkit/internal/mcp"
 	"devkit/internal/preferences"
 	"devkit/internal/storage"
 	"devkit/internal/workspace"
@@ -108,6 +109,14 @@ func TestAttachNeedsAHostThatCanEnforceAndAttachesOnce(t *testing.T) {
 	p.agents.MCPEndpoints = legacyOnlyEndpoints{}
 	if err := asm.Attach(p.agents); !errors.Is(err, ErrHarnessAssemblyEndpoints) {
 		t.Fatalf("a legacy-only host cannot enforce: %v", err)
+	}
+	var nilHost *mcp.SessionHost
+	p.agents.MCPEndpoints = nilHost
+	if err := asm.Attach(p.agents); !errors.Is(err, ErrHarnessAssemblyEndpoints) {
+		t.Fatalf("a typed-nil host must be refused: %v", err)
+	}
+	if p.agents.Harness != nil || p.agents.HarnessLifecycle != nil {
+		t.Fatal("a typed-nil refusal must attach nothing")
 	}
 	// Another Agent Hub is not this graph's.
 	other := agenthub.NewService(agenthub.NewRegistry(), agenthub.NewSQLStore(p.db), nil)

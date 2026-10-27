@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"reflect"
 	"time"
 
 	"devkit/internal/acp"
@@ -115,6 +116,9 @@ func (s *Service) prepareLaunchOnce(ctx context.Context, spec *OpenSpec, session
 		l.snapshot = &snap
 	}
 	policyEndpoints, canEnforce := s.MCPEndpoints.(PolicyEndpoints)
+	if s.MCPEndpoints != nil && nilHarnessEndpoint(s.MCPEndpoints) {
+		return l, ErrHarnessNotEnforceable
+	}
 	if err := s.harnessGate(l.snapshot, previous, canEnforce); err != nil {
 		return l, err
 	}
@@ -134,6 +138,15 @@ func (s *Service) prepareLaunchOnce(ctx context.Context, spec *OpenSpec, session
 	}
 	l.closeEndpoint = ep.Close
 	if l.enforced {
+		// A pinned basis is the live-publication contract. Filtering only at
+		// launch must not turn an active session into a stored-only S target:
+		// a committed revoke would otherwise leave the old allow policy usable.
+		if l.snapshot.Basis != nil && nilHarnessEndpoint(ep.Live) {
+			ep.Close()
+			l.closeEndpoint = func() {}
+			l.enforced = false
+			return l, ErrHarnessNotEnforceable
+		}
 		// A prepared policy without the endpoint's served inventory cannot be
 		// described to the model, and the full guidance is not a safe default.
 		if ep.Served == nil {
@@ -317,7 +330,7 @@ func (s *Service) harnessGate(snap *harness.Snapshot, previous *appliedHarness, 
 	if snap == nil {
 		return nil
 	}
-	if !snap.Effective.ServingIsDefault() && !canEnforce {
+	if !canEnforce && (snap.Basis != nil || !snap.Effective.ServingIsDefault()) {
 		return ErrHarnessNotEnforceable
 	}
 	// Judged on what changed and why, not on a revision: an executable that is new
@@ -349,5 +362,23 @@ func (s *Service) preflightHarness(ctx context.Context, sess AgentSession) error
 		return err
 	}
 	_, canEnforce := s.MCPEndpoints.(PolicyEndpoints)
+	if s.MCPEndpoints != nil && nilHarnessEndpoint(s.MCPEndpoints) {
+		return ErrHarnessNotEnforceable
+	}
 	return s.harnessGate(&snap, previous, canEnforce)
+}
+
+// nilHarnessEndpoint catches a missing publication handle or a typed nil hidden
+// in an endpoint interface before any of its methods can be called.
+func nilHarnessEndpoint(endpoint any) bool {
+	if endpoint == nil {
+		return true
+	}
+	v := reflect.ValueOf(endpoint)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
 }
