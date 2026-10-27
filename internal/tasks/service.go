@@ -592,6 +592,10 @@ func (s *Service) SetFields(caller Caller, id string, fields Fields) (Task, erro
 			meta.BlockedBy = blockedBy
 		}
 		if fields.Branch != nil {
+			// The branch recorded on a task is what its holder may push.
+			if s.heldByAnotherLiveSession(caller, meta) {
+				return ErrClaimed
+			}
 			meta.Branch = *fields.Branch
 		}
 		if fields.PlanNodeID != nil {

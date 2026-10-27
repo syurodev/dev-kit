@@ -1162,3 +1162,63 @@ func TestAssignRefusesWhatClaimWouldQuietlyReopenOrSteal(t *testing.T) {
 		}
 	}
 }
+
+type liveSessions map[string]bool
+
+func (l liveSessions) Alive(id string) bool { return l[id] }
+
+// A claim held by another live session is not dropped or re-aimed by an agent:
+// Release followed by Claim would otherwise take the task from a session that Claim
+// itself refuses, and the branch on the task is what its holder may push.
+func TestAnAgentDoesNotReleaseOrReaimTheLiveClaimOfAnotherSession(t *testing.T) {
+	svc, _ := newService(t)
+	live := liveSessions{"holder": true, "other": true}
+	svc.SetLiveness(live)
+	board := newBoard(t, svc)
+	task, err := svc.Create(user, CreateInput{BoardID: board.ID, Title: "held"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	holder, other := Caller{SessionID: "holder"}, Caller{SessionID: "other"}
+	if _, err := svc.Claim(holder, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	branch := "feature/mine"
+	if _, err := svc.SetFields(holder, task.ID, Fields{Branch: &branch}); err != nil {
+		t.Fatal(err)
+	}
+
+	hijack := "feature/hijack"
+	if _, err := svc.SetFields(other, task.ID, Fields{Branch: &hijack}); !errors.Is(err, ErrClaimed) {
+		t.Fatalf("re-aiming the branch of another session's task = %v, want ErrClaimed", err)
+	}
+	if _, err := svc.Release(other, task.ID); !errors.Is(err, ErrClaimed) {
+		t.Fatalf("releasing another session's live claim = %v, want ErrClaimed", err)
+	}
+	if got, _ := svc.Get(user, task.ID); got.SessionID != "holder" || got.Branch != branch {
+		t.Fatalf("a refused write changed the claim: %+v", got)
+	}
+
+	// Everything that is not a claim stays open to a collaborator.
+	priority := "high"
+	if _, err := svc.SetFields(other, task.ID, Fields{Priority: &priority}); err != nil {
+		t.Fatalf("a non-claim field of a held task: %v", err)
+	}
+	// The holder, the person, and anyone once the holder is gone are not refused.
+	if _, err := svc.SetFields(holder, task.ID, Fields{Branch: &hijack}); err != nil {
+		t.Fatalf("the holder re-aims its own branch: %v", err)
+	}
+	live["holder"] = false
+	if _, err := svc.SetFields(other, task.ID, Fields{Branch: &branch}); err != nil {
+		t.Fatalf("a dead session's claim must not be held against anyone: %v", err)
+	}
+	if _, err := svc.Release(other, task.ID); err != nil {
+		t.Fatalf("releasing a dead session's claim: %v", err)
+	}
+	if _, err := svc.Claim(holder, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Release(user, task.ID); err != nil {
+		t.Fatalf("the person releases: %v", err)
+	}
+}

@@ -204,11 +204,27 @@ func (s *Service) writeClaim(task Task, board Board, holder, author string) (Tas
 	})
 }
 
+// heldByAnotherLiveSession is the rule Claim applies, for the writes that would
+// otherwise get around it: an agent does not drop, or re-aim, a claim that a
+// different session still holds. Without it Release followed by Claim takes a
+// live session's task, and setting the branch on it changes what that session may
+// push. A claim whose session has died, and every write by the person, are not
+// held against anyone.
+func (s *Service) heldByAnotherLiveSession(caller Caller, meta *taskMetadata) bool {
+	if !caller.IsAgent() || meta.SessionID == "" || meta.SessionID == caller.SessionID {
+		return false
+	}
+	return s.live == nil || s.live.Alive(meta.SessionID)
+}
+
 // Release drops a claim without moving the task. A dead session's claim is
 // deliberately NOT cleared automatically: the agent reopening reclaims its own
 // work, and a live claim can take a dead one over anyway.
 func (s *Service) Release(caller Caller, id string) (Task, error) {
 	return s.mutateAs(caller, id, func(meta *taskMetadata) error {
+		if s.heldByAnotherLiveSession(caller, meta) {
+			return ErrClaimed
+		}
 		meta.SessionID = ""
 		return nil
 	})
