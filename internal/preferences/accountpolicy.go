@@ -20,6 +20,19 @@ const (
 	RefusalContinue = "continue"
 )
 
+// Strategies for choosing the account a session moves to. They only rank the
+// accounts that are fine to move to; whether to move at all is the thresholds'
+// decision, so a healthy account is never left for a better one.
+const (
+	// StrategyOrder takes the first fine account in the person's order (the default).
+	StrategyOrder = "order"
+	// StrategyBest takes the fine account whose fullest window is the emptiest.
+	StrategyBest = "best"
+	// StrategyConsumeFirst takes the fine account whose weekly window resets
+	// soonest, so quota that is about to renew is spent before the rest.
+	StrategyConsumeFirst = "consumeFirst"
+)
+
 // Defaults and bounds of an account policy. A zero value in a stored policy
 // means "use the default"; the bounds apply after the defaults are filled in.
 const (
@@ -37,6 +50,7 @@ const (
 	maxAccountUsageMaxAge      = 3600
 	maxAccountVendorName       = 32
 	maxAccountOrder            = 32
+	maxAccountThresholds       = 32
 )
 
 var (
@@ -59,6 +73,12 @@ type AccountVendorPolicy struct {
 	// Order is the person's preference, first used first. Built-in ids may be listed.
 	Order          []string `json:"order,omitempty"`
 	OnLimitRefusal string   `json:"onLimitRefusal"`
+	// Strategy ranks the accounts a session may move to: StrategyOrder (default
+	// when empty), StrategyBest or StrategyConsumeFirst.
+	Strategy string `json:"strategy,omitempty"`
+	// AccountThresholds replaces ThresholdPercent for one account, by id (50–100).
+	// A weekly window still uses WeeklyThresholdPercent when that is set.
+	AccountThresholds map[string]int `json:"accountThresholds,omitempty"`
 }
 
 // AgentAccountPolicy is the person's rules for switching between several
@@ -85,6 +105,13 @@ func (p AgentAccountPolicy) clone() AgentAccountPolicy {
 		out.Vendors = make(map[string]AccountVendorPolicy, len(p.Vendors))
 		for k, v := range p.Vendors {
 			v.Order = append([]string(nil), v.Order...)
+			if v.AccountThresholds != nil {
+				limits := make(map[string]int, len(v.AccountThresholds))
+				for id, limit := range v.AccountThresholds {
+					limits[id] = limit
+				}
+				v.AccountThresholds = limits
+			}
 			out.Vendors[k] = v
 		}
 	}
@@ -107,6 +134,9 @@ func NormalizeAccountPolicy(in AgentAccountPolicy) (AgentAccountPolicy, error) {
 		if v.OnLimitRefusal == "" {
 			v.OnLimitRefusal = RefusalNone
 		}
+		if v.Strategy == "" {
+			v.Strategy = StrategyOrder
+		}
 		switch {
 		case !thresholdInRange(v.ThresholdPercent):
 			return AgentAccountPolicy{}, fmt.Errorf("%w: %s: the threshold must be between %d and %d percent", ErrInvalidAccountPolicy, name, minAccountThresholdPercent, maxAccountThresholdPercent)
@@ -116,6 +146,10 @@ func NormalizeAccountPolicy(in AgentAccountPolicy) (AgentAccountPolicy, error) {
 			return AgentAccountPolicy{}, fmt.Errorf("%w: %s: how old a reading may be must be between %d and %d seconds", ErrInvalidAccountPolicy, name, minAccountUsageMaxAge, maxAccountUsageMaxAge)
 		case v.OnLimitRefusal != RefusalNone && v.OnLimitRefusal != RefusalResendIfNoProgress && v.OnLimitRefusal != RefusalContinue:
 			return AgentAccountPolicy{}, fmt.Errorf("%w: %s: unknown choice for a turn refused at its limit (use %s, %s or %s)", ErrInvalidAccountPolicy, name, RefusalNone, RefusalResendIfNoProgress, RefusalContinue)
+		case v.Strategy != StrategyOrder && v.Strategy != StrategyBest && v.Strategy != StrategyConsumeFirst:
+			return AgentAccountPolicy{}, fmt.Errorf("%w: %s: unknown strategy (use %s, %s or %s)", ErrInvalidAccountPolicy, name, StrategyOrder, StrategyBest, StrategyConsumeFirst)
+		case len(v.AccountThresholds) > maxAccountThresholds:
+			return AgentAccountPolicy{}, fmt.Errorf("%w: %s: at most %d account limits", ErrInvalidAccountPolicy, name, maxAccountThresholds)
 		case v.Enabled && strings.TrimSpace(out.RiskAcknowledgedAt) == "":
 			return AgentAccountPolicy{}, fmt.Errorf("%w: %s: accept the terms warning before turning switching on", ErrInvalidAccountPolicy, name)
 		}
@@ -133,6 +167,21 @@ func NormalizeAccountPolicy(in AgentAccountPolicy) (AgentAccountPolicy, error) {
 			return AgentAccountPolicy{}, fmt.Errorf("%w: %s: at most %d accounts in the order", ErrInvalidAccountPolicy, name, maxAccountOrder)
 		}
 		v.Order = order
+		limits := make(map[string]int, len(v.AccountThresholds))
+		for id, limit := range v.AccountThresholds {
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
+			}
+			if !thresholdInRange(limit) {
+				return AgentAccountPolicy{}, fmt.Errorf("%w: %s: the limit of an account must be between %d and %d percent", ErrInvalidAccountPolicy, name, minAccountThresholdPercent, maxAccountThresholdPercent)
+			}
+			limits[id] = limit
+		}
+		if len(limits) == 0 {
+			limits = nil
+		}
+		v.AccountThresholds = limits
 		out.Vendors[name] = v
 	}
 	return out, nil

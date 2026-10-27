@@ -285,6 +285,10 @@ type AgentAccountVendorPolicyState struct {
 	UsageMaxAgeSeconds     int      `json:"usageMaxAgeSeconds"`
 	Order                  []string `json:"order"`
 	OnLimitRefusal         string   `json:"onLimitRefusal"`
+	// Strategy is "order", "best" or "consumeFirst"; "" reads as "order".
+	Strategy string `json:"strategy"`
+	// AccountThresholds is each account's own limit by id; an account without an entry uses ThresholdPercent.
+	AccountThresholds map[string]int `json:"accountThresholds"`
 }
 
 // AgentAccountPolicyState is preferences.AgentAccountPolicy as the window sees it.
@@ -302,9 +306,14 @@ func accountPolicyState(p preferences.AgentAccountPolicy) AgentAccountPolicyStat
 		if order == nil {
 			order = []string{}
 		}
+		limits := map[string]int{}
+		for id, limit := range v.AccountThresholds {
+			limits[id] = limit
+		}
 		out.Vendors[name] = AgentAccountVendorPolicyState{
 			Enabled: v.Enabled, ThresholdPercent: v.ThresholdPercent, WeeklyThresholdPercent: v.WeeklyThresholdPercent,
 			UsageMaxAgeSeconds: v.UsageMaxAgeSeconds, Order: order, OnLimitRefusal: v.OnLimitRefusal,
+			Strategy: v.Strategy, AccountThresholds: limits,
 		}
 	}
 	return out
@@ -364,6 +373,7 @@ func (s *AppService) AgentAccountPolicySet(ctx context.Context, state AgentAccou
 			next.Vendors[name] = preferences.AccountVendorPolicy{
 				Enabled: v.Enabled, ThresholdPercent: v.ThresholdPercent, WeeklyThresholdPercent: v.WeeklyThresholdPercent,
 				UsageMaxAgeSeconds: v.UsageMaxAgeSeconds, Order: v.Order, OnLimitRefusal: v.OnLimitRefusal,
+				Strategy: v.Strategy, AccountThresholds: v.AccountThresholds,
 			}
 		}
 		saved, err := s.container.Preferences.SetAgentAccountPolicy(next)

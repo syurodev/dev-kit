@@ -9,6 +9,7 @@ import {
   MAX_AGE_MAX,
   MAX_AGE_MIN,
   REFUSAL_CHOICES,
+  STRATEGY_CHOICES,
   SWITCHING_TRUTH,
   THRESHOLD_MAX,
   THRESHOLD_MIN,
@@ -18,11 +19,12 @@ import {
   parseFields,
   refusalOf,
   riskFlow,
+  strategyOf,
   thresholdMeaning,
   type PolicyFields,
 } from "./accountPolicy";
 
-type Problem = { field: "threshold" | "weekly" | "maxAge"; text: string };
+type Problem = { field: "threshold" | "weekly" | "maxAge" | `limit:${string}`; text: string };
 
 /**
  * When a session moves to another account, and what to do with a turn the vendor
@@ -33,6 +35,7 @@ type Problem = { field: "threshold" | "weekly" | "maxAge"; text: string };
 export function AccountPolicyEditor({
   vendorName,
   policy,
+  accounts = [],
   signedInCount,
   riskAcknowledged,
   saving,
@@ -41,6 +44,8 @@ export function AccountPolicyEditor({
 }: {
   vendorName: string;
   policy: VendorPolicy;
+  /** The accounts that can have a limit of their own, in the order they are listed. */
+  accounts?: readonly { id: string; label: string }[];
   /** How many of the vendor's accounts are signed in: with fewer than two nothing can move. */
   signedInCount: number;
   /** The terms warning was accepted before; turning switching on then asks nothing. */
@@ -71,6 +76,7 @@ export function AccountPolicyEditor({
   const parsed = parseFields(fields);
   const dirty = fieldsDiffer(fields, stored);
   const refusal = REFUSAL_CHOICES.find((choice) => choice.value === fields.refusal) ?? REFUSAL_CHOICES[0];
+  const strategy = STRATEGY_CHOICES.find((choice) => choice.value === fields.strategy) ?? STRATEGY_CHOICES[0];
   const edit = (change: Partial<PolicyFields>) => {
     setOthers((current) => ({ ...current, ...change }));
     setProblem(null);
@@ -173,6 +179,47 @@ export function AccountPolicyEditor({
           Before a turn, DevKit asks the vendor again about a shared login whose last check is older than the re-check time.
           Usage is never read on a timer.
         </p>
+
+        {accounts.length > 0 ? (
+          <div className="flex flex-col gap-2" role="group" aria-label="Limit of each account">
+            <span className="text-caption-11 text-text-tertiary">Move off an account earlier or later than the limit above</span>
+            <div className="flex flex-wrap items-start gap-3">
+              {accounts.map((account) => (
+                <div key={account.id} className="w-44">
+                  <Input
+                    label={`${account.label} (% used)`}
+                    type="number"
+                    inputMode="numeric"
+                    min={THRESHOLD_MIN}
+                    max={THRESHOLD_MAX}
+                    step={1}
+                    value={fields.limits[account.id] ?? ""}
+                    placeholder="Same as above"
+                    error={fieldError(`limit:${account.id}`)}
+                    onChange={(event) => edit({ limits: { ...fields.limits, [account.id]: event.target.value } })}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <label className="flex flex-col gap-1">
+          <span className="text-caption-11 text-text-tertiary">Which account a session moves to</span>
+          <NativeSelect
+            aria-label="Which account a session moves to"
+            value={fields.strategy}
+            disabled={saving}
+            onChange={(event) => edit({ strategy: strategyOf(event.target.value) })}
+          >
+            {STRATEGY_CHOICES.map((choice) => (
+              <NativeSelectOption key={choice.value} value={choice.value}>
+                {choice.label}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+          <span className="text-caption-11 text-text-tertiary">{strategy.detail}</span>
+        </label>
 
         <label className="flex flex-col gap-1">
           <span className="text-caption-11 text-text-tertiary">When the vendor refuses a turn at its limit</span>

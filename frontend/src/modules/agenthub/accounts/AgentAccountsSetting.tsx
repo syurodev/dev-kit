@@ -158,6 +158,7 @@ function VendorAccounts({ vendor }: { vendor: string }) {
         <AccountPolicyEditor
           vendorName={vendorName}
           policy={current}
+          accounts={added ?? []}
           signedInCount={list?.filter((account) => account.signedIn).length ?? 0}
           riskAcknowledged={Boolean(policy.data.riskAcknowledgedAt.trim())}
           saving={savingPolicy}

@@ -77,7 +77,7 @@ const vendorPolicy = (over: Partial<VendorPolicy> = {}): VendorPolicy => ({
   weeklyThresholdPercent: 0,
   usageMaxAgeSeconds: 300,
   order: ["a", "b"],
-  onLimitRefusal: "none",
+  onLimitRefusal: "none", strategy: "order", accountThresholds: {},
   ...over,
 });
 
@@ -155,7 +155,7 @@ describe("moveVendorAccount", () => {
       weeklyThresholdPercent: 0,
       usageMaxAgeSeconds: 300,
       order: ["b", "a"],
-      onLimitRefusal: "none",
+      onLimitRefusal: "none", strategy: "order", accountThresholds: {},
     });
   });
 });

@@ -60,6 +60,16 @@ export interface AgentAccountVendorPolicyState {
     "usageMaxAgeSeconds": number;
     "order": string[] | null;
     "onLimitRefusal": string;
+
+    /**
+     * Strategy is "order", "best" or "consumeFirst"; "" reads as "order".
+     */
+    "strategy": string;
+
+    /**
+     * AccountThresholds is each account's own limit by id; an account without an entry uses ThresholdPercent.
+     */
+    "accountThresholds": { [_ in string]?: number } | null;
 }
 
 /**

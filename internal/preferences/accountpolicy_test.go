@@ -264,3 +264,62 @@ func TestAccountPolicyReadsDoNotAlias(t *testing.T) {
 		t.Errorf("order = %v, want [work home]", o)
 	}
 }
+
+func TestAccountPolicyStrategyDefaultsAndRefusesUnknown(t *testing.T) {
+	got, err := NormalizeAccountPolicy(oneVendor(AccountVendorPolicy{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := got.Vendors["claude"].Strategy; s != StrategyOrder {
+		t.Errorf("strategy = %q, want %q", s, StrategyOrder)
+	}
+	for _, s := range []string{StrategyOrder, StrategyBest, StrategyConsumeFirst} {
+		if _, err := NormalizeAccountPolicy(oneVendor(AccountVendorPolicy{Strategy: s})); err != nil {
+			t.Errorf("%s refused: %v", s, err)
+		}
+	}
+	_, err = NormalizeAccountPolicy(oneVendor(AccountVendorPolicy{Strategy: "random"}))
+	if !errors.Is(err, ErrInvalidAccountPolicy) || !strings.Contains(err.Error(), StrategyConsumeFirst) {
+		t.Errorf("unknown strategy: err = %v, want a refusal that lists the choices", err)
+	}
+}
+
+func TestAccountPolicyAccountThresholds(t *testing.T) {
+	got, err := NormalizeAccountPolicy(oneVendor(AccountVendorPolicy{AccountThresholds: map[string]int{" work ": 70, "": 60}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l := got.Vendors["claude"].AccountThresholds; len(l) != 1 || l["work"] != 70 {
+		t.Errorf("limits = %v, want only work=70 (ids trimmed, empty id dropped)", l)
+	}
+	for _, bad := range []int{0, 49, 101} {
+		_, err := NormalizeAccountPolicy(oneVendor(AccountVendorPolicy{AccountThresholds: map[string]int{"work": bad}}))
+		if !errors.Is(err, ErrInvalidAccountPolicy) {
+			t.Errorf("limit %d: err = %v, want a refusal", bad, err)
+		}
+	}
+	many := map[string]int{}
+	for _, id := range distinctIDs(maxAccountThresholds + 1) {
+		many[id] = 80
+	}
+	if _, err := NormalizeAccountPolicy(oneVendor(AccountVendorPolicy{AccountThresholds: many})); !errors.Is(err, ErrInvalidAccountPolicy) {
+		t.Errorf("too many limits: err = %v", err)
+	}
+	empty, err := NormalizeAccountPolicy(oneVendor(AccountVendorPolicy{AccountThresholds: map[string]int{}}))
+	if err != nil || empty.Vendors["claude"].AccountThresholds != nil {
+		t.Errorf("an empty map must normalise to none: %v %v", empty.Vendors["claude"].AccountThresholds, err)
+	}
+}
+
+func TestAccountPolicyReadsDoNotAliasTheLimits(t *testing.T) {
+	svc := NewService(NewMemoryRepository())
+	if _, err := svc.SetAgentAccountPolicy(oneVendor(AccountVendorPolicy{AccountThresholds: map[string]int{"work": 70}})); err != nil {
+		t.Fatal(err)
+	}
+	first, _ := svc.AgentAccountPolicy()
+	first.Vendors["claude"].AccountThresholds["work"] = 99
+	again, _ := svc.AgentAccountPolicy()
+	if got := again.Vendors["claude"].AccountThresholds["work"]; got != 70 {
+		t.Errorf("limit = %d, want 70: a caller's edit reached the store", got)
+	}
+}

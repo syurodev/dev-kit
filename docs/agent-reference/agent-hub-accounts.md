@@ -46,6 +46,16 @@
     `AllLimited`, never on `Target != Current`** (the early stays return `Current` as given, `""` for the built-in, while
     a decision names `BuiltinAccountID`); `Previous` is an account id, never `""`; `Current == ""` is the built-in. A
     reading is used as it is: usage only grows until a reset, so an old reading over the threshold is still true.
+  - **Strategy and a limit per account** (`preferences.AccountVendorPolicy.Strategy` / `AccountThresholds`, no migration: both live
+    in the `agent_account_policy` JSON; bridge `AgentAccountVendorPolicyState.strategy` / `accountThresholds`; the form's "Which account a
+    session moves to" and one "<account> (% used)" field per added account). The thresholds still decide WHETHER a session leaves its
+    account (a healthy account is never left for a better one, so there is no rebalancing); the strategy only ranks the accounts that are
+    fine to move to (`bestTarget`, in the person's order): `order` (default, the first), `best` (the lowest fullest live window), and
+    `consumeFirst` (the earliest known reset of a live weekly window, cswap's "consume first"). A tie, or no reading, keeps the order;
+    an account with a reading ranks before one without. A per-account limit replaces `thresholdPercent` for that account (a candidate's
+    included, with the return margin still applied), and `weeklyThresholdPercent`, when set, still wins for weekly windows. Creation
+    (`accountChooser.first`) uses the same pick, so it follows the strategy too. The built-in account has no field on the page but may
+    carry a stored limit and ranks by the same rules. An unset or unknown strategy reads as `order`.
   - **A model's own window counts only for that model** (`windowAppliesToModel`, `PickInput.Model`, `Service.modelForPick`). A window
     labelled `Weekly · <name>` (`Weekly · Fable`, from `unifiedWindows` or the usage check's `model_scoped`) is read only when the
     session's model (the `model` option of its last `config_option_update` row, read only when an account carries such a window)

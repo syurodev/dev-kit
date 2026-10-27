@@ -15,6 +15,31 @@ export const MAX_AGE_DEFAULT = 300;
 /** The most account ids the order can hold. */
 export const ORDER_MAX = 32;
 
+export type Strategy = "order" | "best" | "consumeFirst";
+
+/** How the account a session moves to is chosen. The thresholds alone decide WHETHER it moves. */
+export const STRATEGY_CHOICES: readonly { value: Strategy; label: string; detail: string }[] = [
+  {
+    value: "order",
+    label: "My order (default)",
+    detail: "The first account in the list above that is signed in and under its limit.",
+  },
+  {
+    value: "best",
+    label: "Most room left",
+    detail: "The account whose fullest window is the emptiest. Accounts with no reading yet come after those with one.",
+  },
+  {
+    value: "consumeFirst",
+    label: "Renews soonest",
+    detail: "The account whose weekly window resets first, so quota that is about to renew is spent before the rest.",
+  },
+];
+
+export function strategyOf(value: string): Strategy {
+  return value === "best" || value === "consumeFirst" ? value : "order";
+}
+
 export type Refusal = "none" | "resendIfNoProgress" | "continue";
 
 /** What to do with a turn the vendor refused at a real limit, and what each choice does. */
@@ -52,6 +77,8 @@ export function vendorPolicyOf(policy: AccountPolicy | undefined, vendor: string
     usageMaxAgeSeconds: stored?.usageMaxAgeSeconds || MAX_AGE_DEFAULT,
     order: [...(stored?.order ?? [])],
     onLimitRefusal: refusalOf(stored?.onLimitRefusal ?? ""),
+    strategy: strategyOf(stored?.strategy ?? ""),
+    accountThresholds: { ...stored?.accountThresholds },
   };
 }
 
@@ -63,6 +90,9 @@ export type PolicyFields = {
   weekly: string;
   maxAge: string;
   refusal: Refusal;
+  strategy: Strategy;
+  /** Each account's own limit by id, as typed; empty or absent means "the same as the threshold". */
+  limits: Record<string, string>;
 };
 
 export function fieldsOf(policy: VendorPolicy): PolicyFields {
@@ -72,12 +102,14 @@ export function fieldsOf(policy: VendorPolicy): PolicyFields {
     weekly: policy.weeklyThresholdPercent ? String(policy.weeklyThresholdPercent) : "",
     maxAge: String(policy.usageMaxAgeSeconds),
     refusal: refusalOf(policy.onLimitRefusal),
+    strategy: strategyOf(policy.strategy),
+    limits: Object.fromEntries(Object.entries(policy.accountThresholds).map(([id, limit]) => [id, String(limit)])),
   };
 }
 
 export type ParsedFields =
   | { ok: true; value: Omit<VendorPolicy, "order"> }
-  | { ok: false; field: "threshold" | "weekly" | "maxAge"; problem: string };
+  | { ok: false; field: "threshold" | "weekly" | "maxAge" | `limit:${string}`; problem: string };
 
 const WHOLE = /^\d+$/;
 const PERCENT_PROBLEM = `Use a whole number from ${THRESHOLD_MIN} to ${THRESHOLD_MAX}.`;
@@ -102,6 +134,13 @@ export function parseFields(fields: PolicyFields): ParsedFields {
   if (maxAge === null) {
     return { ok: false, field: "maxAge", problem: `Use a whole number of seconds from ${MAX_AGE_MIN} to ${MAX_AGE_MAX}.` };
   }
+  const accountThresholds: Record<string, number> = {};
+  for (const [id, text] of Object.entries(fields.limits)) {
+    if (text.trim() === "") continue;
+    const limit = inRange(text, THRESHOLD_MIN, THRESHOLD_MAX);
+    if (limit === null) return { ok: false, field: `limit:${id}`, problem: `${PERCENT_PROBLEM} Leave it empty to use the same as above.` };
+    accountThresholds[id] = limit;
+  }
   return {
     ok: true,
     value: {
@@ -110,6 +149,8 @@ export function parseFields(fields: PolicyFields): ParsedFields {
       weeklyThresholdPercent: weekly,
       usageMaxAgeSeconds: maxAge,
       onLimitRefusal: fields.refusal,
+      strategy: fields.strategy,
+      accountThresholds,
     },
   };
 }
@@ -165,6 +206,12 @@ export const riskFlow = {
   saved: (state: RiskFlow): RiskFlow => ({ ...state, accepted: false }),
 };
 
+/** Two sets of typed limits are the same when each id holds the same text; an empty text is no limit. */
+function limitsDiffer(a: Record<string, string>, b: Record<string, string>): boolean {
+  const text = (limits: Record<string, string>, id: string) => (limits[id] ?? "").trim();
+  return [...new Set([...Object.keys(a), ...Object.keys(b)])].some((id) => text(a, id) !== text(b, id));
+}
+
 /** Whether the form differs from what is stored, field by field as the person wrote them. */
 export function fieldsDiffer(a: PolicyFields, b: PolicyFields): boolean {
   return (
@@ -172,7 +219,9 @@ export function fieldsDiffer(a: PolicyFields, b: PolicyFields): boolean {
     a.threshold.trim() !== b.threshold.trim() ||
     a.weekly.trim() !== b.weekly.trim() ||
     a.maxAge.trim() !== b.maxAge.trim() ||
-    a.refusal !== b.refusal
+    a.refusal !== b.refusal ||
+    a.strategy !== b.strategy ||
+    limitsDiffer(a.limits, b.limits)
   );
 }
 

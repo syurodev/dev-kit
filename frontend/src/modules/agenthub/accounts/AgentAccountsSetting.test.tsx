@@ -32,7 +32,7 @@ const policy: AccountPolicy = {
       weeklyThresholdPercent: 0,
       usageMaxAgeSeconds: 300,
       order: ["claude-work", "claude-default"],
-      onLimitRefusal: "none",
+      onLimitRefusal: "none", strategy: "order", accountThresholds: {},
     },
   },
 };
