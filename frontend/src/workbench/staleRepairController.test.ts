@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { AppError } from "@/bridge/errors";
-import type { Outcome, Review, StaleDiagnosis } from "@/bridge/harness";
+import type { Outcome, Review, StaleDiagnosis, StaleEntry } from "@/bridge/harness";
 import { StaleRepairView, describeStaleEntry, repairing } from "./StaleRepairPanel";
 import { StaleRepairController, canRepair, type StaleOps } from "./staleRepairController";
 
@@ -17,15 +17,16 @@ function deferred<T>() {
 }
 type Deferred<T> = ReturnType<typeof deferred<T>>;
 
-const diag = (workspaceId: string, patch: Partial<StaleDiagnosis> = {}): StaleDiagnosis =>
+// The generated models type these fields as enums; the tests speak in the wire strings.
+const diag = (workspaceId: string, patch: Record<string, unknown> = {}): StaleDiagnosis =>
   ({
     workspaceId, profileRevision: 3, profilePresent: true, state: "stale", total: 1,
     entries: [{ kind: "group", name: "pdf", on: false }], ...patch,
-  }) as StaleDiagnosis;
+  }) as unknown as StaleDiagnosis;
 const review = (id: string, workspaceId = "A"): Review =>
   ({ id, target: "repair", workspaceId, tier: "widening", summary: `summary ${id}`, changes: [], needsConfirmation: true }) as Review;
-const outcome = (patch: Partial<Outcome> = {}): Outcome =>
-  ({ status: "applied", target: "repair", commit: "committed", live: false, reloadRequired: true, recovery: "The stale settings were removed.", ...patch }) as Outcome;
+const outcome = (patch: Record<string, unknown> = {}): Outcome =>
+  ({ status: "applied", target: "repair", commit: "committed", live: false, reloadRequired: true, recovery: "The stale settings were removed.", ...patch }) as unknown as Outcome;
 const refused = (code: string) => new AppError({ code, message: `${code} refusal`, recoverable: true });
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -94,7 +95,7 @@ describe("a stale profile has a reachable repair even though no session or norma
     void c.refresh();
     r.diagnoses.A[1].reject(refused("x"));
     await tick();
-    expect(c.getState().diagnosis?.state).toBe("stale");
+    expect(c.getState().diagnosis?.state as string).toBe("stale");
     expect(canRepair(c.getState())).toBe(false);
   });
 });
@@ -196,7 +197,7 @@ describe("cancel, refusal and the outcome", () => {
     const applying = c.apply();
     r.applies.p1[0].resolve(outcome());
     await tick();
-    expect(c.getState().outcome?.status).toBe("applied");
+    expect(c.getState().outcome?.status as string).toBe("applied");
     r.diagnoses.A[1].resolve(diag("A", { state: "none", total: 0, entries: [], profileRevision: 4 }));
     await applying;
     expect(canRepair(c.getState())).toBe(false);
@@ -215,7 +216,7 @@ describe("cancel, refusal and the outcome", () => {
     await tick();
     r.diagnoses.A[1].resolve(diag("A"));
     await applying;
-    expect(c.getState().outcome?.status).toBe("unknown");
+    expect(c.getState().outcome?.status as string).toBe("unknown");
     expect(r.calls.filter((x) => x.startsWith("apply:")).length).toBe(1);
     expect(r.calls.filter((x) => x.startsWith("prepare:")).length).toBe(1);
   });
@@ -280,7 +281,7 @@ describe("what the person sees", () => {
   });
 
   it("describes a name from storage as text", () => {
-    expect(describeStaleEntry({ kind: "group", name: "<b>x</b>", on: true })).toBe("Tool group “<b>x</b>”: saved on");
+    expect(describeStaleEntry({ kind: "group", name: "<b>x</b>", on: true } as unknown as StaleEntry)).toBe("Tool group “<b>x</b>”: saved on");
     expect(render(state(diag("A", { entries: [{ kind: "group", name: "<img src=x onerror=1>", on: true }] })))).not.toContain("<img");
   });
 });
