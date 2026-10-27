@@ -144,7 +144,7 @@ func (s *Service) prepareLaunchOnce(ctx context.Context, spec *OpenSpec, session
 		// an endpoint with no publication handle, is never live-updated.
 		if ep.Live != nil && l.snapshot.Basis != nil {
 			launchID := l.snapshot.Basis.Identity(l.snapshot.Basis.LaunchSession(), l.snapshot.Effective)
-			if err := s.stageServing(sessionID, l.reservation, ep.Live, l.snapshot.Basis, launchID); err != nil {
+			if err := s.stageServing(sessionID, l.reservation, ep.Live, l.snapshot.Basis, launchID, l.snapshot.Effective); err != nil {
 				ep.Close()
 				l.closeEndpoint = func() {}
 				l.enforced = false
@@ -244,6 +244,11 @@ func cloneRevision(r *int64) *int64 {
 // servedFor is what the session's live runtime was told it can use: nil for a
 // legacy launch or a session with no live runtime record.
 func (s *Service) servedFor(sessionID string) *DevKitServing {
+	// A running enforcing endpoint is the authority: after a live change its
+	// acknowledged surface, not the launch's, is what guidance may name.
+	if cur := s.servingServed(sessionID); cur != nil {
+		return cur
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.harnessApplied[sessionID].Served.Clone()

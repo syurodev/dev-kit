@@ -402,6 +402,7 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 	s.endpoints[r.session.ID] = r.closeNew
 	s.forgetWorkspaceContextLocked(r.session.ID)
 	s.mu.Unlock()
+	s.syncServingFacts(r.session.ID)
 	s.attachUpdates(r.session.ID, r.newRuntime)
 	s.reapplySessionSettings(ctx, r.session.ID, r.newRuntime)
 

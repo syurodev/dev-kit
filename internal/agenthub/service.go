@@ -1010,6 +1010,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 	s.publishHarnessLocked(sess.ID, launch)
 	s.endpoints[sess.ID] = closeEndpoint
 	s.mu.Unlock()
+	s.syncServingFacts(sess.ID)
 
 	// The window upserts the session it created itself from the call's answer.
 	if s.OnSessionCreated != nil && !invokeUnbounded(ctx) {
@@ -2827,6 +2828,7 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 	s.endpoints[sess.ID] = closeEndpoint
 	s.forgetWorkspaceContextLocked(sess.ID)
 	s.mu.Unlock()
+	s.syncServingFacts(sess.ID)
 	return rt, nil
 }
 

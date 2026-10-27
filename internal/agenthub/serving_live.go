@@ -91,7 +91,10 @@ type liveServing struct {
 	ep      ServingEndpoint
 	basis   *harness.ServingBasis
 	serving harness.ServingIdentity // what the endpoint last acknowledged
-	acked   bool
+	// eff is the effective configuration serving describes: the launch's, then
+	// each installed one. It never replaces the launch reference.
+	eff   harness.Effective
+	acked bool
 	// pending: a change is stored but not installed. Admission stays closed
 	// until a reconciliation installs the latest durable S.
 	pending bool
@@ -122,6 +125,8 @@ type ServingView struct {
 	Epoch   uint64
 	Basis   *harness.ServingBasis
 	Serving harness.ServingIdentity
+	// Effective is the configuration Serving names (read-only).
+	Effective harness.Effective
 	// Quarantined: admission is closed (a publication is in flight or pending).
 	Quarantined bool
 	// Pending: a stored change awaits reconciliation.
@@ -141,7 +146,7 @@ func (c *servingCoord) viewLocked() ServingView {
 	if st.Closed {
 		return v
 	}
-	v.Active, v.Incarnation, v.Basis, v.Serving = true, rt.ep.Incarnation(), rt.basis, rt.serving
+	v.Active, v.Incarnation, v.Basis, v.Serving, v.Effective = true, rt.ep.Incarnation(), rt.basis, rt.serving, rt.eff
 	v.Quarantined = st.Paused || rt.pending
 	v.Pending = rt.pending
 	v.Acknowledged = rt.acked && !rt.pending && !st.Paused && st.Fingerprint == rt.serving.Fingerprint
@@ -243,14 +248,14 @@ func (t *ServingTxn) Publish(stamp harness.Stamp, durable *harness.Override) (Se
 	if rt == nil {
 		return ServingPublication{}, nil
 	}
-	pub, err := t.s.installLocked(rt, stamp, durable)
+	pub, err := t.s.installLocked(t.id, rt, stamp, durable)
 	return pub, err
 }
 
 // installLocked resolves and installs the latest durable S on rt. The caller
 // holds the coordinator. It never replays a captured candidate: the effective
 // configuration is resolved here from the pinned basis and what it is given.
-func (s *Service) installLocked(rt *liveServing, stamp harness.Stamp, durable *harness.Override) (ServingPublication, error) {
+func (s *Service) installLocked(sessionID string, rt *liveServing, stamp harness.Stamp, durable *harness.Override) (ServingPublication, error) {
 	pend := func(err error) (ServingPublication, error) {
 		rt.pending = true
 		return ServingPublication{Pending: true}, err
@@ -282,7 +287,8 @@ func (s *Service) installLocked(rt *liveServing, stamp harness.Stamp, durable *h
 		// Admission stays closed: the endpoint's own contract on a failed Install.
 		return pend(err)
 	}
-	rt.serving, rt.acked, rt.pending, rt.held = id, true, false, false
+	rt.serving, rt.eff, rt.acked, rt.pending, rt.held = id, eff, true, false, false
+	s.noteServedFacts(sessionID, rt)
 	return ServingPublication{Installed: true, Serving: id, ToolsChanged: rep.ToolsChanged, NotificationScheduled: rep.NotificationScheduled}, nil
 }
 
@@ -312,7 +318,7 @@ func (s *Service) ReconcileServing(ctx context.Context, sessionID string, readS 
 		return ServingPublication{Pending: true}, err
 	}
 	rt.ticket, rt.held = ticket, true
-	return s.installLocked(rt, stamp, durable)
+	return s.installLocked(sessionID, rt, stamp, durable)
 }
 
 // servingReservation is an opening path's claim on the session's epoch.
@@ -333,14 +339,14 @@ func (s *Service) reserveServing(sessionID string) servingReservation {
 // vendor can call it. It fails if S or the session's lifecycle moved since the
 // reservation: the caller closes the endpoint and prepares again. From here on
 // any S commit reaches this endpoint like a published one.
-func (s *Service) stageServing(sessionID string, res servingReservation, ep ServingEndpoint, basis *harness.ServingBasis, launch harness.ServingIdentity) error {
+func (s *Service) stageServing(sessionID string, res servingReservation, ep ServingEndpoint, basis *harness.ServingBasis, launch harness.ServingIdentity, eff harness.Effective) error {
 	c := s.servingCoord(sessionID)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if res.set && c.epoch != res.epoch {
 		return ErrHarnessLaunchStale
 	}
-	c.rt = &liveServing{ep: ep, basis: basis, serving: launch, acked: true}
+	c.rt = &liveServing{ep: ep, basis: basis, serving: launch, eff: eff, acked: true}
 	return nil
 }
 
