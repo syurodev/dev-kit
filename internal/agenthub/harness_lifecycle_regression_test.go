@@ -220,3 +220,64 @@ func TestRewindReferenceWriteFailureRollsBackConversation(t *testing.T) {
 		})
 	}
 }
+
+// A rewind whose fork the launch gate would refuse must leave the running
+// session as it is, as a reload does: the gate is judged before the live runtime
+// and its endpoint are closed, not after the fork is already being opened.
+func TestARewindTheLaunchGateRefusesLeavesTheRunningSessionAlone(t *testing.T) {
+	changedServer := func(t *testing.T) func(string, string, string) (harness.Snapshot, error) {
+		return func(s, ws, v string) (harness.Snapshot, error) {
+			return snapshotFor(t, s, ws, v, func(in *harness.Inputs) {
+				in.Workspace = &harness.Profile{Schema: 1, Revision: 2,
+					Servers: []harness.Server{{Name: "db", Command: "a-different-command", Enabled: true}}}
+			}), nil
+		}
+	}
+	unreadable := func(string, string, string) (harness.Snapshot, error) {
+		return harness.Snapshot{}, errors.New("the workspace profile could not be read")
+	}
+	for name, tc := range map[string]struct {
+		next func(*testing.T) func(string, string, string) (harness.Snapshot, error)
+		want error
+	}{
+		"a new workspace executable": {changedServer, agenthub.ErrHarnessNewSessionRequired},
+		"an unresolvable snapshot":   {func(*testing.T) func(string, string, string) (harness.Snapshot, error) { return unreadable }, agenthub.ErrHarnessUnavailable},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			e, session, promptID, _ := newHarnessRewindEnv(t)
+			store := agenthub.NewSQLStore(e.db)
+			oldRef, _, _ := e.svc.HarnessApplied(session.ID)
+			opens := e.ev.count("endpoint.openWithPolicy")
+			closes := e.ev.count("endpoint.close")
+
+			preview, err := e.svc.PlanRewind(ctx, agenthub.RewindRequest{SessionID: session.ID, PromptMessageID: promptID, Mode: agenthub.RewindConversation})
+			if err != nil {
+				t.Fatal(err)
+			}
+			e.harness.set(tc.next(t))
+			if _, err = e.svc.ApplyRewind(ctx, preview.Token, nil); !errors.Is(err, tc.want) {
+				t.Fatalf("rewind = %v, want %v", err, tc.want)
+			}
+
+			if got := e.ev.count("endpoint.close"); got != closes {
+				t.Fatalf("a refused rewind closed the running session's endpoint (%d closes before, %d after)", closes, got)
+			}
+			if got := e.ev.count("endpoint.openWithPolicy"); got != opens {
+				t.Fatalf("a refused rewind staged another endpoint: %d -> %d", opens, got)
+			}
+			if mem, _, ok := e.svc.HarnessApplied(session.ID); !ok || !mem.Equal(oldRef) {
+				t.Fatal("a refused rewind changed the applied reference")
+			}
+			if texts := transcriptTexts(t, store, session.ID); len(texts) != 2 {
+				t.Fatalf("a refused rewind cut the transcript: %v", texts)
+			}
+			// The session still answers on the runtime it had: no reopen, so the
+			// gate that refused the rewind is never asked again.
+			e.harness.set(workspaceServer(t, true))
+			if _, err := e.svc.Invoke(ctx, agenthub.InvokeInput{SessionID: session.ID, Prompt: "still here"}); err != nil {
+				t.Fatalf("the running session did not survive a refused rewind: %v", err)
+			}
+		})
+	}
+}

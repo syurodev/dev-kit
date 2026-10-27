@@ -281,6 +281,14 @@ func (s *Service) ApplyRewind(ctx context.Context, token string, overwrite []str
 		s.mu.Unlock()
 	}()
 
+	// Before the live runtime is touched, as a reload does: a fork the launch gate
+	// would refuse (a new workspace executable, an unresolvable snapshot) must not
+	// be discovered after step 2 has closed the running session, which a reopen
+	// would then be refused by the same gate. The launch repeats the check.
+	if err := s.preflightHarness(ctx, session); err != nil {
+		return RewindResult{}, err
+	}
+
 	rewinder := &rewindRun{service: s, session: session, held: held, forker: forker, overwrite: overwrite}
 	return rewinder.run(ctx)
 }
