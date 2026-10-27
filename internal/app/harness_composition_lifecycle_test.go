@@ -423,3 +423,45 @@ func TestMeasurementUsesTheEntrySnapshotAcrossAMidTurnChange(t *testing.T) {
 }
 
 var _ = preferences.AgentCustomization{}
+
+// A process that dies after S was committed and before anything was published
+// leaves no half-published state to recover: the endpoint and its coordinator were
+// in memory, and the next launch reads the durable S. The probe commits S straight
+// through the store (the durable half of Apply), never touches the running
+// endpoint, restarts the graph, and reopens the session.
+func TestACrashBetweenTheCommitAndThePublicationIsRecoveredByTheNextLaunch(t *testing.T) {
+	r := newCompRig(t, compOptions{})
+	r.workspaceOff("vault")
+	sess, _ := r.create(agenthub.AgentTypeClaude)
+	if _, err := r.agents.Invoke(r.ui(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if r.agents.ServingTarget(sess.ID).Effective.Served("vault.status") {
+		t.Fatal("premise: the running endpoint must not serve vault")
+	}
+	_, st, err := r.asm.Store.GetOverride(context.Background(), sess.ID, r.wsID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.asm.Store.Apply(context.Background(), harness.StoreWrite{WorkspaceID: r.wsID, SessionID: sess.ID,
+		Override: &harness.OverrideWrite{Expect: st, Value: &harness.Override{Schema: harness.SchemaVersion, Groups: []string{"vault"}}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	r.restart() // the process died here: nothing was published
+	if _, err := r.agents.Invoke(r.ui(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "again"}); err != nil {
+		t.Fatal(err)
+	}
+	v := r.vendors[agenthub.AgentTypeClaude]
+	if !contains(v.LastSpec().DevKit.Tools, "vault.status") {
+		t.Fatal("the next launch must serve the committed S")
+	}
+	view := r.agents.ServingTarget(sess.ID)
+	if !view.Acknowledged || view.Pending || view.Quarantined || view.Serving.Session.Revision != 1 {
+		t.Fatalf("the reopened endpoint must serve the durable S, acknowledged and not pending: %+v", view)
+	}
+	st2, err := r.agents.HarnessStatus(context.Background(), sess.ID)
+	if err != nil || st2.Applied == nil || st2.Applied.Revisions.Session == nil || *st2.Applied.Revisions.Session != 1 {
+		t.Fatalf("the applied reference must describe the durable S: %+v %v", st2, err)
+	}
+}
