@@ -182,6 +182,15 @@ func (s *Service) switchAccountForTurn(ctx context.Context, sess *AgentSession) 
 	if !d.Switch {
 		return nil
 	}
+	// The move closes the running process and reopens it through the launch gate.
+	// A reopen the gate would refuse (a new workspace executable, an unresolvable
+	// snapshot) cannot succeed on any account, so the session stays where it is: the
+	// running process is not closed for nothing, and the target is not put on
+	// cooldown for a refusal that is about the workspace, not the account.
+	if err := s.preflightHarness(ctx, *sess); err != nil {
+		log.Printf("agenthub: session %s: not moving to account %s, a reopen would be refused: %v", sess.ID, d.Target, err)
+		return nil
+	}
 	from, bound := accountIDOf(*sess), sess.AccountID
 	if err := s.moveSession(ctx, sess, d.Target); err != nil {
 		log.Printf("agenthub: session %s: could not move to account %s: %v", sess.ID, d.Target, err)
