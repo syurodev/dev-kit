@@ -98,6 +98,9 @@ func (r *compRig) wireWork(deps *mcp.Deps) {
 	deps.Tasks = r.work.tasks
 	deps.Git = r.work.git
 	deps.GitRepos = mcp.GitReposOf(r.work.git)
+	if r.opt.wrapGitRepos != nil {
+		deps.GitRepos = r.opt.wrapGitRepos(deps.GitRepos)
+	}
 	deps.TaskBranches = NewTaskBranches(r.work.tasks)
 	deps.AgentHub = r.agents
 	deps.Workspace = r.ws

@@ -1,16 +1,19 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"devkit/internal/agenthub"
 	"devkit/internal/harness"
 	"devkit/internal/harnessconfig"
 	"devkit/internal/interaction"
+	"devkit/internal/mcp"
 	"devkit/internal/permissions"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -560,5 +563,68 @@ func TestACorruptStoredProfileRefusesANewSessionAndNeverServesUnfiltered(t *test
 	}
 	if socks, _ := filepath.Glob(filepath.Join(r.sockDir, "*.sock")); len(socks) != 0 {
 		t.Fatalf("a refused session left endpoints behind: %v", socks)
+	}
+}
+
+// beforeOpen runs a hook just before the Git module is opened at a path, which is
+// the gap between the server's scope check and the open.
+type beforeOpen struct {
+	mcp.GitRepos
+	mu   sync.Mutex
+	hook func()
+}
+
+func (b *beforeOpen) At(ctx context.Context, path string) (mcp.GitAPI, error) {
+	b.mu.Lock()
+	hook := b.hook
+	b.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	return b.GitRepos.At(ctx, path)
+}
+
+// A link that is pointed at another repository after the scope check, and before
+// the repository is opened, does not move the operation: Git is opened at the
+// path that was checked, so the branch is made in the workspace's repository and
+// the outside one is untouched.
+func TestALinkRepointedBetweenTheCheckAndTheOpenDoesNotMoveTheOperation(t *testing.T) {
+	var gate *beforeOpen
+	r := newWorkRig(t, compOptions{wrapGitRepos: func(inner mcp.GitRepos) mcp.GitRepos {
+		gate = &beforeOpen{GitRepos: inner}
+		return gate
+	}})
+	r.work.repo(r.root)
+	outside := t.TempDir()
+	outsideBare := r.work.repo(outside)
+	// A repository of its own inside the workspace folder, so the alias is opened
+	// as itself rather than as the folder around it.
+	sub := filepath.Join(r.root, "sub")
+	if err := os.Mkdir(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r.work.repo(sub)
+	alias := filepath.Join(r.root, "alias")
+	if err := os.Symlink(sub, alias); err != nil {
+		t.Fatal(err)
+	}
+	gate.hook = func() {
+		_ = os.Remove(alias)
+		if err := os.Symlink(outside, alias); err != nil {
+			t.Error(err)
+		}
+	}
+	_, cs := r.agentSession()
+	outState, outRemote := r.work.localState(outside), r.work.remoteRefs(outsideBare)
+
+	res := r.callRaw(cs, "git.branch.create", map[string]any{"repo": alias, "name": "evil"})
+	if r.work.localState(outside) != outState || r.work.remoteRefs(outsideBare) != outRemote {
+		t.Fatalf("the repository outside the workspace was written (%s):\n%s", resultText(res), r.work.localState(outside))
+	}
+	if res.IsError {
+		t.Fatalf("the operation on the checked path should have run there: %s", resultText(res))
+	}
+	if got := r.work.run(sub, "symbolic-ref", "--short", "HEAD"); got != "evil" {
+		t.Fatalf("the branch was not made in the repository that was checked: HEAD is %s", got)
 	}
 }

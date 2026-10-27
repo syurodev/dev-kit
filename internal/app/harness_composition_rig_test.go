@@ -291,6 +291,9 @@ type compOptions struct {
 	// work wires the real Tasks and Git services (workRig) behind the MCP tools in
 	// place of the exposure stubs.
 	work bool
+	// wrapGitRepos puts a hook in front of the Git module the MCP tools open
+	// repositories through (needs work).
+	wrapGitRepos func(mcp.GitRepos) mcp.GitRepos
 }
 
 func newCompRig(t *testing.T, opt compOptions) *compRig {
