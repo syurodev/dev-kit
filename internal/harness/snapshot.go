@@ -66,6 +66,11 @@ type Snapshot struct {
 	// from it. A launch uses this, not a second read of Settings, so what the
 	// runtime receives is what the reference says.
 	Vendor Vendor
+	// Basis is the frozen V/W/registry this launch was resolved from, captured
+	// before any live S change. It is immutable, so Clone shares it. nil on a
+	// snapshot built without one (tests, legacy callers): such a session can
+	// never be published to live.
+	Basis *ServingBasis
 }
 
 func cloneVendor(v Vendor) Vendor {
