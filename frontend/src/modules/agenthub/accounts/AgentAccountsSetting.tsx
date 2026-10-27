@@ -15,6 +15,7 @@ import { errorMessage } from "@/bridge/errors";
 import { AccountPolicyEditor } from "./AccountPolicyEditor";
 import { AccountSignIn } from "./AccountSignIn";
 import { AccountsEditor } from "./AccountsEditor";
+import { addedAccounts } from "./accountModel";
 import {
   applyUsageRefresh,
   attempt,
@@ -59,6 +60,8 @@ function VendorAccounts({ vendor }: { vendor: string }) {
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [policyError, setPolicyError] = useState("");
   const list = accounts.data;
+  // The built-in account has no row here (see addedAccounts); the full list still counts below.
+  const added = addedAccounts(list);
 
   /** One change at a time per account: the buttons are off while it runs. */
   async function change<T>(id: string, run: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false }> {
@@ -92,7 +95,7 @@ function VendorAccounts({ vendor }: { vendor: string }) {
       <AccountsEditor
         vendor={vendor}
         vendorName={vendorName}
-        accounts={list}
+        accounts={added}
         order={current.order}
         loadError={accounts.error ? errorMessage(accounts.error) : ""}
         busyId={busyId}
@@ -119,7 +122,7 @@ function VendorAccounts({ vendor }: { vendor: string }) {
           void change(id, () => agentAccountsSetShared(id, shared)).then((done) => done.ok && replaceAccount(client, key, done.value))
         }
         onRefreshUsage={(id) => {
-          const before = list?.find((account) => account.id === id);
+          const before = added?.find((account) => account.id === id);
           setRefreshNotes((notes) => ({ ...notes, [id]: "" }));
           void change(id, () => agentAccountsRefreshUsage(id)).then((done) => {
             if (!done.ok) return;
@@ -134,12 +137,12 @@ function VendorAccounts({ vendor }: { vendor: string }) {
         onMove={(id, delta) => {
           // A save of the rules is in flight: its revision would make this one stale.
           if (savingPolicy) return;
-          if (!list || !policy.data) {
+          if (!added || !policy.data) {
             setError(NOT_LOADED);
             return;
           }
           setBusyId(id);
-          void storing((rules) => moveVendorAccount(client, rules, vendor, list, id, delta, agentAccountPolicySet), setError).then(() =>
+          void storing((rules) => moveVendorAccount(client, rules, vendor, added, id, delta, agentAccountPolicySet), setError).then(() =>
             setBusyId((cur) => (cur === id ? "" : cur)),
           );
         }}

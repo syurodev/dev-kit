@@ -31,6 +31,24 @@ export function builtinAccountHelp(vendor: string): string {
     : "DevKit default is the Codex sign-in DevKit keeps for its own sessions.";
 }
 
+/**
+ * The accounts the person added. The built-in account is not drawn on the
+ * Accounts page: the backend still lists it, ranks it and runs sessions on it,
+ * but its login lives under Settings → Agents → Runtimes, so the page offers
+ * nothing to do with it. Everything that names an account (notices, the
+ * summary card) still reads the full list.
+ */
+export function addedAccounts<T extends { builtin: boolean }>(accounts: readonly T[] | undefined): T[] | undefined {
+  return accounts?.filter((account) => !account.builtin);
+}
+
+/** Where the page tells the person what the built-in account is, now that it has no row. */
+export function builtinAccountHiddenHelp(vendor: string): string {
+  return vendor === CLAUDE_VENDOR
+    ? "Sessions start on the login Claude Code already uses on this computer (sign in to it under Settings → Agents → Runtimes) and move to one of these accounts when it reaches a limit."
+    : "Sessions start on the Codex sign-in DevKit keeps for its own sessions (sign in to it under Settings → Agents → Runtimes) and move to one of these accounts when it reaches a limit.";
+}
+
 /** What the built-in account is called when the list that names it is not at hand. */
 export function builtinAccountLabel(vendor: string): string {
   return vendor === CLAUDE_VENDOR ? "System default" : "DevKit default";

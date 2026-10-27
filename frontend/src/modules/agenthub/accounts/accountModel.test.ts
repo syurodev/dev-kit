@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentAccount } from "@/bridge/agentAccounts";
 import {
+  addedAccounts,
   builtinAccountHelp,
+  builtinAccountHiddenHelp,
   accountLabelFor,
   accountLabelOf,
   accountNotes,
@@ -184,5 +186,19 @@ describe("words for the notice and the toast", () => {
 
   test("the toast names where the session went and why", () => {
     expect(switchedToast("Work", "Weekly 95% ≥ 90%")).toEqual({ title: "Moved to Work", description: "Weekly 95% ≥ 90%" });
+  });
+});
+
+describe("addedAccounts", () => {
+  test("drops the built-in account and keeps the order of the rest; nothing read yet stays nothing", () => {
+    const spare = account({ id: "claude-spare", label: "Spare" });
+    expect(addedAccounts([builtin, account(), spare])?.map((a) => a.id)).toEqual(["claude-work", "claude-spare"]);
+    expect(addedAccounts([builtin])).toEqual([]);
+    expect(addedAccounts(undefined)).toBeUndefined();
+  });
+
+  test("the page still says what the built-in account is and where its login lives", () => {
+    expect(builtinAccountHiddenHelp("claude")).toContain("Settings → Agents → Runtimes");
+    expect(builtinAccountHiddenHelp("codex")).toContain("Settings → Agents → Runtimes");
   });
 });

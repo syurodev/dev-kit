@@ -3,7 +3,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { AgentAccount } from "@/bridge/agentAccounts";
 import { AccountRow } from "./AccountRow";
 import { AddAccountForm } from "./AddAccountForm";
-import { builtinAccountHelp, orderedAccounts } from "./accountModel";
+import { builtinAccountHelp, builtinAccountHiddenHelp, orderedAccounts } from "./accountModel";
 
 export type AccountsEditorProps = {
   vendor: string;
@@ -71,7 +71,9 @@ export function AccountsEditor({
     <section className="flex flex-col gap-3" aria-label={`${vendorName} accounts`}>
       <h3 className="text-body-14-medium text-text-primary">Accounts</h3>
       <p className="text-body-12 text-text-tertiary">
-        A {vendorName} session runs as one of these accounts. {builtinAccountHelp(vendor)}
+        {list.some((account) => account.builtin)
+          ? `A ${vendorName} session runs as one of these accounts. ${builtinAccountHelp(vendor)}`
+          : builtinAccountHiddenHelp(vendor)}
         {list.length > 1 ? " When a session has to move, DevKit tries them from the top." : ""}
       </p>
 
