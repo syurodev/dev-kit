@@ -64,6 +64,9 @@ type SessionHost struct {
 	bindMu sync.Mutex
 	// Hooks for tests; nil in production.
 	bindHook, closeHook, publishedHook func()
+	// installHook runs between the steps of an endpoint's registry update with the
+	// step's name; an error simulates a failure there (tests only).
+	installHook func(stage string) error
 }
 
 var (
@@ -88,6 +91,14 @@ type sessionEndpoint struct {
 	serving *servingHolder // nil: today's unfiltered endpoint
 	ctx     context.Context
 	cancel  context.CancelFunc
+
+	// incarnation is opaque and unique to this endpoint instance; ms is its SDK
+	// server, kept so a policy change can update the registry it really serves.
+	// visible is the set of tools registered on ms; it is read and written only
+	// inside the serving holder's transition lock (install) after open.
+	incarnation string
+	ms          *sdk.Server
+	visible     map[string]bool
 
 	mu     sync.Mutex
 	conns  map[net.Conn]struct{}
@@ -133,6 +144,7 @@ func (h *SessionHost) open(sessionID string, serving *servingHolder) (agenthub.M
 	// registry a Close may close its holder, and a late load would find nothing.
 	gateOwned, preApproved := h.server.GateOwnedTools(), h.server.PreApprovedTools()
 	var served *agenthub.DevKitServing
+	var visible map[string]bool
 	if serving != nil {
 		snap := serving.load()
 		if snap == nil {
@@ -151,6 +163,10 @@ func (h *SessionHost) open(sessionID string, serving *servingHolder) (agenthub.M
 		// What the endpoint serves, from the same inventory and snapshot that
 		// filter discovery: the one input of the host guidance.
 		served = agenthub.NewDevKitServing(names)
+		visible = make(map[string]bool, len(names))
+		for _, n := range names {
+			visible[n] = true
+		}
 		// Narrowing only: a tool the policy hides is neither pre-approved nor
 		// host-gated, and nothing here adds a tool to either list.
 		gateOwned, preApproved = servedOnly(gateOwned, snap), servedOnly(preApproved, snap)
@@ -183,7 +199,8 @@ func (h *SessionHost) open(sessionID string, serving *servingHolder) (agenthub.M
 	caller := identity.Agent(sessionID)
 	ms := h.server.sdkServerWith(&caller, token, serving)
 	ctx, cancel := context.WithCancel(h.ctx)
-	ep := &sessionEndpoint{host: h, id: sessionID, path: path, ln: ln, serving: serving, ctx: ctx, cancel: cancel, conns: map[net.Conn]struct{}{}}
+	ep := &sessionEndpoint{host: h, id: sessionID, path: path, ln: ln, serving: serving, ctx: ctx, cancel: cancel, conns: map[net.Conn]struct{}{},
+		incarnation: uuid.NewString(), ms: ms, visible: visible}
 	if h.bindHook != nil {
 		h.bindHook()
 	}
@@ -196,7 +213,12 @@ func (h *SessionHost) open(sessionID string, serving *servingHolder) (agenthub.M
 	}
 	go ep.serve(ms)
 
+	var live agenthub.ServingEndpoint
+	if serving != nil {
+		live = ep
+	}
 	return agenthub.MCPEndpoint{
+		Live:       live,
 		UsageToken: token, GateOwnedTools: gateOwned,
 		PreApprovedTools: preApproved,
 		Served:           served,

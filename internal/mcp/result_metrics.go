@@ -58,12 +58,18 @@ func withMeasuredResultBudget(budget int, observer *ResultObservation, serving *
 	return func(next sdk.MethodHandler) sdk.MethodHandler {
 		return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
 			obs := observer
+			if method == "tools/list" && serving != nil && !serving.listable() {
+				// Paused for a policy change or closed: no list at all rather than
+				// one built from a registry that is being rewritten.
+				return nil, errToolListUnavailable
+			}
 			if method != "tools/call" {
 				return next(ctx, method, req)
 			}
 			var snap *servingSnapshot
+			why := admitReady
 			if serving != nil {
-				snap = serving.load()
+				snap, why = serving.admit()
 			}
 			if obs != nil && obs.Begin != nil {
 				if !obs.Begin() {
@@ -88,6 +94,8 @@ func withMeasuredResultBudget(budget int, observer *ResultObservation, serving *
 			var res sdk.Result
 			var err error
 			switch {
+			case serving != nil && snap == nil && why == admitPaused:
+				res = endpointPausedResult()
 			case serving != nil && snap == nil:
 				res = endpointClosedResult()
 			case snap != nil && !snap.serves(name):

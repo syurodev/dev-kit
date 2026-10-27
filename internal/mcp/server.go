@@ -306,22 +306,12 @@ func (s *Server) sdkServerFor(caller identity.Caller, token ...string) *sdk.Serv
 	return s.sdkServerWith(&caller, endpointToken, nil)
 }
 
-// sdkServerWith builds one instance. A nil caller is the throwaway instance
-// Inventory reads. With a serving holder the instance lists only what the
-// policy serves and answers a refusal for a registered tool it hides; without
-// one it is today's server, byte for byte.
-func (s *Server) sdkServerWith(c *identity.Caller, endpointToken string, serving *servingHolder) *sdk.Server {
-	caller := identity.UserTerminal()
-	if c != nil {
-		caller = *c
-	}
-	ms := sdk.NewServer(&sdk.Implementation{Name: "devkit", Version: "0.1.0"}, &sdk.ServerOptions{PageSize: s.pageSize})
-	ms.AddReceivingMiddleware(withCaller(caller))
-	var observer *ResultObservation
-	if caller.IsAgent() && endpointToken != "" && s.deps.RecordUsage != nil && s.deps.UsageScope != nil {
-		observer = &ResultObservation{Begin: s.deps.BeginUsage, End: s.deps.EndUsage, Scope: func() (usagemetrics.Scope, bool) { return s.deps.UsageScope(caller.SessionID, endpointToken) }, Record: s.deps.RecordUsage, Drop: s.deps.DropUsage}
-	}
-	ms.AddReceivingMiddleware(withMeasuredResultBudget(ResultBudget, observer, serving))
+// registerAll registers every tool this server offers on ms, in one fixed order.
+// It is the only place the registry is declared. A session endpoint calls it
+// again to bring back tools its policy had hidden: the registrations replace
+// same-named tools with equivalent definitions and create no per-endpoint state,
+// so nothing is fabricated and no handler is duplicated by hand.
+func (s *Server) registerAll(ms *sdk.Server) {
 	s.registerVault(ms)
 	RegisterOps(ms, ops.Runtime{Deps: ops.Deps{Notes: s.deps.Notes}, Caller: s.deps.Caller, Origin: "mcp"}, ops.Notes()...)
 	s.registerTools(ms)
@@ -344,6 +334,25 @@ func (s *Server) sdkServerWith(c *identity.Caller, endpointToken string, serving
 	if s.extraTools != nil {
 		s.extraTools(ms)
 	}
+}
+
+// sdkServerWith builds one instance. A nil caller is the throwaway instance
+// Inventory reads. With a serving holder the instance lists only what the
+// policy serves and answers a refusal for a registered tool it hides; without
+// one it is today's server, byte for byte.
+func (s *Server) sdkServerWith(c *identity.Caller, endpointToken string, serving *servingHolder) *sdk.Server {
+	caller := identity.UserTerminal()
+	if c != nil {
+		caller = *c
+	}
+	ms := sdk.NewServer(&sdk.Implementation{Name: "devkit", Version: "0.1.0"}, &sdk.ServerOptions{PageSize: s.pageSize, HasTools: serving != nil})
+	ms.AddReceivingMiddleware(withCaller(caller))
+	var observer *ResultObservation
+	if caller.IsAgent() && endpointToken != "" && s.deps.RecordUsage != nil && s.deps.UsageScope != nil {
+		observer = &ResultObservation{Begin: s.deps.BeginUsage, End: s.deps.EndUsage, Scope: func() (usagemetrics.Scope, bool) { return s.deps.UsageScope(caller.SessionID, endpointToken) }, Record: s.deps.RecordUsage, Drop: s.deps.DropUsage}
+	}
+	ms.AddReceivingMiddleware(withMeasuredResultBudget(ResultBudget, observer, serving))
+	s.registerAll(ms)
 	// Hide what the policy does not serve from discovery itself: the instance
 	// never holds those tools, so no page, cursor or total can name them.
 	if snap := serving.load(); snap != nil {

@@ -360,6 +360,15 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 		files = &applied
 	}
 
+	// A committed change to S (or a close) since the fork's configuration was
+	// read makes that fork's launch stale: discard it instead of committing its
+	// reference as the session's. A live S install never writes this reference.
+	if err := s.launchCurrent(r.session.ID, r.launch); err != nil {
+		r.discardFork(ctx)
+		r.abandonSafety(ctx, err)
+		return RewindResult{}, err
+	}
+
 	// 7. The one write. Everything or nothing.
 	spec := RewindSpec{
 		SessionID:               r.session.ID,
