@@ -25,6 +25,10 @@ type Live interface {
 	// session's close share. Lock order: the V boundary is entered first and this
 	// second; fn never waits for a person or a vendor. It returns fn's error.
 	Coordinate(ctx context.Context, sessionID string, fn func(LiveTxn) error) error
+	// Reconcile brings the session's endpoint to the latest durable S that read
+	// returns, under the coordinator. It starts no runtime and sends no prompt; with
+	// no active endpoint it does nothing.
+	Reconcile(ctx context.Context, sessionID string, read func(context.Context) (*harness.Override, harness.Stamp, error)) (Publication, error)
 }
 
 // LiveTarget is a point-in-time observation of a session's endpoint. The zero
@@ -236,6 +240,30 @@ func liveLine(g liveGroup) string {
 		}
 	}
 	return line + ")"
+}
+
+// Reconcile is the bounded, idempotent repair of a session whose stored S and
+// running endpoint may disagree (a failed or unconfirmed publication, an unknown
+// commit outcome). It resolves and installs the LATEST durable S, never a
+// captured older candidate, and cannot bring a closed or deleted session back:
+// with no scope or no active endpoint it only reports that nothing is running.
+// It makes no retry of its own.
+func (s *Service) Reconcile(ctx context.Context, sessionID string) (Publication, error) {
+	if s.cfg.Live == nil || sessionID == "" {
+		return Publication{}, nil
+	}
+	sc, err := s.cfg.Directory.SessionScope(ctx, sessionID)
+	if err != nil {
+		return Publication{}, ErrScopeGone
+	}
+	pub, err := s.cfg.Live.Reconcile(ctx, sessionID, func(c context.Context) (*harness.Override, harness.Stamp, error) {
+		return s.cfg.Store.GetOverride(c, sessionID, sc.WorkspaceID)
+	})
+	if err != nil {
+		pub.State = PublicationPending
+		return pub, &PublicationError{Result: Result{Publication: pub}, Cause: err}
+	}
+	return pub, nil
 }
 
 // liveReader reads the observation an evaluation is bound to: Prepare reads the

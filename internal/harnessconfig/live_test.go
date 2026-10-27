@@ -84,6 +84,11 @@ func (f *fakeLive) Coordinate(_ context.Context, session string, fn func(LiveTxn
 	return fn(&fakeTxn{f: f, session: session})
 }
 
+func (f *fakeLive) Reconcile(_ context.Context, session string, read func(context.Context) (*harness.Override, harness.Stamp, error)) (Publication, error) {
+	f.record("reconcile:%s", session)
+	return Publication{}, nil
+}
+
 type fakeTxn struct {
 	f       *fakeLive
 	session string
