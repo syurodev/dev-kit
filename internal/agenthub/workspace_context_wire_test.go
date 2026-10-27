@@ -94,6 +94,33 @@ func TestCodexWorkspaceContextPrecedesUserAndPreservesAttachments(t *testing.T) 
 	}
 }
 
+func TestWorkspaceContextWithoutABriefOnlyNamesWorkspaceListWhenItIsServed(t *testing.T) {
+	noBrief := func(served *DevKitServing) string {
+		svc := &Service{SessionBrief: func(string, string, []string) string { return "" }}
+		if served != nil {
+			svc.harnessApplied = map[string]appliedHarness{"s1": {Served: served}}
+		}
+		text, err := svc.workspaceTurnContext(context.Background(), AgentSession{ID: "s1", ProjectPath: "/project"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return text
+	}
+	if got := noBrief(nil); !strings.Contains(got, "workspace.list") {
+		t.Errorf("a legacy launch lost its pointer to workspace.list:\n%s", got)
+	}
+	if got := noBrief(NewDevKitServing([]string{"workspace.list", "vault.status"})); !strings.Contains(got, "workspace.list") {
+		t.Errorf("a launch that serves workspace.list lost its pointer:\n%s", got)
+	}
+	got := noBrief(NewDevKitServing([]string{"vault.status"}))
+	if strings.Contains(got, "workspace.list") {
+		t.Errorf("the context names workspace.list although the policy hides it:\n%s", got)
+	}
+	if !strings.Contains(got, "ask the person") {
+		t.Errorf("the context does not tell the model to ask instead:\n%s", got)
+	}
+}
+
 func TestUnboundWorkspaceContextRetiresRulesWithoutResolvingByCwd(t *testing.T) {
 	svc := &Service{WorkspaceInstructions: func(string) (string, error) { t.Fatal("instructions queried for unbound session"); return "", nil }}
 	svc.WorkspaceMemory = func(context.Context, string) (string, error) {
