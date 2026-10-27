@@ -20,6 +20,7 @@ func TestEveryRefusalOfThePublicControlsIsAPublishedFixedSentence(t *testing.T) 
 		harnessconfig.ErrConflict, harnessconfig.ErrUnknownProposal, harnessconfig.ErrBusy, harnessconfig.ErrTooLargeToShow,
 		harnessconfig.ErrCancelled, harnessconfig.ErrTooLateToCancel, harnessconfig.ErrNotConfirmed, harnessconfig.ErrConfirmUnavailable,
 		harnessconfig.ErrLiveUnavailable, harnessconfig.ErrPublicationPending, harnessconfig.ErrStoredUnreadable,
+		harnessconfig.ErrRepairUnavailable, harnessconfig.ErrRepairTooLarge,
 	}
 	for _, he := range refusals {
 		t.Run(he.Code+"/"+he.Message[:12], func(t *testing.T) {

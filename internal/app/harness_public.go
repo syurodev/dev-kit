@@ -382,6 +382,12 @@ func (c *harnessControls) prepare(ctx context.Context, req harnessconfig.Request
 	if err != nil {
 		return harnessconfig.Review{}, err
 	}
+	return c.review(p, req.Target, req.WorkspaceID, req.SessionID), nil
+}
+
+// review remembers the target of a prepared id (for the Outcome) and shapes the
+// window's Review from the host-authored view.
+func (c *harnessControls) review(p harnessconfig.Prepared, target harnessconfig.Target, workspaceID, sessionID string) harnessconfig.Review {
 	c.mu.Lock()
 	if c.targets == nil {
 		c.targets = map[string]harnessconfig.Target{}
@@ -389,15 +395,44 @@ func (c *harnessControls) prepare(ctx context.Context, req harnessconfig.Request
 	if len(c.targets) >= 64 {
 		c.targets = map[string]harnessconfig.Target{}
 	}
-	c.targets[p.ID] = req.Target
+	c.targets[p.ID] = target
 	c.mu.Unlock()
-	rev := harnessconfig.Review{ID: p.ID, Target: string(p.View.Target), WorkspaceID: req.WorkspaceID, SessionID: req.SessionID,
+	rev := harnessconfig.Review{ID: p.ID, Target: string(p.View.Target), WorkspaceID: workspaceID, SessionID: sessionID,
 		Tier: p.View.Tier, Summary: p.View.Summary, NeedsConfirmation: p.View.NeedsConfirmation, RationaleUntrusted: p.View.RationaleUntrusted,
 		Changes: []harnessconfig.ReviewChange{}}
 	for _, ch := range p.View.Changes {
 		rev.Changes = append(rev.Changes, harnessconfig.ReviewChange(ch))
 	}
-	return rev, nil
+	return rev
+}
+
+// StaleProfile diagnoses a workspace's stored profile. Window only, and it does not
+// depend on the profile resolving or on any session.
+func (c *harnessControls) StaleProfile(ctx context.Context, workspaceID string) (harnessconfig.StaleDiagnosis, error) {
+	if err := c.requireUI(ctx); err != nil {
+		return harnessconfig.StaleDiagnosis{}, err
+	}
+	if err := c.requireWorkspace(ctx, workspaceID); err != nil {
+		return harnessconfig.StaleDiagnosis{}, err
+	}
+	return c.svc.DiagnoseStale(ctx, workspaceID)
+}
+
+// PrepareStaleRepair prepares removing the stale references of a workspace's
+// stored profile. The caller names only the workspace; the removals are derived
+// from the stored profile and the registry.
+func (c *harnessControls) PrepareStaleRepair(ctx context.Context, workspaceID string) (harnessconfig.Review, error) {
+	if err := c.requireUI(ctx); err != nil {
+		return harnessconfig.Review{}, err
+	}
+	if err := c.requireWorkspace(ctx, workspaceID); err != nil {
+		return harnessconfig.Review{}, err
+	}
+	p, err := c.svc.PrepareRepair(ctx, workspaceID)
+	if err != nil {
+		return harnessconfig.Review{}, err
+	}
+	return c.review(p, harnessconfig.TargetRepair, workspaceID, ""), nil
 }
 
 func (c *harnessControls) Apply(ctx context.Context, id string) (harnessconfig.Outcome, error) {

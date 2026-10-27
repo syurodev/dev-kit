@@ -421,5 +421,7 @@
   "WorkspaceSearchSymbols",
   "WorkspaceSetPrimary",
   "WorkspaceUpdate",
-  "WorkspaceWatchDocuments"
+  "WorkspaceWatchDocuments",
+  "HarnessPrepareStaleRepair",
+  "HarnessStaleProfile"
 ]
