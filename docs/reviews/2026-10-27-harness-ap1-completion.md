@@ -169,7 +169,23 @@ Not read: the vendor adapters, accounts storage and sign-in, `usagemetrics` stor
 
 - Reproduced (not only reasoned): `TestAFilesRewindWhoseLaunchGoesStaleChangesNoFile` (real git, real SQL, an S epoch move at the fork). On `c2d3074f` the rewind returned `ErrHarnessLaunchStale` with the transcript uncut and the dropped turn's file already deleted.
 - Fix: `786440e0` asks `checkServingLaunch` (the same conditions `publishServingLaunch` applies, nothing published) before step 6, discarding the fork and failing the safety row with the project untouched.
-- Residual, not closed and not closable without holding the coordinator across a file restore (the lock-order note forbids waiting under it): an S commit that lands **during** the restore itself still makes step 7 refuse after the files changed. Outcome then: files restored, conversation uncut, the safety checkpoint (marked failed, snapshot kept) is the way back, a new rewind completes. No test exists for that window; it is stated, not exercised.
+- Residual as found in this pass (the update below handles it; it cannot be closed by holding the coordinator across a file restore, which the lock-order note forbids): an S commit that lands **during** the restore itself still makes step 7 refuse after the files changed. Outcome then: files restored, conversation uncut, the safety checkpoint (marked failed, snapshot kept) is the way back, a new rewind completes. No test existed for that window at this pass; the update below adds them.
+
+- **Update: finished forward (`c9b7543e`, owner's choice; the restore-before-cut order is kept).** The residual above is handled instead of only documented. After the files were restored, a
+  publication refused because S moved is not reported as "nothing cut": the staged fork and its endpoint are discarded (through the launch's own close, which detaches only its own incarnation), and
+  the launch is prepared again by the ordinary rules from the same session reference, so the executable-adoption gate still applies and nothing is inherited from the discarded endpoint. The files are
+  not restored a second time; the rewind target, the cut, the safety row and the vendor-session lookup are the original operation's. At most `launchAttempts` (3) publications in all.
+  **Only** a stale epoch of a session that is still open is retried (`launchStaleError`, a typed `ErrHarnessLaunchStale`; the session row is re-read because a completed Close moves the same epoch). A Close in
+  progress or whose cleanup failed, a lost endpoint, a closed or deleted session, a cancelled caller, a fork failure and a store failure are final. When it cannot finish, the error is
+  `RewindPartialError` (matches `ErrRewindFilesRestored` and its cause) naming the safety checkpoint; the bridge publishes a fixed sentence ("The files were put back, but the conversation was not rewound. Rewind the same
+  message again to finish, or undo the file restore from its safety checkpoint.") and never the cause. A conversation-only rewind has no restore and is unchanged (a stale launch is still refused with nothing changed).
+  The cut, the turn and checkpoint rows, the safety row and the applied reference still commit in the single `RewindSession` transaction (`TestRefusalsOtherThanSAreNotRetried/the cut transaction fails`: failing the
+  reference write rolls the cut back). Tests, in a rig with real git, real SQL and a live-handle endpoint registered with the session coordinator: `TestAnSChangeDuringTheRestoreFinishesTheRewindForward` (S moves inside the restore;
+  one restore, two forks, one cut, endpoints 2 opened / 2 closed, new incarnation acknowledged, durable reference equals memory), `TestRepeatedSChangesAreRetriedAFiniteNumberOfTimes` (three attempts, partial error, safety row
+  failed and named, nothing staged, the same rewind again completes), `TestACloseBetweenRetriesEndsTheRewindWithoutAnotherAttempt` (completed and fenced Close), `TestRefusalsOtherThanSAreNotRetried` (fork, SQL, cancellation),
+  `TestLaunchStaleReasonsAreDistinguishedAndAllMatchTheOldError`, and the bridge mapping tests. Mutation-checked: never retrying, discarding nothing before re-preparing, and retrying a completed Close each fail named tests
+  (retrying a fenced Close is stopped by the fence itself). **Limits:** the second fork is a second vendor process (one more `Fork`/`Delete`); the retry bound is the same constant as launch preparation; the rig's endpoint is a
+  fake with the real coordinator, not the MCP host (the host's own incarnation checks were read, not driven, here); not exercised against a real vendor. Author-written fix: **pending another reviewer**.
 
 ### R-3 (low, latent) - `OnChanged` ran under the task write lock (code from #375)
 
@@ -245,7 +261,7 @@ Proposed decision (for the owner; nothing here is implemented, and no baseline i
 | --- | --- | --- | --- | --- |
 | 1-3 | Basis, approval/CAS, durable vs live | unchanged: no finding | I | - |
 | 4 | Coordinator, reconcile, crash, account reopen | traced; R-2 found and fixed; crash-between-commit-and-publish probe passes | I for the reading; **A** for the R-2 fix (`908d7d71`) | another reviewer for the fix |
-| 5 | Rewind SQL, #353/#363/#367, child | rewind SQL read in full (one transaction: vendor id, cut, turns, checkpoints, safety row and applied reference); child isolation exercised; R-1 and O-1 found and fixed | I for the reading; **A** for `78bfd1e5` and `786440e0` | another reviewer for both fixes; O-1 residual window stated |
+| 5 | Rewind SQL, #353/#363/#367, child | rewind SQL read in full (one transaction: vendor id, cut, turns, checkpoints, safety row and applied reference); child isolation exercised; R-1 and O-1 found and fixed | I for the reading; **A** for `78bfd1e5`, `786440e0` and `c9b7543e` | another reviewer for the fixes (`78bfd1e5`, `786440e0`, `c9b7543e`); the O-1 window during the restore is finished forward, with stated limits |
 | 6 | Public facade | every method of `harnessControls` except the agent's own `Profile`/`Request`/`ProfileWithBudgets` calls `requireUI` (`WorkspaceProfile`, `SessionProfile`, `WorkspaceBudgets`, `PrepareWorkspaceGroups`, `PrepareBudgetEdits`, `PrepareRevoke`, `StaleProfile`, `PrepareStaleRepair`, `Apply`, `Cancel`, `Reconcile`) and the workspace-scoped ones `requireWorkspace`; the policy setter is window-only in the bridge; `SessionToolGroups.tsx` read; no finding | I | native focus is AP3 |
 | 7 | H5b, policy, measurement | no finding; revision columns are written at insert only and read-only afterwards | I | usagemetrics storage not read |
 | 8 | No new authority | R-3 found; git scope and claim lock re-read by the author | **A** | another reviewer for #375 code and `daa43bf5` |

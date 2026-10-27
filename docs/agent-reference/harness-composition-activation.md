@@ -375,7 +375,7 @@ AP1 stays **Partial**. Not independently reviewed: every fix below, the #375 git
 | --- | --- | --- | --- |
 | R-1: a rewind closed the running session before the launch gate could refuse the fork | medium | `78bfd1e5` (`preflightHarness` before step 2) | no |
 | R-2: an account move did the same and put the target account on cooldown | medium | `908d7d71` (same preflight before `moveSession`) | no |
-| O-1: files restored before the stale-launch check | low-medium | `786440e0` (`checkServingLaunch` before the restore); the window during the restore itself remains, stated, not exercised | no |
+| O-1: files restored before the stale-launch check | low-medium | `786440e0` (`checkServingLaunch` before the restore) and `c9b7543e` (an S change during the restore is finished forward: discard the staged fork and endpoint, prepare again by the ordinary rules, no second restore, at most 3 attempts; anything else, or running out, returns `RewindPartialError` saying the files were restored and the conversation was not) | no |
 | R-3: `tasks.OnChanged` ran under `writeMu` (from #375) | low, latent | `daa43bf5` | no |
 | F-D: the shared dialog body overflows the card padding; action rows sit 16 px below the card (also on the existing editor footer) | low, pre-existing | not fixed (shared component, owner) | - |
 
