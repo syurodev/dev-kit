@@ -109,7 +109,7 @@ func (s *Service) Claim(caller Caller, id string) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
-	return s.writeClaim(task, board, caller.SessionID, caller.Author())
+	return s.writeClaim(caller, task, board, caller.SessionID, caller.Author(), false)
 }
 
 // Assignable says whether Assign would succeed now, and writes nothing. A
@@ -142,7 +142,7 @@ func (s *Service) Assign(caller Caller, id, sessionID string) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
-	return s.writeClaim(task, board, sessionID, Caller{SessionID: sessionID}.Author())
+	return s.writeClaim(caller, task, board, sessionID, Caller{SessionID: sessionID}.Author(), true)
 }
 
 // claimable reads the task and applies the rules a claim by holder is subject
@@ -176,8 +176,11 @@ func (s *Service) claimable(caller Caller, id, holder string, handOver bool) (Ta
 	return task, board, nil
 }
 
-// writeClaim records holder on the task. author is who the history names.
-func (s *Service) writeClaim(task Task, board Board, holder, author string) (Task, error) {
+// writeClaim records holder on the task. author is who the history names. The
+// holder rule is applied again to the metadata read under the write lock: the
+// check in claimable was made against an earlier read, and between the two another
+// session may have claimed the task.
+func (s *Service) writeClaim(caller Caller, task Task, board Board, holder, author string, handOver bool) (Task, error) {
 	active, ok := board.Workflow.FirstOf(CategoryActive)
 	if !ok {
 		return Task{}, ErrInvalid
@@ -190,8 +193,12 @@ func (s *Service) writeClaim(task Task, board Board, holder, author string) (Tas
 	// it (Agent Hub's tray). A shape every version of the history already
 	// reads, not a new field the strict decoder would refuse on an older one.
 	at := s.now().UTC().Format(time.RFC3339)
-	picked := task.SessionID != holder
 	return s.mutate(task.ID, func(meta *taskMetadata) error {
+		if meta.SessionID != "" && meta.SessionID != holder && (!handOver || meta.SessionID != caller.SessionID) &&
+			(s.live == nil || s.live.Alive(meta.SessionID)) {
+			return ErrClaimed
+		}
+		picked := meta.SessionID != holder
 		meta.SessionID = holder
 		if meta.Status != active {
 			appendHistory(meta, Transition{From: meta.Status, To: active, By: author, At: at})

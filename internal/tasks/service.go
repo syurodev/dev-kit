@@ -59,7 +59,12 @@ type TerminalPolicy interface {
 type Service struct {
 	// dependencyMu serializes expected-state replacements within this process;
 	// the local SQLite store is single-process.
-	dependencyMu     sync.Mutex
+	dependencyMu sync.Mutex
+	// writeMu makes a task's read, check and write of its metadata one step within
+	// this process (the local store is single-process), so a holder check made
+	// against the metadata just read is still true when it is written: a Release or
+	// SetFields cannot overwrite a claim another session took in between.
+	writeMu          sync.Mutex
 	terminalPolicyMu sync.RWMutex
 	items            ItemStore
 	live             SessionLiveness
@@ -648,6 +653,8 @@ func (s *Service) mutate(id string, apply func(*taskMetadata) error) (Task, erro
 
 // mutateAs is mutate on the caller's behalf, through the task's board.
 func (s *Service) mutateAs(caller Caller, id string, apply func(*taskMetadata) error) (Task, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	record, err := s.items.Get(id)
 	if err != nil {
 		return Task{}, ErrNotFound

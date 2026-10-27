@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1220,5 +1221,86 @@ func TestAnAgentDoesNotReleaseOrReaimTheLiveClaimOfAnotherSession(t *testing.T) 
 	}
 	if _, err := svc.Release(user, task.ID); err != nil {
 		t.Fatalf("the person releases: %v", err)
+	}
+}
+
+// barrierLive reports a dead holder and, once, parks the first liveness check so a
+// test can run another write in the gap between a holder check and its write.
+type barrierLive struct {
+	entered chan struct{}
+	proceed chan struct{}
+	armed   atomic.Bool
+}
+
+// Alive parks only the first check after arming; later checks (the other session's
+// claim) answer at once, which is what opens the gap.
+func (b *barrierLive) Alive(string) bool {
+	if b.armed.CompareAndSwap(true, false) {
+		close(b.entered)
+		<-b.proceed
+	}
+	return false
+}
+
+// A Release that found the holder dead must not erase a claim another session took
+// while it was deciding: the check and the write are one step.
+func TestAReleaseDoesNotEraseAClaimTakenWhileItDecided(t *testing.T) {
+	svc, _ := newService(t)
+	live := &barrierLive{entered: make(chan struct{}), proceed: make(chan struct{})}
+	svc.SetLiveness(live)
+	board := newBoard(t, svc)
+	task, err := svc.Create(user, CreateInput{BoardID: board.ID, Title: "contended"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Claim(Caller{SessionID: "dead"}, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	live.armed.Store(true) // only the check made inside Release parks
+
+	released := make(chan error, 1)
+	go func() { _, err := svc.Release(Caller{SessionID: "releaser"}, task.ID); released <- err }()
+	<-live.entered
+	claimed := make(chan error, 1)
+	go func() { _, err := svc.Claim(Caller{SessionID: "claimer"}, task.ID); claimed <- err }()
+	time.Sleep(100 * time.Millisecond) // the claim reaches its write, or waits for the release
+	close(live.proceed)
+	if err := <-released; err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	if err := <-claimed; err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if got, _ := svc.Get(user, task.ID); got.SessionID != "claimer" {
+		t.Fatalf("the claim taken during the release was erased: holder %q", got.SessionID)
+	}
+}
+
+// Two sessions claiming a free task at once: exactly one holds it.
+func TestTwoConcurrentClaimsOfAFreeTaskLeaveOneHolder(t *testing.T) {
+	svc, _ := newService(t)
+	svc.SetLiveness(liveSessions{"a": true, "b": true})
+	board := newBoard(t, svc)
+	task, err := svc.Create(user, CreateInput{BoardID: board.ID, Title: "free"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	errs := make(chan error, 2)
+	for _, id := range []string{"a", "b"} {
+		go func() { _, err := svc.Claim(Caller{SessionID: id}, task.ID); errs <- err }()
+	}
+	var ok, claimed int
+	for range 2 {
+		switch err := <-errs; {
+		case err == nil:
+			ok++
+		case errors.Is(err, ErrClaimed):
+			claimed++
+		default:
+			t.Fatal(err)
+		}
+	}
+	if ok != 1 || claimed != 1 {
+		t.Fatalf("%d claims succeeded and %d were refused, want one of each", ok, claimed)
 	}
 }
