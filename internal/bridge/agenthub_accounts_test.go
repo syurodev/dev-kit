@@ -207,6 +207,37 @@ func TestAgentAccountPolicyChecksTheRevisionAndOwnsTheRiskTimestamp(t *testing.T
 	}
 }
 
+func TestAgentAccountPolicyCarriesTheStrategyAndAccountLimits(t *testing.T) {
+	svc := newBridgeWithAgentAccounts(t)
+	ctx := context.Background()
+	state := AgentAccountPolicyState{Revision: 0, Vendors: map[string]AgentAccountVendorPolicyState{"claude": {
+		Strategy: "consumeFirst", AccountThresholds: map[string]int{"claude-work": 70},
+	}}}
+	saved, err := svc.AgentAccountPolicySet(ctx, state, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := saved.Vendors["claude"]; v.Strategy != "consumeFirst" || v.AccountThresholds["claude-work"] != 70 {
+		t.Fatalf("saved = %+v, want the strategy and the account's limit back", v)
+	}
+	read, err := svc.AgentAccountPolicyGet(ctx)
+	if err != nil || read.Vendors["claude"].Strategy != "consumeFirst" || read.Vendors["claude"].AccountThresholds["claude-work"] != 70 {
+		t.Fatalf("read = %+v, %v", read, err)
+	}
+	// A vendor with no limits answers an empty map, never null, and an unset strategy reads as order.
+	plain, err := svc.AgentAccountPolicySet(ctx, AgentAccountPolicyState{Revision: 1, Vendors: map[string]AgentAccountVendorPolicyState{"codex": {}}}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := plain.Vendors["codex"]; v.Strategy != "order" || v.AccountThresholds == nil || len(v.AccountThresholds) != 0 {
+		t.Errorf("codex = %+v, want strategy order and an empty limits map", v)
+	}
+	bad := AgentAccountPolicyState{Revision: 2, Vendors: map[string]AgentAccountVendorPolicyState{"claude": {Strategy: "random"}}}
+	if _, err := svc.AgentAccountPolicySet(ctx, bad, false); err == nil || !strings.Contains(err.Error(), "strategy") {
+		t.Errorf("an unknown strategy: %v", err)
+	}
+}
+
 // A save drops the Service's cached policy read and tells open Accounts pages, so the
 // rules apply at the next turn and not after the cache's few seconds.
 func TestAgentAccountPolicySaveIsSeenByTheNextTurnAndAnnounced(t *testing.T) {

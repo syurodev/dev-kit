@@ -10,7 +10,7 @@ const policy: VendorPolicy = {
   weeklyThresholdPercent: 0,
   usageMaxAgeSeconds: 300,
   order: ["claude-work"],
-  onLimitRefusal: "none",
+  onLimitRefusal: "none", strategy: "order", accountThresholds: {},
 };
 
 type Props = Parameters<typeof AccountPolicyEditor>[0];
@@ -51,7 +51,7 @@ describe("AccountPolicyEditor", () => {
     expect(html.indexOf("Do not resend (default)")).toBeLessThan(html.indexOf("Resend if it had not started"));
     expect(html).toContain("Send a continue message");
     expect(html).toContain("Your next message starts on the next account.");
-    const resend = render({ policy: { ...policy, onLimitRefusal: "resendIfNoProgress" } });
+    const resend = render({ policy: { ...policy, onLimitRefusal: "resendIfNoProgress", strategy: "order", accountThresholds: {} } });
     expect(resend).toMatch(/<option[^>]*value="resendIfNoProgress" selected=""/);
     expect(resend).toContain("sends the same message once on the next account");
   });
@@ -104,4 +104,30 @@ describe("the terms warning", () => {
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Turn on</);
     expect(html).toContain("Cancel");
   });
+
+  test("offers the strategies and one limit field per account, empty when the account has none", () => {
+    const html = render({
+      accounts: [
+        { id: "claude-work", label: "Work" },
+        { id: "claude-spare", label: "Spare" },
+      ],
+      policy: { ...policy, strategy: "consumeFirst", accountThresholds: { "claude-work": 70 } },
+    });
+    expect(html).toContain("Which account a session moves to");
+    expect(html).toContain("Renews soonest");
+    expect(html).toContain("whose weekly window resets first");
+    expect(html).toContain("Work (% used)");
+    expect(html).toContain("Spare (% used)");
+    expect(html).toContain('value="70"');
+    expect(html).toContain("Same as above");
+    // The threshold, the weekly one and the re-check time, plus one per account.
+    expect(html.match(/<input[^>]*type="number"/g)?.length).toBe(5);
+  });
+
+  test("with no added account there is no limit to set", () => {
+    const html = render({ accounts: [] });
+    expect(html).not.toContain("Limit of each account");
+    expect(html.match(/<input[^>]*type="number"/g)?.length).toBe(3);
+  });
 });
+

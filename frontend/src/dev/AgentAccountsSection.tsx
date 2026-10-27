@@ -72,9 +72,9 @@ const off: VendorPolicy = {
   weeklyThresholdPercent: 0,
   usageMaxAgeSeconds: 300,
   order: [],
-  onLimitRefusal: "none",
+  onLimitRefusal: "none", strategy: "order", accountThresholds: {},
 };
-const on: VendorPolicy = { ...off, enabled: true, weeklyThresholdPercent: 95, onLimitRefusal: "resendIfNoProgress", order: ["claude-work", "claude-default", "claude-spare"] };
+const on: VendorPolicy = { ...off, enabled: true, weeklyThresholdPercent: 95, onLimitRefusal: "resendIfNoProgress", strategy: "order", accountThresholds: {}, order: ["claude-work", "claude-default", "claude-spare"] };
 
 const SIGN_IN_CLAUDE = (account: AgentAccount) => (
   <div className="flex w-full flex-col gap-2 text-left">
@@ -147,7 +147,7 @@ export function AgentAccountsSection() {
         <p className={caption}>Three accounts in a saved order: usage ok, a warning at 83% and one that reached its limit; switching on</p>
         <div className="flex flex-col gap-6">
           <AccountsEditor {...editorProps({ accounts: [builtin, work, spare], order: on.order, refreshNotes: { "claude-work": "Nothing new: DevKit asks the vendor at most every few seconds, and this reading is already the latest." } })} />
-          <AccountPolicyEditor vendorName="Claude" policy={on} signedInCount={2} riskAcknowledged saving={false} error="" onSave={noop} />
+          <AccountPolicyEditor vendorName="Claude" policy={{ ...on, strategy: "consumeFirst", accountThresholds: { "claude-work": 70 } }} accounts={[work, spare]} signedInCount={2} riskAcknowledged saving={false} error="" onSave={noop} />
         </div>
       </div>
 

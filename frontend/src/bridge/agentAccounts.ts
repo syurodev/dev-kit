@@ -63,6 +63,10 @@ export type VendorPolicy = {
   order: string[];
   /** "none", "resendIfNoProgress" or "continue". */
   onLimitRefusal: string;
+  /** How the account a session moves to is chosen: "order" (default), "best" or "consumeFirst". "" reads as "order". */
+  strategy: string;
+  /** One account's own limit by id (50–100); an account without an entry uses `thresholdPercent`. */
+  accountThresholds: Record<string, number>;
 };
 
 /** The whole rules preference: `revision` is the compare-and-swap token. */
@@ -104,6 +108,8 @@ function vendorPolicyOf(raw: RawVendorPolicy): VendorPolicy {
     usageMaxAgeSeconds: raw.usageMaxAgeSeconds,
     order: [...(raw.order ?? [])],
     onLimitRefusal: raw.onLimitRefusal,
+    strategy: raw.strategy ?? "",
+    accountThresholds: Object.fromEntries(Object.entries(raw.accountThresholds ?? {}).filter((entry): entry is [string, number] => typeof entry[1] === "number")),
   };
 }
 
@@ -122,7 +128,7 @@ export function policyOf(raw: RawPolicy): AccountPolicy {
 export function rawPolicyOf(policy: AccountPolicy): RawPolicy {
   const vendors: Record<string, RawVendorPolicy> = {};
   for (const [name, value] of Object.entries(policy.vendors)) {
-    vendors[name] = { ...value, order: [...value.order] };
+    vendors[name] = { ...value, order: [...value.order], accountThresholds: { ...value.accountThresholds } };
   }
   return { revision: policy.revision, riskAcknowledgedAt: policy.riskAcknowledgedAt, vendors };
 }

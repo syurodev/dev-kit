@@ -8,6 +8,7 @@ import {
   parseFields,
   refusalOf,
   riskFlow,
+  strategyOf,
   thresholdMeaning,
   vendorPolicyOf,
   withVendorPolicy,
@@ -23,7 +24,7 @@ const policy: AccountPolicy = {
       weeklyThresholdPercent: 95,
       usageMaxAgeSeconds: 600,
       order: ["claude-work"],
-      onLimitRefusal: "continue",
+      onLimitRefusal: "continue", strategy: "order", accountThresholds: {},
     },
   },
 };
@@ -36,7 +37,7 @@ describe("vendorPolicyOf", () => {
       weeklyThresholdPercent: 0,
       usageMaxAgeSeconds: 300,
       order: [],
-      onLimitRefusal: "none",
+      onLimitRefusal: "none", strategy: "order", accountThresholds: {},
     });
     expect(vendorPolicyOf(policy, "codex").enabled).toBe(false);
   });
@@ -46,7 +47,7 @@ describe("vendorPolicyOf", () => {
       ...policy,
       vendors: { claude: { ...policy.vendors.claude, thresholdPercent: 0, usageMaxAgeSeconds: 0, onLimitRefusal: "" } },
     };
-    expect(vendorPolicyOf(zeros, "claude")).toMatchObject({ thresholdPercent: 90, usageMaxAgeSeconds: 300, onLimitRefusal: "none" });
+    expect(vendorPolicyOf(zeros, "claude")).toMatchObject({ thresholdPercent: 90, usageMaxAgeSeconds: 300, onLimitRefusal: "none", strategy: "order", accountThresholds: {} });
     expect(vendorPolicyOf(policy, "claude")).toMatchObject({ enabled: true, thresholdPercent: 80, order: ["claude-work"] });
   });
 
@@ -60,10 +61,10 @@ describe("parseFields", () => {
   const fields = fieldsOf(vendorPolicyOf(policy, "claude"));
 
   test("what is stored round-trips, an empty weekly is 0", () => {
-    expect(fields).toEqual({ enabled: true, threshold: "80", weekly: "95", maxAge: "600", refusal: "continue" });
+    expect(fields).toEqual({ enabled: true, threshold: "80", weekly: "95", maxAge: "600", refusal: "continue", strategy: "order", limits: {} });
     expect(parseFields(fields)).toEqual({
       ok: true,
-      value: { enabled: true, thresholdPercent: 80, weeklyThresholdPercent: 95, usageMaxAgeSeconds: 600, onLimitRefusal: "continue" },
+      value: { enabled: true, thresholdPercent: 80, weeklyThresholdPercent: 95, usageMaxAgeSeconds: 600, onLimitRefusal: "continue", strategy: "order", accountThresholds: {} },
     });
     const parsed = parseFields({ ...fields, weekly: " " });
     expect(parsed.ok && parsed.value.weeklyThresholdPercent).toBe(0);
@@ -112,7 +113,7 @@ describe("saving", () => {
       weeklyThresholdPercent: 0,
       usageMaxAgeSeconds: 300,
       order: ["codex-default"],
-      onLimitRefusal: "none",
+      onLimitRefusal: "none", strategy: "order", accountThresholds: {},
     });
     expect(next.revision).toBe(4);
     expect(next.riskAcknowledgedAt).toBe("2026-10-23T08:00:00Z");
@@ -219,5 +220,42 @@ describe("riskFlow", () => {
     // Acknowledged before: nothing is sent again.
     const before = riskFlow.toggle(off, true, true);
     expect(acknowledgeFor(before.accepted, before.enabled, true)).toBe(false);
+  });
+});
+
+describe("strategy and each account's own limit", () => {
+  const base = fieldsOf(vendorPolicyOf(policy, "claude"));
+
+  test("an unknown strategy is the default one", () => {
+    expect(strategyOf("best")).toBe("best");
+    expect(strategyOf("consumeFirst")).toBe("consumeFirst");
+    expect(strategyOf("")).toBe("order");
+    expect(strategyOf("surprise")).toBe("order");
+  });
+
+  test("a stored limit and strategy round-trip through the form", () => {
+    const stored = { ...vendorPolicyOf(policy, "claude"), strategy: "best", accountThresholds: { "claude-work": 70 } };
+    const fields = fieldsOf(stored);
+    expect(fields.strategy).toBe("best");
+    expect(fields.limits).toEqual({ "claude-work": "70" });
+    const parsed = parseFields(fields);
+    expect(parsed.ok && parsed.value.strategy).toBe("best");
+    expect(parsed.ok && parsed.value.accountThresholds).toEqual({ "claude-work": 70 });
+  });
+
+  test("an empty limit is no limit, and a wrong one names its account", () => {
+    const parsed = parseFields({ ...base, limits: { "claude-work": " ", "claude-spare": "75" } });
+    expect(parsed.ok && parsed.value.accountThresholds).toEqual({ "claude-spare": 75 });
+    const bad = parseFields({ ...base, limits: { "claude-work": "49" } });
+    expect(bad.ok).toBe(false);
+    expect(!bad.ok && bad.field).toBe("limit:claude-work");
+  });
+
+  test("fields differ by strategy or by a typed limit, not by an empty one or whitespace", () => {
+    expect(fieldsDiffer(base, { ...base, strategy: "best" })).toBe(true);
+    expect(fieldsDiffer(base, { ...base, limits: { "claude-work": "70" } })).toBe(true);
+    expect(fieldsDiffer(base, { ...base, limits: { "claude-work": " " } })).toBe(false);
+    const withLimit = { ...base, limits: { "claude-work": "70" } };
+    expect(fieldsDiffer(withLimit, { ...withLimit, limits: { "claude-work": " 70 " } })).toBe(false);
   });
 });

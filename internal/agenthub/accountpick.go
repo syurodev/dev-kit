@@ -2,6 +2,7 @@ package agenthub
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -91,6 +92,7 @@ func PickAccount(in PickInput) PickDecision {
 		return stay
 	}
 	var skipped []string
+	var fine []AccountRecord
 	for _, a := range ordered {
 		if a.ID == cur.ID {
 			continue
@@ -112,13 +114,16 @@ func PickAccount(in PickInput) PickDecision {
 		if a.ID == in.Previous {
 			margin = accountReturnGap
 		}
-		if fine, _ := accountFine(a, in.Policy, in.Now, margin, in.Model); fine {
-			reason := why
-			if len(skipped) > 0 {
-				reason += "; skipped " + strings.Join(skipped, ", ") + " (signed out)"
-			}
-			return PickDecision{Target: a.ID, Switch: true, Reason: reason}
+		if ok, _ := accountFine(a, in.Policy, in.Now, margin, in.Model); ok {
+			fine = append(fine, a)
 		}
+	}
+	if len(fine) > 0 {
+		reason := why
+		if len(skipped) > 0 {
+			reason += "; skipped " + strings.Join(skipped, ", ") + " (signed out)"
+		}
+		return PickDecision{Target: bestTarget(fine, in).ID, Switch: true, Reason: reason}
 	}
 	if !cur.SignedIn {
 		// Nothing better to move to. No account reached a limit, so this is
@@ -151,6 +156,9 @@ func accountFine(a AccountRecord, p preferences.AccountVendorPolicy, now time.Ti
 		return false, "usage limit reached"
 	}
 	threshold := float64(p.ThresholdPercent)
+	if own := p.AccountThresholds[a.ID]; own > 0 {
+		threshold = float64(own)
+	}
 	if threshold <= 0 {
 		threshold = preferences.DefaultAccountThresholdPercent
 	}
@@ -223,4 +231,74 @@ func earliestReturn(accounts []AccountRecord, now time.Time) (time.Time, bool) {
 		}
 	}
 	return first, signedIn > 0
+}
+
+// bestTarget picks, among accounts that are fine to move to (already in the
+// person's order), the one the policy's strategy prefers. A tie, or nothing to
+// compare, keeps the order: sort.SliceStable never reorders equal elements.
+func bestTarget(fine []AccountRecord, in PickInput) AccountRecord {
+	rank := fine
+	switch in.Policy.Strategy {
+	case preferences.StrategyBest:
+		rank = rankedBy(fine, func(a AccountRecord) (float64, bool) { return fullestWindow(a, in.Now, in.Model) })
+	case preferences.StrategyConsumeFirst:
+		rank = rankedBy(fine, func(a AccountRecord) (float64, bool) { return soonestWeeklyReset(a, in.Now, in.Model) })
+	}
+	return rank[0]
+}
+
+// rankedBy orders accounts by a key, lowest first, with the accounts that have
+// no key after those that do.
+func rankedBy(accounts []AccountRecord, key func(AccountRecord) (float64, bool)) []AccountRecord {
+	out := append([]AccountRecord(nil), accounts...)
+	sort.SliceStable(out, func(i, j int) bool {
+		ki, iok := key(out[i])
+		kj, jok := key(out[j])
+		switch {
+		case iok && jok:
+			return ki < kj
+		case iok != jok:
+			return iok
+		}
+		return false
+	})
+	return out
+}
+
+// liveWindows are the readings that still say something now: not reset yet and
+// applicable to the model (windowAppliesToModel).
+func liveWindows(a AccountRecord, now time.Time, model string) []LimitWindow {
+	var out []LimitWindow
+	for _, w := range a.Usage {
+		if (w.ResetsAt != 0 && w.ResetsAt <= now.Unix()) || !windowAppliesToModel(w.Label, model) {
+			continue
+		}
+		out = append(out, w)
+	}
+	return out
+}
+
+// fullestWindow is the highest percent among the live windows; false without one.
+func fullestWindow(a AccountRecord, now time.Time, model string) (float64, bool) {
+	windows := liveWindows(a, now, model)
+	if len(windows) == 0 {
+		return 0, false
+	}
+	top := windows[0].UsedPercent
+	for _, w := range windows[1:] {
+		top = math.Max(top, w.UsedPercent)
+	}
+	return top, true
+}
+
+// soonestWeeklyReset is the earliest known reset (Unix seconds) among the live
+// weekly windows; false when none has a known reset.
+func soonestWeeklyReset(a AccountRecord, now time.Time, model string) (float64, bool) {
+	var soonest int64
+	for _, w := range liveWindows(a, now, model) {
+		if w.ResetsAt > 0 && isWeeklyLabel(w.Label) && (soonest == 0 || w.ResetsAt < soonest) {
+			soonest = w.ResetsAt
+		}
+	}
+	return float64(soonest), soonest > 0
 }
