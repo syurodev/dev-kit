@@ -5,7 +5,7 @@ every day in one window: coding agents (Claude, Codex, opencode), a code browser
 understands your services, Git and pull requests, an API client, notes, and clients for
 databases, Kafka and SSH. Your credentials and notes live in an encrypted vault unlocked by a
 Master Password, everything works offline, and sync is optional and zero-knowledge. It is built
-with [Wails v3](https://v3.wails.io): a Go backend and a React + TypeScript frontend.
+with [Wails v3.0.0](https://wails.io): a Go backend and a React + TypeScript frontend.
 
 DevKit is early and under active development. Parts of it are marked "not verified" below;
 [`AGENTS.md`](AGENTS.md) records what has and has not been checked against real services.
@@ -88,8 +88,10 @@ workflow builds macOS (arm64) and Linux (amd64) packages; Windows build tasks ex
 part of releases, and agent sandboxing is unavailable there. Agent Hub also needs the vendor's
 runtime and an account (Claude, Codex or opencode); DevKit can install the runtimes itself.
 
-Prerequisites: Go 1.25 or newer, [bun](https://bun.sh), [task](https://taskfile.dev) and the
-`wails3` CLI. On Linux add `libgtk-4-dev` and `libwebkitgtk-6.0-dev`. CodeGraph for Java needs a
+Prerequisites: Go 1.26 or newer, [bun](https://bun.sh), [task](https://taskfile.dev) and the
+`wails3` CLI pinned to the project version:
+`go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0`. On Linux add `libgtk-4-dev`
+and `libwebkitgtk-6.0-dev`. CodeGraph for Java needs a
 JDK; TypeScript and Lua need nothing extra at run time.
 
 ```bash

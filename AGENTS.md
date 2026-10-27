@@ -40,7 +40,7 @@ bypass a failed verifier or fabricate a DevKit session ID.
 
 ## Build and validation
 
-Use Go >= 1.25 and Bun (`bun.lock`). For real Go packages run `go test ./internal/... ./cmd/...`;
+Use Go >= 1.26 (Wails v3.0.0) and Bun (`bun.lock`). For real Go packages run `go test ./internal/... ./cmd/...`;
 `go test ./...` also reaches GUI and iOS scaffolding that cannot pass in a headless environment.
 Run `go test ./internal/arch/` for architecture changes. Frontend checks are `cd frontend &&
 bun test --isolate` and `cd frontend && bun run build`. Bindings are committed in

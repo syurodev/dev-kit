@@ -2229,7 +2229,7 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### github.com/wailsapp/wails/v3 (v3.0.0-beta.32)
+### github.com/wailsapp/wails/v3 (v3.0.0)
 
 - License: MIT
 - Source: https://github.com/wailsapp/wails
@@ -9598,7 +9598,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### @wailsio/runtime (3.0.0-beta.32)
+### @wailsio/runtime (3.0.0)
 
 - License: MIT
 - Source: https://github.com/wailsapp/wails

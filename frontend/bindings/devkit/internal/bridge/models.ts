@@ -91,11 +91,6 @@ export interface AgentSubagentLimitsState {
     "codexMaxSubagents": number | null;
 }
 
-/**
- * AgentUsageReportInfo is what a vendor's turns spent, in tokens. It is not a share
- * of a subscription limit. Every list is non-null. Workspace ids are named by the
- * window from the workspace list it already has.
- */
 export interface AgentUsageAccountInfo {
     "accountId": string;
     "generation": string;
@@ -110,6 +105,9 @@ export interface AgentUsageGroupInfo {
     "totals": AgentUsageTotalsInfo;
 }
 
+/**
+ * AgentUsageReportInfo contains token totals and coverage; every list is non-null.
+ */
 export interface AgentUsageReportInfo {
     "byAccount": AgentUsageAccountInfo[] | null;
     "vendor": string;
