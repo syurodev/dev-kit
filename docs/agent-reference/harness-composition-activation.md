@@ -35,8 +35,10 @@ tools the MCP server actually registered. It validates every collaborator (typed
 registry once (refusing an unreadable or empty one), and builds: provider, proposal service (real hub confirmer,
 real V boundary, `harnessLive` over the H4c coordinator), snapshot adapter and lifecycle owner. Any failure returns a
 fixed error and nothing is attached. `Attach` gives Agent Hub its provider and lifecycle owner **together**, only to
-a host implementing `agenthub.PolicyEndpoints` (otherwise a configured session would run unfiltered or every launch
-would refuse), only for the Agent Hub the graph was built for, and only once. No fallback sets `Harness=nil`.
+a non-nil host implementing `agenthub.PolicyEndpoints` (otherwise a configured session would run unfiltered or every launch
+would refuse), only for the Agent Hub the graph was built for, and only once. No fallback sets `Harness=nil`. A launch with a pinned serving basis also requires a non-nil live-publication
+handle from the endpoint (typed nils are refused). A launch-only host is closed and rejected before the vendor
+starts, including for a default profile; it cannot leave a running endpoint outside S publication.
 
 The final production change, **not applied**, would be after `agentSvc.MCPEndpoints = sessionHost` (checked to
 compile under `-tags server`; it needs one added import, `devkit/internal/harness`):
@@ -67,6 +69,7 @@ preserved but not enforced (unchanged behavior). No account, model, mode or sand
 | Row | Test |
 | --- | --- |
 | Incomplete graph / attach rules | `TestAnIncompleteGraphIsRefusedAndAttachesNothing`, `TestAttachNeedsAHostThatCanEnforceAndAttachesOnce`, `TestTheComposedGraphAttachesTogetherAndOnce` |
+| Required live-publication endpoint | `TestPinnedHarnessRejectsEndpointsWithoutLivePublication`, `TestPinnedHarnessRejectsAHostDowngradeBeforeReload`, `TestPinnedHarnessLaunchOnlyReloadPreservesDurableState` |
 | Vendor coverage | `TestTheVendorAdapterPreservesAnOpenCodeCustomization`, `TestAnUnsupportedVendorIsRefusedNotReadAsEmpty`, `TestAnOpenCodeCustomizationReachesTheLaunchUnchanged`, `TestAnUnsupportedVendorIsRefusedAtLaunchAndLeavesNothingBehind` |
 | Fresh create, default compatibility | `TestAFreshDefaultSessionIsCoherentAndMatchesTheLegacyLaunch`, `TestAConfiguredWorkspaceNarrowsListingGuidanceAndPermissionsTogether` |
 | Resume (Load and Open), reload, dead runtime | `TestResumeAfterRestartUsesLoadForAPromptedSessionAndOpenForANeverPromptedOne`, `TestAReloadThatCannotBePreparedLeavesTheRunningSessionAsItWas`, `TestADeadRuntimeIsRecoveredOnANewIncarnationThatKeepsS` |
