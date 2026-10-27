@@ -1,6 +1,7 @@
 package agenthub
 
 import (
+	"devkit/internal/acp"
 	"regexp"
 	"sort"
 	"strings"
@@ -320,4 +321,36 @@ func replacementGuidance(naming toolNaming, served *DevKitServing, group string)
 	}
 	return "DevKit tools are now available in this session, from the same rules as at launch. " +
 		"Your launch permissions did not change, so each tool still follows the normal permission flow:\n\n" + strings.Join(out, "\n")
+}
+
+// sameServing reports whether two served values describe the same surface; nil
+// (legacy) equals only nil.
+func sameServing(a, b *DevKitServing) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	if a == nil {
+		return true
+	}
+	if len(a.Tools) != len(b.Tools) {
+		return false
+	}
+	for i := range a.Tools {
+		if a.Tools[i] != b.Tools[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// swapPromptText replaces the text block that is exactly old with new.
+func swapPromptText(blocks []acp.ContentBlock, old, new string) []acp.ContentBlock {
+	out := append([]acp.ContentBlock(nil), blocks...)
+	for i := range out {
+		if out[i].Type == "text" && out[i].Text == old {
+			out[i].Text = new
+			break
+		}
+	}
+	return out
 }

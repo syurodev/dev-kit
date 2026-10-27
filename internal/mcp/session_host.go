@@ -63,7 +63,7 @@ type SessionHost struct {
 	// closed path fails at once, bind and chmod are local.
 	bindMu sync.Mutex
 	// Hooks for tests; nil in production.
-	bindHook, closeHook func()
+	bindHook, closeHook, publishedHook func()
 }
 
 var (
@@ -128,6 +128,33 @@ func (h *SessionHost) open(sessionID string, serving *servingHolder) (agenthub.M
 	if len(path) > maxSunPath {
 		return agenthub.MCPEndpoint{}, fmt.Errorf("%w: %s", ErrSocketPathTooLong, path)
 	}
+	// Everything the returned endpoint says about itself is fixed from the
+	// policy before anything is bound or published: once the endpoint is in the
+	// registry a Close may close its holder, and a late load would find nothing.
+	gateOwned, preApproved := h.server.GateOwnedTools(), h.server.PreApprovedTools()
+	var served *agenthub.DevKitServing
+	if serving != nil {
+		snap := serving.load()
+		if snap == nil {
+			return agenthub.MCPEndpoint{}, &harness.Error{Code: harness.CodeSnapshotUnavailable, Message: "This session's tool connection is closed."}
+		}
+		inv, err := h.server.Inventory()
+		if err != nil {
+			return agenthub.MCPEndpoint{}, err
+		}
+		names := make([]string, 0, len(inv.Tools))
+		for _, t := range inv.Tools {
+			if snap.eff.Served(t.Name) {
+				names = append(names, t.Name)
+			}
+		}
+		// What the endpoint serves, from the same inventory and snapshot that
+		// filter discovery: the one input of the host guidance.
+		served = agenthub.NewDevKitServing(names)
+		// Narrowing only: a tool the policy hides is neither pre-approved nor
+		// host-gated, and nothing here adds a tool to either list.
+		gateOwned, preApproved = servedOnly(gateOwned, snap), servedOnly(preApproved, snap)
+	}
 	h.bindMu.Lock()
 	unlocked := false
 	unlock := func() {
@@ -164,27 +191,11 @@ func (h *SessionHost) open(sessionID string, serving *servingHolder) (agenthub.M
 	h.endpoints[sessionID] = ep
 	h.mu.Unlock()
 	unlock()
+	if h.publishedHook != nil {
+		h.publishedHook() // tests: the endpoint is registered and may be closed from here
+	}
 	go ep.serve(ms)
 
-	gateOwned, preApproved := h.server.GateOwnedTools(), h.server.PreApprovedTools()
-	var served *agenthub.DevKitServing
-	if serving != nil {
-		// What the endpoint serves, from the same inventory and snapshot that
-		// filter discovery: the one input of the host guidance.
-		snap := serving.load()
-		inv, _ := h.server.Inventory()
-		names := make([]string, 0, len(inv.Tools))
-		for _, t := range inv.Tools {
-			if snap.eff.Served(t.Name) {
-				names = append(names, t.Name)
-			}
-		}
-		served = agenthub.NewDevKitServing(names)
-
-		// Narrowing only: a tool the policy hides is neither pre-approved nor
-		// host-gated, and nothing here adds a tool to either list.
-		gateOwned, preApproved = servedOnly(gateOwned, snap), servedOnly(preApproved, snap)
-	}
 	return agenthub.MCPEndpoint{
 		UsageToken: token, GateOwnedTools: gateOwned,
 		PreApprovedTools: preApproved,

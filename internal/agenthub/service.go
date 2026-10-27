@@ -1876,7 +1876,13 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 	if err != nil {
 		return InvokeResult{Status: "error"}, err
 	}
-	prompt, err := buildPromptBlocks(in.Prompt, files, in.Images, in.Refs, documentsPromptBlock(docs, namingFor(sess.AgentType), s.servedFor(sess.ID)), sess.ProjectPath, callerIsAgent(invoker))
+	// What the guidance below is written for is known only once the runtime is
+	// prepared: after a restart there is no record yet. servedBefore is what is
+	// known now; the runtime resolve re-renders both pieces if it turns out
+	// different (see the swap after runtimeForTurn).
+	servedBefore := s.servedFor(sess.ID)
+	docText := documentsPromptBlock(docs, namingFor(sess.AgentType), servedBefore)
+	prompt, err := buildPromptBlocks(in.Prompt, files, in.Images, in.Refs, docText, sess.ProjectPath, callerIsAgent(invoker))
 	if err != nil {
 		return InvokeResult{Status: "error"}, err
 	}
@@ -1967,6 +1973,23 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 		cp.Finish(context.WithoutCancel(ctx), TurnResult{Cancelled: true})
 		release()
 		return InvokeResult{}, err
+	}
+	// The runtime that is now live was prepared with its own policy. If that is
+	// not what the attachment and workspace guidance above assumed (a restart,
+	// a reload, an account move), render both again from it: a document guide
+	// must never name a tool this runtime does not serve.
+	if servedNow := s.servedFor(in.SessionID); !sameServing(servedBefore, servedNow) {
+		if docText != "" {
+			prompt = swapPromptText(prompt, docText, documentsPromptBlock(docs, namingFor(sess.AgentType), servedNow))
+		}
+		refreshed, rerr := s.workspaceTurnContext(ctx, sess)
+		if rerr != nil {
+			cp.Finish(context.WithoutCancel(ctx), TurnResult{Cancelled: true})
+			release()
+			return InvokeResult{Status: "error"}, rerr
+		}
+		workspaceContext = refreshed
+		contextFingerprint = workspaceContextFingerprint(workspaceContext)
 	}
 
 	// Past the resume, which forgets what a process had been sent: an agent that

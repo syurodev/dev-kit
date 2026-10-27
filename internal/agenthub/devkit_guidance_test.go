@@ -328,8 +328,11 @@ func TestReplacementGuidanceIsPureBoundedAndGroupScoped(t *testing.T) {
 	if strings.Contains(replacementGuidance(claudeNaming, noTasks, "git"), "task board") {
 		t.Error("the board section was offered without the tasks tools")
 	}
-	if replacementGuidance(codexNaming, all, "git") != replacementGuidance(codexNaming, all, "git") {
-		t.Error("not deterministic")
+	first := replacementGuidance(codexNaming, all, "git")
+	for i := 0; i < 5; i++ {
+		if replacementGuidance(codexNaming, all, "git") != first {
+			t.Error("not deterministic")
+		}
 	}
 	for _, g := range groupsOfTools(t) {
 		for _, n := range allNamings {
