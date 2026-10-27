@@ -139,3 +139,39 @@ func TestARepositoryThatIsNotTheOneCheckedIsRefused(t *testing.T) {
 		}
 	}
 }
+
+// The path is resolved once. A link repointed after that resolution, even to a
+// repository whose own root would satisfy a check made against the new target,
+// changes nothing: Git is opened at the path the scope was judged on.
+func TestALinkRepointedAfterTheSingleResolutionIsNeverFollowed(t *testing.T) {
+	repos := &recordingRepos{top: func(p string) string { return p }} // any repository "contains" itself
+	srv, root, outside := linkedScopeServer(t, repos)
+	pkg := filepath.Join(root, "pkg")
+	if err := os.Mkdir(filepath.Join(pkg, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(outside, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(root, "alias")
+	if err := os.Symlink(pkg, alias); err != nil {
+		t.Fatal(err)
+	}
+	srv.afterScopeResolve = func() {
+		_ = os.Remove(alias)
+		if err := os.Symlink(outside, alias); err != nil {
+			t.Error(err)
+		}
+	}
+	if _, _, err := srv.toolGitStatus(agentCtx(), &sdk.CallToolRequest{}, gitRepoInput{Repo: alias}); err != nil {
+		t.Fatal(err)
+	}
+	if len(repos.opened) != 1 || repos.opened[0] != pkg {
+		t.Fatalf("opened at %v, want only the path the scope was judged on, %s", repos.opened, pkg)
+	}
+	for _, p := range repos.opened {
+		if p == outside {
+			t.Fatalf("Git was opened in the repository outside the workspace")
+		}
+	}
+}

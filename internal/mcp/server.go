@@ -244,6 +244,10 @@ type Server struct {
 	gateOwned sync.Map
 
 	// inv is the registry as registered (Inventory), read once.
+	// afterScopeResolve runs once the git tools have resolved the path they were
+	// asked for, before they judge it (tests only).
+	afterScopeResolve func()
+
 	invOnce sync.Once
 	inv     Inventory
 	invErr  error

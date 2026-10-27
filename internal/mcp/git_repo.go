@@ -52,6 +52,12 @@ type gitScope struct {
 	// granted are the roots an agent may write; nil for the person, whose
 	// writes the tools' own gates (guards, the push rule) already cover.
 	granted []string
+
+	// realFolders and realGranted are folders and granted with their links
+	// resolved, read once by seal. A decision is made against these and against
+	// one resolved form of the path asked for, never against a second resolution.
+	realFolders, realGranted []string
+	sealed                   bool
 }
 
 func (s *Server) gitScopeFor(ctx context.Context) (gitScope, error) {
@@ -104,35 +110,55 @@ func realPath(path string) string {
 	}
 }
 
-// within reports whether path, once links are resolved, is root or inside it.
-func within(path, root string) bool {
-	if path == "" || root == "" {
-		return false
+// seal resolves the links of the folders and the granted roots once.
+func (g gitScope) seal() gitScope {
+	if g.sealed {
+		return g
 	}
-	return workspace.Within(realPath(path), realPath(root))
+	g.realFolders = make([]string, len(g.folders))
+	for i, f := range g.folders {
+		g.realFolders[i] = realPath(f.Path)
+	}
+	g.realGranted = make([]string, len(g.granted))
+	for i, root := range g.granted {
+		g.realGranted[i] = realPath(root)
+	}
+	g.sealed = true
+	return g
 }
 
-// covers reports whether path, once links are resolved, is one of the roots the
-// session was granted or inside one.
-func (g gitScope) covers(path string) bool {
-	for _, root := range g.granted {
-		if within(path, root) {
+// coversReal reports whether real, an already resolved path, is one of the
+// granted roots or inside one.
+func (g gitScope) coversReal(real string) bool {
+	for _, root := range g.realGranted {
+		if root != "" && workspace.Within(real, root) {
 			return true
 		}
 	}
 	return false
 }
 
+// folderOfReal is the workspace folder holding real, an already resolved path —
+// the deepest, for a service nested in another — as written and as resolved, or
+// "" when none does.
+func (g gitScope) folderOfReal(real string) (folder, realFolder string) {
+	for i, f := range g.folders {
+		if g.realFolders[i] != "" && workspace.Within(real, g.realFolders[i]) && len(g.realFolders[i]) > len(realFolder) {
+			folder, realFolder = f.Path, g.realFolders[i]
+		}
+	}
+	return folder, realFolder
+}
+
+// covers reports whether path, once links are resolved, is one of the roots the
+// session was granted or inside one.
+func (g gitScope) covers(path string) bool { return g.seal().coversReal(realPath(path)) }
+
 // folderOf is the workspace folder holding path — the deepest, for a service
 // nested in another — or "" when none does.
 func (g gitScope) folderOf(path string) string {
-	best := ""
-	for _, f := range g.folders {
-		if within(path, f.Path) && len(f.Path) > len(best) {
-			best = f.Path
-		}
-	}
-	return best
+	folder, _ := g.seal().folderOfReal(realPath(path))
+	return folder
 }
 
 // resolve turns a `repo` argument into a folder, or explains which it may be.
@@ -194,18 +220,27 @@ func (s *Server) gitFor(ctx context.Context, repo string, write bool) (GitAPI, s
 	if strings.TrimSpace(repo) == "" && (!scope.agent || scope.cwd == "") {
 		return s.deps.Git, "", nil
 	}
+	scope = scope.seal()
 	target, err := scope.resolve(repo)
 	if err != nil {
 		return nil, "", err
 	}
-	folder := scope.folderOf(target)
+	// The one resolution of the path asked for. Every decision below, and the path
+	// Git is opened at, use this value: resolving the name a second time would let
+	// a link that is repointed in between be judged as one place and opened as
+	// another.
+	real := realPath(target)
+	if s.afterScopeResolve != nil {
+		s.afterScopeResolve()
+	}
+	folder, realFolder := scope.folderOfReal(real)
 	if scope.agent {
 		switch {
-		case write && !scope.covers(target):
+		case write && !scope.coversReal(real):
 			return nil, "", apperrors.New("git.repoNotGranted",
 				target+" is not a folder your session may write. Ask the person to add it to the session, "+
 					"or work in "+scope.cwd+".", false)
-		case !write && folder == "" && !scope.covers(target):
+		case !write && folder == "" && !scope.coversReal(real):
 			return nil, "", scope.unknown(repo)
 		}
 	} else if folder == "" {
@@ -220,32 +255,29 @@ func (s *Server) gitFor(ctx context.Context, repo string, write bool) (GitAPI, s
 	// then the path asked for is.
 	// A repository of its own inside the folder (a submodule, a nested
 	// checkout) is itself, not the folder around it.
-	candidates := []string{target}
-	if folder != "" && folder != target && within(target, folder) && !hasGitDir(target) {
-		candidates = []string{folder, target}
+	type candidate struct{ key, real string }
+	candidates := []candidate{{target, real}}
+	if folder != "" && realFolder != real && workspace.Within(real, realFolder) && !hasGitDir(real) {
+		candidates = []candidate{{folder, realFolder}, {target, real}}
 	}
-	for _, key := range candidates {
-		// The module is opened at the path whose resolved form was checked above,
-		// never at the name the caller gave: a link that is pointed somewhere else
-		// after the check then changes nothing about where Git runs.
-		real := realPath(key)
-		api, err := s.deps.GitRepos.At(ctx, real)
+	for _, c := range candidates {
+		api, err := s.deps.GitRepos.At(ctx, c.real)
 		if errors.Is(err, gitservice.ErrNoRepository) {
 			continue
 		}
 		if err != nil {
 			return nil, "", err
 		}
-		// And the repository that actually opened is the one that path belongs to. A
-		// folder swapped for a link between the check and the open shows up here as a
-		// checkout whose root does not contain the path that was checked. What is
-		// left is a swap after this point, which a path-based check cannot close.
+		// The repository that opened is the one that path belongs to. A folder
+		// swapped for a link after the path was resolved shows up here as a
+		// checkout whose root does not contain it. A swap of a real directory
+		// component after this point is not closed by a path-based check.
 		if rooted, ok := api.(interface{ Toplevel() string }); ok {
-			if top := rooted.Toplevel(); top == "" || !workspace.Within(real, top) {
+			if top := rooted.Toplevel(); top == "" || !workspace.Within(c.real, top) {
 				return nil, "", scope.unknown(repo)
 			}
 		}
-		return api, key, nil
+		return api, c.key, nil
 	}
 	return nil, "", apperrors.New("git.notARepository", target+" is not inside a git repository.", true)
 }
