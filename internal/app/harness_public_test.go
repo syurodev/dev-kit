@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	"devkit/internal/harnessconfig"
 	"devkit/internal/identity"
 	"devkit/internal/interaction"
+	"devkit/internal/permissions"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -614,5 +616,69 @@ func TestAGroupEnabledByARequestKeepsTheLaunchPermissionsAndTheEnvironmentRule(t
 	_ = r.callWith(cs, "db.testConnection", args)
 	if r.gate.handled.Load() != handled {
 		t.Fatal("a denied confirmation must stop the call before its handler")
+	}
+}
+
+// A transport that goes away while the person is choosing leaves nothing behind:
+// no preparation, no pending question, no override.
+func TestADisconnectWhileChoosingLeavesNothingBehind(t *testing.T) {
+	r := newCompRig(t, compOptions{controls: true})
+	r.workspaceOff("vault")
+	sess, _ := r.create(agenthub.AgentTypeClaude)
+	ctx, cancel := context.WithCancel(r.agentCtx(sess.ID))
+	defer cancel()
+	// The caller disappears as the question is shown, before any answer.
+	r.prompter.mu.Lock()
+	r.prompter.during = func() { cancel(); time.Sleep(50 * time.Millisecond) }
+	r.prompter.mu.Unlock()
+
+	if _, err := r.port.Request(ctx, harnessconfig.GroupRequest{Groups: []string{"vault"}}); err == nil {
+		t.Fatal("a vanished caller cannot have chosen anything")
+	}
+	time.Sleep(100 * time.Millisecond)
+	if n := r.asm.Service.Pending(); n != 0 {
+		t.Fatalf("left %d preparations behind", n)
+	}
+	if left := r.hub.PendingList(); len(left) != 0 {
+		t.Fatalf("left %d questions open", len(left))
+	}
+	if o, st := r.override(sess.ID); o != nil || st.Present {
+		t.Fatalf("nothing may be saved: %+v %+v", o, st)
+	}
+}
+
+// Without the grants the default policy installs, the tools are refused by the
+// capability gateway, not by the facade: the authority to ask is itself a grant.
+func TestTheToolsNeedTheirOwnGrants(t *testing.T) {
+	r := newCompRig(t, compOptions{controls: true, grants: []permissions.Grant{{SubjectID: "builtin.workspace", Capability: "ws:read", Scope: "workspace:list"}}})
+	r.prompter.answers = answers("session")
+	r.workspaceOff("vault")
+	_, spec := r.create(agenthub.AgentTypeClaude)
+	cs := r.connect(spec)
+	for _, tool := range []string{"harness.profile.get", harness.ProposeTool} {
+		res := r.callRaw(cs, tool, map[string]any{"groups": []string{"vault"}})
+		if !res.IsError {
+			t.Errorf("%s must be refused without its grant: %+v", tool, res)
+		}
+	}
+	if len(kinds(r.prompter)) != 0 {
+		t.Fatal("a refused grant must not reach the person")
+	}
+}
+
+// Production wiring stays inert: main.go builds no harness assembly, binds no
+// port and hands the MCP server no controls. This is a tripwire for the activation
+// change, which must update it together with the evidence it depends on
+// (docs/agent-reference/harness-composition-activation.md).
+func TestProductionDoesNotWireTheHarnessYet(t *testing.T) {
+	raw, err := os.ReadFile("../../main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(raw)
+	for _, forbidden := range []string{"NewHarnessAssembly", "ComposeHarness", "NewHarnessPort", "Harness:", ".Harness.Bind"} {
+		if strings.Contains(src, forbidden) {
+			t.Errorf("main.go mentions %q: production activation has not been accepted", forbidden)
+		}
 	}
 }

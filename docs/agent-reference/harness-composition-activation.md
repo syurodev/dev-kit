@@ -121,5 +121,66 @@ authenticated `identity` (an agent targets only its own session; the UI names a 
 session). Status: `agenthub.Service.HarnessStatus(ctx, sessionID)` (`State`, `Desired`, `Applied`, `Live`,
 `Serving`) and `ServingTarget`. Revoke is `Patch.RevokeGroups` through the same Prepare/Apply (live-only effects
 are judged under the launch's pinned W). Guidance after an enable: `agenthub.Service.ReplacementGuidance`.
-Still H5: the public get/propose tool(s) and their grants, the editor and controls, the auto-narrowing and executable
-policy settings, the exact structured executable confirmation view, and mapping `PublicationError` for a client.
+H5a (below) delivered the group-only public get/propose tools, the grants, the group editor, the session controls and
+the `PublicationError` mapping. Still later: budget editing and `headTail`, the auto-narrowing and executable policy
+settings, executable proposals and the exact structured executable confirmation view.
+
+## H5a — public group controls (integration record)
+
+Base `origin/main` `b15aa541` (#368). Integration is complete and tested; **production activation is not wired and
+stays blocked** (decision below). Integration and activation are separate outcomes.
+
+**What exists.** One facade, `harnessconfig.Controls` (contract and bounded DTOs in `internal/harnessconfig/public.go`,
+implementation `internal/app/harness_public.go`), serves the MCP tools and the window. Scope is never a request field:
+an agent's session and workspace come from its authenticated identity and the persisted row, the window names a
+workspace (and a session of it), and a terminal or unknown caller is refused in Go (`requireUI`, `agentScope`).
+
+| Surface | Behavior |
+| --- | --- |
+| `harness.profile.get` | Read-only; follows its group policy like any tool. Per group: tool count, definition bytes (not tokens), W setting (`inherit`/`on`/`off`), S, saved and running availability (`unknown` is not `off`), session state. |
+| `harness.profile.propose` | The one tool served when its group is off (`harness.ProposeTool`). No groups: discovery of what is off, nothing prepared, nobody asked. Groups: the person chooses **this session** or **workspace** through the shared hub (`KindHarnessScope`, a selection, not an approval), the final Request is prepared for that scope, then the existing `Apply` asks (`KindHarness`, `EnvBlocks`, no allow-always) and commits. Workspace scope commits W and the requester's S in one transaction; other sessions keep their pinned W. Declared gate-owned so the vendor does not prompt twice (see gates). |
+| Window | `HarnessWorkspaceProfile/SessionProfile/PrepareWorkspaceGroups/PrepareRevoke/Apply/Cancel/Reconcile` (UI-only in Go). The editor patches `ProfilePatch.Groups` only; every other W field is untouched. A person-triggered change is still reviewed and asked. |
+| Failure facts | A committed change whose publication failed, or whose commit is unknown, returns a typed `Outcome` (status `paused`/`unknown`, commit, publication, stamps, serving identity, `Live`, `ReloadRequired`, fixed recovery text) through the SDK as `isError` **with the same structured outcome**, and through the bridge as a normal return value. The cause never reaches it. Recovery is Reconcile, never a new proposal. |
+| Public errors | `harness.profileDenied/profileInvalid/profileConflict/proposalStale/groupUnknown/factsUnavailable/notAvailable/noChange` are in `bridge.keptCodes` with fixed host sentences (`harnessControlRefusal`). |
+
+**Construction order.** The tools register only when `mcp.Deps.Harness` is non-nil. That value is the startup-only
+`app.HarnessPort`, created with the container (`Container.Harness`) **before** the MCP server, so both tools are in the
+actual registry when `Inventory` freezes. `app.ComposeHarness(port, cfg, agents)` builds the graph from that
+inventory, attaches Agent Hub, and binds the port once, or does none of it; before binding every operation refuses with
+a fixed sentence. No second registry, late registration, global or flag. The window shows its entry points only from
+`HarnessAvailable()` (whether the port is bound).
+
+**Production is inert.** `main.go` neither passes `Harness` to the MCP server nor calls `ComposeHarness`; the port is
+never bound, so the tools are not registered, `HarnessAvailable()` is false and no menu item, dialog or session card
+appears. `TestProductionDoesNotWireTheHarnessYet` is a tripwire that must change together with the evidence below.
+
+**What activation would change** (not applied): pass `Harness: container.Harness` in `mcp.Deps`; construct the session
+host and set `agentSvc.MCPEndpoints` *before* starting `mcp.ServeUnix`; call `app.ComposeHarness(container.Harness,
+cfg, agentSvc)` between the two and abort startup on error (today the listener starts first, so activation reorders
+that block); then update the tripwire.
+
+### A6 gates
+
+| Gate | Status | Evidence / owner |
+| --- | --- | --- |
+| Independent review of the integrated H4c/#363/#367 invariants | **Blocked** | No independent reviewer exists in this work. Authored tests and earlier same-author review are not counted. Owner: a reviewer who did not write H4c. |
+| Composed guard tests through the controls | **Partial** | Passing: grants (`TestTheToolsNeedTheirOwnGrants`), launch permission lists unchanged after an enable, prod and unknown-tag confirmation on every call with `allow_always` ignored and denial final (`TestAGroupEnabledByARequestKeepsTheLaunchPermissionsAndTheEnvironmentRule`), terminal/agent/window identity matrix. **Not exercised:** task ownership, guarded branch, repository-outside-workspace and push/task binding (they need the real Tasks and Git services, which the rig stubs; they live in the tools' own handlers and the harness does not touch them). |
+| Real Claude, Codex and opencode runtime processes | **Not run** | No runtimes, accounts or mocked-model fixture here; scripted vendors only. No paid request was made. |
+| Native desktop approval of the scope selection and confirmation | **Not run** | Headless host. The dialogs have SSR/state tests, not a real window. |
+| `tools/list_changed` per runtime | **Unmeasured** | The outcome reports `DiscoveryReloadRequired` and Reload is the conservative fallback; no refresh is claimed. |
+| Gate-owned delegation of `propose` on the real adapter wire | **Unverified** | Registered through `gateOwnedTool`; the service confirmation still always runs. The vendor wire permissions were not inspected. |
+| Full validation | See the PR | Race over the nine packages, full Go suite, `go vet -tags server`, server build, architecture, frontend tests/build, Wails v3.0.0 bindings. Local lint is CI-only. |
+
+**Decision.** Activation stays blocked until the first four rows above are real. After they are, the change is the small
+`main.go` block described above plus the tripwire update.
+
+### Evidence index (`internal/app` unless stated)
+
+`TestThePublicToolsAreInTheInventoryBeforeItFreezesAndTheHandlerBindsOnce`, `TestWithoutTheControlsTheToolsAreNotRegisteredAndNothingIsReachable`,
+`TestDiscoveryListsTheGroupsThatAreOffAndChangesNothing`, `TestTheAgentEnablesAGroupForItsSessionAfterChoosingAndApproving`,
+`TestGuidanceNamesOnlyGroupsTheEndpointActuallyServes`, `TestSavingToTheWorkspaceCommitsWAndSTogetherAndLeavesOtherSessionsOnTheirPinnedW`,
+`TestDecliningTheChoiceOrTheApprovalChangesNothing`, `TestADisconnectWhileChoosingLeavesNothingBehind`, `TestProposeIsServedWhenItsGroupIsOffAndGetIsNot`,
+`TestOnlyTheAgentItselfCanAskAndOnlyTheWindowCanEdit`, `TestACommittedChangeWhoseEndpointCannotBePublishedKeepsItsFactsThroughTheSDKAndReconciles`,
+`TestAnUnknownCommitIsNeitherARollbackNorASuccess`, `TestTheEditorChangesOnlyGroupEntriesAndKeepsEveryOtherFieldOfW`, `TestAStaleWorkspaceEditIsRefusedAndWritesNothing`,
+`TestRevokingASessionGroupGoesThroughReviewAndApproval`; `internal/harnessconfig`: `TestOutcomeNeverClaimsMoreThanTheCommitAndTheEndpointProved`;
+`internal/bridge`: `TestEveryRefusalOfThePublicControlsIsAPublishedFixedSentence`; frontend: `workspaceHarnessModel.test.ts`, `HarnessDialogs.test.tsx`.
