@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -234,6 +235,62 @@ func TestAgentHubChildWorktreeStartsInSeparateCheckout(t *testing.T) {
 	}
 	if repos[auth].worktreeInput.Branch != "feature/child-worktree" {
 		t.Fatalf("worktree branch = %+v", repos[auth].worktreeInput)
+	}
+}
+
+func TestAgentHubChildWorktreeUsesRequestedRepository(t *testing.T) {
+	for _, cwd := range []string{config, config + "/internal"} {
+		t.Run(cwd, func(t *testing.T) {
+			parent := agenthub.AgentSession{ID: gitSession, ProjectPath: auth, ExtraReadWritePaths: []string{config}}
+			srv, _, repos := gitServer(parent)
+			hub := &fakeAgentHub{status: parent, created: agenthub.AgentSession{ID: "child", AgentType: agenthub.AgentTypeMock}}
+			srv.deps.AgentHub = hub
+			_, _, err := srv.toolAgentHubCreateAgentSession(agentCtx(), &sdk.CallToolRequest{}, agentHubCreateInput{AgentType: "mock", CallerSessionID: gitSession, Cwd: cwd, Worktree: "feature/shared-name"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := filepath.Join(config, ".superpowers", ".worktrees", "feature-shared-name")
+			if hub.createIn.Cwd != want {
+				t.Fatalf("child cwd=%q; want requested repo's checkout %q", hub.createIn.Cwd, want)
+			}
+			if repos[config].worktreeInput.Branch != "feature/shared-name" || repos[auth].worktreeInput.Branch != "" {
+				t.Fatal("worktree must be created only in requested repo")
+			}
+		})
+	}
+}
+
+func TestAgentHubChildWorktreeRefusesInvalidOrUngrantedRepoBeforeMutation(t *testing.T) {
+	for _, tc := range []struct {
+		name, cwd string
+		grants    []string
+		code      string
+	}{
+		{name: "ungranted repo", cwd: config, code: "git.repoNotGranted"},
+		{name: "relative cwd", cwd: "../fsap-config-service", code: ""},
+		{name: "only subfolder granted", cwd: config + "/internal", grants: []string{config + "/internal"}, code: "git.repoNotGranted"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			parent := agenthub.AgentSession{ID: gitSession, ProjectPath: auth, ExtraReadWritePaths: tc.grants}
+			srv, _, repos := gitServer(parent)
+			hub := &fakeAgentHub{status: parent, created: agenthub.AgentSession{ID: "child"}}
+			srv.deps.AgentHub = hub
+			_, _, err := srv.toolAgentHubCreateAgentSession(agentCtx(), &sdk.CallToolRequest{}, agentHubCreateInput{AgentType: "mock", CallerSessionID: gitSession, Cwd: tc.cwd, Worktree: "feature/refused"})
+			if err == nil {
+				t.Fatal("must refuse rather than silently create in parent's repo")
+			}
+			if tc.code != "" && appCode(err) != tc.code {
+				t.Fatalf("error=%v; want %s", err, tc.code)
+			}
+			for _, repo := range repos {
+				if repo.worktreeInput.Branch != "" {
+					t.Fatal("refusal created a worktree")
+				}
+			}
+			if hub.createIn.Cwd != "" {
+				t.Fatal("refusal started a child")
+			}
+		})
 	}
 }
 
