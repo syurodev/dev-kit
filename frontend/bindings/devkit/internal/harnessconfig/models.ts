@@ -387,6 +387,103 @@ export interface SessionState {
 }
 
 /**
+ * StaleDiagnosis is what the window shows for a workspace's stored profile. It
+ * carries no server, command, path, skill or raw JSON.
+ */
+export interface StaleDiagnosis {
+    "workspaceId": string;
+    "profileRevision": number;
+    "profilePresent": boolean;
+    "state": StaleState;
+    "entries": StaleEntry[] | null;
+
+    /**
+     * Total counts every stale reference; Entries holds at most MaxStaleEntries.
+     */
+    "total": number;
+
+    /**
+     * Truncated: Total is larger than the listed entries, so a repair cannot be prepared.
+     */
+    "truncated"?: boolean;
+
+    /**
+     * Message is fixed host text explaining an unrepairable state.
+     */
+    "message"?: string;
+}
+
+/**
+ * StaleEntry is one stale reference with the saved value that removing it loses.
+ * Name is untrusted stored text, shown bounded and without control characters.
+ */
+export interface StaleEntry {
+    "kind": StaleKind;
+    "name": string;
+
+    /**
+     * On is the saved setting of a stale group (true: on, false: off).
+     */
+    "on"?: boolean | null;
+
+    /**
+     * Bytes and Cut are the saved limit of a stale budget rule.
+     */
+    "bytes"?: number | null;
+    "cut"?: string;
+}
+
+/**
+ * StaleKind says which map of W an entry sits in.
+ */
+export enum StaleKind {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * StaleGroup is a W.ToolGroups entry for a group the registry does not have.
+     */
+    StaleGroup = "group",
+
+    /**
+     * StaleToolBudget is a W.ResultBudget.Tools rule for a tool the registry does not have.
+     */
+    StaleToolBudget = "toolBudget",
+
+    /**
+     * StaleGroupBudget is a W.ResultBudget.Groups rule for a group the registry does not have.
+     */
+    StaleGroupBudget = "groupBudget",
+};
+
+/**
+ * StaleState is the diagnosis of a workspace's stored profile.
+ */
+export enum StaleState {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * StaleNone: no profile, or one with no stale reference that resolves. Nothing to repair.
+     */
+    StaleNone = "none",
+
+    /**
+     * StaleRepairable: stale references exist and removing exactly them leaves a valid profile.
+     */
+    StaleRepairable = "stale",
+
+    /**
+     * StaleUnrepairable: the profile is unreadable or invalid for a reason this repair does not cover.
+     */
+    StaleUnrepairable = "unrepairable",
+};
+
+/**
  * ToolBudgetRow is one registered tool's result limit: what the workspace profile
  * says explicitly for the tool and for its group, what is in effect, and where each
  * field of the effective value comes from. An exempt tool is never cut and has no

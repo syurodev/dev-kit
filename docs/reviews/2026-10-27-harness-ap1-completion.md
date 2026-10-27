@@ -56,6 +56,11 @@ Those parts of items 6 and 7 carry only the existing tests.
   the same Prepare/Apply and CAS), plus a resolver that can classify a profile with stale entries for that one purpose. That adds a bridge method, a dialog and regenerated bindings
   and needs a product decision, so it is left to the owner. Options: (1) build that repair, (2) accept and document, with the message corrected to say what is true.
 - Independent of authorship: not code the reviewer wrote.
+- **Status update (fix delivered, pending independent review).** The historical finding above is unchanged; the repair was implemented afterwards in `dd8e8150` (diagnosis, preparation, apply
+  in `internal/harnessconfig/repair.go`), `d3aceead` (window-only controls, port, bridge, bindings), `952908e1` and `1e94743e` (recovery view in the workspace harness dialog). It is a
+  UI-only, confirmed removal of exactly the stale keys in W.Groups, W.ToolBudgets and W.GroupBudgets; the resolver stays strict. Details and tests are in
+  `docs/agent-reference/harness-composition-activation.md` ("F-C repair"). The reviewer of AP1 also wrote this fix, so it needs a **different** reviewer; until then F-C is
+  "fixed, not independently reviewed" and AP1 stays Partial.
 
 ### Observations (no defect claimed)
 
@@ -110,7 +115,7 @@ No baseline failure was met, so none is claimed as environmental. The finding F-
 
 ## Remaining before AP1 can be called complete
 
-1. Owner decision on F-C (repair operation, or accept and correct the message), then a review of that change by someone other than its author.
+1. Independent review of the F-C repair (implemented; see the status update under F-C). The reviewer who wrote it cannot sign it.
 2. A reviewer other than this session for: the git scope and claim-lock code from #375, and the rows marked "read, not exercised" in items 4, 5 and 6.
 3. Decide O-2 (baseline at activation) before AP4.
 4. AP3 (real runtimes, native dialogs, `listChanged` per runtime) and AP4 remain unrun.

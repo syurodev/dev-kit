@@ -8,7 +8,9 @@ export {
     CommitState,
     GroupSetting,
     OutcomeStatus,
-    PublicationState
+    PublicationState,
+    StaleKind,
+    StaleState
 } from "./models.js";
 
 export type {
@@ -22,5 +24,7 @@ export type {
     Review,
     ReviewChange,
     SessionState,
+    StaleDiagnosis,
+    StaleEntry,
     ToolBudgetRow
 } from "./models.js";

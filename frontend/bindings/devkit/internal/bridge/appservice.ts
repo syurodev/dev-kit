@@ -2063,6 +2063,15 @@ export function HarnessPrepareRevoke(workspaceID: string, sessionID: string, gro
 }
 
 /**
+ * HarnessPrepareStaleRepair prepares removing exactly the stale references of a
+ * workspace's stored profile. Only the workspace is named; the removals are derived
+ * in Go. It writes nothing; HarnessApply always asks and commits.
+ */
+export function HarnessPrepareStaleRepair(workspaceID: string): $CancellablePromise<harnessconfig$0.Review> {
+    return $Call.ByID(622297919, workspaceID);
+}
+
+/**
  * HarnessPrepareWorkspaceGroups prepares an edit of a workspace's group entries.
  * It writes nothing; HarnessApply asks and commits.
  */
@@ -2082,6 +2091,15 @@ export function HarnessReconcile(workspaceID: string, sessionID: string): $Cance
  */
 export function HarnessSessionProfile(workspaceID: string, sessionID: string): $CancellablePromise<harnessconfig$0.ProfileView> {
     return $Call.ByID(1383054555, workspaceID, sessionID);
+}
+
+/**
+ * HarnessStaleProfile diagnoses a workspace's stored profile for references to
+ * groups or tools this build does not register. It needs no session and works
+ * when the profile does not resolve.
+ */
+export function HarnessStaleProfile(workspaceID: string): $CancellablePromise<harnessconfig$0.StaleDiagnosis> {
+    return $Call.ByID(1799137872, workspaceID);
 }
 
 /**

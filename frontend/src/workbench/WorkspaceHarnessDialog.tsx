@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,7 +14,9 @@ import { errorMessage } from "@/bridge/errors";
 import {
   applyReview,
   cancelReview,
+  prepareStaleRepair,
   prepareWorkspaceGroups,
+  staleProfile,
   workspaceProfile,
   type Outcome,
   type ProfileView,
@@ -23,6 +25,8 @@ import {
 import { GroupSetting } from "../../bindings/devkit/internal/harnessconfig/models";
 import { HarnessReviewBody } from "./HarnessReviewBody";
 import { WorkspaceBudgetsPanel } from "./WorkspaceBudgetsPanel";
+import { StaleRepairView, repairing } from "./StaleRepairPanel";
+import { StaleRepairController, type StaleOps } from "./staleRepairController";
 import { LatestRequest } from "./WorkspaceMemoryModel";
 import {
   buildEdits,
@@ -36,6 +40,8 @@ import {
   shownSetting,
   type Draft,
 } from "./workspaceHarnessModel";
+
+const staleOps: StaleOps = { diagnose: staleProfile, prepare: prepareStaleRepair, apply: applyReview, cancel: cancelReview };
 
 /**
  * "Agent tool groups": which DevKit tool groups sessions of this workspace get. It
@@ -64,6 +70,16 @@ export default function WorkspaceHarnessDialog({
   const reviewRef = useRef<Review | null>(null);
   reviewRef.current = review;
 
+  // Stale saved settings (a group or tool this build does not have): diagnosed apart
+  // from the ordinary read, so the repair is reachable even when that read fails.
+  const [stale] = useState(() => new StaleRepairController(staleOps));
+  const staleState = useSyncExternalStore(stale.subscribe, stale.getState, stale.getState);
+  useEffect(() => {
+    stale.setWorkspace(workspace.id);
+  }, [stale, workspace.id]);
+  useEffect(() => () => stale.dispose(), [stale]);
+  const recovering = repairing(staleState);
+
   const load = useCallback(async () => {
     const current = latest.current.begin();
     setLoading(true);
@@ -87,6 +103,14 @@ export default function WorkspaceHarnessDialog({
       }
     }
   }, [workspace.id]);
+
+  // A saved repair changes what the ordinary read returns.
+  const repairedOutcome = staleState.outcome;
+  useEffect(() => {
+    if (repairedOutcome) {
+      void load();
+    }
+  }, [repairedOutcome, load]);
 
   useEffect(() => {
     void load();
@@ -168,7 +192,7 @@ export default function WorkspaceHarnessDialog({
   const dirty = isDirty(draft);
 
   return (
-    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
+    <Dialog open onOpenChange={(open) => !open && !busy && staleState.busy === "" && onClose()}>
       <DialogContent
         portal={portal}
         className="flex max-h-[85vh] flex-col gap-4 sm:max-w-2xl"
@@ -202,7 +226,16 @@ export default function WorkspaceHarnessDialog({
         </div>
 
         <div role="tabpanel" id="harness-panel-groups" aria-labelledby="harness-tab-groups" hidden={tab !== "groups"} className="flex min-h-0 flex-1 flex-col gap-4">
-        {error ? (
+        <StaleRepairView
+          state={staleState}
+          onPrepare={() => void stale.prepare()}
+          onBack={() => void stale.back()}
+          onApply={() => void stale.apply()}
+          onReload={() => void stale.refresh()}
+          onClose={onClose}
+        />
+
+        {recovering ? null : error ? (
           <p role="alert" className="rounded-lg bg-(--feedback-danger-soft) px-3 py-2 text-body-12 text-status-danger">
             {error}{" "}
             <button type="button" className="underline" onClick={() => void load()}>
@@ -211,7 +244,7 @@ export default function WorkspaceHarnessDialog({
           </p>
         ) : null}
 
-        {notice ? (
+        {recovering ? null : notice ? (
           <div
             role={notice.tone === "danger" || notice.tone === "warning" ? "alert" : "status"}
             className="rounded-lg border border-border-subtle bg-state-soft px-3 py-2 text-body-12"
@@ -221,7 +254,7 @@ export default function WorkspaceHarnessDialog({
           </div>
         ) : null}
 
-        {review ? (
+        {recovering ? null : review ? (
           <div className="min-h-0 flex-1 overflow-y-auto">
             <HarnessReviewBody review={review} />
           </div>
@@ -278,7 +311,7 @@ export default function WorkspaceHarnessDialog({
           </div>
         )}
 
-        <DialogFooter className="items-center">
+        {recovering ? null : <DialogFooter className="items-center">
           {!review && dirty ? (
             <span className="mr-auto text-caption-11 text-text-tertiary">
               {Object.keys(draft).length} unsaved {Object.keys(draft).length === 1 ? "change" : "changes"}
@@ -310,7 +343,7 @@ export default function WorkspaceHarnessDialog({
               </Button>
             </>
           )}
-        </DialogFooter>
+        </DialogFooter>}
         </div>
 
         <div role="tabpanel" id="harness-panel-limits" aria-labelledby="harness-tab-limits" hidden={tab !== "limits"} className="flex min-h-0 flex-1 flex-col gap-4">

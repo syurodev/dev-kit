@@ -60,6 +60,9 @@ type pendingProposal struct {
 	// are guarded by Service.mu and checked right before the write.
 	cancelled, committing bool
 	abort                 context.CancelFunc // closes an open confirmation
+	// repair is set for a stale-profile repair (PrepareRepair) and for nothing else:
+	// bound, req.Patch and the ordinary evaluation are not used for it.
+	repair *repairBinding
 }
 
 // View is the host-authored confirmation content. Everything but
@@ -485,8 +488,9 @@ func storeErr(err error) error {
 	return err
 }
 
-// ErrStoredUnreadable asks for a repair; it never falls back to defaults.
-var ErrStoredUnreadable = &harness.Error{Code: harness.CodeProfileInvalid, Message: "The stored harness profile cannot be read. Repair or reset it in Settings."}
+// ErrStoredUnreadable says the profile cannot be used; it never falls back to
+// defaults. Only stale references are repairable in the app (repair.go).
+var ErrStoredUnreadable = &harness.Error{Code: harness.CodeProfileInvalid, Message: "The stored harness profile cannot be read, and this app cannot repair it. Sessions in this workspace cannot start until it is restored."}
 
 func withRevision(p *harness.Profile, revision int64) *harness.Profile {
 	if p == nil {

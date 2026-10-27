@@ -171,6 +171,22 @@ func (p *HarnessPort) Reconcile(ctx context.Context, workspaceID, sessionID stri
 	return c.Reconcile(ctx, workspaceID, sessionID)
 }
 
+func (p *HarnessPort) StaleProfile(ctx context.Context, workspaceID string) (harnessconfig.StaleDiagnosis, error) {
+	c, err := p.get()
+	if err != nil {
+		return harnessconfig.StaleDiagnosis{}, err
+	}
+	return c.StaleProfile(ctx, workspaceID)
+}
+
+func (p *HarnessPort) PrepareStaleRepair(ctx context.Context, workspaceID string) (harnessconfig.Review, error) {
+	c, err := p.get()
+	if err != nil {
+		return harnessconfig.Review{}, err
+	}
+	return c.PrepareStaleRepair(ctx, workspaceID)
+}
+
 // ComposeHarness builds the graph from the MCP server's real inventory, attaches
 // it to Agent Hub and binds the port, as one step: either all three happen or
 // none, and a failure leaves nothing reachable. It is the only call a composition

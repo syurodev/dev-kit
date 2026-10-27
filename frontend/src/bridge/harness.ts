@@ -9,6 +9,8 @@ import type {
   ProfileView,
   Review,
   SessionState,
+  StaleDiagnosis,
+  StaleEntry,
   ToolBudgetRow,
 } from "../../bindings/devkit/internal/harnessconfig/models";
 import type { AgentHarnessPolicyState } from "../../bindings/devkit/internal/bridge/models";
@@ -25,6 +27,8 @@ export type {
   ProfileView,
   Review,
   SessionState,
+  StaleDiagnosis,
+  StaleEntry,
   ToolBudgetRow,
 };
 
@@ -45,6 +49,23 @@ export function sessionProfile(
   sessionId: string,
 ): Promise<ProfileView> {
   return callBridge(() => AppService.HarnessSessionProfile(workspaceId, sessionId));
+}
+
+/**
+ * Diagnoses a workspace's stored profile for settings that name groups or tools this
+ * build does not have. Needs no session and works when the profile does not resolve.
+ * Reads only.
+ */
+export function staleProfile(workspaceId: string): Promise<StaleDiagnosis> {
+  return callBridge(() => AppService.HarnessStaleProfile(workspaceId));
+}
+
+/**
+ * Writes nothing: the review lists exactly the stale settings Go derived and still
+ * needs approval. Only the workspace is named.
+ */
+export function prepareStaleRepair(workspaceId: string): Promise<Review> {
+  return callBridge(() => AppService.HarnessPrepareStaleRepair(workspaceId));
 }
 
 /** Writes nothing: the returned review is host-authored and still needs approval. */

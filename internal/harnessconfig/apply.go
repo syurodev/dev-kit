@@ -59,6 +59,9 @@ func (s *Service) Apply(ctx context.Context, id string) (Result, error) {
 	}
 	// The proposal is spent from here on, success or not.
 	defer s.drop(id)
+	if p.repair != nil {
+		return s.applyRepair(ctx, p)
+	}
 
 	fail := func(err error) (Result, error) {
 		s.audit(p, harness.Applied{}, outcomeOf(err), "")
@@ -73,26 +76,10 @@ func (s *Service) Apply(ctx context.Context, id string) (Result, error) {
 	// Narrowing the person has allowed the agent to apply by itself skips the
 	// question, but only when someone could have answered (checked above).
 	if p.bound.needsApproval {
-		// A Cancel while the question is open closes it (and refuses the commit).
-		askCtx, abort := context.WithCancel(ctx)
-		defer abort()
-		s.mu.Lock()
-		p.abort = abort
-		cancelled := p.cancelled
-		s.mu.Unlock()
-		if cancelled {
-			return fail(ErrCancelled)
-		}
-		if err := s.cfg.Confirmer.Confirm(askCtx, Confirmation{
+		if err := s.confirm(ctx, p, Confirmation{
 			Target: p.view.Target, Tier: p.view.Tier, Summary: p.view.Summary, RationaleUntrusted: p.view.RationaleUntrusted,
 		}); err != nil {
-			if s.wasCancelled(p) {
-				return fail(ErrCancelled)
-			}
-			return fail(ErrNotConfirmed)
-		}
-		if err := ctx.Err(); err != nil {
-			return fail(ErrNotConfirmed)
+			return fail(err)
 		}
 	}
 
@@ -126,6 +113,30 @@ func (s *Service) Apply(ctx context.Context, id string) (Result, error) {
 		return res, &PublicationError{Result: res, Cause: out.err}
 	}
 	return res, nil
+}
+
+// confirm asks the person about a pending proposal through the shared confirmer. A
+// Cancel while the question is open closes it and refuses the commit.
+func (s *Service) confirm(ctx context.Context, p *pendingProposal, c Confirmation) error {
+	askCtx, abort := context.WithCancel(ctx)
+	defer abort()
+	s.mu.Lock()
+	p.abort = abort
+	cancelled := p.cancelled
+	s.mu.Unlock()
+	if cancelled {
+		return ErrCancelled
+	}
+	if err := s.cfg.Confirmer.Confirm(askCtx, c); err != nil {
+		if s.wasCancelled(p) {
+			return ErrCancelled
+		}
+		return ErrNotConfirmed
+	}
+	if err := ctx.Err(); err != nil {
+		return ErrNotConfirmed
+	}
+	return nil
 }
 
 // committed is what the commit step leaves for Apply to report.

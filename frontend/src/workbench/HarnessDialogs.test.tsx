@@ -7,6 +7,9 @@ import WorkspaceHarnessDialog from "./WorkspaceHarnessDialog";
 import { WorkspaceBudgetsPanel } from "./WorkspaceBudgetsPanel";
 import { AgentHarnessPolicySetting } from "../modules/settings/AgentHarnessPolicySetting";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { Review, StaleDiagnosis } from "@/bridge/harness";
+import { StaleRepairView } from "./StaleRepairPanel";
+import type { StaleState } from "./staleRepairController";
 
 test("the dialog offers result limits as a second tab", () => {
   const html = renderToString(
@@ -16,6 +19,16 @@ test("the dialog offers result limits as a second tab", () => {
   expect(html).toContain('role="tablist"');
   // The limits panel is mounted only once opened, so nothing is read for it yet.
   expect(html).not.toContain("Review limit changes");
+});
+
+test("the dialog hosts the stale-settings repair without a tab or a new surface", () => {
+  const html = renderToString(
+    <WorkspaceHarnessDialog workspace={{ id: "ws-1", name: "Payments" }} onClose={() => {}} portal={false} />,
+  );
+  // Nothing is stale before a diagnosis has been read, so the ordinary editor shows.
+  expect(html).toContain('data-testid="stale-repair"');
+  expect(html).not.toContain("Review repair");
+  expect(html).toContain("Loading tool groups");
 });
 
 test("the limits panel explains what a limit is and shows only made-up sample text", () => {
@@ -107,4 +120,58 @@ test("the workspace editor names its pinned workspace and edits groups only", ()
   // No budget, server or skill fields exist in this slice.
   expect(html.toLowerCase()).not.toContain("budget");
   expect(html.toLowerCase()).not.toContain("headtail");
+});
+
+// A list near the 64-entry bound must scroll inside the dialog's height limit with the
+// actions outside the scrolling region, so they stay reachable. (Layout structure only:
+// the native dialog is AP3 evidence.)
+const longDiagnosis = {
+  workspaceId: "ws-1", profileRevision: 3, profilePresent: true, state: "stale", total: 64,
+  entries: Array.from({ length: 64 }, (_, i) => ({ kind: "group", name: `group-${i}`, on: false })),
+} as unknown as StaleDiagnosis;
+const staleState = (patch: Partial<StaleState>): StaleState => ({
+  workspaceId: "ws-1", diagnosis: longDiagnosis, review: null, outcome: null, busy: "", error: "", readError: "", ...patch,
+});
+const noop = () => {};
+const renderRepair = (state: StaleState) =>
+  renderToString(<StaleRepairView state={state} onPrepare={noop} onBack={noop} onApply={noop} onReload={noop} onClose={noop} />);
+
+/** The markup between the scroll region's opening tag and where its own closing div ends. */
+function scrollRegion(html: string): string {
+  const open = html.indexOf('data-testid="stale-repair-scroll"');
+  const actions = html.indexOf('data-testid="stale-repair-actions"');
+  expect(open).toBeGreaterThan(-1);
+  expect(actions).toBeGreaterThan(open);
+  return html.slice(open, actions);
+}
+
+test("a long list of stale settings scrolls and keeps Review repair outside the scrolling region", () => {
+  const html = renderRepair(staleState({}));
+  expect(html).toMatch(/class="[^"]*min-h-0[^"]*overflow-y-auto[^"]*"[^>]*data-testid="stale-repair-scroll"/);
+  const inside = scrollRegion(html);
+  expect(inside).toContain("group-0");
+  expect(inside).toContain("group-63");
+  expect(inside).not.toContain("Review repair");
+  expect(html.slice(html.indexOf('data-testid="stale-repair-actions"'))).toContain("Review repair");
+  // The root can shrink to the dialog's height and fills it only while there is content.
+  expect(html).toMatch(/class="[^"]*flex min-h-0 flex-col[^"]*flex-1[^"]*"[^>]*data-testid="stale-repair"/);
+});
+
+test("a long review scrolls and keeps Repair and Cancel outside the scrolling region", () => {
+  const review = {
+    id: "r1", target: "repair", workspaceId: "ws-1", tier: "widening", summary: "Remove 64 stale settings",
+    changes: Array.from({ length: 64 }, (_, i) => ({ kind: "group", label: `removes group-${i}` })), needsConfirmation: true,
+  } as unknown as Review;
+  const html = renderRepair(staleState({ review }));
+  const inside = scrollRegion(html);
+  expect(inside).not.toContain(">Repair<");
+  expect(inside).not.toContain("Cancel");
+  const after = html.slice(html.indexOf('data-testid="stale-repair-actions"'));
+  expect(after).toContain("Cancel");
+  expect(after).toContain("Repair");
+});
+
+test("with nothing to repair the panel takes no room from the ordinary editor", () => {
+  const html = renderRepair(staleState({ diagnosis: null }));
+  expect(html).not.toMatch(/class="[^"]*\bflex-1\b[^"]*"[^>]*data-testid="stale-repair"/);
 });

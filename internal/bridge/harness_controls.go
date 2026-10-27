@@ -102,6 +102,36 @@ func (s *AppService) HarnessPrepareRevoke(workspaceID, sessionID string, groups 
 	return result.(harnessconfig.Review), nil
 }
 
+// HarnessStaleProfile diagnoses a workspace's stored profile for references to
+// groups or tools this build does not register. It needs no session and works
+// when the profile does not resolve.
+func (s *AppService) HarnessStaleProfile(workspaceID string) (harnessconfig.StaleDiagnosis, error) {
+	result, err := s.call(context.Background(), "builtin.harness", "harness:read", "ui:profile", map[string]any{
+		"action": "stale_profile", "workspace_id": recordID(workspaceID),
+	}, func(ctx context.Context) (any, error) {
+		return s.container.Harness.StaleProfile(ctx, workspaceID)
+	})
+	if err != nil {
+		return harnessconfig.StaleDiagnosis{}, err
+	}
+	return result.(harnessconfig.StaleDiagnosis), nil
+}
+
+// HarnessPrepareStaleRepair prepares removing exactly the stale references of a
+// workspace's stored profile. Only the workspace is named; the removals are derived
+// in Go. It writes nothing; HarnessApply always asks and commits.
+func (s *AppService) HarnessPrepareStaleRepair(workspaceID string) (harnessconfig.Review, error) {
+	result, err := s.call(context.Background(), "builtin.harness", "harness:write", "ui:change", map[string]any{
+		"action": "prepare_stale_repair", "workspace_id": recordID(workspaceID),
+	}, func(ctx context.Context) (any, error) {
+		return s.container.Harness.PrepareStaleRepair(ctx, workspaceID)
+	})
+	if err != nil {
+		return harnessconfig.Review{}, err
+	}
+	return result.(harnessconfig.Review), nil
+}
+
 // HarnessApply asks the person through the shared confirmation flow and commits
 // a prepared change. A change that was saved but not published returns an
 // Outcome, not an error.
