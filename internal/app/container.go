@@ -141,6 +141,12 @@ type Container struct {
 	// WorkspaceMemory is local shared knowledge with revision history. main wires
 	// its SQL repository; ephemeral containers have no memory store.
 	WorkspaceMemory *workspacememory.Service
+	// Harness is the public tool-group controls (H5a) for the window and, once
+	// the composition root passes it to the MCP server, for the agent's tools. It
+	// is unbound until ComposeHarness binds it: until then every operation
+	// refuses and the window shows no entry point. Production does not bind it
+	// yet (see docs/agent-reference/harness-composition-activation.md).
+	Harness *HarnessPort
 	// WorkspaceCode is Code Graph's view of the workspace's folders: files,
 	// search, outline and entry points by (workspace, folder) identity, without
 	// a "focused project" (docs/design/codegraph-workspace.md).
@@ -276,6 +282,16 @@ func NewContainerWithStores(
 		// Reindex asks for the folders it names (WorkspaceReindex, WorkspaceReindexService):
 		// UI only, like the other registry mutations.
 		{SubjectID: "builtin.workspace", Capability: "ws:write", Scope: "service:reindex"},
+		// Tool-group controls. The agent's two tools act on its own session only
+		// (the facade takes the target from its identity). The window's operations
+		// have their own scopes, and the facade refuses anything but the window.
+		// harness:propose is authority to ASK for a confirmed change, never to run
+		// a tool or to change anything unasked.
+		{SubjectID: "builtin.harness", Capability: "harness:read", Scope: "profile:self"},
+		{SubjectID: "builtin.harness", Capability: "harness:propose", Scope: "profile:self"},
+		{SubjectID: "builtin.harness", Capability: "harness:read", Scope: "ui:profile"},
+		{SubjectID: "builtin.harness", Capability: "harness:write", Scope: "ui:change"},
+		{SubjectID: "builtin.harness", Capability: "harness:write", Scope: "ui:reconcile"},
 		{SubjectID: "builtin.workspace-memory", Capability: "workspace-memory:read", Scope: "workspace:*"},
 		{SubjectID: "builtin.workspace-memory", Capability: "workspace-memory:write", Scope: "workspace:*"},
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:list"},
@@ -495,6 +511,7 @@ func NewContainerWithStores(
 	dbService.SetSchemaCache(database.NewMemorySchemaCache())
 
 	c := &Container{
+		Harness:      NewHarnessPort(),
 		Commands:     commands.NewRegistry(),
 		Modules:      modules.NewRegistry(),
 		Audit:        auditSink,

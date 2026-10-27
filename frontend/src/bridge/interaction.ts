@@ -2,7 +2,16 @@ import { callBridge } from "./client";
 import { AppService } from "../../bindings/devkit/internal/bridge";
 
 export type InteractionType = "select" | "confirm";
-export type InteractionKind = "ssh" | "database" | "kafka" | "git_account" | "";
+export type InteractionKind =
+  | "ssh"
+  | "database"
+  | "kafka"
+  | "git_account"
+  /** A change to the workspace tool-group profile or a session's groups: always asked. */
+  | "harness"
+  /** Where an agent's request for tool groups is saved: this session or the workspace. */
+  | "harness_scope"
+  | "";
 
 export type AccountOption = {
   id: string;
@@ -48,7 +57,9 @@ function toPending(raw: {
     raw.kind === "ssh" ||
     raw.kind === "database" ||
     raw.kind === "kafka" ||
-    raw.kind === "git_account"
+    raw.kind === "git_account" ||
+    raw.kind === "harness" ||
+    raw.kind === "harness_scope"
       ? raw.kind
       : "";
   return {

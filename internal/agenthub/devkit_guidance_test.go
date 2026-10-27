@@ -308,6 +308,50 @@ func TestPromptSizesForFixtures(t *testing.T) {
 	}
 }
 
+// A change that turns on several groups gets one paragraph that covers all of
+// them: each section once even when two groups share it, whole, bounded, under a
+// single header, and never a section of a group that was not named.
+func TestReplacementGuidanceForSeveralGroupsCoversEachOnceAndStaysWhole(t *testing.T) {
+	all := serving(t, nil)
+	git := replacementGuidance(claudeNaming, all, "git")
+	pdf := replacementGuidance(claudeNaming, all, "pdf")
+	if git == "" || pdf == "" {
+		t.Fatalf("fixture needs sections for git and pdf: %q / %q", git, pdf)
+	}
+	both := replacementGuidanceFor(claudeNaming, all, []string{"git", "pdf"})
+	for _, tool := range []string{"mcp__devkit__git_commit", "mcp__devkit__pdf_"} {
+		if !strings.Contains(both, tool) {
+			t.Errorf("the combined text lost %q: %q", tool, both)
+		}
+	}
+	if n := strings.Count(both, "DevKit tools are now available"); n != 1 {
+		t.Errorf("one header, got %d", n)
+	}
+	// Naming a group twice, or two groups that share a section, repeats nothing.
+	if dup := replacementGuidanceFor(claudeNaming, all, []string{"git", "git", "pdf", "pdf"}); dup != both {
+		t.Error("duplicate group names changed the text")
+	}
+	for _, line := range strings.Split(both, "\n- ") {
+		if line != "" && strings.Count(both, line) != 1 {
+			t.Errorf("a section appears more than once: %q", line)
+		}
+	}
+	if len(both) > replacementGuidanceLimit+400 {
+		t.Errorf("%d bytes is not bounded", len(both))
+	}
+	if strings.Contains(both, "mcp__devkit__tasks_") && !strings.Contains(git, "mcp__devkit__tasks_") {
+		t.Error("a section of a group that was not named was offered")
+	}
+	if replacementGuidanceFor(claudeNaming, all, nil) != "" || replacementGuidanceFor(claudeNaming, nil, []string{"git"}) != "" {
+		t.Error("no groups or a legacy value must render nothing")
+	}
+	// A group the surface does not serve contributes nothing.
+	noPDF := serving(t, func(n string) bool { return groupOf(n) == "pdf" })
+	if out := replacementGuidanceFor(claudeNaming, noPDF, []string{"git", "pdf"}); strings.Contains(out, "pdf_") || !strings.Contains(out, "git_commit") {
+		t.Errorf("an unserved group must not be advertised: %q", out)
+	}
+}
+
 func TestReplacementGuidanceIsPureBoundedAndGroupScoped(t *testing.T) {
 	all := serving(t, nil)
 	text := replacementGuidance(claudeNaming, all, "git")

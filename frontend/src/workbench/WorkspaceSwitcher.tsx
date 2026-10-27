@@ -5,6 +5,7 @@ import {
   ChevronDown,
   FolderPlus,
   Settings2,
+  Wrench,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -22,6 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { errorMessage } from "@/bridge/errors";
+import { harnessAvailable } from "@/bridge/harness";
 import { listWorkspaces, type Workspace } from "@/bridge/workspace";
 import { useWorkspaceSwitcherStore } from "@/stores/workspaceSwitcher";
 import {
@@ -32,6 +34,7 @@ import {
 import { WorkspaceDialog } from "./WorkspaceDialog";
 import { onNewWorkspaceRequested } from "./workspaceDialogRequest";
 const WorkspaceMemoryDialog = lazy(() => import("./WorkspaceMemoryDialog"));
+const WorkspaceHarnessDialog = lazy(() => import("./WorkspaceHarnessDialog"));
 
 /**
  * The trigger's identity chip: initials on a note-palette color — see
@@ -83,6 +86,12 @@ export function WorkspaceSwitcher() {
   const [memoryWorkspace, setMemoryWorkspace] = useState<Workspace | null>(
     null,
   );
+  const [harnessWorkspace, setHarnessWorkspace] = useState<Workspace | null>(
+    null,
+  );
+  // Whether the host wired the tool-group controls. Read when the menu opens, so
+  // the entry exists only where the controls can answer.
+  const [harnessWired, setHarnessWired] = useState(false);
   const currentId = useWorkspaceSwitcherStore((s) => s.currentId);
   const setCurrent = useWorkspaceSwitcherStore((s) => s.setCurrent);
   const servicesChanged = useWorkspaceSwitcherStore((s) => s.servicesChanged);
@@ -142,7 +151,15 @@ export function WorkspaceSwitcher() {
 
   return (
     <>
-      <DropdownMenu onOpenChange={(open) => open && void refresh()}>
+      <DropdownMenu
+        onOpenChange={(open) => {
+          if (!open) return;
+          void refresh();
+          harnessAvailable()
+            .then(setHarnessWired)
+            .catch(() => setHarnessWired(false));
+        }}
+      >
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
@@ -206,6 +223,14 @@ export function WorkspaceSwitcher() {
               Workspace memory…
             </DropdownMenuItem>
           )}
+          {current && harnessWired && (
+            <DropdownMenuItem
+              onSelect={() => setHarnessWorkspace(current)}
+              icon={<Wrench className="text-text-tertiary" />}
+            >
+              Agent tool groups…
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem
             onSelect={() => setDialog("new")}
             icon={<FolderPlus className="text-text-tertiary" />}
@@ -222,6 +247,15 @@ export function WorkspaceSwitcher() {
             key={memoryWorkspace.id}
             workspace={memoryWorkspace}
             onClose={() => setMemoryWorkspace(null)}
+          />
+        </Suspense>
+      )}
+      {harnessWorkspace && (
+        <Suspense fallback={null}>
+          <WorkspaceHarnessDialog
+            key={harnessWorkspace.id}
+            workspace={harnessWorkspace}
+            onClose={() => setHarnessWorkspace(null)}
           />
         </Suspense>
       )}

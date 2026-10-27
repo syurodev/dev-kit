@@ -38,9 +38,12 @@ func (w workspacesStub) ListWorkspaces() ([]workspace.Workspace, error) { return
 // completingPrompter answers the interaction hub like a person would, after
 // running an optional action while the dialog is open.
 type completingPrompter struct {
-	mu      sync.Mutex
-	hub     *interaction.Hub
-	answer  string
+	mu     sync.Mutex
+	hub    *interaction.Hub
+	answer string
+	// answers overrides answer for a kind of prompt (the scope selection is
+	// answered "session" or "workspace", the confirmation "allow").
+	answers map[interaction.Kind]string
 	during  func()
 	prompts []interaction.Pending
 }
@@ -49,6 +52,9 @@ func (p *completingPrompter) Prompt(pending interaction.Pending) error {
 	p.mu.Lock()
 	p.prompts = append(p.prompts, pending)
 	during, answer := p.during, p.answer
+	if a, ok := p.answers[pending.Kind]; ok {
+		answer = a
+	}
 	p.mu.Unlock()
 	go func() {
 		if during != nil {

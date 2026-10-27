@@ -86,7 +86,8 @@ type HarnessAssembly struct {
 	Provider *harnessconfig.Provider
 	Service  *harnessconfig.Service
 
-	agents *agenthub.Service
+	agents   *agenthub.Service
+	controls *harnessControls
 }
 
 // NewHarnessAssembly builds the graph or returns a fixed error. It reads the
@@ -123,7 +124,10 @@ func NewHarnessAssembly(cfg HarnessAssemblyConfig) (*HarnessAssembly, error) {
 		Audit:     cfg.Audit,
 		Live:      harnessLive{svc: cfg.Agents},
 	})
-	return &HarnessAssembly{Store: store, Provider: provider, Service: service, agents: cfg.Agents}, nil
+	dir := harnessDirectory{sessions: cfg.Agents, workspaces: cfg.Workspaces}
+	controls := &harnessControls{svc: service, provider: provider, store: store, dir: dir, vendors: vendors,
+		agents: cfg.Agents, hub: cfg.Hub, registry: registryOf}
+	return &HarnessAssembly{Store: store, Provider: provider, Service: service, agents: cfg.Agents, controls: controls}, nil
 }
 
 // Attach gives Agent Hub its provider and its lifecycle owner, together or not at

@@ -128,6 +128,15 @@ func (s *Service) servingStatus(sessionID string, desired *harness.Snapshot) Har
 // tool follows the normal permission flow. Empty otherwise; the caller says a
 // reload is required instead.
 func (s *Service) ReplacementGuidance(sessionID, group string, naming AgentType) string {
+	return s.ReplacementGuidanceFor(sessionID, []string{group}, naming)
+}
+
+// ReplacementGuidanceFor is ReplacementGuidance for every group of a change at
+// once. Only groups the acknowledged endpoint serves now and the launch did not
+// count; a group that is hidden, unregistered (an optional module that is not
+// wired) or already served at launch contributes nothing. Sections shared by two
+// groups appear once, whole, under one header.
+func (s *Service) ReplacementGuidanceFor(sessionID string, groups []string, naming AgentType) string {
 	c := s.servingCoord(sessionID)
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -136,15 +145,17 @@ func (s *Service) ReplacementGuidance(sessionID, group string, naming AgentType)
 		return ""
 	}
 	launch := rt.basis.Launch()
-	enabledNow := false
-	for _, t := range rt.basis.Registry().Tools {
-		if harness.Group(t.Name) == group && rt.eff.Served(t.Name) && !launch.Served(t.Name) {
-			enabledNow = true
-			break
+	var enabledNow []string
+	for _, group := range groups {
+		for _, t := range rt.basis.Registry().Tools {
+			if harness.Group(t.Name) == group && rt.eff.Served(t.Name) && !launch.Served(t.Name) {
+				enabledNow = append(enabledNow, group)
+				break
+			}
 		}
 	}
-	if !enabledNow {
+	if len(enabledNow) == 0 {
 		return ""
 	}
-	return replacementGuidance(namingFor(naming), servedFrom(rt.basis, rt.eff), group)
+	return replacementGuidanceFor(namingFor(naming), servedFrom(rt.basis, rt.eff), enabledNow)
 }

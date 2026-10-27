@@ -47,6 +47,8 @@ export function MCPInteractionDialog({ pending, profiles = [], selectedId = "", 
   const isSQL = !selecting && /^db\.(query|explain)$/.test(pending.tool);
   const Icon = selecting ? pending.kind === "ssh" ? Terminal : pending.kind === "kafka" ? Server : Database : ShieldCheck;
   const kind = pending.kind === "ssh" ? "SSH connection" : pending.kind === "kafka" ? "Kafka connection" : pending.kind || "connection";
+  // A tool-group change is not a tool call: it edits what sessions are given.
+  const harnessChange = !selecting && pending.kind === "harness";
   const caller = callerName || (pending.caller.startsWith("agent:") ? `Agent · ${pending.caller.slice(6, 14)}` : pending.caller || "Unknown requester");
   const filtered = profiles.filter((profile) => `${profile.name} ${profile.env ?? ""} ${profile.detail ?? ""}`.toLowerCase().includes(query.toLowerCase()));
   async function copy() {
@@ -59,11 +61,11 @@ export function MCPInteractionDialog({ pending, profiles = [], selectedId = "", 
           <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-border-subtle bg-state-soft text-text-secondary"><Icon aria-hidden className="size-5" /></div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center justify-between gap-2">
-              <DialogTitle className="text-title-16">{selecting ? `Select ${kind}` : "Review MCP request"}</DialogTitle>
+              <DialogTitle className="text-title-16">{selecting ? `Select ${kind}` : harnessChange ? "Review tool-group change" : "Review MCP request"}</DialogTitle>
               {!selecting && <Environment value={pending.env} />}
             </div>
             <DialogDescription id="mcp-interaction-description" className="mt-1 text-body-12 leading-relaxed">
-              {selecting ? "Choose the saved connection this tool should use." : "Review the tool and request before allowing it to run."}
+              {selecting ? "Choose the saved connection this tool should use." : harnessChange ? "Review what changes in the saved configuration and in the running session. Nothing is saved unless you allow it." : "Review the tool and request before allowing it to run."}
             </DialogDescription>
           </div>
         </div>

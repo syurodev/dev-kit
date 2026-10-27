@@ -172,4 +172,16 @@ text bytes, not vendor request tokens, provider cost or subscription quota.
   (`registerAll` is the one declaration of the registry). Integration tests run the real H2 `Apply`, SQLite
   `HarnessStore`, Agent Hub service, `SessionHost` and SDK clients with a scripted vendor
   (`serving_integration_test.go`, `serving_live_test.go`, `serving_status_test.go`).
+- **`harness.profile.get` / `harness.profile.propose` (H5a, inert)** (`internal/mcp/tools_harness.go`; facade and record in
+  `harness-composition-activation.md` "H5a"). Registered only when `Deps.Harness` is set, which production does not do, so
+  neither exists in production. `get` reads the caller's own groups (tool count, definition bytes, W/S, saved vs running;
+  `unknown` is not `off`) and follows its group policy; `propose` is the one always-served bootstrap: with no `groups` it
+  lists what is off and asks nobody, with `groups` the person picks this session or the workspace through the shared hub
+  and the existing `Apply` asks and commits. Neither takes a session or workspace argument (scope is the caller's
+  identity; a terminal is refused). Grants `builtin.harness` `harness:read`/`harness:propose` on `profile:self` only,
+  authority to *ask*, never to run a tool; no pre-approval is added and the launch permission lists stay fixed. A committed
+  change whose publication failed, or whose commit is unknown, is an `isError` result whose `structuredContent` is the same
+  `RequestResult` with its `Outcome` (status, commit, publication, stamps, serving identity, `Live`, `ReloadRequired`,
+  recovery text); reconcile, never propose again. Published codes (`bridge.keptCodes`): `harness.profileDenied`,
+  `profileInvalid`, `profileConflict`, `proposalStale`, `groupUnknown`, `factsUnavailable`, `notAvailable`, `noChange`.
 

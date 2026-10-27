@@ -44,6 +44,16 @@ const (
 	// tool groups. It is always asked with EnvBlocks, so it never offers an
 	// "always" answer and never reuses one.
 	KindHarness Kind = "harness"
+	// KindHarnessScope is the person's choice of where an agent's request for tool
+	// groups is saved: this session only, or the workspace. It is a selection, not
+	// an approval: the change is prepared and confirmed afterwards (KindHarness).
+	KindHarnessScope Kind = "harness_scope"
+)
+
+// The two answers of a KindHarnessScope selection.
+const (
+	HarnessScopeSession   = "session"
+	HarnessScopeWorkspace = "workspace"
 )
 
 // Prompter notifies the UI that a human decision is needed.
@@ -365,6 +375,28 @@ func (h *Hub) SelectAccount(ctx context.Context, req SelectAccountRequest) (Acco
 		return AccountChoice{}, err
 	}
 	return choice, nil
+}
+
+// SelectHarnessScope asks the person where a request for tool groups is saved.
+// Only the two offered answers are accepted; anything else, a cancel and a
+// closed prompt are all refusals. Headless is ErrSelectionRequired: nobody can
+// choose, and a prompt nobody can answer must not turn into a default. summary
+// is host-authored text (an agent's own words, if shown, are labelled by the
+// caller).
+func (h *Hub) SelectHarnessScope(ctx context.Context, summary string) (string, error) {
+	if h == nil || h.Headless || h.prompter == nil {
+		return "", ErrSelectionRequired
+	}
+	options := []AccountOption{
+		{ID: HarnessScopeSession, Label: "This session only"},
+		{ID: HarnessScopeWorkspace, Label: "Save to this workspace"},
+	}
+	return h.wait(ctx, Pending{Type: TypeSelect, Kind: KindHarnessScope, Summary: summary, Options: options}, func(v string) (string, error) {
+		if v != HarnessScopeSession && v != HarnessScopeWorkspace {
+			return "", ErrConfirmationDenied
+		}
+		return v, nil
+	})
 }
 
 // CanAsk reports whether a person could answer a confirmation: there is a

@@ -27,6 +27,7 @@ import {
 
 const POLL_MS = 500;
 
+const HarnessScopeDialog = lazy(() => import("./HarnessScopeDialog").then((module) => ({ default: module.HarnessScopeDialog })));
 const MCPInteractionDialog = lazy(() => import("./MCPInteractionDialog").then((module) => ({ default: module.MCPInteractionDialog })));
 
 type ProfileOption = MCPProfileOption;
@@ -156,6 +157,22 @@ export function InteractionHost() {
   }
 
   const open = true;
+
+  if (pending.type === "select" && pending.kind === "harness_scope") {
+    return (
+      <Suspense fallback={null}>
+        <HarnessScopeDialog
+          key={pending.id}
+          pending={pending}
+          busy={busy}
+          error={error}
+          waiting={queue.length - 1}
+          onCancel={() => void run(() => denyInteraction(pending.id))}
+          onChoose={(scope) => void run(() => completeInteraction(pending.id, scope))}
+        />
+      </Suspense>
+    );
+  }
 
   if (pending.type === "select" && pending.kind === "git_account") {
     return (

@@ -70,7 +70,7 @@ contracts in focused reference docs, not a growing root changelog.
 | Agent accounts and limits | [Agent Hub accounts](docs/agent-reference/agent-hub-accounts.md) |
 | Agent Hub session titles, turn events, conformance commands | [Agent Hub lifecycle](docs/agent-reference/agent-hub-lifecycle.md) |
 | Agent customization, recovery, settings | [Agent customization and recovery](docs/agent-reference/agent-customization-recovery.md) |
-| Harness assembly, activation gates, H5 handoff | [Harness composition and activation](docs/agent-reference/harness-composition-activation.md) |
+| Harness assembly, H5a group controls, activation gates | [Harness composition and activation](docs/agent-reference/harness-composition-activation.md) |
 | Prompt file attachments | [Prompt attachments](docs/agent-reference/prompt-attachments.md) |
 | PDF document handling and `pdf.*` tools | [PDF documents](docs/agent-reference/pdf-documents.md) |
 | Sandbox, macOS session temp roots, jail limitations | [Agent sandbox](docs/agent-reference/agent-sandbox.md) |

@@ -43,6 +43,9 @@ import * as gitparse$0 from "../gitparse/models.js";
 import * as gitssh$0 from "../gitssh/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as harnessconfig$0 from "../harnessconfig/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as interaction$0 from "../interaction/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -2000,6 +2003,67 @@ export function GitStatus(): $CancellablePromise<git$0.Status> {
 
 export function GitUnstage(paths: string[] | null): $CancellablePromise<void> {
     return $Call.ByID(2519686057, paths);
+}
+
+/**
+ * HarnessApply asks the person through the shared confirmation flow and commits
+ * a prepared change. A change that was saved but not published returns an
+ * Outcome, not an error.
+ */
+export function HarnessApply(id: string): $CancellablePromise<harnessconfig$0.Outcome> {
+    return $Call.ByID(1405729114, id);
+}
+
+/**
+ * HarnessAvailable reports whether the controls are wired. The window shows its
+ * entry points only from this; it is not a feature flag, it is whether the graph
+ * exists.
+ */
+export function HarnessAvailable(): $CancellablePromise<boolean> {
+    return $Call.ByID(3129900481);
+}
+
+/**
+ * HarnessCancel withdraws a prepared change.
+ */
+export function HarnessCancel(id: string): $CancellablePromise<void> {
+    return $Call.ByID(1986218080, id);
+}
+
+/**
+ * HarnessPrepareRevoke prepares removing groups from a session's override.
+ */
+export function HarnessPrepareRevoke(workspaceID: string, sessionID: string, groups: string[] | null): $CancellablePromise<harnessconfig$0.Review> {
+    return $Call.ByID(777466695, workspaceID, sessionID, groups);
+}
+
+/**
+ * HarnessPrepareWorkspaceGroups prepares an edit of a workspace's group entries.
+ * It writes nothing; HarnessApply asks and commits.
+ */
+export function HarnessPrepareWorkspaceGroups(workspaceID: string, edits: harnessconfig$0.GroupEdit[] | null): $CancellablePromise<harnessconfig$0.Review> {
+    return $Call.ByID(2558351274, workspaceID, edits);
+}
+
+/**
+ * HarnessReconcile brings a session's endpoint to its latest saved override.
+ */
+export function HarnessReconcile(workspaceID: string, sessionID: string): $CancellablePromise<harnessconfig$0.Outcome> {
+    return $Call.ByID(2224391694, workspaceID, sessionID);
+}
+
+/**
+ * HarnessSessionProfile reads one session's tool groups: saved and running.
+ */
+export function HarnessSessionProfile(workspaceID: string, sessionID: string): $CancellablePromise<harnessconfig$0.ProfileView> {
+    return $Call.ByID(1383054555, workspaceID, sessionID);
+}
+
+/**
+ * HarnessWorkspaceProfile reads a workspace's tool groups.
+ */
+export function HarnessWorkspaceProfile(workspaceID: string): $CancellablePromise<harnessconfig$0.ProfileView> {
+    return $Call.ByID(106219324, workspaceID);
 }
 
 /**
