@@ -253,14 +253,24 @@ Findings (both in code the harness does not own, reproduced through the harness-
   symlink to another repository, passed as a granted workspace folder and `git.status`, `git.branch.create` and the other
   tools ran in the outside repository (its `HEAD` moved to the new branch). An agent can create such a link inside its own
   folder. Repro: `TestARepositoryOutsideTheWorkspaceIsRefusedHoweverItIsNamed` (fails on the base for the link cases),
-  `TestScopeContainmentFollowsLinks`. Fix: containment compares resolved paths. Not changed: `workspace.list`'s informational
-  `granted` flag is still lexical.
+  `TestScopeContainmentFollowsLinks`. Fix: containment compares resolved paths. **Follow-up (review of #375, concurrent
+  case):** the first fix still opened Git at the caller's name, so a link repointed between the check and the open moved the
+  operation (reproduced with real Git). The module is now opened at the path whose resolved form was checked, and the opened
+  checkout's root (`git.Service.Toplevel`) must contain that path (`TestALinkRepointedBetweenTheCheckAndTheOpenDoesNotMoveTheOperation`,
+  `TestGitIsOpenedAtTheCheckedPathNotTheCallersName`, `TestARepositoryThatIsNotTheOneCheckedIsRefused`). **Remaining limit:** the checks
+  are path-based; an agent that swaps a real directory component of the checked path for a link after the open can still redirect
+  later commands. Closing that needs descriptor-based execution in `internal/git`, which is not done. Not changed:
+  `workspace.list`'s informational `granted` flag is still lexical.
 - **F2 (medium) - an agent could release or re-aim another live session's task claim.** `internal/tasks/transition.go`
   (`Release`) and `service.go` (`SetFields` branch): `Claim` refuses a live holder, but `Release` and the `branch` field did
   not, so `tasks.release` then `tasks.claim` took a live session's task, and `tasks.setFields {branch}` changed what its holder
   may push. Repro: `TestATaskHeldByAnotherLiveSessionIsNotTakenDroppedOrReaimed`, `TestAnAgentDoesNotReleaseOrReaimTheLiveClaimOfAnotherSession`.
   Fix: both refuse with `ErrClaimed` unless the caller holds the task, the holder is dead (as `Claim`), or the caller is the
-  person. This tightens behavior; it is in its own commit so the owner can drop or adjust it. Not changed or reviewed:
+  person. **Follow-up (review of #375, concurrent case):** the holder check and the metadata write were separate steps, so a
+  `Release` that found the holder dead could erase a claim another session took meanwhile (`TestAReleaseDoesNotEraseAClaimTakenWhileItDecided`,
+  a barrier test that fails without the lock). Task metadata writes (`mutateAs`) now hold one write lock across read, check and
+  write, and `Claim`/`Assign` re-apply the holder rule to the metadata read under it (`TestTwoConcurrentClaimsOfAFreeTaskLeaveOneHolder`).
+  The lock is per process, which matches the single-process local store. This tightens behavior; it is in its own commit so the owner can drop or adjust it. Not changed or reviewed:
   `Transition`, `Update`, `Archive` and comments by a non-holder on a held task.
 
 Not reviewed at all: the frontend, the budget cutter, usage metrics, accounts, the vendor adapters, and anything in AP3/AP4.
@@ -291,7 +301,10 @@ were already covered by `harness_budgets_test.go` and `harness_composition_*_tes
 
 ### Validation (Go 1.27.2, darwin/arm64, Bun, Wails not needed: no AppService change)
 
-Run on the head of this change, 2026-10-27, `harness/ap2-composed-guards`:
+Run 2026-10-27 on `harness/ap2-composed-guards`. The first run covered the earlier head; after the review of #375 the race
+suite (tasks, git, mcp, app, bridge, agenthub, harness, harnessconfig, preferences, interaction, usagemetrics, storage: 12 packages,
+no race reports), `go test ./internal/... ./cmd/... -count=1` and `go vet -tags server ./...` were re-run on the fixed head and pass.
+The frontend and `internal/arch` rows below are from the first run (no frontend or import change since):
 
 | Check | Result |
 | --- | --- |
