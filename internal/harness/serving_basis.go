@@ -187,6 +187,9 @@ func (b *ServingBasis) LaunchSession() Stamp { return b.sStamp }
 // VendorRevision is V's revision at launch.
 func (b *ServingBasis) VendorRevision() int64 { return b.vendor.Revision }
 
+// Registry is a copy of the tool registry the launch was resolved against.
+func (b *ServingBasis) Registry() Registry { return Registry{Tools: slices.Clone(b.registry.Tools)} }
+
 // ExecutableDigest is the launch's executable digest, the one live serving keeps.
 func (b *ServingBasis) ExecutableDigest() string { return b.execDig }
 

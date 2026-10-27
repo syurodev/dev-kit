@@ -28,6 +28,8 @@ type Config struct {
 	Confirmer Confirmer
 	Boundary  Boundary
 	Audit     func(Event)
+	// Live is optional. Without it nothing here reaches a running session.
+	Live Live
 }
 
 // maxPending bounds the in-memory proposals. There is no timer: a proposal ends
@@ -73,7 +75,14 @@ type View struct {
 	RationaleUntrusted string
 }
 
-type ViewChange struct{ Vendor, Field, Key, Effect string }
+// ViewChange is one effect. Scope is ScopeStored for the saved configuration
+// and ScopeRunning for the requester's running session; the two are never merged.
+type ViewChange struct{ Vendor, Field, Key, Effect, Scope string }
+
+const (
+	ScopeStored  = "stored"
+	ScopeRunning = "running"
+)
 
 // Prepared is what a proposer gets back. The ID is a lookup key held by this
 // process for this caller; it is not an approval and proves nothing to anyone.
@@ -101,7 +110,11 @@ type evaluation struct {
 	Policy                         string
 	W, S                           harness.Stamp
 	Vendors                        []vendorDiff
-	Tier                           harness.Tier
+	// Live is the effect on the requester's running session, judged from its
+	// pinned launch V/W and durable S. nil: no active enforcing endpoint.
+	Live *liveEffect
+	// Tier is the strictest of the stored effects and the live effect.
+	Tier harness.Tier
 
 	write         harness.StoreWrite
 	needsApproval bool
@@ -125,7 +138,7 @@ func (s *Service) Prepare(ctx context.Context, req Request) (Prepared, error) {
 		return Prepared{}, err
 	}
 	owned := Request{WorkspaceID: req.WorkspaceID, SessionID: req.SessionID, Target: req.Target, Patch: patch, Rationale: cleanRationale(req.Rationale)}
-	ev, policy, err := s.evaluate(ctx, caller, owned)
+	ev, policy, err := s.evaluate(ctx, caller, owned, s.liveReaderFor(ctx))
 	if err != nil {
 		return Prepared{}, err
 	}
@@ -199,7 +212,7 @@ func newID() (string, error) {
 // evaluate resolves identity and every input from host data and computes the
 // effective before and after with internal/harness. It is the only place a
 // candidate is built, for Prepare and for the later revalidation alike.
-func (s *Service) evaluate(ctx context.Context, caller identity.Caller, req Request) (evaluation, Policy, error) {
+func (s *Service) evaluate(ctx context.Context, caller identity.Caller, req Request, readLive liveReader) (evaluation, Policy, error) {
 	ev := evaluation{Caller: caller.String(), Target: req.Target, Patch: req.Patch, Rationale: req.Rationale}
 	var none Policy
 	if req.Target != TargetSession && req.Target != TargetWorkspace {
@@ -354,6 +367,29 @@ func (s *Service) evaluate(ctx context.Context, caller identity.Caller, req Requ
 			Before: b.Fingerprint, After: a.Fingerprint, Tier: class.Tier, Changes: class.Changes})
 		if class.Tier > ev.Tier {
 			ev.Tier = class.Tier
+		}
+	}
+
+	// The running session. An S change reaches only the requester's endpoint, and
+	// is judged under that endpoint's pinned launch V/W, which may differ from the
+	// saved W in either direction: saved W can already enable a group that the
+	// running session's W disables (a live widening with no stored difference), or
+	// the reverse (a revoke that does nothing live). It is judged before the
+	// no-change check for exactly that reason, and its tier joins the strictest.
+	if oChanged && readLive != nil {
+		lt, err := readLive(ev.SessionID)
+		if err != nil {
+			return ev, none, ErrLiveUnavailable
+		}
+		if lt.Active {
+			le, class, err := liveEffectFor(lt, o, o2, oStamp)
+			if err != nil {
+				return ev, none, err
+			}
+			ev.Live = le
+			if class.Tier > ev.Tier {
+				ev.Tier = class.Tier
+			}
 		}
 	}
 	if ev.Tier == harness.TierNone {

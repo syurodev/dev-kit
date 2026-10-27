@@ -109,4 +109,7 @@ type Event struct {
 	SessionID   string
 	Profile     int64 // stamp revision after the write, 0 when untouched
 	Override    int64
+	// Publication is what became of the running endpoint ("installed", "pending"
+	// or empty); it never carries a tool, path or value.
+	Publication string
 }
