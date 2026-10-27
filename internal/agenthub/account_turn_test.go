@@ -681,3 +681,42 @@ func TestAccountMoveSendsAStaleResumeToTheNewAccount(t *testing.T) {
 		t.Errorf("cached account = %q (%v), want work", got, ok)
 	}
 }
+
+func TestAccountTurnReadsAModelWindowForTheSessionsModelOnly(t *testing.T) {
+	rig := newAccountRig(t, preferences.RefusalNone)
+	sess := startSession(t, rig)
+	ctx := context.Background()
+	builtin := agenthub.BuiltinAccountID(agenthub.AgentTypeMock)
+	if _, err := rig.book.List(ctx, agenthub.AgentTypeMock); err != nil { // creates the built-in row
+		t.Fatal(err)
+	}
+	reset := time.Now().Add(24 * time.Hour).Unix()
+	windows := []agenthub.LimitWindow{
+		{Label: "Weekly", UsedPercent: 20, ResetsAt: reset},
+		{Label: "Weekly · Fable", UsedPercent: 100, ResetsAt: reset},
+	}
+	if err := rig.book.SaveUsage(ctx, builtin, windows, "observed", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	model := func(value string) {
+		rig.svc.HandleUpdateForTest(ctx, sess.ID, []byte(`{"sessionUpdate":"config_option_update","configOptions":[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"`+value+`","options":[]}]}`))
+	}
+
+	// An Opus session does not care that the Fable window is full.
+	model("claude-opus-5-5")
+	if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "one"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := rowAccount(t, rig, sess.ID); got != "" {
+		t.Fatalf("an Opus turn moved to %q because of the Fable window", got)
+	}
+
+	// The same account is out of room for a Fable session.
+	model("claude-fable-5-1")
+	if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "two"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := rowAccount(t, rig, sess.ID); got != "work" {
+		t.Fatalf("a Fable turn stayed on %q with its Fable window full", got)
+	}
+}

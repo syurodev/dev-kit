@@ -46,6 +46,13 @@
     `AllLimited`, never on `Target != Current`** (the early stays return `Current` as given, `""` for the built-in, while
     a decision names `BuiltinAccountID`); `Previous` is an account id, never `""`; `Current == ""` is the built-in. A
     reading is used as it is: usage only grows until a reset, so an old reading over the threshold is still true.
+  - **A model's own window counts only for that model** (`windowAppliesToModel`, `PickInput.Model`, `Service.modelForPick`). A window
+    labelled `Weekly · <name>` (`Weekly · Fable`, from `unifiedWindows` or the usage check's `model_scoped`) is read only when the
+    session's model (the `model` option of its last `config_option_update` row, read only when an account carries such a window)
+    contains `<name>`, ignoring case and punctuation (an alias such as `opus` matches too); with no known model, or another one,
+    it is skipped, for the current account and for a candidate alike. The plain `5-hour`, `Weekly` and `Extra usage` windows are
+    unchanged, and a real refusal still marks the whole account (`reachedReset` reads every reached window). Account creation passes no
+    model yet, so a model window does not count there.
   - **A new session chooses its account before anything opens** (`account_create.go`, `Service.CreateSession`; plan
     `docs/superpowers/plans/2026-10-27-agent-account-aware-session-creation-implementation.md`). Before this, creation opened
     the built-in account and recorded it, so an out-of-quota built-in account could keep a session from starting while
