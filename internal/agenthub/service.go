@@ -1978,7 +1978,15 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 	// not what the attachment and workspace guidance above assumed (a restart,
 	// a reload, an account move), render both again from it: a document guide
 	// must never name a tool this runtime does not serve.
-	if servedNow := s.servedFor(in.SessionID); !sameServing(servedBefore, servedNow) {
+	servedNow := s.servedFor(in.SessionID)
+	if peer != nil {
+		// The envelope was written before this runtime existed (startPeerTurn); a
+		// restarted session has no served record until it is prepared. Written
+		// again from the runtime that will receive it, so it never names a reply
+		// tool that runtime does not serve.
+		prompt = swapPromptText(prompt, in.Prompt, peerEnvelope(namingFor(sess.AgentType), servedNow, peer.msg))
+	}
+	if !sameServing(servedBefore, servedNow) {
 		if docText != "" {
 			prompt = swapPromptText(prompt, docText, documentsPromptBlock(docs, namingFor(sess.AgentType), servedNow))
 		}

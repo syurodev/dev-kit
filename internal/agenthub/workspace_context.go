@@ -63,7 +63,13 @@ func (s *Service) workspaceTurnContext(ctx context.Context, sess AgentSession) (
 		brief = s.SessionBrief(sess.WorkspaceID, sess.ProjectPath, append([]string{sess.ProjectPath}, sess.ExtraReadWritePaths...))
 	}
 	if strings.TrimSpace(brief) == "" {
-		b.WriteString("No current session brief is available. Use DevKit's workspace.list tool to discover the current folders and grants.\n")
+		// The runtime's served surface decides whether the tool may be named: a
+		// hidden tool is not advertised (nil, the legacy launch, serves everything).
+		if servesAll(s.servedFor(sess.ID), "workspace.list") {
+			b.WriteString("No current session brief is available. Use DevKit's workspace.list tool to discover the current folders and grants.\n")
+		} else {
+			b.WriteString("No current session brief is available. " + noBriefFallbackUnserved + "\n")
+		}
 	} else {
 		b.WriteString(brief)
 	}
