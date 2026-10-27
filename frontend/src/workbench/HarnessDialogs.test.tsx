@@ -18,6 +18,16 @@ test("the dialog offers result limits as a second tab", () => {
   expect(html).not.toContain("Review limit changes");
 });
 
+test("the dialog hosts the stale-settings repair without a tab or a new surface", () => {
+  const html = renderToString(
+    <WorkspaceHarnessDialog workspace={{ id: "ws-1", name: "Payments" }} onClose={() => {}} portal={false} />,
+  );
+  // Nothing is stale before a diagnosis has been read, so the ordinary editor shows.
+  expect(html).toContain('data-testid="stale-repair"');
+  expect(html).not.toContain("Review repair");
+  expect(html).toContain("Loading tool groups");
+});
+
 test("the limits panel explains what a limit is and shows only made-up sample text", () => {
   const html = renderToString(<WorkspaceBudgetsPanel workspaceId="ws-1" active />);
   expect(html).toContain("not tokens or cost");
