@@ -25,6 +25,12 @@ import { loadCheckpointFileDiff } from "../useSessionCheckpoints";
 import type { AsyncTask, Connector, PlanEntry, SessionGoal, Subagent, TranscriptItem, Usage } from "../types";
 import { asyncTaskSpent } from "../transcript/AgentAsyncTask";
 import { useSummarySectionOpen } from "./summaryFold";
+
+// The tool-group card loads on demand: it is a recovery and revoke control, not
+// part of the first paint of every session.
+const SessionToolGroups = React.lazy(() =>
+  import("./SessionToolGroups").then((module) => ({ default: module.SessionToolGroups })),
+);
 import { PullRequestCards } from "./PullRequestCards";
 import { hasPullRequests, pullRequestsHint } from "./pullRequestModel";
 import type { PullRequestsPanel } from "./usePullRequests";
@@ -441,6 +447,10 @@ function SummarySections({
           ))}
         />
       ) : null}
+
+      <React.Suspense fallback={null}>
+        <SessionToolGroups sessionId={sessionId} />
+      </React.Suspense>
 
       {usageShows(usage) && usage ? <ContextSection usage={usage} turnCount={turnCount} /> : null}
     </>

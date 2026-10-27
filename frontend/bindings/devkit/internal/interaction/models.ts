@@ -57,6 +57,13 @@ export enum Kind {
      * "always" answer and never reuses one.
      */
     KindHarness = "harness",
+
+    /**
+     * KindHarnessScope is the person's choice of where an agent's request for tool
+     * groups is saved: this session only, or the workspace. It is a selection, not
+     * an approval: the change is prepared and confirmed afterwards (KindHarness).
+     */
+    KindHarnessScope = "harness_scope",
 };
 
 export interface Pending {
