@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"testing"
+	"time"
 
 	"devkit/internal/storage"
 )
@@ -217,4 +218,43 @@ func equalCalls(got, want []changedCall) bool {
 		}
 	}
 	return true
+}
+
+// OnChanged never runs under the write lock: a subscriber that writes a task from
+// inside the notification (a refresh that touches the board, a future hook) would
+// otherwise wait for the lock it is standing in.
+func TestOnChangedRunsAfterTheWriteLockIsReleased(t *testing.T) {
+	svc, _ := newService(t)
+	board := newBoard(t, svc)
+	task, err := svc.Create(user, CreateInput{BoardID: board.ID, Title: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reentered := make(chan error, 1)
+	first := true
+	svc.OnChanged = func(_, taskID string) {
+		if !first {
+			return
+		}
+		first = false
+		// Archive is a metadata write: it takes the same lock as the write that fired this.
+		_, err := svc.Archive(user, taskID)
+		reentered <- err
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := svc.Claim(agent, task.ID)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a write notified while holding the write lock: the subscriber's own write deadlocked")
+	}
+	if err := <-reentered; err != nil {
+		t.Fatalf("the write made from the notification failed: %v", err)
+	}
 }
