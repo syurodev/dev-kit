@@ -131,7 +131,10 @@ type Service struct {
 	// remote bindings. A linked worktree has its own project/cwd but shares the
 	// main repository's Git metadata and policy.
 	policyProject string
-	runner        runner
+	// toplevel is the resolved root of the checkout this service was opened at,
+	// read when it was opened: the repository its commands really run in.
+	toplevel string
+	runner   runner
 
 	guards  GuardStore
 	remotes RemoteStore
@@ -205,11 +208,12 @@ func (s *Service) Open(ctx context.Context, projectPath string) error {
 	if _, err := r.run(ctx, nil, "rev-parse", "--is-inside-work-tree"); err != nil {
 		return ErrNoRepository
 	}
-	policyProject, err := repositoryPolicyKey(ctx, r, projectPath)
+	policyProject, top, err := repositoryPolicyKey(ctx, r, projectPath)
 	if err != nil {
 		return err
 	}
 	s.mu.Lock()
+	s.toplevel = top
 	s.project, s.policyProject, s.runner = projectPath, policyProject, r
 	s.mu.Unlock()
 	return nil
@@ -233,7 +237,7 @@ func (s *Service) At(ctx context.Context, projectPath string) (*Service, error) 
 	if _, err := r.run(ctx, nil, "rev-parse", "--is-inside-work-tree"); err != nil {
 		return nil, ErrNoRepository
 	}
-	policyProject, err := repositoryPolicyKey(ctx, r, projectPath)
+	policyProject, top, err := repositoryPolicyKey(ctx, r, projectPath)
 	if err != nil {
 		return nil, err
 	}
@@ -241,6 +245,7 @@ func (s *Service) At(ctx context.Context, projectPath string) (*Service, error) 
 		availability:  s.availability,
 		project:       projectPath,
 		policyProject: policyProject,
+		toplevel:      top,
 		runner:        r,
 		guards:        s.guards,
 		remotes:       s.remotes,
@@ -259,7 +264,7 @@ func (s *Service) At(ctx context.Context, projectPath string) (*Service, error) 
 // would go on showing the previous repository under the new folder's name.
 func (s *Service) Reset() {
 	s.mu.Lock()
-	s.project, s.policyProject, s.runner = "", "", runner{}
+	s.project, s.policyProject, s.toplevel, s.runner = "", "", "", runner{}
 	s.mu.Unlock()
 }
 
@@ -267,29 +272,29 @@ func (s *Service) Reset() {
 // bindings apply to this checkout. For linked worktrees Git points the
 // per-worktree git dir at a common metadata directory under the main repo's
 // .git; ordinary repositories (including submodules) use their own top-level.
-func repositoryPolicyKey(ctx context.Context, r runner, projectPath string) (string, error) {
+func repositoryPolicyKey(ctx context.Context, r runner, projectPath string) (policy, top string, err error) {
 	topOut, err := r.run(ctx, nil, "rev-parse", "--show-toplevel")
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	top := strings.TrimSpace(string(topOut))
+	top = strings.TrimSpace(string(topOut))
 	if !filepath.IsAbs(top) {
 		top, err = filepath.Abs(filepath.Join(projectPath, top))
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
 	}
 	top, err = filepath.EvalSymlinks(top)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	gitDirOut, err := r.run(ctx, nil, "rev-parse", "--absolute-git-dir")
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	commonOut, err := r.run(ctx, nil, "rev-parse", "--git-common-dir")
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	gitDir := strings.TrimSpace(string(gitDirOut))
 	commonDir := strings.TrimSpace(string(commonOut))
@@ -300,16 +305,25 @@ func repositoryPolicyKey(ctx context.Context, r runner, projectPath string) (str
 	}
 	gitDir, err = filepath.EvalSymlinks(gitDir)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	commonDir, err = filepath.EvalSymlinks(commonDir)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if gitDir != commonDir && filepath.Base(commonDir) == ".git" {
-		return filepath.Dir(commonDir), nil
+		return filepath.Dir(commonDir), top, nil
 	}
-	return top, nil
+	return top, top, nil
+}
+
+// Toplevel is the resolved root of the checkout this service was opened at, or ""
+// when it was not opened. A caller that opened it from a name it had checked
+// compares this with what it checked, to know the repository it got is that one.
+func (s *Service) Toplevel() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.toplevel
 }
 
 func (s *Service) policyKey() string {

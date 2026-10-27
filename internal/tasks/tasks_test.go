@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1160,5 +1161,146 @@ func TestAssignRefusesWhatClaimWouldQuietlyReopenOrSteal(t *testing.T) {
 		if err := call(); err == nil {
 			t.Errorf("%s: want an error", name)
 		}
+	}
+}
+
+type liveSessions map[string]bool
+
+func (l liveSessions) Alive(id string) bool { return l[id] }
+
+// A claim held by another live session is not dropped or re-aimed by an agent:
+// Release followed by Claim would otherwise take the task from a session that Claim
+// itself refuses, and the branch on the task is what its holder may push.
+func TestAnAgentDoesNotReleaseOrReaimTheLiveClaimOfAnotherSession(t *testing.T) {
+	svc, _ := newService(t)
+	live := liveSessions{"holder": true, "other": true}
+	svc.SetLiveness(live)
+	board := newBoard(t, svc)
+	task, err := svc.Create(user, CreateInput{BoardID: board.ID, Title: "held"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	holder, other := Caller{SessionID: "holder"}, Caller{SessionID: "other"}
+	if _, err := svc.Claim(holder, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	branch := "feature/mine"
+	if _, err := svc.SetFields(holder, task.ID, Fields{Branch: &branch}); err != nil {
+		t.Fatal(err)
+	}
+
+	hijack := "feature/hijack"
+	if _, err := svc.SetFields(other, task.ID, Fields{Branch: &hijack}); !errors.Is(err, ErrClaimed) {
+		t.Fatalf("re-aiming the branch of another session's task = %v, want ErrClaimed", err)
+	}
+	if _, err := svc.Release(other, task.ID); !errors.Is(err, ErrClaimed) {
+		t.Fatalf("releasing another session's live claim = %v, want ErrClaimed", err)
+	}
+	if got, _ := svc.Get(user, task.ID); got.SessionID != "holder" || got.Branch != branch {
+		t.Fatalf("a refused write changed the claim: %+v", got)
+	}
+
+	// Everything that is not a claim stays open to a collaborator.
+	priority := "high"
+	if _, err := svc.SetFields(other, task.ID, Fields{Priority: &priority}); err != nil {
+		t.Fatalf("a non-claim field of a held task: %v", err)
+	}
+	// The holder, the person, and anyone once the holder is gone are not refused.
+	if _, err := svc.SetFields(holder, task.ID, Fields{Branch: &hijack}); err != nil {
+		t.Fatalf("the holder re-aims its own branch: %v", err)
+	}
+	live["holder"] = false
+	if _, err := svc.SetFields(other, task.ID, Fields{Branch: &branch}); err != nil {
+		t.Fatalf("a dead session's claim must not be held against anyone: %v", err)
+	}
+	if _, err := svc.Release(other, task.ID); err != nil {
+		t.Fatalf("releasing a dead session's claim: %v", err)
+	}
+	if _, err := svc.Claim(holder, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Release(user, task.ID); err != nil {
+		t.Fatalf("the person releases: %v", err)
+	}
+}
+
+// barrierLive reports a dead holder and, once, parks the first liveness check so a
+// test can run another write in the gap between a holder check and its write.
+type barrierLive struct {
+	entered chan struct{}
+	proceed chan struct{}
+	armed   atomic.Bool
+}
+
+// Alive parks only the first check after arming; later checks (the other session's
+// claim) answer at once, which is what opens the gap.
+func (b *barrierLive) Alive(string) bool {
+	if b.armed.CompareAndSwap(true, false) {
+		close(b.entered)
+		<-b.proceed
+	}
+	return false
+}
+
+// A Release that found the holder dead must not erase a claim another session took
+// while it was deciding: the check and the write are one step.
+func TestAReleaseDoesNotEraseAClaimTakenWhileItDecided(t *testing.T) {
+	svc, _ := newService(t)
+	live := &barrierLive{entered: make(chan struct{}), proceed: make(chan struct{})}
+	svc.SetLiveness(live)
+	board := newBoard(t, svc)
+	task, err := svc.Create(user, CreateInput{BoardID: board.ID, Title: "contended"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Claim(Caller{SessionID: "dead"}, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	live.armed.Store(true) // only the check made inside Release parks
+
+	released := make(chan error, 1)
+	go func() { _, err := svc.Release(Caller{SessionID: "releaser"}, task.ID); released <- err }()
+	<-live.entered
+	claimed := make(chan error, 1)
+	go func() { _, err := svc.Claim(Caller{SessionID: "claimer"}, task.ID); claimed <- err }()
+	time.Sleep(100 * time.Millisecond) // the claim reaches its write, or waits for the release
+	close(live.proceed)
+	if err := <-released; err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	if err := <-claimed; err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if got, _ := svc.Get(user, task.ID); got.SessionID != "claimer" {
+		t.Fatalf("the claim taken during the release was erased: holder %q", got.SessionID)
+	}
+}
+
+// Two sessions claiming a free task at once: exactly one holds it.
+func TestTwoConcurrentClaimsOfAFreeTaskLeaveOneHolder(t *testing.T) {
+	svc, _ := newService(t)
+	svc.SetLiveness(liveSessions{"a": true, "b": true})
+	board := newBoard(t, svc)
+	task, err := svc.Create(user, CreateInput{BoardID: board.ID, Title: "free"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	errs := make(chan error, 2)
+	for _, id := range []string{"a", "b"} {
+		go func() { _, err := svc.Claim(Caller{SessionID: id}, task.ID); errs <- err }()
+	}
+	var ok, claimed int
+	for range 2 {
+		switch err := <-errs; {
+		case err == nil:
+			ok++
+		case errors.Is(err, ErrClaimed):
+			claimed++
+		default:
+			t.Fatal(err)
+		}
+	}
+	if ok != 1 || claimed != 1 {
+		t.Fatalf("%d claims succeeded and %d were refused, want one of each", ok, claimed)
 	}
 }

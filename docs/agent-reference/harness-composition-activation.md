@@ -163,8 +163,8 @@ that block); then update the tripwire.
 
 | Gate | Status | Evidence / owner |
 | --- | --- | --- |
-| Independent review of the integrated H4c/#363/#367 invariants | **Blocked** | No independent reviewer exists in this work. Authored tests and earlier same-author review are not counted. Owner: a reviewer who did not write H4c. |
-| Composed guard tests through the controls | **Partial** | Passing: grants (`TestTheToolsNeedTheirOwnGrants`), launch permission lists unchanged after an enable, prod and unknown-tag confirmation on every call with `allow_always` ignored and denial final (`TestAGroupEnabledByARequestKeepsTheLaunchPermissionsAndTheEnvironmentRule`), terminal/agent/window identity matrix. **Not exercised:** task ownership, guarded branch, repository-outside-workspace and push/task binding (they need the real Tasks and Git services, which the rig stubs; they live in the tools' own handlers and the harness does not touch them). |
+| Independent review of the integrated H4c/#363/#367 invariants | **Partial** | AP1 below: a bounded review by a session that did not write H4c, at `e39d9060`. Two defects found in the guard owners and fixed; large parts of the lifecycle path were not traced (listed under AP1). It is not a human sign-off and does not by itself clear this gate. |
+| Composed guard tests through the controls | **Pass (scripted vendors)** | AP2 below: real Tasks and Git services, gateway, hub, SQLite and `SessionHost`, temporary repositories and local bare remotes. Earlier rows (grants, launch permission lists, prod and unknown-tag confirmation, identity matrix) are unchanged. |
 | Real Claude, Codex and opencode runtime processes | **Not run** | No runtimes, accounts or mocked-model fixture here; scripted vendors only. No paid request was made. |
 | Native desktop approval of the scope selection and confirmation | **Not run** | Headless host. The dialogs have SSR/state tests, not a real window. |
 | `tools/list_changed` per runtime | **Unmeasured** | The outcome reports `DiscoveryReloadRequired` and Reload is the conservative fallback; no refresh is claimed. |
@@ -221,3 +221,102 @@ Evidence: `internal/mcp/result_headtail_test.go`, `internal/usagemetrics/cutmode
 `internal/preferences/harnesspolicy_test.go`, `internal/app/harness_budgets_test.go`, `internal/bridge/harness_policy_test.go`;
 frontend `workspaceBudgetModel.test.ts`, `budgetsController.test.ts`, `HarnessDialogs.test.tsx`. Production wiring still
 requires the A6 gates; `TestProductionDoesNotWireTheHarnessYet` is unchanged.
+
+## Acceptance after H5b-2: AP1 review and AP2 composed guards
+
+Base `origin/main` `e39d9060` (#372). Production is still inert: `main.go` is unchanged and
+`TestProductionDoesNotWireTheHarnessYet` is intact. AP3 (real runtimes, native dialogs) and AP4 (activation) have **not**
+been run; no gate below is marked passed on their behalf.
+
+### AP1 - independent review (scope-limited)
+
+Reviewer: an AI coding session that did not author H4c, #363, #367, #353 or H5. That makes it a different reviewer than
+the author, not a human one; the owner should treat it as input to a sign-off, not the sign-off. Reviewed SHA:
+`e39d9060d11bf7be0643098fe2739358b1c9b577` plus the two fixes in this change. Method: reading the code named below and
+running probes through the composed rig; existing tests were run, not re-read.
+
+| Plan item | Result | What was actually traced |
+| --- | --- | --- |
+| 1 Admission snapshot | No finding | `internal/mcp/serving.go`: one atomic load per call (`admit`), no store or vendor read on that path; quarantine/restore/install transitions under one lock; revoke affects later admissions only. |
+| 2 Approval under pinned V/W | Partial | `internal/harnessconfig/apply.go` (`Apply`, `commit`): re-evaluation under the V boundary and session coordinator, W and digest comparison, policy revision in the binding. `liveEffectFor` and the pinned-basis arithmetic were not re-derived. |
+| 3 Durable vs live | No finding | `commit`: `Live` only for `PublicationInstalled`; unknown commit reads stamps back and stays paused; a committed change with a failed publication returns `*PublicationError`. |
+| 4 Endpoint fences | Partial | `internal/mcp/session_host.go`: incarnation per endpoint, close removes the socket/entry only while it owns it, under `bindMu`. The Agent Hub coordinator, reconcile and crash-between-commit-and-publish recovery were not traced beyond running their tests. |
+| 5 #353/#363/#367 invariants | Not reviewed | `internal/agenthub/harness_runtime.go`, `harness_scope.go`, rewind and reopen paths: relied on the existing tests only. |
+| 6 Public facade | Partial | `internal/app/harness_public.go`: `agentScope` (identity and persisted row), `requireUI`, `uiSession`. DTO bounds, cursors and fixed-error mapping not re-read. |
+| 7 H5b | No finding | `internal/harness/classify.go`, `harnessconfig.evaluate` / `isBudgetOnly`: bounds on bytes, widening on any increase, the opt-in skips the question only for an agent's budget-only pure-narrowing edit. Observation: a cut-mode-only change is classified neutral narrowing, so under the opt-in an agent may switch head to headTail without a question; this matches the documented "pure narrowing" wording but is worth a product decision. |
+| 8 No new authority | Two findings, fixed | See F1 and F2: the guard owners behind the harness-enabled groups did not hold in two cases. The harness itself added no tool, grant or pre-approval. |
+
+Findings (both in code the harness does not own, reproduced through the harness-enabled `git` and `tasks` groups):
+
+- **F1 (high) - git tools could act on a repository outside the workspace through a link.** `internal/mcp/git_repo.go`
+  (`gitFor`): the folder, grant and nesting checks used lexical paths, so `repo: <granted folder>/link`, with `link` a
+  symlink to another repository, passed as a granted workspace folder and `git.status`, `git.branch.create` and the other
+  tools ran in the outside repository (its `HEAD` moved to the new branch). An agent can create such a link inside its own
+  folder. Repro: `TestARepositoryOutsideTheWorkspaceIsRefusedHoweverItIsNamed` (fails on the base for the link cases),
+  `TestScopeContainmentFollowsLinks`. Fix: containment compares resolved paths. **Follow-up (review of #375, concurrent
+  case):** the first fix still opened Git at the caller's name, so a link repointed between the check and the open moved the
+  operation (reproduced with real Git). The path is now resolved **once** per call (folders and granted roots are sealed once too);
+  the scope decision, the candidate Git is opened at and the opened checkout's root check (`git.Service.Toplevel`) all use that
+  single value, so a second review found no remaining double resolution (`TestALinkRepointedAfterTheSingleResolutionIsNeverFollowed`; `TestALinkRepointedBetweenTheCheckAndTheOpenDoesNotMoveTheOperation`,
+  `TestGitIsOpenedAtTheCheckedPathNotTheCallersName`, `TestARepositoryThatIsNotTheOneCheckedIsRefused`). **Remaining limit:** the checks
+  are path-based; an agent that swaps a real directory component of the checked path for a link after the open can still redirect
+  later commands. Closing that needs descriptor-based execution in `internal/git`, which is not done. Not changed:
+  `workspace.list`'s informational `granted` flag is still lexical.
+- **F2 (medium) - an agent could release or re-aim another live session's task claim.** `internal/tasks/transition.go`
+  (`Release`) and `service.go` (`SetFields` branch): `Claim` refuses a live holder, but `Release` and the `branch` field did
+  not, so `tasks.release` then `tasks.claim` took a live session's task, and `tasks.setFields {branch}` changed what its holder
+  may push. Repro: `TestATaskHeldByAnotherLiveSessionIsNotTakenDroppedOrReaimed`, `TestAnAgentDoesNotReleaseOrReaimTheLiveClaimOfAnotherSession`.
+  Fix: both refuse with `ErrClaimed` unless the caller holds the task, the holder is dead (as `Claim`), or the caller is the
+  person. **Follow-up (review of #375, concurrent case):** the holder check and the metadata write were separate steps, so a
+  `Release` that found the holder dead could erase a claim another session took meanwhile (`TestAReleaseDoesNotEraseAClaimTakenWhileItDecided`,
+  a barrier test that fails without the lock). Task metadata writes (`mutateAs`) now hold one write lock across read, check and
+  write, and `Claim`/`Assign` re-apply the holder rule to the metadata read under it (`TestTwoConcurrentClaimsOfAFreeTaskLeaveOneHolder`).
+  The lock is per process, which matches the single-process local store. This tightens behavior; it is in its own commit so the owner can drop or adjust it. Not changed or reviewed:
+  `Transition`, `Update`, `Archive` and comments by a non-holder on a held task.
+
+Not reviewed at all: the frontend, the budget cutter, usage metrics, accounts, the vendor adapters, and anything in AP3/AP4.
+
+### AP2 - composed Tasks/Git guards through the controls
+
+Rig: `harness_composition_work_rig_test.go` (real `tasks.Service` with workspace scope and Agent Hub liveness, real `git.Service` with
+the application's guard store, environment policy and hub confirmer, `NewTaskBranches`, `mcp.GitReposOf`); tests in
+`harness_composition_guards_test.go`. Temporary repositories, local bare remotes, an isolated `HOME`/Git config. Only the vendor
+transport and the person's answers are scripted. Each refusal is checked against the repository refs and work tree, the task's
+durable binding and the number of questions put to the person.
+
+| Plan row | Test |
+| --- | --- |
+| Group off | `TestHiddenGitAndTaskGroupsAreRefusedBeforeTheirHandlers` |
+| Enabled by public proposal; existing grant still required | `TestEnablingTheGroupsByAProposalMakesNoClaimAndAddsNoPushRight`, `TestAnEnabledGitGroupStillNeedsTheGrantsOfItsTools` |
+| Ownership absent or wrong | the two above, `TestATaskHeldByAnotherLiveSessionIsNotTakenDroppedOrReaimed` |
+| Branch guard | `TestAGuardedBranchAsksForEveryMutationAndADenialChangesNothing` (commit, amend, push; deny, allow, allow_always, unknown and non-confirming tags) |
+| Push/task binding and positive control | `TestPushNeedsABranchRecordedOnATaskTheCallerHolds` (default, unowned, another session's, task naming the default branch, missing remote, released task; the owner's push lands on the bare remote) |
+| Repository outside the workspace | `TestARepositoryOutsideTheWorkspaceIsRefusedHoweverItIsNamed` (absolute, relative, linked worktree, links) |
+| Read-only workspace folder | `TestAWorkspaceFolderTheSessionMayNotWriteIsReadOnly` (the same folder granted at creation writes) |
+| Corrupt profile is not an empty profile | `TestACorruptStoredProfileRefusesANewSessionAndNeverServesUnfiltered` (new session); reload was already covered |
+| Terminal/agent/window identity | unchanged (`TestOnlyTheAgentItselfCanAskAndOnlyTheWindowCanEdit`, `TestTheUnprofiledTerminalSurfaceIsIndependentOfSessionPolicy`); no new case added for Tasks/Git |
+
+Gaps: squash, rebase, cherry-pick and worktree guard gates were not each exercised through the controls (commit, amend and push
+were); a shell fallback after a denial cannot be asserted here (the sandbox owns that); the post-H5b budget cases listed in the plan
+were already covered by `harness_budgets_test.go` and `harness_composition_*_test.go` and were not duplicated.
+
+### Validation (Go 1.27.2, darwin/arm64, Bun, Wails not needed: no AppService change)
+
+Run 2026-10-27 on `harness/ap2-composed-guards`. The first run covered the earlier head; after the review of #375 the race
+suite (tasks, git, mcp, app, bridge, agenthub, harness, harnessconfig, preferences, interaction, usagemetrics, storage: 12 packages,
+no race reports), `go test ./internal/... ./cmd/... -count=1` and `go vet -tags server ./...` were re-run on the fixed head (after the single-resolution change) and pass.
+The frontend and `internal/arch` rows below are from the first run (no frontend or import change since):
+
+| Check | Result |
+| --- | --- |
+| `bun install --frozen-lockfile`, `bun test --isolate`, `bun run build` | pass (5119 tests, 0 fail; build ok) |
+| `go test -race -timeout 40m` over harness, harnessconfig, agenthub, mcp, app, preferences, interaction, usagemetrics, storage, bridge | pass, no race reports |
+| `go test ./internal/arch/` | pass (after building `frontend/dist`; before it, `go list` fails on the embed pattern) |
+| `go test ./internal/... ./cmd/... -count=1` | pass |
+| `go vet -tags server ./...`, `go build -tags server` | pass |
+| `staticcheck` on app, mcp, tasks | 4 findings, all in files this change does not touch (`agentbrief.go:94`, `app_test.go:80`, `plantasks_test.go:78`, `tools_pdf.go:385`); not checked against the base |
+| `golangci-lint` | **not run**: the installed binary was built with an older Go and fails to typecheck against Go 1.27.2 (export data version). CI lint remains the evidence. |
+
+The CRLF Git test failure and the `fakeCaller` race mentioned in earlier reports did not occur in these runs. Linker warnings about the macOS deployment target are build noise.
+Not run, and not claimed: AP3 (real Claude/Codex/opencode processes, native approval dialogs, per-runtime `listChanged` measurement)
+and AP4 (activation). The A6 rows for those remain **Not run / Unmeasured**.
