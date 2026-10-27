@@ -47,8 +47,17 @@ contract only; no service calls it yet and behavior is unchanged.
 - Groups: absent is on, W can turn one off, S can only turn one on; unknown groups are
   `harness.groupUnknown`. `harness.profile.propose` is the one tool served with its group off.
 - Budgets: tool, then group, then default, each of size and cut separately; 2–64 KiB;
-  `budgetExempt` tools cannot be overridden. `headTail` is rejected (`harness.budgetInvalid`)
-  until phase 3 implements it.
+  `budgetExempt` tools cannot be overridden. `headTail` keeps both ends of an over-budget
+  **plain-text** result under one byte budget across all text blocks, with a marker between
+  that says how many bytes lie in the middle and that the ends are not adjacent (marker
+  included, never over the budget; UTF-8- and line-safe; the head cut is unchanged). Structured
+  results keep their structural shrink and cursor rule, errors and fixed exemptions are never
+  cut, and the cut mode comes from the same call-admission snapshot as the size. Measurements
+  written from the H5b cutter on carry version `text-utf8-v2` and the algorithm that actually ran
+  (`none`, `head`, `headTail`, `structured`, `exempt`, `error`, `unrecorded`); rows written before
+  it (`text-utf8-v1`, whose cut mode is the literal `head` whatever happened) are never relabelled
+  or backfilled, and a report adds both versions once each. Host text bytes only: nothing about
+  tokens, quota or cache savings.
 - Deny lists are V ∪ W. Servers are keyed by name, W replaces V, a duplicate or a name the
   vendor environment already defines is rejected. Skill folders are V ∪ W by canonical path.
 - `Classify(before, after)` compares two effective values: executable > widening > narrowing.

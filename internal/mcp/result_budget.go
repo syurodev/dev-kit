@@ -7,6 +7,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"devkit/internal/harness"
+
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -72,18 +74,32 @@ func withResultBudget(budget int) sdk.Middleware {
 	return withMeasuredResultBudget(budget, nil, nil)
 }
 
-// limitResult shrinks call in place when its text is over budget.
-func limitResult(tool string, call *sdk.CallToolResult, budget int) {
+// cutKind is the algorithm that actually handled a result, not the one that was
+// asked for: a configured head-and-tail cut on a structured result is still a
+// structural shrink, and a result that fits is not cut at all.
+type cutKind string
+
+const (
+	cutNone       cutKind = "none"       // text within the budget, or nothing to cut
+	cutHead       cutKind = "head"       // the leading bytes, then a marker
+	cutHeadTail   cutKind = "headTail"   // both ends of plain text around a marker
+	cutStructured cutKind = "structured" // arrays and strings of the JSON value trimmed
+)
+
+// limitResult shrinks call in place when its text is over budget, with the cut
+// mode the call's admission snapshot resolved (head for the terminal and legacy
+// endpoints), and reports the algorithm that handled it.
+func limitResult(tool string, call *sdk.CallToolResult, budget int, mode harness.CutMode) cutKind {
 	total := 0
 	for _, c := range call.Content {
 		text, ok := c.(*sdk.TextContent)
 		if !ok {
-			return // an image (or anything but text) is never cut
+			return cutNone // an image (or anything but text) is never cut
 		}
 		total += len(text.Text)
 	}
 	if total <= budget {
-		return
+		return cutNone
 	}
 	hint := resultHints[tool]
 	if hint == "" {
@@ -91,13 +107,117 @@ func limitResult(tool string, call *sdk.CallToolResult, budget int) {
 	}
 	// The usual shape: one text block that is the JSON of structuredContent.
 	// Shrink the value so what remains is still the object the agent and the
-	// window's card expect, with a "_truncated" note beside the data.
+	// window's card expect, with a "_truncated" note beside the data. A head-and-
+	// tail cut is never applied to it: two fragments of a JSON document are not a
+	// document, and a cursor would skip what lies between them.
 	if len(call.Content) == 1 && call.StructuredContent != nil {
 		if shrinkStructured(call, budget, hint) {
-			return
+			return cutStructured
 		}
+		// The conservative fallback stays the head cut whatever the mode.
+		cutText(call, budget, hint)
+		return cutHead
+	}
+	if mode == harness.CutHeadTail {
+		cutHeadAndTail(call, budget, hint, total)
+		return cutHeadTail
 	}
 	cutText(call, budget, hint)
+	return cutHead
+}
+
+// cutHeadAndTail keeps the beginning and the end of plain text under ONE byte
+// budget that spans every text block, and puts a marker in between that says the
+// two ends are not adjacent, how many bytes lie between them and how to ask for
+// them. Order is preserved, no byte appears twice, and what is emitted — marker
+// included — stays within budget. total is the text size already measured.
+//
+// The payload room is the budget less the same marker reserve the head cut uses,
+// split evenly; each end then gives back what its boundary costs (the head at a
+// line break near its allowance, the tail from the first line start near its
+// own, otherwise at a UTF-8 boundary). Nothing is concatenated to choose the two
+// slices: the blocks are walked in place.
+func cutHeadAndTail(call *sdk.CallToolResult, budget int, hint string, total int) {
+	room := budget - resultMarkerReserve
+	headRoom := room / 2
+	tailRoom := room - headRoom
+
+	blocks := make([]*sdk.TextContent, len(call.Content))
+	for i, c := range call.Content {
+		blocks[i] = c.(*sdk.TextContent)
+	}
+
+	// Head: whole blocks while they fit, then the last one cut.
+	var head []sdk.Content
+	headBytes, left := 0, headRoom
+	idx := 0 // first block not fully consumed by the head
+	for ; idx < len(blocks); idx++ {
+		t := blocks[idx]
+		if len(t.Text) <= left {
+			head = append(head, t)
+			headBytes += len(t.Text)
+			left -= len(t.Text)
+			continue
+		}
+		if cut := trimTrailingCR(cutAtBoundary(t.Text, left)); cut != "" {
+			head = append(head, withText(t, cut))
+			headBytes += len(cut)
+		}
+		break
+	}
+
+	// Tail: whole blocks from the end while they fit, then the first one cut.
+	var tail []sdk.Content // collected back to front
+	tailBytes, left := 0, tailRoom
+	for j := len(blocks) - 1; j >= idx; j-- {
+		t := blocks[j]
+		if len(t.Text) <= left {
+			tail = append(tail, t)
+			tailBytes += len(t.Text)
+			left -= len(t.Text)
+			continue
+		}
+		if cut := cutFromBoundary(t.Text, left); cut != "" {
+			tail = append(tail, withText(t, cut))
+			tailBytes += len(cut)
+		}
+		break
+	}
+	for i, j := 0, len(tail)-1; i < j; i, j = i+1, j-1 {
+		tail[i], tail[j] = tail[j], tail[i]
+	}
+
+	marker := fmt.Sprintf("\n[... %d bytes omitted from the middle of this result. What is above and below is its beginning and its end, not adjacent text; result cut to the %d KB budget. %s]\n",
+		total-headBytes-tailBytes, budget/1024, hint)
+	out := make([]sdk.Content, 0, len(head)+len(tail)+1)
+	out = append(out, head...)
+	out = append(out, &sdk.TextContent{Text: marker})
+	out = append(out, tail...)
+	call.Content = out
+	call.StructuredContent = nil // it held the whole result; the cut text is the answer
+}
+
+// withText is a copy of block with another text, keeping its metadata.
+func withText(block *sdk.TextContent, text string) *sdk.TextContent {
+	return &sdk.TextContent{Text: text, Meta: block.Meta, Annotations: block.Annotations}
+}
+
+func trimTrailingCR(s string) string { return strings.TrimSuffix(s, "\r") }
+
+// cutFromBoundary returns at most the last n bytes of s, starting just after a
+// line break when one falls in the first fifth of them, else at a rune boundary.
+func cutFromBoundary(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	tail := s[len(s)-n:]
+	if i := strings.IndexByte(tail, '\n'); i >= 0 && i < n/5 {
+		return tail[i+1:]
+	}
+	for len(tail) > 0 && !utf8.RuneStart(tail[0]) {
+		tail = tail[1:]
+	}
+	return tail
 }
 
 // shrinkStructured reports whether it managed; if not, call is untouched.

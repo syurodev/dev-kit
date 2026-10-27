@@ -8,8 +8,40 @@ import (
 	"time"
 )
 
-const Version = "text-utf8-v1"
+// Version is the measurement version new rows are written under. v2 records the
+// algorithm that actually handled each result in the cut-mode key (CutNone …
+// CutUnrecorded below). LegacyVersion rows were written before that: their
+// cut-mode key is the literal "head" whatever the result went through, they stay
+// exactly as stored and are never relabelled or backfilled. The byte counters mean
+// the same in both versions.
+const Version = "text-utf8-v2"
+
+// LegacyVersion is the measurement version of rows written before cut modes were
+// recorded.
+const LegacyVersion = "text-utf8-v1"
 const MaxKeys = 4096
+
+// The cut modes a v2 row can carry: a fixed vocabulary, never a string a tool or a
+// profile supplies.
+const (
+	CutNone       = "none"       // text within the budget (or no result): nothing was cut
+	CutHead       = "head"       // leading bytes kept, then a marker
+	CutHeadTail   = "headTail"   // both ends of plain text kept around a marker
+	CutStructured = "structured" // arrays and strings of a JSON value trimmed
+	CutExempt     = "exempt"     // a fixed exemption or a non-text result: never cut
+	CutError      = "error"      // a tool error or a handler error: never cut
+	// CutUnrecorded is a result whose producer did not say how it was handled (or
+	// said something outside this list). It is never read as any of the above.
+	CutUnrecorded = "unrecorded"
+)
+
+func knownCutMode(m string) bool {
+	switch m {
+	case CutNone, CutHead, CutHeadTail, CutStructured, CutExempt, CutError, CutUnrecorded:
+		return true
+	}
+	return false
+}
 
 var ErrInvalidQuery = errors.New("usage metrics: invalid query")
 var ErrUnavailable = errors.New("usage metrics: unavailable")
@@ -26,6 +58,11 @@ type Observation struct {
 	Tool                                                        string
 	Result, Text, NonText, ToolError, HandlerError, Exempt, Cut bool
 	Before, After                                               int64
+	// CutMode is how the limiter actually handled a result, one of the Cut*
+	// constants. Empty on an observation that has no result (it is then CutNone); an
+	// empty or unknown value on a result is recorded as CutUnrecorded, never as a
+	// guess.
+	CutMode string
 }
 type Stats struct {
 	Calls         int64 `json:"calls"`
@@ -130,7 +167,14 @@ func rowOf(o Observation) (DailyRow, bool) {
 	if o.Scope.ProfileRevision != nil && *o.Scope.ProfileRevision < 0 || o.Scope.OverrideRevision != nil && *o.Scope.OverrideRevision < 0 {
 		return DailyRow{}, false
 	}
-	return DailyRow{Key: Key{o.At.UTC().Format(time.DateOnly), o.Scope.Vendor, o.Scope.WorkspaceID, o.Tool, revisionKey(o.Scope.ProfileRevision), revisionKey(o.Scope.OverrideRevision), Version, "head"}, Stats: Stats{1, flag(o.Result), flag(o.Text), flag(o.NonText), flag(o.ToolError), flag(o.HandlerError), flag(o.Exempt), flag(o.Cut), o.Before, o.After, o.Before, o.After}}, true
+	mode := o.CutMode
+	switch {
+	case !o.Result:
+		mode = CutNone
+	case !knownCutMode(mode) || mode == "":
+		mode = CutUnrecorded
+	}
+	return DailyRow{Key: Key{o.At.UTC().Format(time.DateOnly), o.Scope.Vendor, o.Scope.WorkspaceID, o.Tool, revisionKey(o.Scope.ProfileRevision), revisionKey(o.Scope.OverrideRevision), Version, mode}, Stats: Stats{1, flag(o.Result), flag(o.Text), flag(o.NonText), flag(o.ToolError), flag(o.HandlerError), flag(o.Exempt), flag(o.Cut), o.Before, o.After, o.Before, o.After}}, true
 }
 func (s *Stats) Add(v Stats) {
 	s.Calls += v.Calls

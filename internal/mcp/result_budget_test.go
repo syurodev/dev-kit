@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"devkit/internal/harness"
+
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -58,7 +60,7 @@ func textOf(r *sdk.CallToolResult) int {
 func TestResultUnderBudgetIsUntouched(t *testing.T) {
 	r := resultFor(t, bigSearchPage(10))
 	before := r.Content[0].(*sdk.TextContent).Text
-	limitResult("codegraph.searchSymbol", r, ResultBudget)
+	limitResult("codegraph.searchSymbol", r, ResultBudget, harness.CutHead)
 	if r.Content[0].(*sdk.TextContent).Text != before || strings.Contains(before, "_truncated") {
 		t.Fatal("a result inside the budget changed")
 	}
@@ -68,7 +70,7 @@ func TestStructuredResultIsCutAtItemsAndStaysAnObject(t *testing.T) {
 	page := bigSearchPage(200)
 	r := resultFor(t, page)
 	before := textOf(r)
-	limitResult("codegraph.searchSymbol", r, ResultBudget)
+	limitResult("codegraph.searchSymbol", r, ResultBudget, harness.CutHead)
 	after := textOf(r)
 	t.Logf("codegraph.searchSymbol, 200 matches: %d -> %d bytes", before, after)
 	if before <= ResultBudget || after > ResultBudget {
@@ -111,7 +113,7 @@ func TestACutRowSetSaysItIsTruncated(t *testing.T) {
 		rows = append(rows, []string{fmt.Sprint(i), "a fairly long cell value to take some room", "x"})
 	}
 	r := resultFor(t, map[string]any{"columns": []string{"id", "v", "w"}, "rows": rows, "row_count": 2000, "truncated": false})
-	limitResult("db.query", r, ResultBudget)
+	limitResult("db.query", r, ResultBudget, harness.CutHead)
 	var got map[string]any
 	if err := json.Unmarshal([]byte(r.Content[0].(*sdk.TextContent).Text), &got); err != nil {
 		t.Fatal(err)
@@ -127,7 +129,7 @@ func TestACutRowSetSaysItIsTruncated(t *testing.T) {
 func TestOnePageUnderTheBudgetKeepsItsCursor(t *testing.T) {
 	// 25 matches (the default page) fit: nothing cut, so the cursor stays.
 	r := resultFor(t, bigSearchPage(25))
-	limitResult("codegraph.searchSymbol", r, ResultBudget)
+	limitResult("codegraph.searchSymbol", r, ResultBudget, harness.CutHead)
 	if !strings.Contains(r.Content[0].(*sdk.TextContent).Text, `"nextCursor":"abc"`) {
 		t.Fatalf("a default page lost its cursor: %d bytes", textOf(r))
 	}
@@ -135,7 +137,7 @@ func TestOnePageUnderTheBudgetKeepsItsCursor(t *testing.T) {
 
 func TestOneHugeStringIsShortenedNotLost(t *testing.T) {
 	r := resultFor(t, map[string]any{"path": "a.txt", "content": strings.Repeat("line of text\n", 6000)})
-	limitResult("some.tool", r, ResultBudget)
+	limitResult("some.tool", r, ResultBudget, harness.CutHead)
 	if textOf(r) > ResultBudget {
 		t.Fatalf("still %d bytes", textOf(r))
 	}
@@ -158,7 +160,7 @@ func TestPlainTextIsCutAtALineAndSaysHowMuchWasLeft(t *testing.T) {
 	}
 	full := b.String()
 	r := &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: full}}}
-	limitResult("git.diff", r, ResultBudget)
+	limitResult("git.diff", r, ResultBudget, harness.CutHead)
 	text := r.Content[0].(*sdk.TextContent).Text
 	if len(text) > ResultBudget {
 		t.Fatalf("%d bytes", len(text))
@@ -174,7 +176,7 @@ func TestPlainTextIsCutAtALineAndSaysHowMuchWasLeft(t *testing.T) {
 
 func TestMultibyteTextIsNotCutInsideARune(t *testing.T) {
 	r := &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: strings.Repeat("é", 20000)}}}
-	limitResult("x", r, ResultBudget)
+	limitResult("x", r, ResultBudget, harness.CutHead)
 	if text := r.Content[0].(*sdk.TextContent).Text; !strings.Contains(text, "[Result cut") || strings.ContainsRune(text, '�') {
 		t.Fatal("broken rune or no marker")
 	}
@@ -186,7 +188,7 @@ func TestImagesAreNeverCut(t *testing.T) {
 		&sdk.ImageContent{Data: []byte(strings.Repeat("x", 50000)), MIMEType: "image/png"},
 	}}
 	before := textOf(r)
-	limitResult("pdf.viewPages", r, ResultBudget)
+	limitResult("pdf.viewPages", r, ResultBudget, harness.CutHead)
 	if textOf(r) != before || len(r.Content) != 2 {
 		t.Fatal("a result with an image was cut")
 	}

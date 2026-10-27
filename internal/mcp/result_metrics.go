@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"devkit/internal/harness"
 	"devkit/internal/usagemetrics"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"time"
@@ -112,19 +113,31 @@ func withMeasuredResultBudget(budget int, observer *ResultObservation, serving *
 				if err == nil && named {
 					o.Tool = name
 				}
-				limit := budget
+				// The size and the cut mode come from the same admission snapshot as
+				// the group decision and the revisions above; the current saved
+				// profile is never read again when the result comes back.
+				limit, mode := budget, harness.CutHead
 				// Exemptions are the server's own and fixed (budgetExempt): a
 				// policy supplies a size, never a reason to skip the cut.
 				_, exempt := budgetExempt[o.Tool]
 				if snap != nil {
 					if b, known := snap.eff.Budget(o.Tool); known {
 						limit = b.Bytes
+						if b.Cut != harness.CutDefault {
+							mode = b.Cut
+						}
 					}
 				}
 				o.Exempt = exempt || o.NonText
 				before := call.Content
-				if err == nil && !call.IsError && !exempt {
-					limitResult(o.Tool, call, limit)
+				switch {
+				case o.Exempt:
+					o.CutMode = usagemetrics.CutExempt
+				case err != nil || call.IsError:
+					o.CutMode = usagemetrics.CutError
+				default:
+					// What the limiter reports it did, not what was asked for.
+					o.CutMode = string(limitResult(o.Tool, call, limit, mode))
 				}
 				o.After, _, _ = textSize(call)
 				o.Cut = contentChanged(before, call.Content)
