@@ -65,13 +65,16 @@ func (p *Provider) Snapshot(ctx context.Context, req SnapshotRequest) (harness.S
 	if !vs.FactsComplete {
 		env = harness.Environment{} // reported as incomplete in the reference; never as verified
 	}
+	// The recorder remembers each path resolution of this one Resolve, so the
+	// serving basis replays them instead of reading the file system again.
+	rec := harness.NewCanonRecorder(p.cfg.Canonical)
 	in := harness.Inputs{
 		Registry:    p.cfg.Registry(),
 		Vendor:      vs.Vendor,
 		Environment: env,
 		Workspace:   withRevision(w, wStamp.Revision),
 		Session:     overrideWithRevision(o, oStamp.Revision),
-		Canonical:   p.cfg.Canonical,
+		Canonical:   rec.Canonical,
 	}
 	if w == nil {
 		in.Workspace = nil
@@ -83,7 +86,14 @@ func (p *Provider) Snapshot(ctx context.Context, req SnapshotRequest) (harness.S
 	if err != nil {
 		return harness.Snapshot{}, ErrSnapshotUnavailable
 	}
+	// The basis is frozen from the same inputs and reads as this one resolve, so
+	// a later live S change is judged against exactly the W and V of this launch.
+	basis, err := harness.NewServingBasis(in, eff, rec, wStamp, oStamp)
+	if err != nil {
+		return harness.Snapshot{}, ErrSnapshotUnavailable
+	}
 	snap := harness.Snapshot{
+		Basis: basis,
 		Ref: harness.SnapshotRef{
 			Schema: harness.SnapshotSchema, WorkspaceID: req.WorkspaceID, SessionID: req.SessionID, Vendor: req.Vendor,
 			Revisions: eff.Revisions, Fingerprint: eff.Fingerprint, ExecutableDigest: eff.ExecutableDigest(),

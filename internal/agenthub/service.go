@@ -272,6 +272,9 @@ type MCPEndpoint struct {
 	// Served is the DevKit tool surface this endpoint serves under a prepared
 	// policy (OpenWithPolicy). nil: an endpoint with no policy (legacy).
 	Served *DevKitServing
+	// Live is this endpoint incarnation's publication handle. nil: the endpoint
+	// cannot be updated after it opens (legacy, or no policy).
+	Live ServingEndpoint
 }
 
 // MCPEndpoints opens one MCPEndpoint per session. nil means sessions get no
@@ -286,6 +289,10 @@ type Service struct {
 	runtimeUsage map[string]RuntimeUsageFacts
 	// harnessApplied is what each opened runtime was actually given (harness_runtime.go).
 	harnessApplied map[string]appliedHarness
+	// servingCoords are the per-session commit/publication coordinators
+	// (serving_live.go). servingMu guards the map only.
+	servingMu     sync.Mutex
+	servingCoords map[string]*servingCoord
 	// SessionTempOwner identifies this database for conservative scratch cleanup.
 	SessionTempOwner string
 	// SessionTempRoot is a test seam; empty preserves the platform default.
@@ -968,6 +975,13 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 		sess.ParentSessionID = &pid
 	}
 
+	// S moved while this session was opening: discard the launch rather than
+	// publish guidance and permissions written for the old configuration.
+	if err := s.launchCurrent(id, launch); err != nil {
+		_ = rt.Close(ctx)
+		closeEndpoint()
+		return AgentSession{}, err
+	}
 	if err := s.store.InsertSession(ctx, sess); err != nil {
 		_ = rt.Close(ctx)
 		closeEndpoint()
@@ -996,6 +1010,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 	s.publishHarnessLocked(sess.ID, launch)
 	s.endpoints[sess.ID] = closeEndpoint
 	s.mu.Unlock()
+	s.syncServingFacts(sess.ID)
 
 	// The window upserts the session it created itself from the call's answer.
 	if s.OnSessionCreated != nil && !invokeUnbounded(ctx) {
@@ -1604,6 +1619,11 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	delete(s.endpoints, id)
 	s.mu.Unlock()
 
+	// Explicit close fences live publication first: an Apply that already holds
+	// the coordinator finishes (its S is then cleared below), and any later one
+	// finds no endpoint and, once the status is closed, cannot write S at all.
+	s.fenceServingClose(id)
+
 	// The conversation must be complete on disk before the session becomes
 	// history: closing is the one path after which no turn will ever flush.
 	// A write that fails is reported, not returned. Returning left the runtime
@@ -1726,6 +1746,7 @@ func (s *Service) DeleteSession(ctx context.Context, id string) error {
 		s.forgetSessionAccountLocked(target)
 		delete(s.harnessApplied, target) // durable references cascade with the rows
 		s.mu.Unlock()
+		s.dropServingCoord(target) // only after the rows are gone for good
 	}
 	return nil
 }
@@ -2784,6 +2805,13 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 			}
 		}
 	}
+	// The same fence as create: a launch that read S before a committed change
+	// is discarded, not published as a coherent one.
+	if err := s.launchCurrent(sess.ID, launch); err != nil {
+		_ = rt.Close(ctx)
+		closeEndpoint()
+		return nil, err
+	}
 	if err := s.recordHarnessApplied(ctx, sess.ID, launch); err != nil {
 		_ = rt.Close(ctx)
 		closeEndpoint()
@@ -2800,6 +2828,7 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 	s.endpoints[sess.ID] = closeEndpoint
 	s.forgetWorkspaceContextLocked(sess.ID)
 	s.mu.Unlock()
+	s.syncServingFacts(sess.ID)
 	return rt, nil
 }
 

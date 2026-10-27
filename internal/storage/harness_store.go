@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 	"time"
@@ -207,7 +208,9 @@ func (s *HarnessStore) Apply(ctx context.Context, w harness.StoreWrite) (harness
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return harness.Applied{}, err
+		// Whether COMMIT reached the disk is not known from here; every earlier
+		// failure is a proven rollback. The caller reads the stamps back.
+		return harness.Applied{}, fmt.Errorf("%w: %v", harness.ErrStoreCommitUnknown, err)
 	}
 	return applied, nil
 }

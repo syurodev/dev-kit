@@ -3,19 +3,31 @@ package harnessconfig
 import (
 	"context"
 	"errors"
+	"time"
 
 	"devkit/internal/harness"
 	"devkit/internal/identity"
 )
 
-// Result says what was stored. Nothing here changes a running session: H3 and H4
-// own publishing a committed change to a runtime, so Live is always false and a
-// workspace change means other sessions need a reload to pick it up.
+// Result says what was stored and what became of the requester's running
+// session. A returned error with a populated Result (see PublicationError) means
+// the change IS stored.
 type Result struct {
 	Profile, Override harness.Stamp
-	Live              bool
-	ReloadRequired    bool
+	// Live is true only when the requester's CURRENT endpoint installed and
+	// acknowledged the exact committed serving identity. A stored change, an
+	// opening endpoint, a paused one or a notification is never enough.
+	Live bool
+	// ReloadRequired is true for a workspace change: other sessions keep the
+	// profile they opened with until reloaded.
+	ReloadRequired bool
+	Commit         CommitState
+	Publication    Publication
 }
+
+// publishTimeout bounds the work that finishes a committed change on a host
+// context, independent of the requester's context.
+const publishTimeout = 5 * time.Second
 
 // Apply asks the person, rechecks every input and commits the proposal once.
 // The order is the contract:
@@ -23,12 +35,22 @@ type Result struct {
 //  1. take the proposal (single use: it is spent whatever happens next);
 //  2. fail closed if nobody can answer, then ask with no lock and no
 //     transaction held;
-//  3. inside the validation boundary re-read identity, scope, policy, V, W, S
-//     and the vendor facts, rebuild the effective before and after, and require
+//  3. inside the validation boundary, and for an S change under the session's
+//     coordinator, re-read identity, scope, policy, V, W, S, the vendor facts and
+//     the running endpoint, rebuild the stored and live evaluations, and require
 //     the same binding the person saw;
-//  4. commit W and S in one short transaction with the expected stamps.
+//  4. close the running endpoint's admission (calls already admitted finish
+//     under the policy they loaded; nothing is drained);
+//  5. commit W and S in one short transaction with the expected stamps;
+//  6. on a proven rollback reopen that same admission; on an unknown outcome
+//     read the stamps back and keep admission closed if still unsure;
+//  7. on a commit, install the policy and discovery resolved from the pinned
+//     launch basis and the latest durable S, and release admission only when the
+//     endpoint acknowledges exactly that.
 //
-// Any refusal leaves W and S unchanged. A later retry needs a fresh Prepare.
+// Any refusal leaves W and S unchanged. A later retry needs a fresh Prepare. A
+// committed change whose publication failed returns its Result with a
+// *PublicationError; it is reconciled, never proposed again.
 func (s *Service) Apply(ctx context.Context, id string) (Result, error) {
 	caller, ok := identity.FromContext(ctx)
 	p, err := s.take(caller, ok, id)
@@ -39,7 +61,7 @@ func (s *Service) Apply(ctx context.Context, id string) (Result, error) {
 	defer s.drop(id)
 
 	fail := func(err error) (Result, error) {
-		s.audit(p, harness.Applied{}, outcomeOf(err))
+		s.audit(p, harness.Applied{}, outcomeOf(err), "")
 		return Result{}, err
 	}
 	if s.cfg.Confirmer == nil || !s.cfg.Confirmer.Available() || s.cfg.Boundary == nil {
@@ -74,38 +96,193 @@ func (s *Service) Apply(ctx context.Context, id string) (Result, error) {
 		}
 	}
 
-	var applied harness.Applied
+	var out committed
 	err = s.cfg.Boundary.Hold(ctx, func() error {
-		ev, policy, err := s.evaluate(ctx, caller, p.req)
-		if err != nil {
-			return refusalFor(err)
-		}
-		if ev.Tier == harness.TierExecutable {
-			if !policy.AllowExecutable {
-				return ErrExecutableDenied
+		// An S change on a session is coordinated with every other writer of S,
+		// every endpoint replacement and the session's close. Order: the V boundary
+		// (held here), then the session coordinator, then the host's own locks.
+		if s.cfg.Live != nil && p.bound.SessionID != "" && p.bound.write.Override != nil {
+			if cerr := s.cfg.Live.Coordinate(ctx, p.bound.SessionID, func(txn LiveTxn) error {
+				return s.commit(ctx, caller, p, txn, &out)
+			}); cerr != nil {
+				return refusalFor(cerr)
 			}
-			return ErrExecutableNotReady
+			return nil
 		}
-		if ev.W != p.bound.W {
-			return ErrConflict
-		}
-		if ev.digest() != p.bound.digest() {
-			return ErrStale
-		}
-		// The point of no return: after this Cancel is too late. Checked and set
-		// together under the lock, so a Cancel either lands before (and wins) or
-		// is told it is too late.
-		if !s.beginCommit(p) {
-			return ErrCancelled
-		}
-		applied, err = s.cfg.Store.Apply(ctx, ev.write)
-		return mapApplyErr(err)
+		return s.commit(ctx, caller, p, nil, &out)
 	})
 	if err != nil {
 		return fail(err)
 	}
-	s.audit(p, applied, "applied")
-	return Result{Profile: applied.Profile, Override: applied.Override, ReloadRequired: p.bound.write.Profile != nil}, nil
+
+	res := Result{
+		Profile: out.applied.Profile, Override: out.applied.Override,
+		ReloadRequired: p.bound.write.Profile != nil,
+		Commit:         out.commit, Publication: out.pub,
+		Live: out.pub.State == PublicationInstalled,
+	}
+	s.audit(p, out.applied, "applied", string(out.pub.State))
+	if out.err != nil {
+		return res, &PublicationError{Result: res, Cause: out.err}
+	}
+	return res, nil
+}
+
+// committed is what the commit step leaves for Apply to report.
+type committed struct {
+	applied harness.Applied
+	commit  CommitState
+	pub     Publication
+	err     error // a publication failure; the write itself is durable (or unknown)
+}
+
+// commit runs steps 3 to 7 of Apply. Its error is a refusal before or instead of
+// a commit; after the commit point it fills out and returns nil.
+func (s *Service) commit(ctx context.Context, caller identity.Caller, p *pendingProposal, txn LiveTxn, out *committed) error {
+	read := s.liveReaderFor(ctx)
+	if txn != nil {
+		read = func(string) (LiveTarget, error) { return txn.Target(), nil }
+	}
+	ev, policy, err := s.evaluate(ctx, caller, p.req, read)
+	if err != nil {
+		return refusalFor(err)
+	}
+	if ev.Tier == harness.TierExecutable {
+		if !policy.AllowExecutable {
+			return ErrExecutableDenied
+		}
+		return ErrExecutableNotReady
+	}
+	if ev.W != p.bound.W {
+		return ErrConflict
+	}
+	if ev.digest() != p.bound.digest() {
+		return ErrStale
+	}
+
+	// Admission closes BEFORE the commit, so no call can be admitted under the old
+	// policy after the new one is durable. A Cancel still wins until beginCommit.
+	closed := false
+	if ev.Live != nil {
+		if txn == nil || txn.Quarantine() != nil {
+			return ErrStale
+		}
+		closed = true
+	}
+	// The point of no return: after this Cancel is too late. Checked and set
+	// together under the lock, so a Cancel either lands before (and wins) or is
+	// told it is too late.
+	if !s.beginCommit(p) {
+		if closed {
+			_ = txn.Restore()
+		}
+		return ErrCancelled
+	}
+
+	applied, err := s.cfg.Store.Apply(ctx, ev.write)
+	switch {
+	case err == nil:
+		out.commit = CommitCommitted
+	case storeCommitUnknown(err):
+		// Not a rollback: the write may be durable. Read the stamps back on a host
+		// context. A proven absence is a rollback; anything else keeps admission
+		// closed.
+		rctx, cancel := hostContext(ctx)
+		verdict, got := s.readBack(rctx, ev)
+		cancel()
+		switch verdict {
+		case readBackNotCommitted:
+			if closed {
+				_ = txn.Restore()
+			}
+			return ErrStale
+		case readBackCommitted:
+			applied, out.commit = got, CommitCommitted
+		default:
+			out.commit = CommitUnknown
+			if txn != nil {
+				txn.MarkPending()
+			}
+			out.pub = Publication{State: PublicationPending}
+			out.err = err
+			return nil
+		}
+	default:
+		// A proven rollback: nothing is durable.
+		if closed {
+			_ = txn.Restore()
+		}
+		return mapApplyErr(err)
+	}
+	out.applied = applied
+
+	if txn == nil || ev.write.Override == nil {
+		return nil // nothing to publish: W only, or no coordinated session
+	}
+	pctx, cancel := hostContext(ctx)
+	defer cancel()
+	durable, stamp, rerr := s.cfg.Store.GetOverride(pctx, ev.SessionID, ev.WorkspaceID)
+	if rerr != nil {
+		// Committed, but the latest durable S cannot be read: install nothing.
+		txn.MarkPending()
+		out.pub = Publication{State: PublicationPending}
+		out.err = rerr
+		return nil
+	}
+	pub, perr := txn.Publish(stamp, durable)
+	out.pub = pub
+	if perr != nil {
+		out.pub.State = PublicationPending
+		out.err = perr
+	}
+	return nil
+}
+
+type readBackVerdict int
+
+const (
+	readBackUnknown readBackVerdict = iota
+	readBackCommitted
+	readBackNotCommitted
+)
+
+// readBack decides an unknown commit from the durable stamps. The write was
+// compare-and-swap against Expect, so a stamp of Expect+1 is this write and
+// Expect is its absence; anything else proves nothing.
+func (s *Service) readBack(ctx context.Context, ev evaluation) (readBackVerdict, harness.Applied) {
+	var got harness.Applied
+	committed, absent := true, true
+	if w := ev.write.Profile; w != nil {
+		_, st, err := s.cfg.Store.GetProfile(ctx, ev.WorkspaceID)
+		if err != nil {
+			return readBackUnknown, got
+		}
+		got.Profile = st
+		committed = committed && st.Revision == w.Expect.Revision+1
+		absent = absent && st.Revision == w.Expect.Revision
+	}
+	if w := ev.write.Override; w != nil {
+		_, st, err := s.cfg.Store.GetOverride(ctx, ev.SessionID, ev.WorkspaceID)
+		if err != nil {
+			return readBackUnknown, got
+		}
+		got.Override = st
+		committed = committed && st.Revision == w.Expect.Revision+1
+		absent = absent && st.Revision == w.Expect.Revision
+	}
+	switch {
+	case committed:
+		return readBackCommitted, got
+	case absent:
+		return readBackNotCommitted, got
+	}
+	return readBackUnknown, got
+}
+
+// hostContext is a bounded context that outlives the requester's cancellation:
+// finishing a committed change must not depend on the caller still waiting.
+func hostContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), publishTimeout)
 }
 
 // take marks a proposal as in use by its proposer. Only the caller that
@@ -161,13 +338,13 @@ func outcomeOf(err error) string {
 	return "error"
 }
 
-func (s *Service) audit(p *pendingProposal, applied harness.Applied, outcome string) {
+func (s *Service) audit(p *pendingProposal, applied harness.Applied, outcome, publication string) {
 	if s.cfg.Audit == nil {
 		return
 	}
 	s.cfg.Audit(Event{Outcome: outcome, Tier: p.view.Tier, Target: p.view.Target, Caller: p.caller,
 		WorkspaceID: p.bound.WorkspaceID, SessionID: p.bound.SessionID,
-		Profile: applied.Profile.Revision, Override: applied.Override.Revision})
+		Profile: applied.Profile.Revision, Override: applied.Override.Revision, Publication: publication})
 }
 
 func (s *Service) wasCancelled(p *pendingProposal) bool {

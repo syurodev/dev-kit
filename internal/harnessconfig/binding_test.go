@@ -16,7 +16,7 @@ func digestOf(t *testing.T, e *env, session string, req Request) string {
 		t.Fatal(err)
 	}
 	req.Patch, req.Rationale = patch, cleanRationale(req.Rationale)
-	ev, _, err := e.svc.evaluate(agent(session), identity.Agent(session), req)
+	ev, _, err := e.svc.evaluate(agent(session), identity.Agent(session), req, e.svc.liveReaderFor(agent(session)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestCallerOwnedValuesCannotChangeAPreparedProposal(t *testing.T) {
 	if p.req.Patch.EnableGroups[0] != "git" || len(p.req.Patch.EnableGroups) != 1 || p.req.Rationale != "enable it" {
 		t.Fatalf("the prepared request aliases the caller's values: %+v", p.req)
 	}
-	ev, _, err := e.svc.evaluate(agent("s1"), identity.Agent("s1"), p.req)
+	ev, _, err := e.svc.evaluate(agent("s1"), identity.Agent("s1"), p.req, e.svc.liveReaderFor(agent("s1")))
 	if err != nil || ev.digest() != p.bound.digest() {
 		t.Fatalf("re-evaluating the stored request must reproduce the binding: %v", err)
 	}

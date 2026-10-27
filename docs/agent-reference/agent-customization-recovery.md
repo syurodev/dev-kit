@@ -267,11 +267,97 @@ per-call observer reading the live serving snapshot is H4's.
    tier) → `harness.proposalStale`; an executable tier that appears after approval is refused.
 5. **Commit once.** `HarnessStore.Apply` with the expected W/S stamps in one short transaction;
    a CAS lost in the gap between the recheck and the commit maps to the same two codes.
-6. **Result.** `Result{Profile, Override, Live:false, ReloadRequired}`: the change is *stored*,
-   not applied to any runtime. H3/H4 own publication, so this layer never claims live revocation.
+6. **Result.** `Result{Profile, Override, Live, ReloadRequired, Commit, Publication}`. Without a
+   `Live` port (the default) `Live` is false and the change is *stored*, not applied to any
+   runtime. With one, see "Live publication of S (H4c)" below: `Live` is true only when the
+   requester's current endpoint acknowledged the exact committed serving identity.
 
 Composition adapters live in `internal/app/harness_config.go` (vendors from preferences with
 `FactsComplete=false`, hub confirmer, boundary, directory, validator, default policy) and
 `agenthub.Service.HarnessScope` is the trusted session → workspace/vendor read. No production
 code builds the service yet: it needs a registry source and a public transport (H4/H5).
 `EventAudit`-style records (`Event`) hold outcome, tier, target, ids and revisions only.
+
+### Live publication of S (H4c, internal and inert)
+
+Plan: `docs/superpowers/plans/2026-10-27-harness-h4c-live-publication-implementation.md`. A committed
+change to S either installs its exact serving policy on the session's **current** endpoint or leaves that
+endpoint unable to admit calls. No production `Harness` is constructed yet (H4d), and there is no public
+transport, editor or policy setting (H5); everything below is reachable only through the internal service.
+
+- **Three values, never one.** *Launch-applied* is the durable reference and executable baseline of the
+  launch (`harnessApplied`, `SetHarnessApplied`); a live S change never writes it, so Close/restart/rewind
+  guards (#353) are unchanged. *Serving-applied* is what the current endpoint acknowledged (in memory only,
+  `HarnessStatus.Serving`). *Desired* is the saved V/W/S resolved now. `HarnessStatus.State` still compares
+  desired with the launch reference, so a live S publish never makes pending W/V drift look current.
+- **Pinned launch basis (C1).** `harness.ServingBasis` freezes the launch's registry, V, W and every path
+  resolution the launch made (`CanonRecorder`), plus the W and S stamps it read (a tombstone keeps its
+  revision). `Snapshot.Basis` is built from the same single `Resolve`, verified by re-resolving, and is
+  immutable. `Basis.Resolve(S)` is the only live resolution: the ordinary merge over the pinned V/W and the
+  latest durable S. It refuses a result whose executable digest differs, so S can change tool groups only; a
+  retargeted symlink, a later saved W or V, and mutated source slices cannot reach a running endpoint.
+- **Approval covers the actual effect (C2).** `evaluate` computes the saved effect and, for the requester's
+  running session, the pinned-basis effect (`liveEffect`: incarnation, epoch, served identity, pinned V/W
+  revisions, before/after fingerprints, per-group availability and result-budget range). The strictest tier of
+  the two decides, **before** the `harness.noChange` test: saved W may already allow a group the running
+  session's W blocks (a live-only widening must ask) and a revoke may do nothing live. The confirmation shows
+  "Saved configuration" and "This running session" as separate sections, never merged. An endpoint that is
+  paused, or not serving the stored S, is `harness.notAvailable` rather than a synthetic default. Enabling a
+  group adds no pre-approval. At Apply the same evaluation is rebuilt under the coordinator and must equal the
+  digest: W moved → `harness.profileConflict`; incarnation, epoch, serving identity or activity moved →
+  `harness.proposalStale` (a replacement endpoint with an identical policy still needs a fresh proposal).
+- **One barrier (C3).** Per-session `servingCoord` (Agent Hub) serializes every S writer, endpoint staging
+  and the session's close. Lock order: V boundary (`HoldAgentCustomization`) → coordinator → host locks
+  (`bindMu`, `mu`, the holder's transition lock); `Service.mu` is only taken inside the coordinator, never
+  the reverse; nothing waits for a person, vendor or prompt under it. Apply: re-evaluate → **quarantine**
+  (admission is one atomic `admissionState`, so a call is admitted under the old policy only if it loaded it
+  before the quarantine) → `beginCommit` (a Cancel before it wins and restores) → `Store.Apply` (W+S CAS,
+  one transaction) → publish. Handlers already running finish under their entry snapshot; nothing is drained,
+  so a proposal that is itself an MCP call cannot deadlock.
+- **Discovery changes with enforcement (C4).** `servingHolder.install` runs the registry update while paused:
+  tools that must return are re-registered by `Server.registerAll` (the one declaration of the registry; same
+  names replace, no handler is duplicated), tools that must go use `RemoveTools`, then policy and admission
+  reopen in one store. `tools/list` is refused while paused (no half-updated registry), pagination cursors are
+  name-based in SDK v1.7.0 so a cursor issued before a revoke cannot reveal a hidden tool (tested), and policy
+  endpoints set `HasTools` so an initially empty endpoint still advertises `listChanged`. The SDK's debounced
+  notification is reported as *scheduled*, never as an acknowledgement; "live" does not mean the vendor
+  refreshed its tool list (`HarnessServing.DiscoveryReloadRequired`).
+- **Durable success, failure, reconciliation (C5).** `store.ErrStoreCommitUnknown` marks the only ambiguous
+  case (`tx.Commit` failed); every other store error is a proven rollback and restores the exact paused
+  admission (ticket + incarnation must still be current). An unknown outcome is read back (`Expect+1`
+  committed, `Expect` rolled back, anything else unknown and the endpoint stays paused). After a commit the
+  latest durable S is read on a host context (post-commit cancellation cannot undo it) and installed; any
+  failure keeps the endpoint paused and returns `*PublicationError` carrying the committed `Result` (stamps,
+  `Commit`, `Publication`). The audit event says `applied` with the publication state. Retrying publication is
+  `Service.Reconcile`: one read of the latest durable S under the coordinator, a new ticket that supersedes
+  any older operation, install, no retry loop; concurrent calls serialize and the later finds nothing to do;
+  it starts no runtime, sends no prompt and cannot revive a closed session (no scope / no endpoint → nothing).
+  After a process restart there is no incarnation to resurrect; the next normal launch reads S.
+  No new public error code: `harness.snapshotUnavailable` is already in `bridge.keptCodes`.
+- **Every opening path is fenced (C6).** `prepareLaunch` (create, resume, reload, dead-runtime recovery,
+  account reopen, both rewind opens) reserves the coordinator epoch before it reads S, registers the endpoint
+  with the coordinator before the vendor exists (a commit now reaches the staged endpoint like a published
+  one), and `launchCurrent` re-checks the epoch right before publication (create before the row is inserted,
+  resume before the durable reference is written, rewind before the one cut+reference transaction). A stale
+  launch is discarded (`agenthub.ErrHarnessLaunchStale`, code `harness.snapshotUnavailable`); `prepareLaunch`
+  re-prepares at most 3 times in all, with no prompt replay and no new account choice. Explicit Close advances
+  the epoch and forgets the endpoint first, then commits `closed` and clears S (a tombstone); Delete drops the
+  coordinator only after the rows are gone. Reload/resume/rewind/account teardown keep S. A child resolves its
+  own S. An old endpoint's `Close`, `Quarantine`, `Install` or `Restore` cannot touch a replacement.
+- **Truthful status, guidance, attribution (C7).** `HarnessStatus.Live` = the current endpoint is open,
+  serves exactly the identity it acknowledged and nothing is pending (point-in-time). `servedFor` (all host
+  guidance: peer envelope, workspace context, documents) follows the acknowledged surface, so new turns
+  describe what is served; the launch value handed to adapters, the launch permission lists and the launch
+  prompt are never mutated and a newly served tool follows the normal permission flow until a reload.
+  `Service.ReplacementGuidance` returns the bounded H4b text only for a group the endpoint has acknowledged and
+  the launch did not offer, from the whole new served set; otherwise the caller says a reload is required.
+  Future turn admissions copy the served S revision (replaced, never mutated, so a started turn keeps its facts;
+  a paused or unacknowledged endpoint is not recorded; a tombstone is a NULL revision). Per-call observations
+  still use the call-entry snapshot of the endpoint, so a turn's start facts and a call's snapshot can differ
+  by design. The shared-memory preamble names the get tool only when `workspace.memory.get` is served;
+  user-authored entries, briefs and peer bodies are passed through untouched.
+- **Not done / open.** H4d (production construction and activation acceptance) and H5 (public get/propose
+  transport, editor, policy setting) are out of scope. Whether Claude, Codex or opencode refresh a tool list
+  after `listChanged` is **not measured**; nothing claims it. A rewind-open stale race has the shared code path
+  but no dedicated test with a real fork. Vendor-side revocation of a launch pre-approval is not claimed (the
+  endpoint refuses by group, the vendor's allow list is as launched).

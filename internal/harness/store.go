@@ -57,6 +57,10 @@ var (
 	// ErrStoreScope means the workspace or session does not exist or the
 	// session does not belong to the workspace. Nothing is transferred silently.
 	ErrStoreScope = errors.New("harness scope not found")
+	// ErrStoreCommitUnknown means the final commit failed after every check
+	// passed, so the write may or may not be durable. Every other store error is a
+	// proven rollback. A caller reads the stamps back before it decides.
+	ErrStoreCommitUnknown = errors.New("harness commit outcome unknown")
 	// ErrStoreCorrupt is a stored record this build cannot read (unknown schema,
 	// invalid JSON). It is never read as "no profile": that would turn every
 	// tool group back on.

@@ -36,9 +36,20 @@ type HarnessStatus struct {
 	// not be read in full when the runtime was opened: the applied reference then
 	// describes DevKit's configuration, not a verified account of the vendor's.
 	AppliedFactsComplete bool
-	// Live is always false until a change to an override is published to the
-	// running endpoint (H4); a saved change is stored, not applied.
+	// Live is true only while the session's CURRENT endpoint is open, serves the
+	// exact identity it acknowledged and has nothing pending. Historical
+	// enforcement, a stored change, an endpoint still opening, a paused or closed
+	// one, and a list-changed notification are none of them enough. It is a
+	// point-in-time observation, not a promise.
 	Live bool
+	// Serving separates what the running endpoint serves from what the launch was
+	// given (Applied, a durable reference live S never rewrites) and from what the
+	// saved configuration resolves to now (Desired).
+	Serving HarnessServing
+	// State compares Desired with the LAUNCH reference. A live S publication does
+	// not make a pending workspace or vendor change look applied: a session whose
+	// endpoint already serves the saved S still reports reload_required while W
+	// or V moved, and new_session_required while executables moved.
 }
 
 // HarnessStatus is an internal read model. It does not authorize on behalf of a
@@ -62,6 +73,10 @@ func (s *Service) HarnessStatus(ctx context.Context, sessionID string) (HarnessS
 		ref := applied.Ref.Clone()
 		st.Applied, st.Enforced, st.AppliedFactsComplete = &ref, applied.Enforced, applied.Ref.FactsComplete
 	}
+	// What the endpoint serves is observed even when the desired configuration
+	// cannot be resolved.
+	st.Serving = s.servingStatus(sessionID, nil)
+	st.Live = st.Serving.Acknowledged
 	desired, err := s.Harness.Snapshot(ctx, sessionID, sess.WorkspaceID, string(sess.AgentType))
 	if err != nil {
 		st.State = HarnessUnavailable
@@ -69,6 +84,8 @@ func (s *Service) HarnessStatus(ctx context.Context, sessionID string) (HarnessS
 	}
 	ref := desired.Ref.Clone()
 	st.Desired = &ref
+	st.Serving = s.servingStatus(sessionID, &desired)
+	st.Live = st.Serving.Acknowledged
 	switch {
 	case applied == nil:
 		st.State = HarnessNotApplied

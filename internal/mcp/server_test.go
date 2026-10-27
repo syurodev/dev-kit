@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,6 +27,9 @@ type callRecord struct {
 }
 
 type fakeCaller struct {
+	// mu guards last: tests that call tools from several goroutines (the
+	// concurrent task-field writers) otherwise race on the record.
+	mu   sync.Mutex
 	last callRecord
 	err  error
 }
@@ -36,6 +40,7 @@ func (f *fakeCaller) Call(
 	metadata map[string]any,
 	handler capabilities.Handler,
 ) (any, error) {
+	f.mu.Lock()
 	f.last = callRecord{
 		subject:    subject,
 		capability: capability,
@@ -43,6 +48,7 @@ func (f *fakeCaller) Call(
 		metadata:   metadata,
 		caller:     identity.Label(ctx),
 	}
+	f.mu.Unlock()
 	if f.err != nil {
 		return nil, f.err
 	}

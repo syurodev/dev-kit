@@ -70,6 +70,9 @@ type harnessLaunch struct {
 	// served is what the endpoint serves under the prepared policy, the one
 	// input of host guidance. nil: no policy was prepared (legacy).
 	served *DevKitServing
+	// reservation is the session's S/lifecycle epoch as this launch saw it before
+	// it read S; launchCurrent checks it again right before publication.
+	reservation servingReservation
 }
 
 // prepareLaunch is the single place an endpoint and a harness snapshot are
@@ -80,8 +83,24 @@ type harnessLaunch struct {
 // when it can serve one), then fill the spec from the endpoint. Nothing is
 // published here; a failure leaves no endpoint and no record behind. No lock is
 // held, and no vendor process exists yet.
+//
+// A launch whose S (or lifecycle) moved while it was preparing is discarded and
+// prepared again, at most launchAttempts times in all; it never sends a prompt or
+// picks another account.
 func (s *Service) prepareLaunch(ctx context.Context, spec *OpenSpec, sessionID, workspaceID string, vendor AgentType, previous *appliedHarness) (harnessLaunch, error) {
+	for attempt := 1; ; attempt++ {
+		l, err := s.prepareLaunchOnce(ctx, spec, sessionID, workspaceID, vendor, previous)
+		if err != nil && errors.Is(err, ErrHarnessLaunchStale) && attempt < launchAttempts {
+			continue
+		}
+		return l, err
+	}
+}
+
+func (s *Service) prepareLaunchOnce(ctx context.Context, spec *OpenSpec, sessionID, workspaceID string, vendor AgentType, previous *appliedHarness) (harnessLaunch, error) {
 	l := harnessLaunch{closeEndpoint: func() {}}
+	// Before S is read: any S commit after this point makes the launch stale.
+	l.reservation = s.reserveServing(sessionID)
 	if s.Harness != nil && workspaceID != "" {
 		snap, err := s.Harness.Snapshot(ctx, sessionID, workspaceID, string(vendor))
 		if err != nil {
@@ -118,6 +137,24 @@ func (s *Service) prepareLaunch(ctx context.Context, spec *OpenSpec, sessionID, 
 			l.enforced = false
 			log.Printf("agenthub: session %s: the policy endpoint reported no served tools", sessionID)
 			return l, ErrHarnessUnavailable
+		}
+		// Registered with the session's coordinator before the vendor exists, so a
+		// concurrent S commit either made this launch stale (refused here) or
+		// reaches this endpoint like a published one. A snapshot with no basis, or
+		// an endpoint with no publication handle, is never live-updated.
+		if ep.Live != nil && l.snapshot.Basis != nil {
+			launchID := l.snapshot.Basis.Identity(l.snapshot.Basis.LaunchSession(), l.snapshot.Effective)
+			if err := s.stageServing(sessionID, l.reservation, ep.Live, l.snapshot.Basis, launchID, l.snapshot.Effective); err != nil {
+				ep.Close()
+				l.closeEndpoint = func() {}
+				l.enforced = false
+				return l, err
+			}
+			closeEp, incarnation := ep.Close, ep.Live.Incarnation()
+			l.closeEndpoint = func() {
+				closeEp()
+				s.detachServing(sessionID, incarnation)
+			}
 		}
 		l.served = ep.Served.Clone()
 		spec.DevKit = ep.Served.Clone()
@@ -207,6 +244,11 @@ func cloneRevision(r *int64) *int64 {
 // servedFor is what the session's live runtime was told it can use: nil for a
 // legacy launch or a session with no live runtime record.
 func (s *Service) servedFor(sessionID string) *DevKitServing {
+	// A running enforcing endpoint is the authority: after a live change its
+	// acknowledged surface, not the launch's, is what guidance may name.
+	if cur := s.servingServed(sessionID); cur != nil {
+		return cur
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.harnessApplied[sessionID].Served.Clone()

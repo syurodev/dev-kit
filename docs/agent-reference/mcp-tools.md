@@ -155,5 +155,21 @@ text bytes, not vendor request tokens, provider cost or subscription quota.
   (`thread/start` and `thread/resume` developer instructions) and opencode (instructions file and config), and against a real
   `SessionHost` + resolver + service (`guidance_integration_test.go`). Bytes only, not tokens: all on 19,219 (Claude) /
   19,572 (Codex) / 19,528 (opencode), git off 16,287 / 16,642 / 16,598, tasks (board) off 15,758 / 16,111 / 16,067, all off 3,437.
-  Still inert: no production `Harness`, no public proposal tool (the prompt never names `harness.profile.propose`), H4c/H4d not done.
+  Still inert: no production `Harness`, no public proposal tool (the prompt never names `harness.profile.propose`), H4d not done.
+- **A committed S change is installed on the exact endpoint incarnation (H4c, inert)** (`internal/mcp/serving.go`,
+  `serving_live.go`, `session_host.go`, `result_metrics.go`; protocol and lock order in
+  `agent-customization-recovery.md` "Live publication of S"). `servingHolder` keeps one atomic `admissionState`
+  (policy + paused/closed): the call-entry load decides admission, so a call that entered before a quarantine
+  finishes under its snapshot and none enters under the old policy after it, with no drain of running handlers.
+  While paused `tools/call` answers `harness.snapshotUnavailable` ("being updated", before any handler or the gateway)
+  and `tools/list` is refused. `sessionEndpoint` implements `agenthub.ServingEndpoint` (opaque incarnation, tickets
+  that supersede each other, `Quarantine`/`Restore`/`Install`); `Install` checks the policy covers the registry, then
+  re-registers returning tools through `Server.registerAll` and drops the rest with `RemoveTools` (supported SDK APIs
+  only), then swaps the policy and reopens admission in one store; a failed or panicking step leaves the endpoint paused.
+  Policy endpoints set `HasTools`, so a configured-empty endpoint advertises `listChanged` and a later enable is
+  discoverable; the SDK's debounced list-changed notification is reported as *scheduled*, not as a vendor refresh.
+  Result budgets, schemas, the bootstrap exception, host-owned exemptions and the definition ceilings are untouched
+  (`registerAll` is the one declaration of the registry). Integration tests run the real H2 `Apply`, SQLite
+  `HarnessStore`, Agent Hub service, `SessionHost` and SDK clients with a scripted vendor
+  (`serving_integration_test.go`, `serving_live_test.go`, `serving_status_test.go`).
 

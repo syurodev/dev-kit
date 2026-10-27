@@ -27,14 +27,29 @@ func buildView(ev evaluation, policy Policy) (View, error) {
 	for _, vd := range ev.Vendors {
 		for _, c := range vd.Changes {
 			e := effect(c)
-			v.Changes = append(v.Changes, ViewChange{Vendor: vd.Vendor, Field: c.Field, Key: c.Key, Effect: e})
+			v.Changes = append(v.Changes, ViewChange{Vendor: vd.Vendor, Field: c.Field, Key: c.Key, Effect: e, Scope: ScopeStored})
 			if !seen[e] {
 				seen[e] = true
 				lines = append(lines, e)
 			}
 		}
 	}
-	if len(lines) > maxViewChanges {
+	// The running session is judged separately, under its pinned launch W, so the
+	// two lists can disagree (saved W already allows what the session's W blocks)
+	// and are never merged or deduplicated against each other.
+	var liveLines []string
+	if ev.Live != nil {
+		liveSeen := map[string]bool{}
+		for _, g := range ev.Live.Groups {
+			l := liveLine(g)
+			v.Changes = append(v.Changes, ViewChange{Field: "toolGroups", Key: g.Name, Effect: l, Scope: ScopeRunning})
+			if !liveSeen[l] {
+				liveSeen[l] = true
+				liveLines = append(liveLines, l)
+			}
+		}
+	}
+	if len(lines)+len(liveLines) > maxViewChanges {
 		return View{}, ErrTooLargeToShow
 	}
 	var b strings.Builder
@@ -45,14 +60,44 @@ func buildView(ev evaluation, policy Policy) (View, error) {
 		b.WriteString("Change this workspace's harness profile. Running sessions keep what they opened with until reloaded.")
 	}
 	fmt.Fprintf(&b, " Effect: %s.", v.Tier)
-	for _, l := range lines {
-		fmt.Fprintf(&b, "\n- %s", l)
+	// Without a running session the sentence is the stored-only form, as before.
+	switch {
+	case ev.Live == nil:
+		for _, l := range lines {
+			fmt.Fprintf(&b, "\n- %s", l)
+		}
+	case len(lines) > 0:
+		b.WriteString("\nSaved configuration (what the next session opens with):")
+		for _, l := range lines {
+			fmt.Fprintf(&b, "\n- %s", l)
+		}
+	default:
+		b.WriteString("\nSaved configuration: no difference in effect.")
+	}
+	if ev.Live != nil {
+		fmt.Fprintf(&b, "\nThis running session (opened with workspace profile revision %s, vendor revision %d):", pinnedW(ev.Live.PinnedWorkspace), ev.Live.PinnedVendor)
+		if len(liveLines) == 0 {
+			b.WriteString("\n- no change to what it can use")
+		}
+		for _, l := range liveLines {
+			fmt.Fprintf(&b, "\n- %s", l)
+		}
+		b.WriteString("\nTools turned on become usable only after the agent refreshes its tool list or the session is reloaded; this does not pre-approve them.")
 	}
 	if b.Len() > maxSummaryBytes {
 		return View{}, ErrTooLargeToShow
 	}
 	v.Summary = b.String()
 	return v, nil
+}
+
+// pinnedW states the workspace profile a session was opened with: its revision,
+// or that there was none (absent, possibly after a deletion).
+func pinnedW(s harness.Stamp) string {
+	if !s.Present {
+		return "none"
+	}
+	return fmt.Sprint(s.Revision)
 }
 
 func effect(c harness.Change) string {

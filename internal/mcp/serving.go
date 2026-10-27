@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -104,46 +105,132 @@ func (n *servingSnapshot) serves(tool string) bool {
 	return n.eff.Served(tool)
 }
 
+// admissionState is everything one call needs to be admitted, read with ONE
+// atomic load: the policy, and whether admission is paused or closed. A call
+// that loaded a ready state before a quarantine was stored was admitted before
+// it and may finish under that policy; none can be admitted under the old policy
+// after.
+type admissionState struct {
+	snap           *servingSnapshot
+	paused, closed bool
+}
+
+// admission says why a call was or was not admitted.
+type admission int
+
+const (
+	admitReady admission = iota
+	admitPaused
+	admitClosed
+)
+
 // servingHolder is an endpoint incarnation's policy. It belongs to one
 // endpoint, so a session id alone never reaches a replacement's policy. After
-// close it answers nothing.
+// close it answers nothing; while paused (a quarantine, see quarantine) it
+// admits nothing either.
 type servingHolder struct {
-	mu   sync.Mutex // serializes replace against close; load is lock-free
-	cur  atomic.Pointer[servingSnapshot]
-	done atomic.Bool
+	mu     sync.Mutex // serializes transitions; admit and load are lock-free
+	st     atomic.Pointer[admissionState]
+	seq    uint64
+	ticket uint64
 }
 
 func newServingHolder(eff harness.Effective) *servingHolder {
 	h := &servingHolder{}
-	h.cur.Store(&servingSnapshot{eff: eff})
+	h.st.Store(&admissionState{snap: &servingSnapshot{eff: eff}})
 	return h
 }
 
-// load is the call-entry read: no lock, no I/O.
+// admit is the call-entry read: no lock, no I/O.
+func (h *servingHolder) admit() (*servingSnapshot, admission) {
+	st := h.st.Load()
+	switch {
+	case st == nil || st.closed:
+		return nil, admitClosed
+	case st.paused:
+		return nil, admitPaused
+	}
+	return st.snap, admitReady
+}
+
+// load is the snapshot of a ready endpoint, nil when it is closed or paused.
 func (h *servingHolder) load() *servingSnapshot {
-	if h == nil || h.done.Load() {
+	if h == nil {
 		return nil
 	}
-	return h.cur.Load()
+	snap, _ := h.admit()
+	return snap
 }
+
+// listable reports whether tools/list may be answered: only a ready endpoint,
+// so a registry that is being rewritten is never offered.
+func (h *servingHolder) listable() bool { _, a := h.admit(); return a == admitReady }
 
 // replace publishes a new policy to this endpoint only. It reports false once
 // the endpoint is closed.
 func (h *servingHolder) replace(eff harness.Effective) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.done.Load() {
+	st := h.st.Load()
+	if st == nil || st.closed {
 		return false
 	}
-	h.cur.Store(&servingSnapshot{eff: eff})
+	h.st.Store(&admissionState{snap: &servingSnapshot{eff: eff}, paused: st.paused})
 	return true
 }
 
 func (h *servingHolder) close() {
 	h.mu.Lock()
-	h.done.Store(true)
+	h.st.Store(&admissionState{closed: true})
 	h.mu.Unlock()
 }
+
+// quarantine closes admission and returns the ticket of this operation, which
+// supersedes any earlier one. Running handlers are not waited for.
+func (h *servingHolder) quarantine() (uint64, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	st := h.st.Load()
+	if st == nil || st.closed {
+		return 0, false
+	}
+	h.seq++
+	h.ticket = h.seq
+	h.st.Store(&admissionState{snap: st.snap, paused: true})
+	return h.ticket, true
+}
+
+// restore reopens admission under the policy the endpoint held, only for the
+// operation that closed it and only while the endpoint is still paused.
+func (h *servingHolder) restore(ticket uint64) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	st := h.st.Load()
+	if st == nil || st.closed || !st.paused || h.ticket != ticket {
+		return false
+	}
+	h.st.Store(&admissionState{snap: st.snap})
+	return true
+}
+
+// install runs change (the registry and discovery update) while admission is
+// paused for ticket, then publishes the new policy and reopens admission in one
+// store. If change fails the endpoint stays paused.
+func (h *servingHolder) install(ticket uint64, eff harness.Effective, change func() error) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	st := h.st.Load()
+	if st == nil || st.closed || !st.paused || h.ticket != ticket {
+		return errTicketSuperseded
+	}
+	if err := change(); err != nil {
+		return err
+	}
+	h.st.Store(&admissionState{snap: &servingSnapshot{eff: eff}})
+	return nil
+}
+
+var errTicketSuperseded = errors.New("mcp: the operation on this endpoint was superseded or the endpoint closed")
 
 // Refusals a served endpoint answers itself. Fixed sentences: the only
 // variable part is a group name taken from the server's own registry.
@@ -155,6 +242,14 @@ func groupOffResult(tool string) *sdk.CallToolResult {
 func endpointClosedResult() *sdk.CallToolResult {
 	return refusalResult(&harness.Error{Code: harness.CodeSnapshotUnavailable, Message: "This session's tool connection is closed."})
 }
+
+// endpointPausedResult answers a call that arrives while a policy change is
+// being installed. Nothing reached a handler or the gateway.
+func endpointPausedResult() *sdk.CallToolResult {
+	return refusalResult(&harness.Error{Code: harness.CodeSnapshotUnavailable, Message: "This session's tool access is being updated. Try again shortly."})
+}
+
+var errToolListUnavailable = &harness.Error{Code: harness.CodeSnapshotUnavailable, Message: "This session's tool list is being updated. Try again shortly."}
 
 func refusalResult(err *harness.Error) *sdk.CallToolResult {
 	return &sdk.CallToolResult{IsError: true, Content: []sdk.Content{&sdk.TextContent{Text: err.Error()}}}
