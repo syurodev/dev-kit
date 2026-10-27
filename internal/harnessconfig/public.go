@@ -291,6 +291,12 @@ const (
 	recoveryUnknown = "DevKit could not confirm whether the change was saved. This session's tool access stays paused. Reconcile the session to read the result back; do not propose the change again."
 	recoveryStaged  = "The change is saved and prepared, but the session's runtime has not confirmed it yet."
 	recoveryStored  = "The change is saved. It takes effect the next time the session is allowed to start."
+
+	// A repair is a workspace write: there is no session to reconcile, so the way
+	// out of an uncertain one is to read the profile again.
+	messageRepairUnknown  = "DevKit could not confirm whether the repair was saved."
+	recoveryRepairUnknown = "Check the workspace's saved settings again before repairing anything else; do not repeat the repair until you have. No session was changed."
+	recoveryRepaired      = "The stale settings were removed. Sessions already running keep what they opened with; new and reloaded sessions use the repaired profile."
 )
 
 // OutcomeOf reports what a change did. An error that carries no committed result
@@ -315,6 +321,9 @@ func OutcomeOf(target Target, res Result, err error) (Outcome, error) {
 		Live:                    res.Live, ReloadRequired: res.ReloadRequired,
 	}
 	switch {
+	case res.Commit == CommitUnknown && target == TargetRepair:
+		out.Status, out.Live = OutcomeUnknown, false
+		out.Code, out.Message, out.Recovery = harness.CodeSnapshotUnavailable, messageRepairUnknown, recoveryRepairUnknown
 	case res.Commit == CommitUnknown:
 		out.Status, out.Live = OutcomeUnknown, false
 		out.Code, out.Message, out.Recovery = harness.CodeSnapshotUnavailable, ErrPublicationPending.Message, recoveryUnknown
@@ -326,7 +335,10 @@ func OutcomeOf(target Target, res Result, err error) (Outcome, error) {
 		out.Recovery = recoveryStaged
 	default:
 		out.Status = OutcomeApplied
-		if res.Publication.State == PublicationNone {
+		switch {
+		case target == TargetRepair:
+			out.Recovery = recoveryRepaired
+		case res.Publication.State == PublicationNone:
 			out.Recovery = recoveryStored
 		}
 	}
@@ -403,4 +415,12 @@ type Controls interface {
 	Cancel(ctx context.Context, id string) error
 	// Reconcile brings a session's endpoint to its latest durable override.
 	Reconcile(ctx context.Context, workspaceID, sessionID string) (Outcome, error)
+
+	// StaleProfile diagnoses a workspace's stored profile for references to groups
+	// or tools the server no longer registers. Window only; it needs no session and
+	// does not depend on the profile resolving.
+	StaleProfile(ctx context.Context, workspaceID string) (StaleDiagnosis, error)
+	// PrepareStaleRepair prepares removing exactly those stale references. The caller
+	// names only the workspace. It writes nothing; Apply always asks and commits.
+	PrepareStaleRepair(ctx context.Context, workspaceID string) (Review, error)
 }
