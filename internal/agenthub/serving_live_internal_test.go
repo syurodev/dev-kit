@@ -9,22 +9,25 @@ import (
 // files may prepare it again: only a moved epoch is S; a Close or a lost endpoint is not.
 func TestLaunchStaleReasonsAreDistinguishedAndAllMatchTheOldError(t *testing.T) {
 	launch := harnessLaunch{reservation: servingReservation{epoch: 1, set: true}}
-	cases := map[string]struct {
-		coord servingCoord
-		l     harnessLaunch
-		want  launchStaleReason
+	gone := harnessLaunch{reservation: launch.reservation, incarnation: "gone"}
+	cases := []struct {
+		name                  string
+		epoch                 uint64
+		closing, closePending bool
+		l                     harnessLaunch
+		want                  launchStaleReason
 	}{
-		"current":                 {servingCoord{epoch: 1}, launch, launchCurrent},
-		"epoch moved":             {servingCoord{epoch: 2}, launch, launchStaleEpoch},
-		"close in progress":       {servingCoord{epoch: 1, closing: true}, launch, launchStaleClose},
-		"failed close fenced":     {servingCoord{epoch: 1, closePending: true}, launch, launchStaleClose},
-		"close wins over epoch":   {servingCoord{epoch: 2, closing: true}, launch, launchStaleClose},
-		"endpoint no longer ours": {servingCoord{epoch: 1}, harnessLaunch{reservation: launch.reservation, incarnation: "gone"}, launchStaleEndpoint},
+		{"current", 1, false, false, launch, launchCurrent},
+		{"epoch moved", 2, false, false, launch, launchStaleEpoch},
+		{"close in progress", 1, true, false, launch, launchStaleClose},
+		{"failed close fenced", 1, false, true, launch, launchStaleClose},
+		{"close wins over epoch", 2, true, false, launch, launchStaleClose},
+		{"endpoint no longer ours", 1, false, false, gone, launchStaleEndpoint},
 	}
-	for name, c := range cases {
-		t.Run(name, func(t *testing.T) {
-			coord := c.coord
-			if got := launchStaleLocked(&coord, c.l); got != c.want {
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			coord := &servingCoord{epoch: c.epoch, closing: c.closing, closePending: c.closePending}
+			if got := launchStaleLocked(coord, c.l); got != c.want {
 				t.Fatalf("reason = %d, want %d", got, c.want)
 			}
 		})
