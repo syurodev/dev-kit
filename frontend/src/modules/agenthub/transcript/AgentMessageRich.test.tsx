@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { renderToString } from "react-dom/server";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AgentProse } from "./AgentMessageRich";
+import { TranscriptActionsProvider } from "./transcriptActions";
 
 const render = (text: string) =>
   renderToString(
@@ -26,11 +27,11 @@ describe("markdown tables in prose", () => {
     expect(html.match(/role="separator"/g)?.length).toBe(3);
   });
 
-  test("keep their alignment and first-column emphasis", () => {
+  test("keep their alignment while allowing every column to wrap", () => {
     const html = render(TABLE);
     const firstRow = html.split("<tbody")[1].split("</tr>")[0];
     const cells = firstRow.split("<td").slice(1);
-    expect(cells[0]).toContain("whitespace-nowrap");
+    expect(cells[0]).not.toContain("whitespace-nowrap");
     expect(cells[1]).toContain("text-right");
     expect(cells[1]).toContain("tabular-nums");
     expect(cells[2]).toContain("text-center");
@@ -43,13 +44,48 @@ describe("markdown tables in prose", () => {
     expect(html).toContain("src/");
   });
 
-  // Prose cells are sans with code chips; measured as mono and capped at the
-  // wrap width, a long first-column name was cut mid-word.
-  test("give a long first-column name the room it needs", () => {
-    const name = "services/gateway/internal/handlers (`routes.go`)";
-    const html = render(`| Path | n |\n| --- | --- |\n| ${name} | 1 |`);
-    const first = Number(html.match(/<col style="width:(\d+)px"\/>/)?.[1]);
-    expect(first).toBeGreaterThan(name.length * 8);
-    expect(html).toContain('title="services/gateway/internal/handlers (routes.go)"');
+  test("retain long first-column prose without clipping it to one line", () => {
+    const text = "Partition chứa event của các domain khác. Hiện tại ảnh hưởng chỉ nằm trong một domain nhưng mô tả cần được đọc đầy đủ.";
+    const html = render(`| Phát hiện | Mức | Giảm nhẹ |\n| --- | --- | --- |\n| ${text} | Trung bình | Tách topic theo domain |`);
+    const firstCell = html.split("<tbody")[1].split("<td")[1].split("</td>")[0];
+    expect(firstCell).toContain(text);
+    expect(firstCell).toContain("wrap-anywhere");
+    expect(firstCell).not.toContain("truncate");
+    expect(firstCell).not.toContain("whitespace-nowrap");
+  });
+
+  test("file badges in table cells preserve long labels and line suffixes", () => {
+    const path = "services/gateway/internal/handlers/VeryLongEventDispatchFunction.java";
+    const text = `| Phát hiện |\n| --- |\n| Trước \`${path}:128\` sau badge và [tên file dài cần đọc đầy đủ](${path}). |`;
+    const html = renderToString(
+      <TooltipProvider>
+        <TranscriptActionsProvider value={{ onOpenFile: () => {} }}>
+          <AgentProse text={text} settled />
+        </TranscriptActionsProvider>
+      </TooltipProvider>,
+    );
+    expect(html).toContain('data-testid="agent-file-ref"');
+    expect(html).toContain(`aria-label="File ${path}:128, opens in editor"`);
+    expect(html).toContain(path);
+    expect(html).toContain(":128");
+    expect(html).toContain("sau badge");
+    const labels = [...html.matchAll(/data-file-label[^>]*>/g)].map((match) => match[0]);
+    expect(labels).toHaveLength(2);
+    for (const label of labels) expect(label).toContain("wrap-anywhere");
+    expect(html.split("<tbody")[1]).not.toContain("truncate");
+  });
+
+  test("windowed table file badges keep the fixed row height", () => {
+    const rows = Array.from({ length: 101 }, () => "| `src/VeryLongEventDispatchFunction.java` |");
+    const html = renderToString(
+      <TooltipProvider>
+        <TranscriptActionsProvider value={{ onOpenFile: () => {} }}>
+          <AgentProse text={["| File |", "| --- |", ...rows].join("\n")} />
+        </TranscriptActionsProvider>
+      </TooltipProvider>,
+    );
+    expect(html).toContain('data-testid="agent-file-ref"');
+    expect(html).not.toContain("h-auto min-h-6");
+    expect(html).toContain("h-6 whitespace-nowrap");
   });
 });

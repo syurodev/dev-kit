@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { openExternal } from "@/bridge/browser";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table/DataTable";
+import { shouldVirtualize } from "@/components/ui/virtual-rows";
 import { fileRef, linkTarget } from "./fileRef";
 import { useTranscriptActions } from "./transcriptActions";
 import { AgentCodeBlock } from "./AgentCodeBlock";
@@ -63,6 +64,9 @@ function MaskedSecret({ value }: { value: string }) {
 type CodeRefs = { settled: boolean; symbols: ReadonlyMap<string, SymbolHit> };
 const NO_CODE_REFS: CodeRefs = { settled: false, symbols: new Map() };
 const CodeRefsContext = React.createContext<CodeRefs>(NO_CODE_REFS);
+
+// Wrapping table cells preserve full file labels even when a badge exceeds the column.
+const WrapFileLabelsContext = React.createContext(false);
 
 const REF_CODE =
   "cursor-pointer whitespace-pre-wrap wrap-anywhere rounded-md bg-muted px-(--space-inline-code-x) py-(--space-inline-code-y) text-code-12 text-text-primary underline decoration-text-tertiary underline-offset-2 hover:decoration-text-primary";
@@ -153,6 +157,7 @@ export function Inline({ text }: { text: string }) {
 function InlineNodes({ tokens, inLink = false }: { tokens: InlineToken[]; inLink?: boolean }) {
   const { onOpenFile, openRef, refContext, refPlacement, entities } = useTranscriptActions();
   const { settled, symbols } = React.useContext(CodeRefsContext);
+  const wrapFileLabels = React.useContext(WrapFileLabelsContext);
   const canOpen = Boolean(openRef || onOpenFile);
   return (
     <>
@@ -182,9 +187,9 @@ function InlineNodes({ tokens, inLink = false }: { tokens: InlineToken[]; inLink
               const label = suffix ? token.value.slice(0, -suffix.length) : token.value;
               return (
                 <FileReference key={idx} path={ref.path} line={ref.line} content={token.value}>
-                  <Badge asChild variant="secondary" className="h-6 max-w-full min-w-0 items-center justify-start gap-1.5 rounded-md py-0 align-middle whitespace-nowrap text-code-12 cursor-pointer hover:bg-muted">
+                  <Badge asChild variant="secondary" className={cn("max-w-full min-w-0 items-center justify-start gap-1.5 rounded-md align-middle text-code-12 cursor-pointer hover:bg-muted", wrapFileLabels ? "h-auto min-h-6 whitespace-normal py-0.5" : "h-6 whitespace-nowrap py-0")}>
                     <button type="button" data-testid="agent-file-ref" aria-label={`File ${ref.line !== undefined ? `${ref.path}:${ref.line}` : ref.path}, opens in editor`}>
-                      <FileLabel path={ref.path} label={label} suffix={suffix} />
+                      <FileLabel path={ref.path} label={label} suffix={suffix} wrap={wrapFileLabels} />
                     </button>
                   </Badge>
                 </FileReference>
@@ -280,7 +285,7 @@ function InlineNodes({ tokens, inLink = false }: { tokens: InlineToken[]; inLink
                 className="wrap-anywhere text-text-primary underline decoration-text-tertiary underline-offset-3 hover:decoration-text-primary"
               >
                 {target.kind === "file"
-                  ? <FileLabel path={target.ref.path} label={<InlineNodes tokens={token.children} inLink />} />
+                  ? <FileLabel path={target.ref.path} label={<InlineNodes tokens={token.children} inLink />} wrap={wrapFileLabels} />
                   : <InlineNodes tokens={token.children} inLink />}
               </a>
             );
@@ -291,7 +296,7 @@ function InlineNodes({ tokens, inLink = false }: { tokens: InlineToken[]; inLink
               </UrlReference>
             ) : (
               <FileReference key={idx} path={target.ref.path} line={target.ref.line} content={content} link>
-                <Badge asChild variant="secondary" className="h-6 max-w-full min-w-0 items-center justify-start gap-1.5 rounded-md py-0 align-middle whitespace-nowrap text-code-12 cursor-pointer hover:bg-muted [&_code]:bg-transparent [&_code]:p-0">
+                <Badge asChild variant="secondary" className={cn("max-w-full min-w-0 items-center justify-start gap-1.5 rounded-md align-middle text-code-12 cursor-pointer hover:bg-muted [&_code]:bg-transparent [&_code]:p-0", wrapFileLabels ? "h-auto min-h-6 whitespace-normal py-0.5" : "h-6 whitespace-nowrap py-0")}>
                   {anchor}
                 </Badge>
               </FileReference>
@@ -341,16 +346,10 @@ function inlineText(tokens: InlineToken[]): string {
 }
 
 /**
- * A markdown table, drawn by the shared resizable DataTable.
- *
- * A table is scanned along its rows and down its first column, and both need
- * drawing. The first column holds the row's name — "root (src/)", "gateway/" —
- * and does not wrap: wrapped, a name broke into a word and a code chip on
- * separate lines while the long column beside it had room. Cells sit on their
- * top line so a two-line cell does not float its neighbours to its middle, and
- * a column the markdown aligned (`:---:`, `---:`) is aligned — right-aligned
- * columns are numbers, so their digits line up. Columns start at the width
- * their words need and the reader can drag them from there.
+ * Prose can be long in any column, including the first. Let every column wrap
+ * so fitting the table to a narrow conversation preserves the whole answer.
+ * Markdown alignment and the shared table's resize handles still apply. Long
+ * windowed tables retain their fixed-height, single-line cells.
  */
 function MarkdownTable({ block }: { block: Extract<MarkdownBlock, { type: "table" }> }) {
   const columns = React.useMemo<DataTableColumn[]>(
@@ -360,7 +359,6 @@ function MarkdownTable({ block }: { block: Extract<MarkdownBlock, { type: "table
         header: <InlineNodes tokens={cell} />,
         label: inlineText(cell),
         align: block.align[idx] ?? "left",
-        nowrap: idx === 0,
       })),
     [block.head, block.align],
   );
@@ -368,20 +366,21 @@ function MarkdownTable({ block }: { block: Extract<MarkdownBlock, { type: "table
     () => block.rows.map((row) => row.map((cell, idx) => <InlineNodes key={idx} tokens={cell} />)),
     [block.rows],
   );
-  // Text is for sizing the columns, which reads the first 50 rows, and for the
-  // hover title of the first column's cut names there; the rest is not walked.
+  // Column sizing samples only the first 50 rows.
   const cellText = React.useMemo(
     () => block.rows.slice(0, 50).map((row) => row.map(inlineText)),
     [block.rows],
   );
   return (
-    <DataTable
-      data-testid="agent-table"
-      className="rounded-control border border-border-subtle"
-      columns={columns}
-      rows={rows}
-      cellText={cellText}
-    />
+    <WrapFileLabelsContext.Provider value={!shouldVirtualize(block.rows.length)}>
+      <DataTable
+        data-testid="agent-table"
+        className="rounded-control border border-border-subtle"
+        columns={columns}
+        rows={rows}
+        cellText={cellText}
+      />
+    </WrapFileLabelsContext.Provider>
   );
 }
 

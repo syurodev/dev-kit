@@ -1733,7 +1733,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       it("renders floating toast with Open rail button, deadline countdown, and command preview", () => {
         const html = renderToString(
           <AgentPermissionToast
-            pending={mockPending}
+            pending={{ ...mockPending, expiresAt: new Date(Date.now() + 60_000).toISOString() }}
             session={{ ...mockSession, id: "sess-toast-1", title: "Swarm Orchestrator", projectPath: "/project/core" }}
             onResolve={() => {}}
             onOpenRail={() => {}}

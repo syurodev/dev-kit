@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 import { FileIcon } from "./FileIcon";
 
-/** One text baseline for name + location; only the name truncates in narrow chips. */
-export function FileLabel({ path, label = path, suffix }: { path: string; label?: ReactNode; suffix?: string }) {
+/** Name + location: compact chips truncate; prose tables can opt into wrapping. */
+export function FileLabel({ path, label = path, suffix, wrap = false }: { path: string; label?: ReactNode; suffix?: string; wrap?: boolean }) {
   return <>
     <FileIcon path={path} className="size-3.5" />
-    <span data-file-label className="inline-flex min-w-0 items-baseline text-code-12">
-      <span className="min-w-0 truncate">{label}</span>
+    <span data-file-label className={cn("min-w-0 text-code-12", wrap ? "text-left whitespace-normal wrap-anywhere" : "inline-flex items-baseline")}>
+      <span className={wrap ? undefined : "min-w-0 truncate"}>{label}</span>
       {suffix ? <span className="shrink-0 text-text-tertiary">{suffix}</span> : null}
     </span>
   </>;
