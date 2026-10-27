@@ -163,7 +163,7 @@ that block); then update the tripwire.
 
 | Gate | Status | Evidence / owner |
 | --- | --- | --- |
-| Independent review of the integrated H4c/#363/#367 invariants | **Partial** | AP1 completion review at `782a63c5`: `docs/reviews/2026-10-27-harness-ap1-completion.md`. Items 1-3 and 7 traced with no finding; items 4-6 traced in the main paths; item 8 has the #375 fixes, which the reviewer wrote and another reviewer must check. **One open finding (F-C): a stale group or tool name in a stored workspace profile blocks new sessions and cannot be repaired in the app.** Reviewer is an AI session, not a human sign-off. |
+| Independent review of the integrated H4c/#363/#367 invariants | **Partial** | AP1 completion review at `782a63c5`: `docs/reviews/2026-10-27-harness-ap1-completion.md`. Items 1-3 and 7 traced with no finding; items 4-6 traced in the main paths; item 8 has the #375 fixes, which the reviewer wrote and another reviewer must check. **Finding F-C (a stale group or tool name in a stored workspace profile blocks new sessions) now has a fix, below, that is not yet independently reviewed.** Reviewer is an AI session, not a human sign-off. |
 | Composed guard tests through the controls | **Pass (scripted vendors)** | AP2 below: real Tasks and Git services, gateway, hub, SQLite and `SessionHost`, temporary repositories and local bare remotes. Earlier rows (grants, launch permission lists, prod and unknown-tag confirmation, identity matrix) are unchanged. |
 | Real Claude, Codex and opencode runtime processes | **Not run** | No runtimes, accounts or mocked-model fixture here; scripted vendors only. No paid request was made. |
 | Native desktop approval of the scope selection and confirmation | **Not run** | Headless host. The dialogs have SSR/state tests, not a real window. |
@@ -326,3 +326,41 @@ and AP4 (activation). The A6 rows for those remain **Not run / Unmeasured**.
 Report, ledger per parent item, findings and limits: [`docs/reviews/2026-10-27-harness-ap1-completion.md`](../reviews/2026-10-27-harness-ap1-completion.md). AP1 remains **Partial**. Open for activation:
 F-C (no repair path for a stale stored profile, owner decision), a reviewer other than the author for the #375 git-scope and claim-lock code, and the AP4 decision on sessions that have no
 applied reference (O-2). AP3 and AP4 are still **not run**; production is still inert.
+
+### F-C repair: stale references in a stored workspace profile
+
+Fix commits: `dd8e8150`, `d3aceead`, `952908e1`, `1e94743e` (base `eccc7c6c`). The historical failing evidence (AP1 report, repro `.go.txt`) is kept as it was.
+**Not independently reviewed:** the same session reviewed AP1 and wrote this; another reviewer must read it before AP1 can move past Partial.
+
+Behavior. The window can diagnose a workspace's stored profile (`StaleProfile`) with no session and even when the ordinary read fails, and can prepare a repair
+(`PrepareStaleRepair`) that removes only the keys of `W.ToolGroups`, `W.ResultBudget.Tools` and `W.ResultBudget.Groups` that the server's registry does not have. The
+caller names only the workspace; Go derives the removals. States: `none` (no profile, or nothing stale and it resolves), `stale` (repairable), `unrepairable` (corrupt record,
+unsupported schema, another invalid setting such as a budget on a never-cut tool, an unavailable registry). More than 64 stale keys are shown in part and cannot be prepared.
+The normal resolver is unchanged and still strict.
+
+Approval. The repair goes through the existing proposal service: prepared-record ownership, the shared hub confirmation (tier `widening`, always asked, `EnvBlocks`, so
+no allow-always and **auto-narrowing is never consulted**), the writer boundary and the store compare-and-swap. The prepared repair is bound to the exact profile and revision, the
+registry identity (tool names and cut exemptions), every vendor's customization revision, the policy revision and the repaired body; Apply scans again under the boundary
+and requires the same binding (`ErrConflict` if W moved, `ErrStale` otherwise). The review lists every removal with its saved value and states that a removed "off" is forgotten,
+removed limits are not restored, running sessions keep their basis, nothing is reloaded, and that restoring the module or build is the alternative. One write advances W's
+revision once; S, running endpoints, applied references, executable guards, usage history and accounts are not touched, and repair approval is not executable approval.
+An ambiguous commit is read back (`Expect+1`, `Expect` or unknown) and reported as uncertain with its own wording; no session reconcile is offered and the write is not retried.
+
+Surfaces. Window only: `HarnessStaleProfile`, `HarnessPrepareStaleRepair` on the bridge (existing `harness:read ui:profile` and `harness:write ui:change` grants; the prepared id is applied
+and cancelled with `HarnessApply`/`HarnessCancel`). Agents, the terminal and unknown origins are refused in Go; no MCP tool, schema field or capability was added; no new error code
+(the two new refusals reuse published codes and are in the published-refusals test). The workspace harness dialog shows the repair view in place of the group editor while a repair is on
+offer; a failed read or an unrepairable profile never offers one. The misleading "Repair or reset it in Settings" text was corrected; there is still no Settings entry.
+
+Evidence (unit, composed, UI). `internal/harnessconfig/repair_test.go`: the pure helper, UI-only identity, every unrepairable case, the 64-entry bound, hostile names, exact review text, one revision step,
+deny/cancel/replay/stolen id, headless, auto-narrowing on, W/vendor/policy/registry changes while the question is open (each fails when its check is removed), ambiguous commits.
+`internal/app/harness_stale_repair_test.go`: the report's pdf scenario end to end (launch fails, diagnosis, denial changes nothing, approval, new session starts, module restored uses the default),
+every kind of key with known fields kept, healthy/absent, corrupt, identity and absence of any tool, staleness, always-asks and headless, S/endpoint/reference/usage untouched, ambiguous commit.
+`frontend/src/workbench/staleRepairController.test.ts` and `HarnessDialogs.test.tsx`: reachable offer, no offer on read failure, epoch fencing and navigation, cancel, conflict, saved and uncertain outcomes,
+single submission, exact listing. Controller/SSR tests are code-level evidence; native focus and dialogs remain AP3.
+
+Validation (Go 1.27.2, Bun 1.4.2; bindings regenerated with the installed `wails3` v3.0.0-beta.32, because `go run` of the pinned v3.0.0 CLI needs go.sum entries this change should not add; the diff is additions only):
+`bun test --isolate` 5138 pass; `bun run build` passes after `1e94743e` (it first failed on the tests' enum typing, fixed); `go test -race` over the ten plan packages, `go test ./internal/arch/`, `go test ./internal/... ./cmd/...`,
+`go vet -tags server ./...`, `go build -tags server` pass. The race run began before one line was added to a bridge test list; that package was re-run without `-race` and passes. `staticcheck` shows the same three findings
+in files this change does not touch. `golangci-lint` cannot run locally (built with an older Go); CI lint applies.
+
+Limits. Out of scope and unchanged: O-2 (sessions with no applied reference), AP3/AP4, the directory-swap limit from #375, repair of corrupt records, a Settings entry, any automatic migration or reset. Only the cases above are repairable.
