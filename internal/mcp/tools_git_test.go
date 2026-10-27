@@ -359,6 +359,83 @@ func TestGitCommitThroughMCPKeepsParentGuardInLinkedWorktree(t *testing.T) {
 	}
 }
 
+// Real Git: the same branch is already checked out in the parent repo. A child
+// for another granted repo must still succeed there, with that repo's content
+// and branch guard, regardless of which repository the app has open.
+func TestAgentHubChildWorktreeUsesRealRequestedRepoAndItsGuard(t *testing.T) {
+	ctx := context.Background()
+	git := gitservice.NewService(ctx)
+	availability := git.Availability()
+	if !availability.OK() {
+		t.Skip("no usable Git")
+	}
+	initRepo := func(marker string) string {
+		t.Helper()
+		repo, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		run := func(args ...string) {
+			t.Helper()
+			if out, err := exec.Command(availability.Path, append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+				t.Fatalf("git %v: %v %s", args, err, out)
+			}
+		}
+		run("init", "--initial-branch=main")
+		run("config", "user.name", "Test")
+		run("config", "user.email", "test@example.invalid")
+		if err := os.WriteFile(filepath.Join(repo, "identity.txt"), []byte(marker), 0600); err != nil {
+			t.Fatal(err)
+		}
+		run("add", "identity.txt")
+		run("commit", "-m", "initial")
+		return repo
+	}
+	parentRepo, targetRepo := initRepo("parent"), initRepo("target")
+	if err := git.Open(ctx, parentRepo); err != nil {
+		t.Fatal(err)
+	}
+	branch := "feature/shared-child"
+	if _, err := git.WorktreeAdd(ctx, gitservice.WorktreeAddInput{Branch: branch}); err != nil {
+		t.Fatal(err)
+	}
+	parent := agenthub.AgentSession{ID: gitSession, ProjectPath: parentRepo, ExtraReadWritePaths: []string{targetRepo}}
+	hub := &fakeAgentHub{status: parent, created: agenthub.AgentSession{ID: "child", AgentType: agenthub.AgentTypeMock}}
+	deps := agentHubTestDeps(&fakeCaller{}, hub)
+	deps.Git = git
+	deps.GitRepos = GitReposOf(git)
+	srv := NewServer(deps)
+	_, _, err := srv.toolAgentHubCreateAgentSession(agentCtx(), &sdk.CallToolRequest{}, agentHubCreateInput{AgentType: "mock", CallerSessionID: gitSession, Cwd: targetRepo, Worktree: branch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(targetRepo, ".superpowers", ".worktrees", "feature-shared-child")
+	if hub.createIn.Cwd != want {
+		t.Fatalf("cwd=%s; want %s", hub.createIn.Cwd, want)
+	}
+	if content, err := os.ReadFile(filepath.Join(hub.createIn.Cwd, "identity.txt")); err != nil || string(content) != "target" {
+		t.Fatalf("wrong repository content: %q %v", content, err)
+	}
+	if got := git.Project(); got != parentRepo {
+		t.Fatalf("app's open repository moved: %s", got)
+	}
+	targetGit, err := git.At(ctx, targetRepo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	git.SetGuards(mcpGitGuards{targetGit.PolicyProject(): {{Pattern: "feature/*", Env: "prod"}}})
+	git.SetEnvs(mcpGitEnvs{"prod": true})
+	deny := &mcpGitConfirmer{}
+	git.SetConfirmer(deny)
+	_, _, err = srv.toolAgentHubCreateAgentSession(agentCtx(), &sdk.CallToolRequest{}, agentHubCreateInput{AgentType: "mock", CallerSessionID: gitSession, Cwd: targetRepo, Worktree: "feature/guarded-child"})
+	if !errors.Is(err, gitservice.ErrNotAllowed) || deny.asked != 1 {
+		t.Fatalf("selected repo's guard was bypassed: %v; asked=%d", err, deny.asked)
+	}
+	if _, err := os.Stat(filepath.Join(targetRepo, ".superpowers", ".worktrees", "feature-guarded-child")); !os.IsNotExist(err) {
+		t.Fatalf("guard refusal created checkout: %v", err)
+	}
+}
+
 // The person's terminal keeps what it had — the repository DevKit has open —
 // and may name any workspace folder.
 func TestGitToolsFromTheTerminal(t *testing.T) {

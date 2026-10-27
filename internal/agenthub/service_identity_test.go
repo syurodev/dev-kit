@@ -357,6 +357,91 @@ func TestWorktreeInUseSeesOtherRootsAndResolvesSymlinkCwds(t *testing.T) {
 	}
 }
 
+func TestWorktreeInUseHandlesMissingSessionDirectories(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		inside, alias bool
+	}{
+		{name: "unrelated deleted cwd"},
+		{name: "deleted subdirectory inside checkout", inside: true},
+		{name: "deleted subdirectory through existing alias", inside: true, alias: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, _, _ := newIdentityService(t)
+			worktree := projectDir(t)
+			root := projectDir(t)
+			if tc.inside {
+				root = worktree
+			}
+			if tc.alias {
+				link := filepath.Join(t.TempDir(), "alias")
+				if err := os.Symlink(root, link); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+				root = link
+			}
+			cwd := filepath.Join(root, "nested", "gone")
+			if err := os.MkdirAll(cwd, 0700); err != nil {
+				t.Fatal(err)
+			}
+			sess, err := svc.CreateSession(uiCtx(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: cwd})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.RemoveAll(filepath.Join(root, "nested")); err != nil {
+				t.Fatal(err)
+			}
+			inUse, err := svc.WorktreeInUse(context.Background(), worktree)
+			if err != nil || inUse != tc.inside {
+				t.Fatalf("in use=%v err=%v; want %v", inUse, err, tc.inside)
+			}
+			if err := svc.CloseSession(uiCtx(), sess.ID); err != nil {
+				t.Fatal(err)
+			}
+			if inUse, err := svc.WorktreeInUse(context.Background(), worktree); err != nil || inUse {
+				t.Fatalf("closed session: in use=%v err=%v", inUse, err)
+			}
+		})
+	}
+}
+
+func TestWorktreeInUseFailsClosedOnUnresolvableSessionAliases(t *testing.T) {
+	for _, cycle := range []bool{false, true} {
+		name := "dangling alias"
+		if cycle {
+			name = "symlink cycle"
+		}
+		t.Run(name, func(t *testing.T) {
+			svc, _, _ := newIdentityService(t)
+			worktree := projectDir(t)
+			target := filepath.Join(worktree, "nested")
+			if err := os.Mkdir(target, 0700); err != nil {
+				t.Fatal(err)
+			}
+			alias := filepath.Join(t.TempDir(), "alias")
+			if err := os.Symlink(target, alias); err != nil {
+				t.Skipf("symlinks unavailable: %v", err)
+			}
+			if _, err := svc.CreateSession(uiCtx(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: alias}); err != nil {
+				t.Fatal(err)
+			}
+			if cycle {
+				if err := os.Remove(alias); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(alias, alias); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.Remove(target); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := svc.WorktreeInUse(context.Background(), worktree); err == nil {
+				t.Fatal("an alias that cannot be resolved must not authorize removal")
+			}
+		})
+	}
+}
+
 func TestOnSessionClosedHookFires(t *testing.T) {
 	svc, _, _ := newIdentityService(t)
 	var closed []string

@@ -50,8 +50,14 @@ as production-verified against a real Claude Code session in cloud CI.
   `internal/mcp/tools_git.go`). `git.worktree.add|list|remove` use the same `repo` argument and
   granted-folder rule as other Git tools; worktrees live under
   `.superpowers/.worktrees/<branch-slug>`. Removal refuses dirty worktrees and never deletes a
-  branch. `agenthub.createAgentSession` accepts `worktree` (a branch name), creates it before
-  the child, starts the child there and records the branch on `taskId` when supplied.
+  branch. `agenthub.createAgentSession` accepts `worktree` (a branch name): `cwd` selects
+  the repository, or an empty `cwd` inherits the parent's. The repository root and checkout
+  must both be writable by the caller; a refused target never falls back to the parent's repo.
+  It creates the checkout before the child, starts the child there and records the branch on
+  `taskId` when supplied. Removal skips closed sessions. Missing ordinary cwd suffixes are
+  checked against their resolved existing ancestor: an unrelated deleted project does not
+  block cleanup, but a missing subdirectory inside the worktree still protects it. Broken
+  aliases, cycles and other unresolved errors fail closed.
 - **`pr.*` tools work with the pull request of an agent's branch** (`internal/mcp/tools_pr.go`; the host client is
   `internal/forge` — GitHub and gitlab.com, see "GitLab is the second provider" below — the folder→repo→account→request logic `internal/prwatch`). Reads `pr.get|list|checks|comments`
   (`git:read` on `repo:pr`); writes `pr.create|update|comment|reply|merge|close|deleteBranch` (`git:push` on

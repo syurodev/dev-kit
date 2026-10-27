@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -258,7 +259,16 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 				if err != nil {
 					return nil, err
 				}
-				worktreeGit, worktreeRepo, err = s.gitFor(callCtx, parent.ProjectPath, true)
+				// cwd selects the repository, not merely the child's eventual directory.
+				// Only an omitted cwd inherits the parent; a rejected request must
+				// never fall back to creating a checkout in another repository.
+				if cwd == "" {
+					cwd = parent.ProjectPath
+				}
+				if !filepath.IsAbs(cwd) {
+					return nil, agenthub.ErrInvalidCwd
+				}
+				worktreeGit, worktreeRepo, err = s.gitFor(callCtx, cwd, true)
 				if err != nil {
 					return nil, err
 				}

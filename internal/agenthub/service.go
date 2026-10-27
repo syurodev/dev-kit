@@ -1182,11 +1182,7 @@ func (s *Service) WorktreeInUse(ctx context.Context, worktreePath string) (bool,
 		if sess.Status == SessionStatusClosed {
 			continue
 		}
-		cwd, err := filepath.Abs(sess.ProjectPath)
-		if err != nil {
-			return false, err
-		}
-		cwd, err = filepath.EvalSymlinks(cwd)
+		cwd, err := sessionWorktreePath(sess.ProjectPath)
 		if err != nil {
 			return false, err
 		}
