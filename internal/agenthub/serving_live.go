@@ -373,10 +373,7 @@ func (s *Service) publishServingLaunch(sessionID string, l harnessLaunch, commit
 	c := s.servingCoord(sessionID)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.closing || c.closePending || (l.reservation.set && c.epoch != l.reservation.epoch) {
-		return ErrHarnessLaunchStale
-	}
-	if l.incarnation != "" && (c.rt == nil || c.rt.ep.Incarnation() != l.incarnation || c.rt.ep.State().Closed) {
+	if launchStaleLocked(c, l) {
 		return ErrHarnessLaunchStale
 	}
 	if err := commit(); err != nil {
@@ -385,6 +382,30 @@ func (s *Service) publishServingLaunch(sessionID string, l harnessLaunch, commit
 	if l.incarnation != "" {
 		c.rt.published = true
 		s.noteServedFacts(sessionID, c.rt)
+	}
+	return nil
+}
+
+// launchStaleLocked is publishServingLaunch's validation: S or the session's
+// lifecycle moved since the reservation, or the staged endpoint is gone.
+func launchStaleLocked(c *servingCoord, l harnessLaunch) bool {
+	if c.closing || c.closePending || (l.reservation.set && c.epoch != l.reservation.epoch) {
+		return true
+	}
+	return l.incarnation != "" && (c.rt == nil || c.rt.ep.Incarnation() != l.incarnation || c.rt.ep.State().Closed)
+}
+
+// checkServingLaunch asks, without publishing anything, whether the launch would
+// still be accepted now. A caller about to do something it cannot take back
+// before publication (a rewind restoring files) asks first, so the refusal
+// comes before the effect. It is not a reservation: a commit that lands after
+// this returns still makes publication refuse.
+func (s *Service) checkServingLaunch(sessionID string, l harnessLaunch) error {
+	c := s.servingCoord(sessionID)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if launchStaleLocked(c, l) {
+		return ErrHarnessLaunchStale
 	}
 	return nil
 }

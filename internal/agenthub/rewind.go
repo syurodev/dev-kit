@@ -354,9 +354,19 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 		r.abandonSafety(ctx, err)
 		return RewindResult{}, err
 	}
-	// 6. The files.
+	// 6. The files. Whether the fork's launch can still be published is asked
+	// first: a launch that went stale while the fork opened (S committed) is
+	// refused here, with the project untouched, rather than at step 7 after the
+	// files were already put back. A commit that lands during the restore itself
+	// still makes step 7 refuse; the files are then restored, the conversation
+	// uncut, the safety checkpoint is the way back, and a new rewind completes.
 	var files *RestoreResult
 	if r.held.restoreToken != "" {
+		if err := s.checkServingLaunch(r.session.ID, r.launch); err != nil {
+			r.discardFork(ctx)
+			r.abandonSafety(ctx, err)
+			return RewindResult{}, err
+		}
 		applied, err := s.applyRestoreHeld(ctx, r.held.restoreToken, r.session, r.overwrite)
 		if err != nil {
 			// Nothing has been committed: close the fork and delete it, so the
