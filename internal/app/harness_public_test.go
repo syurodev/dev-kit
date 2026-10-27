@@ -567,3 +567,52 @@ func TestAnUnknownCommitIsNeitherARollbackNorASuccess(t *testing.T) {
 		t.Fatal("reconciled: the group is served")
 	}
 }
+
+// Enabling a group through the public request makes its tools served, never
+// exempt and never pre-approved: the launch permission lists are fixed, and the
+// environment rule of the tool itself runs on every call.
+func TestAGroupEnabledByARequestKeepsTheLaunchPermissionsAndTheEnvironmentRule(t *testing.T) {
+	r := newCompRig(t, compOptions{controls: true, realEnvs: true})
+	r.prompter.answers = answers("session")
+	r.workspaceOff("db")
+	_, spec := r.create(agenthub.AgentTypeClaude)
+	cs := r.connect(spec)
+	preApproved := strings.Join(spec.PreApprovedMCP["devkit"], ",")
+	gateOwned := strings.Join(spec.GateOwnedMCP["devkit"], ",")
+
+	if out := decode[harnessconfig.RequestResult](t, r.callRaw(cs, harness.ProposeTool, map[string]any{"groups": []string{"db"}})).Outcome; out == nil || !out.Live {
+		t.Fatalf("setup: expected a live change: %+v", out)
+	}
+	if got := r.vendors[agenthub.AgentTypeClaude].LastSpec(); strings.Join(got.PreApprovedMCP["devkit"], ",") != preApproved || strings.Join(got.GateOwnedMCP["devkit"], ",") != gateOwned {
+		t.Fatal("a live enable must not add a pre-approval or a gate delegation to the launch")
+	}
+	for _, list := range [][]string{spec.PreApprovedMCP["devkit"], spec.GateOwnedMCP["devkit"]} {
+		if contains(list, "db.query") || contains(list, "db.testConnection") {
+			t.Fatalf("enabling a group must not pre-approve its tools: %v", list)
+		}
+	}
+
+	args := map[string]any{"profileId": probeProfileID}
+	r.prompter.mu.Lock()
+	r.prompter.answers[interaction.KindDatabase] = "allow_always"
+	r.prompter.mu.Unlock()
+	for _, tag := range []string{"prod", "a-tag-nobody-defined"} {
+		r.dbEnv.Store(tag)
+		before := len(kinds(r.prompter))
+		for i := 1; i <= 2; i++ {
+			_ = r.callWith(cs, "db.testConnection", args)
+			if n := len(kinds(r.prompter)) - before; n != i {
+				t.Fatalf("tag %q must ask on every call: %d prompts after %d calls", tag, n, i)
+			}
+		}
+	}
+	r.dbEnv.Store("prod")
+	r.prompter.mu.Lock()
+	r.prompter.answers[interaction.KindDatabase] = "deny"
+	r.prompter.mu.Unlock()
+	handled := r.gate.handled.Load()
+	_ = r.callWith(cs, "db.testConnection", args)
+	if r.gate.handled.Load() != handled {
+		t.Fatal("a denied confirmation must stop the call before its handler")
+	}
+}
