@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"strings"
 	"time"
 
 	"devkit/internal/preferences"
@@ -119,7 +120,41 @@ func (s *Service) decideAccount(ctx context.Context, sess *AgentSession) (PickDe
 	return PickAccount(PickInput{
 		Policy: vp, Accounts: accounts, Current: sess.AccountID,
 		Now: time.Now(), SwitchedAt: prev.at, Previous: prev.from,
+		Model: s.modelForPick(ctx, sess.ID, accounts),
 	}), true
+}
+
+// modelForPick is the model a session runs, read from its last config-options
+// row, for the windows that belong to one model. It reads only when an account
+// carries such a window, so a vendor without them costs nothing. "" when unknown
+// (no row, no model option, a read error): such a window then does not count.
+func (s *Service) modelForPick(ctx context.Context, sessionID string, accounts []AccountRecord) string {
+	scoped := false
+	for _, a := range accounts {
+		for _, w := range a.Usage {
+			if strings.HasPrefix(w.Label, modelWindowPrefix) {
+				scoped = true
+			}
+		}
+	}
+	if !scoped {
+		return ""
+	}
+	entry, found, err := s.store.FindTranscriptKind(ctx, sessionID, UpdateConfigOptions)
+	if err != nil || !found {
+		return ""
+	}
+	var saved SessionUpdate
+	if json.Unmarshal(entry.Payload, &saved) != nil {
+		return ""
+	}
+	for _, option := range saved.ConfigOptions {
+		var value string
+		if option.ID == "model" && json.Unmarshal(option.CurrentValue, &value) == nil {
+			return value
+		}
+	}
+	return ""
 }
 
 // switchAccountForTurn runs at the start of a turn, with the session claimed and

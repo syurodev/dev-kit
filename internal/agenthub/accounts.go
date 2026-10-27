@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // ErrAccountNotFound is an account id the book does not hold.
@@ -132,4 +133,33 @@ func mergeWindowsReport(old, fresh []LimitWindow) ([]LimitWindow, bool) {
 func isWeeklyLabel(label string) bool {
 	l := strings.ToLower(label)
 	return strings.Contains(l, "week") || strings.HasPrefix(l, "7-day")
+}
+
+// modelWindowPrefix starts the label of a window that belongs to one model
+// ("Weekly · Fable"), as claudeLimitLabel and the usage check write it.
+const modelWindowPrefix = "Weekly · "
+
+// windowAppliesToModel reports whether a window counts for a session on model. A
+// window that names no model always does. A model's own window counts only when
+// the model's id or alias contains its name, ignoring case and anything that is
+// not a letter or a digit ("Sonnet 4.5" is in "claude-sonnet-4-5"); with no known
+// model it does not count, because a full Fable window says nothing about an Opus
+// turn and a refusal still marks the account if the guess was wrong.
+func windowAppliesToModel(label, model string) bool {
+	name, ok := strings.CutPrefix(label, modelWindowPrefix)
+	if !ok {
+		return true
+	}
+	name, model = alphanumeric(name), alphanumeric(model)
+	return name != "" && model != "" && strings.Contains(model, name)
+}
+
+func alphanumeric(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }

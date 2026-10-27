@@ -265,3 +265,9 @@ func (s *Service) SetAccountPickedHookForTest(hook func(accountID string)) {
 	defer s.mu.Unlock()
 	s.accountPickedHook = hook
 }
+
+// HandleUpdateForTest feeds a vendor update through the path a running session's
+// updates take (emit, record, usage), without a runtime.
+func (s *Service) HandleUpdateForTest(ctx context.Context, id string, update json.RawMessage) {
+	s.handleUpdate(ctx, id, update)
+}

@@ -33,6 +33,10 @@ type PickInput struct {
 	// account id: the built-in's is BuiltinAccountID(vendor), never "". "" means
 	// none (never switched).
 	Previous string
+	// Model is the model the session runs ("claude-fable-5-1", an alias, any
+	// spelling that names it); "" when it is not known. A model's own window
+	// ("Weekly · Fable") counts only for a session on that model.
+	Model string
 }
 
 // PickDecision says which account the next turn runs as.
@@ -75,7 +79,7 @@ func PickAccount(in PickInput) PickDecision {
 		return stay
 	}
 	stay.Target = cur.ID
-	ok, why := accountFine(*cur, in.Policy, in.Now, 0)
+	ok, why := accountFine(*cur, in.Policy, in.Now, 0, in.Model)
 	if !cur.SignedIn {
 		ok, why = false, "signed out"
 	}
@@ -108,7 +112,7 @@ func PickAccount(in PickInput) PickDecision {
 		if a.ID == in.Previous {
 			margin = accountReturnGap
 		}
-		if fine, _ := accountFine(a, in.Policy, in.Now, margin); fine {
+		if fine, _ := accountFine(a, in.Policy, in.Now, margin, in.Model); fine {
 			reason := why
 			if len(skipped) > 0 {
 				reason += "; skipped " + strings.Join(skipped, ", ") + " (signed out)"
@@ -135,12 +139,14 @@ func PickAccount(in PickInput) PickDecision {
 
 // accountFine reports whether an account may run a turn: not marked exhausted
 // and every window not yet reset under its threshold (lowered by margin). A
+// window that belongs to one model counts only for a session on that model
+// (windowAppliesToModel). A
 // cooldown is not read here: PickAccount applies it to candidates only. A
 // weekly window (isWeeklyLabel) uses the policy's weekly threshold in place of
 // the main one when that is set. A non-positive main threshold falls back to the
 // default. A window with ResetsAt == 0 has no known reset and stays live. margin
 // lowers the limit: a window at limit-margin or above refuses the account.
-func accountFine(a AccountRecord, p preferences.AccountVendorPolicy, now time.Time, margin float64) (bool, string) {
+func accountFine(a AccountRecord, p preferences.AccountVendorPolicy, now time.Time, margin float64, model string) (bool, string) {
 	if a.ExhaustedUntil.After(now) {
 		return false, "usage limit reached"
 	}
@@ -150,6 +156,9 @@ func accountFine(a AccountRecord, p preferences.AccountVendorPolicy, now time.Ti
 	}
 	for _, w := range a.Usage {
 		if w.ResetsAt != 0 && w.ResetsAt <= now.Unix() {
+			continue
+		}
+		if !windowAppliesToModel(w.Label, model) {
 			continue
 		}
 		limit := threshold
