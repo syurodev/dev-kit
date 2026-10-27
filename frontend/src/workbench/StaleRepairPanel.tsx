@@ -51,9 +51,13 @@ export function StaleRepairView({
 }) {
   const { diagnosis, review, outcome, busy, error, readError } = state;
   const notice = outcome ? outcomeNotice(outcome) : null;
+  // The content region scrolls inside the dialog's height limit and the actions sit
+  // below it, so a list near the 64-entry bound never pushes them out of reach. With
+  // nothing to show the root takes no room (the ordinary editor owns the dialog).
+  const showing = review !== null || diagnosis?.state === "stale";
 
   return (
-    <div className="space-y-3" data-testid="stale-repair">
+    <div className={`flex min-h-0 flex-col gap-3 ${showing ? "flex-1" : ""}`} data-testid="stale-repair">
       {readError ? (
         <p role="alert" className="rounded-lg bg-(--feedback-danger-soft) px-3 py-2 text-body-12 text-status-danger">
           Could not check this workspace’s saved settings: {readError}{" "}
@@ -82,8 +86,10 @@ export function StaleRepairView({
 
       {review ? (
         <>
-          <HarnessReviewBody review={review} />
-          <div className="flex justify-end gap-2">
+          <div className="min-h-0 flex-1 overflow-y-auto" data-testid="stale-repair-scroll">
+            <HarnessReviewBody review={review} />
+          </div>
+          <div className="flex shrink-0 justify-end gap-2" data-testid="stale-repair-actions">
             <Button type="button" variant="outline" autoFocus disabled={busy === "apply"} onClick={onBack}>
               Cancel
             </Button>
@@ -94,7 +100,8 @@ export function StaleRepairView({
           </div>
         </>
       ) : diagnosis?.state === "stale" ? (
-        <section aria-label="Stale saved settings" className="space-y-3">
+        <section aria-label="Stale saved settings" className="flex min-h-0 flex-1 flex-col gap-3">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto" data-testid="stale-repair-scroll">
           <p className="text-body-13 font-medium text-text-primary">
             This workspace’s saved settings refer to {diagnosis.total} tool group{diagnosis.total === 1 ? "" : "s"} or tool{diagnosis.total === 1 ? "" : "s"} this build does not have.
           </p>
@@ -115,7 +122,8 @@ export function StaleRepairView({
               {diagnosis.total} settings are stale, too many to review in one step, so no repair is offered here.
             </p>
           ) : null}
-          <div className="flex justify-end gap-2">
+          </div>
+          <div className="flex shrink-0 justify-end gap-2" data-testid="stale-repair-actions">
             <Button type="button" variant="outline" disabled={busy !== ""} onClick={onClose}>
               Cancel
             </Button>

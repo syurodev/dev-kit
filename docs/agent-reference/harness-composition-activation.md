@@ -356,10 +356,11 @@ deny/cancel/replay/stolen id, headless, auto-narrowing on, W/vendor/policy/regis
 `internal/app/harness_stale_repair_test.go`: the report's pdf scenario end to end (launch fails, diagnosis, denial changes nothing, approval, new session starts, module restored uses the default),
 every kind of key with known fields kept, healthy/absent, corrupt, identity and absence of any tool, staleness, always-asks and headless, S/endpoint/reference/usage untouched, ambiguous commit.
 `frontend/src/workbench/staleRepairController.test.ts` and `HarnessDialogs.test.tsx`: reachable offer, no offer on read failure, epoch fencing and navigation, cancel, conflict, saved and uncertain outcomes,
-single submission, exact listing. Controller/SSR tests are code-level evidence; native focus and dialogs remain AP3.
+single submission, exact listing. Review of #377 found (P2) that a list near the 64-entry bound overflowed the dialog's `85vh` limit and pushed Review repair / Repair out of view;
+the content now scrolls in a bounded region with the actions outside it (SSR structure tests with 64 entries fail on the old layout). Controller/SSR tests are code-level evidence; the real dialog's scrolling, focus and viewport are not run and remain AP3.
 
 Validation (Go 1.27.2, Bun 1.4.2; bindings regenerated with the installed `wails3` v3.0.0-beta.32, because `go run` of the pinned v3.0.0 CLI needs go.sum entries this change should not add; the diff is additions only):
-`bun test --isolate` 5138 pass; `bun run build` passes after `1e94743e` (it first failed on the tests' enum typing, fixed); `go test -race` over the ten plan packages, `go test ./internal/arch/`, `go test ./internal/... ./cmd/...`,
+`bun test --isolate` 5141 pass and `bun run build` passes after the layout fix (the build first failed on the tests' enum typing at `1e94743e`, fixed); `go test -race` over the ten plan packages, `go test ./internal/arch/`, `go test ./internal/... ./cmd/...`,
 `go vet -tags server ./...`, `go build -tags server` pass. The race run began before one line was added to a bridge test list; that package was re-run without `-race` and passes. `staticcheck` shows the same three findings
 in files this change does not touch. `golangci-lint` cannot run locally (built with an older Go); CI lint applies.
 
