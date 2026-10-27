@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"errors"
+	"slices"
+	"sort"
 	"strings"
 
 	"devkit/internal/agenthub"
@@ -23,16 +25,36 @@ import (
 // names only), so FactsComplete is false: any proposal that depends on them is
 // refused as facts-unavailable instead of being judged against an empty
 // environment.
-type harnessVendors struct{ prefs *preferences.Service }
+//
+// The supported vendors are the ones the runtime registry actually opens
+// (Claude, Codex and opencode in production), so V is read for every vendor a
+// session can launch with: a stored customization and its revision are preserved
+// exactly, whatever the vendor's adapter does with it. A vendor outside that set
+// is an explicit refusal (errHarnessVendorUnsupported), never an empty V: an
+// empty value would read as "no customization" and silently change a launch.
+type harnessVendors struct {
+	prefs     *preferences.Service
+	supported []agenthub.AgentType
+}
 
-func (harnessVendors) Names() []string {
-	return []string{string(agenthub.AgentTypeClaude), string(agenthub.AgentTypeCodex)}
+// errHarnessVendorUnsupported is the fixed refusal for a vendor the harness has no
+// verified customization read for. The launch is refused (harness.snapshotUnavailable),
+// never run with a guessed configuration.
+var errHarnessVendorUnsupported = &harness.Error{Code: harness.CodeSnapshotUnavailable, Message: "The harness has no configuration for this agent vendor."}
+
+func (v harnessVendors) Names() []string {
+	names := make([]string, 0, len(v.supported))
+	for _, t := range v.supported {
+		names = append(names, string(t))
+	}
+	sort.Strings(names)
+	return names
 }
 
 func (v harnessVendors) State(_ context.Context, vendor string) (harnessconfig.VendorState, error) {
 	state := harnessconfig.VendorState{FactsComplete: false}
-	if vendor != string(agenthub.AgentTypeClaude) && vendor != string(agenthub.AgentTypeCodex) {
-		return state, nil
+	if v.prefs == nil || !slices.Contains(v.Names(), vendor) {
+		return harnessconfig.VendorState{}, errHarnessVendorUnsupported
 	}
 	c, err := v.prefs.AgentCustomization(vendor)
 	if err != nil {

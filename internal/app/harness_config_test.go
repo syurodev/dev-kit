@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -97,7 +98,7 @@ func newHarnessApp(t *testing.T) *harnessApp {
 			sessions:   scopeStub{"s1": {"w1", agenthub.AgentTypeClaude}},
 			workspaces: workspacesStub{{ID: "w1"}},
 		},
-		Vendors:   harnessVendors{prefs: a.prefs},
+		Vendors:   harnessVendors{prefs: a.prefs, supported: productionVendors},
 		Policy:    harnessPolicy{},
 		Validator: harnessValidator{},
 		Registry: func() harness.Registry {
@@ -319,14 +320,54 @@ func TestTheVendorAdapterMapsPreferencesFaithfully(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	st, err := harnessVendors{prefs: prefs}.State(context.Background(), "claude")
+	vendors := harnessVendors{prefs: prefs, supported: productionVendors}
+	st, err := vendors.State(context.Background(), "claude")
 	if err != nil || st.FactsComplete || st.Vendor.Revision != 1 || len(st.Vendor.Servers) != 1 || st.Vendor.Servers[0].Args[0] != "-x" || st.Vendor.DisabledMCP[0] != "slack" {
 		t.Fatalf("%+v %v", st, err)
 	}
-	if other, _ := (harnessVendors{prefs: prefs}).State(context.Background(), "opencode"); other.FactsComplete || other.Vendor.Revision != 0 {
-		t.Fatalf("an unknown vendor has no customization and unknown facts: %+v", other)
+}
+
+// opencode is a supported vendor: a stored customization and its revision reach
+// the snapshot exactly. Reading it as an empty V would change the launch the
+// moment a provider is enabled.
+func TestTheVendorAdapterPreservesAnOpenCodeCustomization(t *testing.T) {
+	prefs := preferences.NewService(preferences.NewMemoryRepository())
+	if _, err := prefs.SetAgentCustomization("opencode", preferences.AgentCustomization{
+		SkillFolders: []string{"/skills/one"},
+		DisabledMCP:  []string{"slack"},
+		Servers:      []preferences.AgentMCPConfig{{Name: "db", Command: "cmd", Args: []string{"--ro"}, EnvKeys: []string{"TOKEN"}, Enabled: true}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := harnessVendors{prefs: prefs, supported: productionVendors}.State(context.Background(), "opencode")
+	if err != nil || st.Vendor.Revision != 1 || st.FactsComplete {
+		t.Fatalf("%+v %v", st, err)
+	}
+	if len(st.Vendor.SkillFolders) != 1 || st.Vendor.SkillFolders[0] != "/skills/one" || st.Vendor.DisabledMCP[0] != "slack" ||
+		len(st.Vendor.Servers) != 1 || st.Vendor.Servers[0].Command != "cmd" || st.Vendor.Servers[0].Args[0] != "--ro" || st.Vendor.Servers[0].EnvKeys[0] != "TOKEN" {
+		t.Fatalf("an opencode customization was not preserved: %+v", st.Vendor)
 	}
 }
+
+// A vendor the runtime does not open is refused explicitly. Returning an empty V
+// would read as "no customization" and let a configured launch through.
+func TestAnUnsupportedVendorIsRefusedNotReadAsEmpty(t *testing.T) {
+	prefs := preferences.NewService(preferences.NewMemoryRepository())
+	v := harnessVendors{prefs: prefs, supported: productionVendors}
+	_, err := v.State(context.Background(), "gemini")
+	var he *harness.Error
+	if !errors.As(err, &he) || he.Code != harness.CodeSnapshotUnavailable {
+		t.Fatalf("want a refusal with a published code, got %v", err)
+	}
+	if got := strings.Join(v.Names(), ","); got != "claude,codex,opencode" {
+		t.Fatalf("names = %s", got)
+	}
+	if _, err := (harnessVendors{supported: productionVendors}).State(context.Background(), "claude"); err == nil {
+		t.Fatal("a vendor adapter without preferences must not answer")
+	}
+}
+
+var productionVendors = []agenthub.AgentType{agenthub.AgentTypeClaude, agenthub.AgentTypeCodex, agenthub.AgentTypeOpenCode}
 
 func TestTheValidatorAppliesTheExistingCustomizationRules(t *testing.T) {
 	v := harnessValidator{}
