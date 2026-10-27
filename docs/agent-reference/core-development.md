@@ -40,10 +40,12 @@ palette colour at 4.5:1 on every Mono ground. Design:
 `docs/superpowers/specs/2026-10-13-mono-chrome-color-palettes-design.md`.
 
 ### Toolchain (preinstalled in the environment)
-- Go (auto-downloaded via `GOTOOLCHAIN=auto` from `go.mod`; needs >= 1.25).
+- Go (auto-downloaded via `GOTOOLCHAIN=auto` from `go.mod`; Wails v3.0.0 needs >= 1.26).
 - `bun` (frontend package manager — `bun.lock` is the lockfile; the `Taskfile` default
   `PACKAGE_MANAGER` is `bun`). On `PATH` via `~/.bun/bin`.
-- `task` (go-task) and `wails3` CLI on `PATH` via `~/go/bin`.
+- `task` (go-task) and `wails3` CLI on `PATH` via `~/go/bin`. Match the CLI to the
+  project: `go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0`. The Go module,
+  frontend `@wailsio/runtime`, and release workflow pin the same stable version.
 - System libs `libgtk-4-dev` + `libwebkitgtk-6.0-dev` are installed. They are **required
   just to compile the `wails3` CLI** and any native GUI build (cgo), even though the GUI
   itself can't run headless.
