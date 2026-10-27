@@ -373,8 +373,8 @@ func (s *Service) publishServingLaunch(sessionID string, l harnessLaunch, commit
 	c := s.servingCoord(sessionID)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if launchStaleLocked(c, l) {
-		return ErrHarnessLaunchStale
+	if reason := launchStaleLocked(c, l); reason != launchCurrent {
+		return &launchStaleError{reason}
 	}
 	if err := commit(); err != nil {
 		return err
@@ -386,13 +386,44 @@ func (s *Service) publishServingLaunch(sessionID string, l harnessLaunch, commit
 	return nil
 }
 
+// launchStaleReason says why a prepared launch can no longer be published, so a
+// caller that has already done something it cannot take back (a rewind that
+// restored files) can tell a change of S, which a fresh launch resolves, from a
+// Close or a lost endpoint, which it does not.
+type launchStaleReason int
+
+const (
+	launchCurrent launchStaleReason = iota
+	// launchStaleClose: a Close is in progress, or a failed Close must be retried.
+	launchStaleClose
+	// launchStaleEpoch: S, or the session's lifecycle, moved since the reservation.
+	// A completed Close moves it too; the caller checks the session before trusting
+	// that it was S.
+	launchStaleEpoch
+	// launchStaleEndpoint: the staged endpoint is no longer the session's.
+	launchStaleEndpoint
+)
+
+// launchStaleError is ErrHarnessLaunchStale with its reason. It is ErrHarnessLaunchStale
+// to errors.Is and errors.As, so every existing caller and the bridge mapping see
+// the error they always did.
+type launchStaleError struct{ reason launchStaleReason }
+
+func (e *launchStaleError) Error() string { return ErrHarnessLaunchStale.Error() }
+func (e *launchStaleError) Unwrap() error { return ErrHarnessLaunchStale }
+
 // launchStaleLocked is publishServingLaunch's validation: S or the session's
 // lifecycle moved since the reservation, or the staged endpoint is gone.
-func launchStaleLocked(c *servingCoord, l harnessLaunch) bool {
-	if c.closing || c.closePending || (l.reservation.set && c.epoch != l.reservation.epoch) {
-		return true
+func launchStaleLocked(c *servingCoord, l harnessLaunch) launchStaleReason {
+	switch {
+	case c.closing || c.closePending:
+		return launchStaleClose
+	case l.reservation.set && c.epoch != l.reservation.epoch:
+		return launchStaleEpoch
+	case l.incarnation != "" && (c.rt == nil || c.rt.ep.Incarnation() != l.incarnation || c.rt.ep.State().Closed):
+		return launchStaleEndpoint
 	}
-	return l.incarnation != "" && (c.rt == nil || c.rt.ep.Incarnation() != l.incarnation || c.rt.ep.State().Closed)
+	return launchCurrent
 }
 
 // checkServingLaunch asks, without publishing anything, whether the launch would
@@ -404,8 +435,8 @@ func (s *Service) checkServingLaunch(sessionID string, l harnessLaunch) error {
 	c := s.servingCoord(sessionID)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if launchStaleLocked(c, l) {
-		return ErrHarnessLaunchStale
+	if reason := launchStaleLocked(c, l); reason != launchCurrent {
+		return &launchStaleError{reason}
 	}
 	return nil
 }
