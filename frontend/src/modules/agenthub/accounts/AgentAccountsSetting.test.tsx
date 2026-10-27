@@ -59,8 +59,9 @@ describe("AgentAccountsSetting", () => {
     const html = render(client);
     const at = (id: string) => html.indexOf(`data-account="${id}"`);
     expect(at("claude-work")).toBeGreaterThan(-1);
-    expect(at("claude-work")).toBeLessThan(at("claude-default"));
-    expect(at("claude-default")).toBeLessThan(at("claude-spare"));
+    expect(at("claude-work")).toBeLessThan(at("claude-spare"));
+    // The built-in account has no row on this page, wherever the saved order put it.
+    expect(at("claude-default")).toBe(-1);
     expect(html).toContain("Switching");
     expect(html).toContain('value="85"');
     // The signed-out account carries Claude's own sign-in, with where it goes.
@@ -94,16 +95,15 @@ describe("AgentAccountsSetting", () => {
     expect(html).not.toContain("codex-sign-in");
   });
 
-  test("a signed-out built-in account sends the person to Runtimes and mounts no sign-in", () => {
+  test("the built-in account has no row, and the page says where its login lives", () => {
     const client = new QueryClient();
     client.setQueryData(agentAccountsKey("claude"), [account({ signedIn: false })]);
     client.setQueryData(AGENT_ACCOUNT_POLICY_KEY, policy);
     const html = render(client);
+    expect(html).not.toContain('data-account="claude-default"');
     expect(html).not.toContain("claude-sign-in");
-    expect(html).not.toContain("codex-sign-in");
-    expect(html).toContain("Sign in to this account under Settings → Agents → Runtimes.");
-    // Checking again stays: Go can re-read the built-in account's status.
-    expect(html).toContain("Check again");
+    expect(html).toContain("sign in to it under Settings → Agents → Runtimes");
+    expect(html).toContain("No accounts yet.");
   });
 
   test("with no stored policy the form shows the defaults", () => {
@@ -124,7 +124,7 @@ describe("AgentAccountsSetting", () => {
       vendors: { claude: { ...policy.vendors.claude, order: ["claude-gone", "claude-work", "claude-gone", "claude-default", "claude-work"] } },
     } satisfies AccountPolicy);
     const html = render(client);
-    expect(html.match(/data-account="claude-default"/g)?.length).toBe(1);
+    expect(html).not.toContain('data-account="claude-default"');
     expect(html.match(/data-account="claude-work"/g)?.length).toBe(1);
     expect(html).not.toContain("claude-gone");
   });

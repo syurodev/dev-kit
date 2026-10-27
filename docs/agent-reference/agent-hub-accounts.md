@@ -265,6 +265,12 @@
     go unannounced), writes a moved session's `accountId` into the sessions store, and toasts "Moved to X" only when that
     session is on screen. Refresh usage has no "asked" flag in the answer: an unchanged `observedAt` is how the row says
     "nothing new" (`refreshNote`).
+  - **The built-in account has no row on this page** (`addedAccounts`, applied in `AgentAccountsSetting`; Go is unchanged: it still
+    lists, ranks and runs sessions on it, and `signedInCount`, notices and the summary card still read the full list). Its login lives
+    under Settings → Agents → Runtimes, so `AccountsEditor` says that instead (`builtinAccountHiddenHelp`) when no listed account is built-in.
+    Move up / Move down now save the order of the added accounts only, so the built-in id is dropped from the saved `order` and Go
+    ranks it after them (unlisted accounts come last). `AccountRow`'s built-in branches stay for the gallery and for a later
+    single sign-in place.
   - **Rows.** Order is the saved `order` then the rest (`orderedAccounts`); Move up / Move down save the whole policy at
     once (no drag and drop). A past `exhaustedUntil` / `cooldownUntil` says nothing; a window past its `resetsAt` is drawn
     empty ("reset since the last reading"). Removal shows Go's refusal inside the confirmation, and a removal that failed
