@@ -223,7 +223,6 @@ func TestBudgetBoundsAndExemptionsAreValidated(t *testing.T) {
 		"exempt tool":      {Tools: map[string]BudgetRule{"pdf.readText": {Bytes: ptr(4096)}}},
 		"unknown tool":     {Tools: map[string]BudgetRule{"git.nope": {Bytes: ptr(4096)}}},
 		"empty rule":       {Tools: map[string]BudgetRule{"git.status": {}}},
-		"head and tail":    {Tools: map[string]BudgetRule{"git.status": {Cut: CutHeadTail}}},
 		"unknown cut":      {Groups: map[string]BudgetRule{"git": {Cut: "middle"}}},
 		"zero bytes":       {Groups: map[string]BudgetRule{"git": {Bytes: ptr(0)}}},
 	}
@@ -243,14 +242,44 @@ func TestBudgetBoundsAndExemptionsAreValidated(t *testing.T) {
 	}
 }
 
-func TestHeadTailIsRefusedNotSilentlyHead(t *testing.T) {
+// headTail is a real cut: a rule may ask for it, and size and mode inherit
+// independently, tool over group over the default 24 KiB/head.
+func TestHeadTailResolvesAndSizeAndModeInheritIndependently(t *testing.T) {
+	budget := func(e Effective, tool string) Budget {
+		t.Helper()
+		b, ok := e.Budget(tool)
+		if !ok {
+			t.Fatalf("%s is not registered", tool)
+		}
+		return b
+	}
 	in := base()
 	in.Workspace = profile(func(p *Profile) {
-		p.ResultBudget = &BudgetProfile{Tools: map[string]BudgetRule{"git.status": {Cut: CutHeadTail}}}
+		p.ResultBudget = &BudgetProfile{
+			Groups: map[string]BudgetRule{"git": {Bytes: ptr(8 * 1024), Cut: CutHeadTail}},
+			Tools: map[string]BudgetRule{
+				"git.status": {Bytes: ptr(16 * 1024)}, // size only: mode comes from the group
+				"git.commit": {Cut: CutHead},          // mode only: size comes from the group
+			},
+		}
 	})
-	_, err := Resolve(in)
-	if code(t, err) != CodeBudgetInvalid || !strings.Contains(err.Error(), "not available") {
-		t.Fatalf("headTail must be rejected clearly: %v", err)
+	e := resolve(t, in)
+	for tool, want := range map[string]Budget{
+		"git.status": {Bytes: 16 * 1024, Cut: CutHeadTail},
+		"git.commit": {Bytes: 8 * 1024, Cut: CutHead},
+	} {
+		if got := budget(e, tool); got != want {
+			t.Errorf("%s = %+v, want %+v", tool, got, want)
+		}
+	}
+	if got := budget(e, "tasks.list"); got.Bytes != DefaultResultBudget || got.Cut != CutHead {
+		t.Errorf("a tool outside the group keeps the default: %+v", got)
+	}
+	if got := budget(e, "pdf.readText"); !got.Exempt {
+		t.Errorf("a fixed exemption is not a policy's to change: %+v", got)
+	}
+	if e.ServingIsDefault() {
+		t.Error("a configured head-and-tail cut must be enforced by the endpoint")
 	}
 }
 

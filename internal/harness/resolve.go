@@ -262,9 +262,7 @@ func resolveBudgets(reg map[string]Tool, groups map[string]groupFacts, p *Budget
 			return fail(CodeBudgetInvalid, "A result budget must be between 2 KiB and 64 KiB.")
 		}
 		switch rule.Cut {
-		case CutDefault, CutHead:
-		case CutHeadTail:
-			return fail(CodeBudgetInvalid, "The head-and-tail cut is not available yet.")
+		case CutDefault, CutHead, CutHeadTail:
 		default:
 			return fail(CodeBudgetInvalid, "Unknown result cut mode.")
 		}

@@ -39,8 +39,9 @@ const (
 	// CutDefault is "no preference": the lower-precedence rule, then CutHead.
 	CutDefault CutMode = ""
 	CutHead    CutMode = "head"
-	// CutHeadTail is reserved for phase 3. It is rejected until the cut exists
-	// rather than silently behaving like CutHead.
+	// CutHeadTail keeps both ends of an over-budget plain-text result around a
+	// marker (internal/mcp cutHeadAndTail). Structured results keep their
+	// structural shrink whatever the mode.
 	CutHeadTail CutMode = "headTail"
 )
 
