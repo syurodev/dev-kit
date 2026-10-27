@@ -105,7 +105,7 @@ func newHarnessApp(t *testing.T) *harnessApp {
 			workspaces: workspacesStub{{ID: "w1"}},
 		},
 		Vendors:   harnessVendors{prefs: a.prefs, supported: productionVendors},
-		Policy:    harnessPolicy{},
+		Policy:    harnessPolicy{prefs: a.prefs},
 		Validator: harnessValidator{},
 		Registry: func() harness.Registry {
 			return harness.Registry{Tools: []harness.Tool{{Name: "git.status", DefinitionBytes: 900}, {Name: "tasks.list", DefinitionBytes: 800}, {Name: harness.ProposeTool, DefinitionBytes: 600}}}

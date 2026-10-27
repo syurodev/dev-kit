@@ -88,12 +88,18 @@ type ProfileView struct {
 	OverridePresent  bool          `json:"overridePresent,omitempty"`
 	Groups           []GroupRow    `json:"groups"`
 	Session          *SessionState `json:"session,omitempty"`
+	// Budgets is set only when the read asked for them.
+	Budgets *BudgetPage `json:"budgets,omitempty"`
 }
 
 // GroupRequest is an agent's ask to turn tool groups on for its own session.
 // Groups empty is discovery: nothing is prepared and nobody is asked.
 type GroupRequest struct {
 	Groups []string `json:"groups,omitempty"`
+	// Budgets is the other, mutually exclusive form: result-budget edits of the
+	// agent's OWN workspace profile (never a session: S holds groups only). It
+	// cannot be combined with Groups.
+	Budgets []BudgetEdit `json:"budgets,omitempty"`
 	// Rationale is the agent's own words; it is shown labelled as untrusted and
 	// decides nothing.
 	Rationale string `json:"rationale,omitempty"`
@@ -103,6 +109,94 @@ type GroupRequest struct {
 type GroupEdit struct {
 	Group   string       `json:"group"`
 	Setting GroupSetting `json:"setting"`
+}
+
+// BudgetKind says whether a budget edit names one tool or a whole tool group.
+type BudgetKind string
+
+const (
+	BudgetTool  BudgetKind = "tool"
+	BudgetGroup BudgetKind = "group"
+)
+
+// BudgetEdit changes the result budget of one tool or group in the WORKSPACE
+// profile, and nothing else. Size and cut mode are separate fields with three
+// intents each: omitted leaves the field alone, a value sets it, and a reset
+// removes it so the next level (group, then the 24 KiB / head default) applies. A
+// rule left with neither field is removed. Sibling fields and every other rule are
+// never touched. Sizes are bytes, 2,048 to 65,536 inclusive; the modes are the
+// strings "head" and "headTail".
+type BudgetEdit struct {
+	Kind       BudgetKind `json:"kind"`
+	Name       string     `json:"name"`
+	Bytes      *int       `json:"bytes,omitempty"`
+	ResetBytes bool       `json:"resetBytes,omitempty"`
+	Cut        string     `json:"cut,omitempty"`
+	ResetCut   bool       `json:"resetCut,omitempty"`
+}
+
+// BudgetSource says which level an effective budget field comes from.
+type BudgetSource string
+
+const (
+	BudgetFromTool    BudgetSource = "tool"
+	BudgetFromGroup   BudgetSource = "group"
+	BudgetFromDefault BudgetSource = "default"
+)
+
+// BudgetFilter pages the per-tool budget read. The cursor is bound to the filter
+// that produced it: presenting it with another group is refused, never reread as
+// the start of a different list.
+type BudgetFilter struct {
+	Group  string `json:"group,omitempty"`
+	Cursor string `json:"cursor,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
+}
+
+// ToolBudgetRow is one registered tool's result limit: what the workspace profile
+// says explicitly for the tool and for its group, what is in effect, and where each
+// field of the effective value comes from. An exempt tool is never cut and has no
+// limit to show. Sizes are bytes of host text, not tokens.
+type ToolBudgetRow struct {
+	Tool            string `json:"tool"`
+	Group           string `json:"group"`
+	DefinitionBytes int    `json:"definitionBytes"`
+	Exempt          bool   `json:"exempt"`
+	// ToolBytes and ToolCut are the explicit rule on the tool itself (nil / empty:
+	// none). GroupBytes and GroupCut are the group's.
+	ToolBytes      *int         `json:"toolBytes,omitempty"`
+	ToolCut        string       `json:"toolCut,omitempty"`
+	GroupBytes     *int         `json:"groupBytes,omitempty"`
+	GroupCut       string       `json:"groupCut,omitempty"`
+	EffectiveBytes int          `json:"effectiveBytes,omitempty"`
+	EffectiveCut   string       `json:"effectiveCut,omitempty"`
+	BytesFrom      BudgetSource `json:"bytesFrom,omitempty"`
+	CutFrom        BudgetSource `json:"cutFrom,omitempty"`
+}
+
+// GroupBudgetRow is one group's explicit rule and how many of its tools a rule can
+// reach (the others are exempt from cutting).
+type GroupBudgetRow struct {
+	Group    string `json:"group"`
+	Tools    int    `json:"tools"`
+	Cuttable int    `json:"cuttable"`
+	Bytes    *int   `json:"bytes,omitempty"`
+	Cut      string `json:"cut,omitempty"`
+}
+
+// BudgetPage is a bounded page of the workspace's result limits. Groups appear on
+// the first page only.
+type BudgetPage struct {
+	WorkspaceID     string           `json:"workspaceId"`
+	ProfileRevision int64            `json:"profileRevision"`
+	ProfilePresent  bool             `json:"profilePresent"`
+	DefaultBytes    int              `json:"defaultBytes"`
+	MinBytes        int              `json:"minBytes"`
+	MaxBytes        int              `json:"maxBytes"`
+	Group           string           `json:"group,omitempty"`
+	Groups          []GroupBudgetRow `json:"groups,omitempty"`
+	Tools           []ToolBudgetRow  `json:"tools"`
+	NextCursor      string           `json:"nextCursor,omitempty"`
 }
 
 // ReviewChange is one host-authored effect of a prepared change. Scope is
@@ -296,6 +390,14 @@ type Controls interface {
 	PrepareWorkspaceGroups(ctx context.Context, workspaceID string, edits []GroupEdit) (Review, error)
 	// PrepareRevoke prepares removing groups from a session's override.
 	PrepareRevoke(ctx context.Context, workspaceID, sessionID string, groups []string) (Review, error)
+	// ProfileWithBudgets is Profile plus a bounded page of the agent's own
+	// workspace's result limits.
+	ProfileWithBudgets(ctx context.Context, f BudgetFilter) (ProfileView, error)
+	// WorkspaceBudgets is the window's bounded read of a workspace's result limits.
+	WorkspaceBudgets(ctx context.Context, workspaceID string, f BudgetFilter) (BudgetPage, error)
+	// PrepareBudgetEdits prepares partial result-budget edits of a workspace's
+	// profile. Writes nothing; Apply asks and commits.
+	PrepareBudgetEdits(ctx context.Context, workspaceID string, edits []BudgetEdit) (Review, error)
 	// Apply asks the person through the shared hub and commits the prepared change.
 	Apply(ctx context.Context, id string) (Outcome, error)
 	Cancel(ctx context.Context, id string) error

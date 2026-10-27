@@ -27,6 +27,8 @@ type MemoryRepository struct {
 	hasSubagentLimits     bool
 	accountPolicy         AgentAccountPolicy
 	hasAccountPolicy      bool
+	harnessPolicy         AgentHarnessPolicy
+	hasHarnessPolicy      bool
 
 	revealRequiresPassword    bool
 	hasRevealRequiresPassword bool
@@ -201,6 +203,20 @@ func (r *MemoryRepository) GetAgentAccountPolicy() (AgentAccountPolicy, bool, er
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.accountPolicy.clone(), r.hasAccountPolicy, nil
+}
+
+func (r *MemoryRepository) GetAgentHarnessPolicy() (AgentHarnessPolicy, bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.harnessPolicy, r.hasHarnessPolicy, nil
+}
+
+func (r *MemoryRepository) SetAgentHarnessPolicy(policy AgentHarnessPolicy) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.harnessPolicy = policy
+	r.hasHarnessPolicy = true
+	return nil
 }
 
 func (r *MemoryRepository) SetAgentAccountPolicy(policy AgentAccountPolicy) error {

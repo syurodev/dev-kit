@@ -59,6 +59,36 @@ func (s *AppService) HarnessPrepareWorkspaceGroups(workspaceID string, edits []h
 	return result.(harnessconfig.Review), nil
 }
 
+// HarnessWorkspaceBudgets reads a bounded page of a workspace's result limits:
+// the explicit rules, the effective values and where each comes from. group
+// filters; cursor is the previous page's, valid for the same group only.
+func (s *AppService) HarnessWorkspaceBudgets(workspaceID, group, cursor string) (harnessconfig.BudgetPage, error) {
+	result, err := s.call(context.Background(), "builtin.harness", "harness:read", "ui:profile", map[string]any{
+		"action": "workspace_budgets", "workspace_id": recordID(workspaceID),
+	}, func(ctx context.Context) (any, error) {
+		return s.container.Harness.WorkspaceBudgets(ctx, workspaceID, harnessconfig.BudgetFilter{Group: group, Cursor: cursor})
+	})
+	if err != nil {
+		return harnessconfig.BudgetPage{}, err
+	}
+	return result.(harnessconfig.BudgetPage), nil
+}
+
+// HarnessPrepareBudgetEdits prepares partial result-budget edits of a workspace's
+// profile (size and cut mode independently settable or resettable). It writes
+// nothing; HarnessApply asks and commits.
+func (s *AppService) HarnessPrepareBudgetEdits(workspaceID string, edits []harnessconfig.BudgetEdit) (harnessconfig.Review, error) {
+	result, err := s.call(context.Background(), "builtin.harness", "harness:write", "ui:change", map[string]any{
+		"action": "prepare_budget_edits", "workspace_id": recordID(workspaceID), "edits": len(edits),
+	}, func(ctx context.Context) (any, error) {
+		return s.container.Harness.PrepareBudgetEdits(ctx, workspaceID, edits)
+	})
+	if err != nil {
+		return harnessconfig.Review{}, err
+	}
+	return result.(harnessconfig.Review), nil
+}
+
 // HarnessPrepareRevoke prepares removing groups from a session's override.
 func (s *AppService) HarnessPrepareRevoke(workspaceID, sessionID string, groups []string) (harnessconfig.Review, error) {
 	result, err := s.call(context.Background(), "builtin.harness", "harness:write", "ui:change", map[string]any{

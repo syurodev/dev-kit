@@ -20,6 +20,7 @@ const (
 	agentModelProfilesKey  = "agent_model_profiles"
 	agentSubagentLimitsKey = "agent_subagent_limits"
 	agentAccountPolicyKey  = "agent_account_policy"
+	agentHarnessPolicyKey  = "agent_harness_policy"
 )
 
 // GetRevealRequiresPassword treats a value it cannot read as unset, so the
@@ -348,6 +349,36 @@ func (r *SQLRepository) GetAgentAccountPolicy() (AgentAccountPolicy, bool, error
 		return AgentAccountPolicy{}, false, nil
 	}
 	return policy, true, nil
+}
+
+// GetAgentHarnessPolicy reads a value it cannot parse, or one with a negative
+// revision, as unset: off, which is the state in which every proposal asks.
+func (r *SQLRepository) GetAgentHarnessPolicy() (AgentHarnessPolicy, bool, error) {
+	var value string
+	err := r.db.QueryRowContext(context.Background(),
+		"SELECT value FROM app_preferences WHERE key = ?", agentHarnessPolicyKey).Scan(&value)
+	if err == sql.ErrNoRows {
+		return AgentHarnessPolicy{}, false, nil
+	}
+	if err != nil {
+		return AgentHarnessPolicy{}, false, err
+	}
+	var policy AgentHarnessPolicy
+	if jsonErr := json.Unmarshal([]byte(value), &policy); jsonErr != nil || policy.Revision < 0 {
+		return AgentHarnessPolicy{}, false, nil
+	}
+	return policy, true, nil
+}
+
+func (r *SQLRepository) SetAgentHarnessPolicy(policy AgentHarnessPolicy) error {
+	body, err := json.Marshal(policy)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(context.Background(),
+		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, agentHarnessPolicyKey, string(body))
+	return err
 }
 
 func (r *SQLRepository) SetAgentAccountPolicy(policy AgentAccountPolicy) error {

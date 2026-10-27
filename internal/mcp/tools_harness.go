@@ -17,13 +17,35 @@ import (
 // target.
 type HarnessAPI interface {
 	Profile(ctx context.Context) (harnessconfig.ProfileView, error)
+	ProfileWithBudgets(ctx context.Context, f harnessconfig.BudgetFilter) (harnessconfig.ProfileView, error)
 	Request(ctx context.Context, req harnessconfig.GroupRequest) (harnessconfig.RequestResult, error)
 }
 
-// HarnessProposeInput asks to turn tool groups on for the calling session.
+// HarnessGetInput optionally adds a bounded page of the result limits.
+type HarnessGetInput struct {
+	Budgets bool   `json:"budgets,omitempty" jsonschema:"Also return a page of the workspace's result limits per tool (bytes of host text, not tokens)."`
+	Group   string `json:"group,omitempty" jsonschema:"With budgets: only this tool group."`
+	Cursor  string `json:"cursor,omitempty" jsonschema:"With budgets: the nextCursor of the previous page, with the same group."`
+}
+
+// HarnessBudgetInput is one partial edit of a result budget in YOUR workspace's
+// saved profile. A field you leave out is unchanged; a value sets it; a reset
+// removes it so the next level applies.
+type HarnessBudgetInput struct {
+	Kind       string `json:"kind" jsonschema:"\"tool\" or \"group\"."`
+	Name       string `json:"name" jsonschema:"The tool (e.g. git.diff) or group (e.g. git)."`
+	Bytes      *int   `json:"bytes,omitempty" jsonschema:"New size in bytes, 2048 to 65536."`
+	ResetBytes bool   `json:"resetBytes,omitempty" jsonschema:"Remove the size so the group or the 24 KiB default applies."`
+	Cut        string `json:"cut,omitempty" jsonschema:"\"head\" or \"headTail\" (keeps the start and the end of plain-text output)."`
+	ResetCut   bool   `json:"resetCut,omitempty" jsonschema:"Remove the cut mode so the group or head applies."`
+}
+
+// HarnessProposeInput asks to turn tool groups on for the calling session, or to
+// edit result budgets of its workspace. The two forms are exclusive.
 type HarnessProposeInput struct {
-	Groups    []string `json:"groups,omitempty" jsonschema:"Tool groups to turn on for your own session, e.g. [\"git\"]. Omit to list the groups that are off and what they would cost. Names come from that list."`
-	Rationale string   `json:"rationale,omitempty" jsonschema:"Why you need them, in a sentence. The person sees it labelled as your own untrusted text; it decides nothing."`
+	Groups    []string             `json:"groups,omitempty" jsonschema:"Tool groups to turn on for your own session, e.g. [\"git\"]. Omit to list the groups that are off and what they would cost. Names come from that list."`
+	Budgets   []HarnessBudgetInput `json:"budgets,omitempty" jsonschema:"Instead of groups: edits of result budgets in your workspace's saved profile (never a session). Not combinable with groups."`
+	Rationale string               `json:"rationale,omitempty" jsonschema:"Why you need them, in a sentence. The person sees it labelled as your own untrusted text; it decides nothing."`
 }
 
 // registerHarness registers the two tools. They exist only when the controls are
@@ -43,13 +65,17 @@ func (s *Server) registerHarness(ms *sdk.Server) {
 		Name: harness.ProposeTool,
 		Description: "Ask the person to turn DevKit tool groups on for your own session. Without `groups` it only lists the groups that are off. " +
 			"With `groups` the person chooses this session only or the workspace, reviews the exact change and approves or declines; nothing changes without that. " +
+			"Or pass `budgets` (not with groups) to edit result budgets: they change your workspace's SAVED profile only, never a session, and take effect when a session is next opened or reloaded. " +
 			"It never runs a tool, never grants permission and cannot target another session. If the result says the change was saved but access is paused, do not ask again: the person reconciles it.",
 		Annotations: &sdk.ToolAnnotations{DestructiveHint: boolPtr(false), IdempotentHint: false},
 	}), s.toolHarnessPropose)
 }
 
-func (s *Server) toolHarnessProfileGet(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.harness", "harness:read", "profile:self", meta("harness_profile_get", nil), func(callCtx context.Context) (any, error) {
+func (s *Server) toolHarnessProfileGet(ctx context.Context, _ *sdk.CallToolRequest, in HarnessGetInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.harness", "harness:read", "profile:self", meta("harness_profile_get", map[string]any{"budgets": in.Budgets}), func(callCtx context.Context) (any, error) {
+		if in.Budgets {
+			return s.deps.Harness.ProfileWithBudgets(callCtx, harnessconfig.BudgetFilter{Group: in.Group, Cursor: in.Cursor})
+		}
 		return s.deps.Harness.Profile(callCtx)
 	})
 	if err != nil {
@@ -60,8 +86,13 @@ func (s *Server) toolHarnessProfileGet(ctx context.Context, _ *sdk.CallToolReque
 
 func (s *Server) toolHarnessPropose(ctx context.Context, _ *sdk.CallToolRequest, in HarnessProposeInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.harness", "harness:propose", "profile:self",
-		meta("harness_profile_propose", map[string]any{"groups": len(in.Groups)}), func(callCtx context.Context) (any, error) {
-			return s.deps.Harness.Request(callCtx, harnessconfig.GroupRequest{Groups: in.Groups, Rationale: in.Rationale})
+		meta("harness_profile_propose", map[string]any{"groups": len(in.Groups), "budgets": len(in.Budgets)}), func(callCtx context.Context) (any, error) {
+			req := harnessconfig.GroupRequest{Groups: in.Groups, Rationale: in.Rationale}
+			for _, b := range in.Budgets {
+				req.Budgets = append(req.Budgets, harnessconfig.BudgetEdit{Kind: harnessconfig.BudgetKind(b.Kind), Name: b.Name,
+					Bytes: b.Bytes, ResetBytes: b.ResetBytes, Cut: b.Cut, ResetCut: b.ResetCut})
+			}
+			return s.deps.Harness.Request(callCtx, req)
 		})
 	if err != nil {
 		return nil, nil, err

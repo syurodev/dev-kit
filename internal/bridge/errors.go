@@ -284,6 +284,9 @@ func publicError(subject string, err error) *apperrors.AppError {
 	if errors.Is(err, preferences.ErrInvalidSubagentLimits) {
 		return apperrors.New(codeValidationFailed, "Subagent limits: "+strings.TrimPrefix(err.Error(), preferences.ErrInvalidSubagentLimits.Error()+": "), true)
 	}
+	if errors.Is(err, preferences.ErrHarnessPolicyConflict) {
+		return apperrors.New(codeValidationFailed, "The setting changed. Refresh and choose again.", true)
+	}
 	if errors.Is(err, preferences.ErrAccountPolicyConflict) {
 		return apperrors.New(codeValidationFailed, "The account switching rules changed. Refresh and apply your change again.", true)
 	}

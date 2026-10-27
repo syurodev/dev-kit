@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"devkit/internal/agenthub"
@@ -168,11 +169,24 @@ func (harnessValidator) Validate(_ context.Context, w harness.Profile) error {
 	return nil
 }
 
-// harnessPolicy is the UI-owned policy. Neither setting exists in the product
-// yet, so both are off: narrowing always asks and executable proposals are never
-// opted in. The editor (H5) supplies the real source.
-type harnessPolicy struct{}
+// harnessPolicy is the UI-owned policy, read from preferences: the person's
+// opt-in for an agent's narrowing result-budget edits, off unless they turned it
+// on, with the stored monotonic revision as Policy.Revision so any change after a
+// proposal was prepared — a toggle off and on again included — makes it stale.
+// AllowExecutable is always false: executable proposals have no setting and are
+// not available. A read failure is returned, and the service refuses on it; it is
+// never read as "on".
+type harnessPolicy struct{ prefs *preferences.Service }
 
-func (harnessPolicy) Policy(context.Context) (harnessconfig.Policy, error) {
-	return harnessconfig.Policy{Revision: "default"}, nil
+func (p harnessPolicy) Policy(context.Context) (harnessconfig.Policy, error) {
+	if p.prefs == nil {
+		return harnessconfig.Policy{}, errHarnessPolicyUnavailable
+	}
+	v, err := p.prefs.AgentHarnessPolicy()
+	if err != nil {
+		return harnessconfig.Policy{}, errHarnessPolicyUnavailable
+	}
+	return harnessconfig.Policy{Revision: "auto-narrowing:" + strconv.FormatInt(v.Revision, 10), AutoNarrowing: v.AutoNarrowing, AllowExecutable: false}, nil
 }
+
+var errHarnessPolicyUnavailable = errors.New("harness policy unavailable")

@@ -16,6 +16,10 @@ var (
 	ErrExecutableNotReady = &harness.Error{Code: harness.CodeNotAvailable, Message: "Changes that add or alter a server or skill cannot be shown in full yet."}
 	ErrNoChange           = &harness.Error{Code: harness.CodeNoChange, Message: "The proposal changes nothing that is in effect."}
 	ErrInvalid            = &harness.Error{Code: harness.CodeProfileInvalid, Message: "The proposal is not valid."}
+	// ErrInvalidBudget: a size outside 2–64 KiB or an unknown cut mode.
+	ErrInvalidBudget = &harness.Error{Code: harness.CodeBudgetInvalid, Message: "A result budget must be between 2 KiB and 64 KiB, and its cut must be head or headTail."}
+	// ErrBudgetExempt: the edit names something whose result is never cut.
+	ErrBudgetExempt       = &harness.Error{Code: harness.CodeBudgetInvalid, Message: "That tool or group has no result budget to edit: its results are never cut."}
 	ErrStale              = &harness.Error{Code: harness.CodeProposalStale, Message: "The configuration changed after the proposal was prepared. Propose it again."}
 	ErrConflict           = &harness.Error{Code: harness.CodeProfileConflict, Message: "The workspace profile changed. Propose it again."}
 	ErrUnknownProposal    = &harness.Error{Code: harness.CodeProposalStale, Message: "That proposal is not pending."}

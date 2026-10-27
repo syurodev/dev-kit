@@ -24,9 +24,21 @@ func buildView(ev evaluation, policy Policy) (View, error) {
 	v := View{Target: ev.Target, Tier: ev.Tier.String(), NeedsConfirmation: ev.needsApproval, RationaleUntrusted: ev.Rationale}
 	seen := map[string]bool{}
 	var lines []string
+	// A budget change is shown with its exact numbers: the effective limit and cut
+	// of the tool before and after, which is what actually changes (a group edit
+	// reaches every cuttable member; a reset falls back to the next level).
+	deltas := map[string]budgetDelta{}
+	for _, vd := range ev.Vendors {
+		for _, d := range vd.Budgets {
+			deltas[d.Tool] = d
+		}
+	}
 	for _, vd := range ev.Vendors {
 		for _, c := range vd.Changes {
 			e := effect(c)
+			if d, ok := deltas[c.Key]; ok && (c.Field == "resultBudget.bytes" || c.Field == "resultBudget.cut") {
+				e = budgetLine(d)
+			}
 			v.Changes = append(v.Changes, ViewChange{Vendor: vd.Vendor, Field: c.Field, Key: c.Key, Effect: e, Scope: ScopeStored})
 			if !seen[e] {
 				seen[e] = true
@@ -60,6 +72,12 @@ func buildView(ev evaluation, policy Policy) (View, error) {
 		b.WriteString("Change this workspace's harness profile. Running sessions keep what they opened with until reloaded.")
 	}
 	fmt.Fprintf(&b, " Effect: %s.", v.Tier)
+	if edits := ev.Patch.BudgetEdits; len(edits) > 0 {
+		b.WriteString("\nRequested result-budget edits (saved to this workspace's profile; sessions already running keep their limits until reloaded):")
+		for _, e := range edits {
+			fmt.Fprintf(&b, "\n- %s", editLine(e))
+		}
+	}
 	// Without a running session the sentence is the stored-only form, as before.
 	switch {
 	case ev.Live == nil:
@@ -89,6 +107,36 @@ func buildView(ev evaluation, policy Policy) (View, error) {
 	}
 	v.Summary = b.String()
 	return v, nil
+}
+
+// budgetLine is one tool's effective limit before and after, exact to the byte.
+func budgetLine(d budgetDelta) string {
+	var parts []string
+	if d.BeforeBytes != d.AfterBytes {
+		parts = append(parts, fmt.Sprintf("limit %d → %d bytes", d.BeforeBytes, d.AfterBytes))
+	}
+	if d.BeforeCut != d.AfterCut {
+		parts = append(parts, fmt.Sprintf("cut %s → %s", d.BeforeCut, d.AfterCut))
+	}
+	return fmt.Sprintf("results from %s: %s", d.Tool, strings.Join(parts, ", "))
+}
+
+// editLine states one requested edit as the three intents it can carry.
+func editLine(e BudgetEdit) string {
+	var parts []string
+	switch {
+	case e.ResetBytes:
+		parts = append(parts, "size reset to the inherited value")
+	case e.Bytes != nil:
+		parts = append(parts, fmt.Sprintf("size set to %d bytes", *e.Bytes))
+	}
+	switch {
+	case e.ResetCut:
+		parts = append(parts, "cut reset to the inherited mode")
+	case e.Cut != "":
+		parts = append(parts, "cut set to "+e.Cut)
+	}
+	return fmt.Sprintf("%s %s: %s", e.Kind, e.Name, strings.Join(parts, ", "))
 }
 
 // pinnedW states the workspace profile a session was opened with: its revision,

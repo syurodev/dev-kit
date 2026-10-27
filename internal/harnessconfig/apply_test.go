@@ -200,7 +200,7 @@ func TestDenialErrorsAndCancellationLeaveTheStoreUntouched(t *testing.T) {
 func TestNobodyToAskMeansNothingIsWrittenEvenWithAutoNarrowing(t *testing.T) {
 	a := newApplyEnv(t)
 	a.policy.p = Policy{Revision: "p2", AutoNarrowing: true}
-	narrow := Request{Target: TargetWorkspace, Patch: Patch{Workspace: &ProfilePatch{Groups: map[string]*bool{"git": boolp(false)}}}}
+	narrow := Request{Target: TargetWorkspace, Patch: Patch{BudgetEdits: []BudgetEdit{{Kind: BudgetTool, Name: "git.status", Bytes: kib(8)}}}}
 	got, err := a.svc.Prepare(agent("s1"), narrow)
 	if err != nil || got.View.NeedsConfirmation {
 		t.Fatalf("setup: %+v %v", got, err)
@@ -230,7 +230,7 @@ func TestNobodyToAskMeansNothingIsWrittenEvenWithAutoNarrowing(t *testing.T) {
 func TestAutoNarrowingSkipsThePromptWhenSomeoneCouldHaveAnswered(t *testing.T) {
 	a := newApplyEnv(t)
 	a.policy.p = Policy{Revision: "p2", AutoNarrowing: true}
-	narrow := Request{Target: TargetWorkspace, Patch: Patch{Workspace: &ProfilePatch{Groups: map[string]*bool{"git": boolp(false)}}}}
+	narrow := Request{Target: TargetWorkspace, Patch: Patch{BudgetEdits: []BudgetEdit{{Kind: BudgetTool, Name: "git.status", Bytes: kib(8)}}}}
 	got, _ := a.svc.Prepare(agent("s1"), narrow)
 	res, err := a.svc.Apply(agent("s1"), got.ID)
 	if err != nil || a.confirm.calls != 0 || res.Profile.Revision != 1 {

@@ -98,6 +98,60 @@ type vendorDiff struct {
 	Before, After  string
 	Tier           harness.Tier
 	Changes        []harness.Change
+	// Budgets are the exact effective limits that change, tool by tool (judged
+	// from the same effective before and after the tier is). They are part of what
+	// an approval is bound to and what the confirmation shows.
+	Budgets []budgetDelta
+}
+
+// budgetDelta is one tool's effective result limit before and after a change.
+type budgetDelta struct {
+	Tool                    string
+	BeforeBytes, AfterBytes int
+	BeforeCut, AfterCut     string
+}
+
+// budgetDeltas lists the registered, cuttable tools whose effective size or cut
+// mode differs, in registry order.
+func budgetDeltas(before, after harness.Effective, reg harness.Registry) []budgetDelta {
+	var out []budgetDelta
+	for _, t := range reg.Tools {
+		if t.BudgetExempt {
+			continue
+		}
+		b, bok := before.Budget(t.Name)
+		a, aok := after.Budget(t.Name)
+		if !bok || !aok || b.Exempt || a.Exempt || (b.Bytes == a.Bytes && b.Cut == a.Cut) {
+			continue
+		}
+		out = append(out, budgetDelta{Tool: t.Name, BeforeBytes: b.Bytes, AfterBytes: a.Bytes, BeforeCut: string(b.Cut), AfterCut: string(a.Cut)})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Tool < out[j].Tool })
+	return out
+}
+
+// checkBudgetTargets refuses a group edit that can have no effect because every
+// tool of the group is exempt from cutting (the resolver already refuses a tool
+// edit of an exempt tool). Exemptions are the server's facts; a profile cannot
+// create or remove one.
+func checkBudgetTargets(edits []BudgetEdit, reg harness.Registry) error {
+	for _, e := range edits {
+		if e.Kind != BudgetGroup || (e.Bytes == nil && e.Cut == "") {
+			continue
+		}
+		cuttable, any := false, false
+		for _, t := range reg.Tools {
+			if harness.Group(t.Name) != e.Name {
+				continue
+			}
+			any = true
+			cuttable = cuttable || !t.BudgetExempt
+		}
+		if any && !cuttable {
+			return ErrBudgetExempt
+		}
+	}
+	return nil
 }
 
 // evaluation is everything an approval is bound to. A second evaluation of the
@@ -262,10 +316,13 @@ func (s *Service) evaluate(ctx context.Context, caller identity.Caller, req Requ
 	patch := req.Patch
 	sessionEdit := len(patch.EnableGroups) > 0 || len(patch.RevokeGroups) > 0
 	switch {
-	case req.Target == TargetSession && (ev.SessionID == "" || patch.Workspace != nil || !sessionEdit):
+	case req.Target == TargetSession && (ev.SessionID == "" || patch.Workspace != nil || len(patch.BudgetEdits) > 0 || !sessionEdit):
+		// S holds enabled group names only: a budget edit has no session scope.
 		return ev, none, ErrInvalid
-	case req.Target == TargetWorkspace && patch.Workspace == nil:
+	case req.Target == TargetWorkspace && patch.Workspace == nil && len(patch.BudgetEdits) == 0:
 		return ev, none, ErrInvalid
+	case len(patch.BudgetEdits) > 0 && sessionEdit:
+		return ev, none, ErrInvalid // a budget edit is not mixed with a group request
 	case sessionEdit && ev.SessionID == "":
 		return ev, none, ErrInvalid
 	}
@@ -294,7 +351,7 @@ func (s *Service) evaluate(ctx context.Context, caller identity.Caller, req Requ
 	w2 := clone(w)
 	wChanged := false
 	if req.Target == TargetWorkspace {
-		w2 = applyProfile(w, patch.Workspace)
+		w2 = applyBudgetEdits(applyProfile(w, patch.Workspace), patch.BudgetEdits)
 		wChanged = !sameProfile(w, w2)
 	}
 	o2 := cloneOverride(o)
@@ -316,6 +373,9 @@ func (s *Service) evaluate(ctx context.Context, caller identity.Caller, req Requ
 	vendors = nonEmpty(vendors)
 	needFacts := patch.touchesExecutableSurface()
 	registry := s.cfg.Registry()
+	if err := checkBudgetTargets(patch.BudgetEdits, registry); err != nil {
+		return ev, none, err
+	}
 	for _, name := range vendors {
 		vs, err := s.cfg.Vendors.State(ctx, name)
 		if err != nil {
@@ -364,7 +424,8 @@ func (s *Service) evaluate(ctx context.Context, caller identity.Caller, req Requ
 			class = mergeClassification(harness.Classify(rb, ra), class)
 		}
 		ev.Vendors = append(ev.Vendors, vendorDiff{Vendor: name, VendorRevision: vs.Vendor.Revision, FactsComplete: vs.FactsComplete,
-			Before: b.Fingerprint, After: a.Fingerprint, Tier: class.Tier, Changes: class.Changes})
+			Before: b.Fingerprint, After: a.Fingerprint, Tier: class.Tier, Changes: class.Changes,
+			Budgets: budgetDeltas(b, a, registry)})
 		if class.Tier > ev.Tier {
 			ev.Tier = class.Tier
 		}
@@ -404,7 +465,12 @@ func (s *Service) evaluate(ctx context.Context, caller identity.Caller, req Requ
 		ev.write.SessionID = ev.SessionID
 		ev.write.Override = &harness.OverrideWrite{Expect: oStamp, Value: o2}
 	}
-	ev.needsApproval = ev.Tier != harness.TierNarrowing || !policy.AutoNarrowing
+	// The person's opt-in lets an AGENT's narrowing budget edit skip the question,
+	// and nothing else: a window edit is always confirmed, widening, mixed and
+	// executable changes always ask, and so does any request that is not a pure
+	// budget edit. Whether anyone could have answered is checked by Apply first.
+	auto := policy.AutoNarrowing && caller.IsAgent() && patch.isBudgetOnly()
+	ev.needsApproval = ev.Tier != harness.TierNarrowing || !auto
 	return ev, policy, nil
 }
 
