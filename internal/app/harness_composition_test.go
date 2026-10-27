@@ -46,7 +46,7 @@ func newAssemblyParts(t *testing.T) assemblyParts {
 
 func (p assemblyParts) config() HarnessAssemblyConfig {
 	return HarnessAssemblyConfig{
-		DB: p.db, Preferences: p.prefs, Hub: p.hub, Workspaces: p.ws, Agents: p.agents, Vendors: productionVendors,
+		Store: storage.NewHarnessStore(p.db), Preferences: p.prefs, Hub: p.hub, Workspaces: p.ws, Agents: p.agents, Vendors: productionVendors,
 		Inventory: func() (harness.Registry, error) {
 			return harness.Registry{Tools: []harness.Tool{{Name: "git.status", DefinitionBytes: 900}}}, nil
 		},
@@ -56,14 +56,15 @@ func (p assemblyParts) config() HarnessAssemblyConfig {
 func TestAnIncompleteGraphIsRefusedAndAttachesNothing(t *testing.T) {
 	var nilWorkspaces *workspace.Service // the typed-nil trap
 	cases := map[string]func(c *HarnessAssemblyConfig){
-		"no database":    func(c *HarnessAssemblyConfig) { c.DB = nil },
-		"no preferences": func(c *HarnessAssemblyConfig) { c.Preferences = nil },
-		"no hub":         func(c *HarnessAssemblyConfig) { c.Hub = nil },
-		"no agent hub":   func(c *HarnessAssemblyConfig) { c.Agents = nil },
-		"no workspaces":  func(c *HarnessAssemblyConfig) { c.Workspaces = nil },
-		"typed nil":      func(c *HarnessAssemblyConfig) { c.Workspaces = nilWorkspaces },
-		"no vendors":     func(c *HarnessAssemblyConfig) { c.Vendors = nil },
-		"no inventory":   func(c *HarnessAssemblyConfig) { c.Inventory = nil },
+		"no store":        func(c *HarnessAssemblyConfig) { c.Store = nil },
+		"typed nil store": func(c *HarnessAssemblyConfig) { var s *storage.HarnessStore; c.Store = s },
+		"no preferences":  func(c *HarnessAssemblyConfig) { c.Preferences = nil },
+		"no hub":          func(c *HarnessAssemblyConfig) { c.Hub = nil },
+		"no agent hub":    func(c *HarnessAssemblyConfig) { c.Agents = nil },
+		"no workspaces":   func(c *HarnessAssemblyConfig) { c.Workspaces = nil },
+		"typed nil":       func(c *HarnessAssemblyConfig) { c.Workspaces = nilWorkspaces },
+		"no vendors":      func(c *HarnessAssemblyConfig) { c.Vendors = nil },
+		"no inventory":    func(c *HarnessAssemblyConfig) { c.Inventory = nil },
 		"unreadable inventory": func(c *HarnessAssemblyConfig) {
 			c.Inventory = func() (harness.Registry, error) { return harness.Registry{}, errors.New("boom") }
 		},

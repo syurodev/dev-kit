@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"path/filepath"
 	"reflect"
@@ -13,7 +12,6 @@ import (
 	"devkit/internal/harnessconfig"
 	"devkit/internal/interaction"
 	"devkit/internal/preferences"
-	"devkit/internal/storage"
 )
 
 // The harness assembly is the one place the harness graph is built: the SQL
@@ -46,10 +44,19 @@ var (
 	ErrHarnessAlreadyAttached = errors.New("harness assembly: Agent Hub already has a harness attached")
 )
 
+// harnessPersistence is the SQL HarnessStore (storage.HarnessStore) as the
+// assembly needs it: the proposal service's store port and the lifecycle owner's
+// override cleanup. The composition root builds it, so this package never imports
+// storage (internal/arch).
+type harnessPersistence interface {
+	harnessconfig.Store
+	overrideClearer
+}
+
 // HarnessAssemblyConfig is every input of the graph. Each field is required.
 type HarnessAssemblyConfig struct {
-	// DB is the migrated application database (HarnessStore, W and S).
-	DB *sql.DB
+	// Store is the migrated application database's HarnessStore (W and S).
+	Store harnessPersistence
 	// Preferences is the vendor customization (V) and the writer boundary the
 	// proposal's final recheck runs inside.
 	Preferences *preferences.Service
@@ -75,7 +82,7 @@ type HarnessAssemblyConfig struct {
 // (Prepare, Apply, Reconcile): it is not a public transport and no MCP tool
 // exposes it (H5 owns that).
 type HarnessAssembly struct {
-	Store    *storage.HarnessStore
+	Store    harnessPersistence
 	Provider *harnessconfig.Provider
 	Service  *harnessconfig.Service
 
@@ -86,7 +93,7 @@ type HarnessAssembly struct {
 // registry once and validates every collaborator, typed nils included, before
 // constructing anything that could be attached.
 func NewHarnessAssembly(cfg HarnessAssemblyConfig) (*HarnessAssembly, error) {
-	if cfg.DB == nil || cfg.Preferences == nil || cfg.Hub == nil || cfg.Agents == nil || isNilWorkspaces(cfg.Workspaces) ||
+	if isNilInterface(cfg.Store) || cfg.Preferences == nil || cfg.Hub == nil || cfg.Agents == nil || isNilWorkspaces(cfg.Workspaces) ||
 		cfg.Inventory == nil || len(cfg.Vendors) == 0 {
 		return nil, ErrHarnessAssemblyIncomplete
 	}
@@ -98,7 +105,7 @@ func NewHarnessAssembly(cfg HarnessAssemblyConfig) (*HarnessAssembly, error) {
 	registry = harness.Registry{Tools: slices.Clone(registry.Tools)}
 	registryOf := func() harness.Registry { return harness.Registry{Tools: slices.Clone(registry.Tools)} }
 
-	store := storage.NewHarnessStore(cfg.DB)
+	store := cfg.Store
 	vendors := harnessVendors{prefs: cfg.Preferences, supported: slices.Clone(cfg.Vendors)}
 	provider := harnessconfig.NewProvider(harnessconfig.ProviderConfig{
 		Store: store, Vendors: vendors, Registry: registryOf, Canonical: filepath.EvalSymlinks,
@@ -149,10 +156,12 @@ func (h harnessSnapshots) Snapshot(ctx context.Context, sessionID, workspaceID, 
 var _ agenthub.HarnessSnapshots = harnessSnapshots{}
 
 // isNilWorkspaces catches a typed nil stored in the interface.
-func isNilWorkspaces(w harnessWorkspaces) bool {
-	if w == nil {
+func isNilWorkspaces(w harnessWorkspaces) bool { return isNilInterface(w) }
+
+func isNilInterface(x any) bool {
+	if x == nil {
 		return true
 	}
-	v := reflect.ValueOf(w)
+	v := reflect.ValueOf(x)
 	return v.Kind() == reflect.Pointer && v.IsNil()
 }

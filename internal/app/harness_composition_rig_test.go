@@ -405,7 +405,7 @@ func (r *compRig) build() {
 	r.agents.MCPEndpoints = r.host
 
 	r.asm, err = NewHarnessAssembly(HarnessAssemblyConfig{
-		DB: r.db, Preferences: r.prefs, Hub: r.hub, Workspaces: r.ws, Agents: r.agents, Vendors: productionVendors,
+		Store: storage.NewHarnessStore(r.db), Preferences: r.prefs, Hub: r.hub, Workspaces: r.ws, Agents: r.agents, Vendors: productionVendors,
 		Inventory: r.inventory,
 		Audit:     func(e harnessconfig.Event) { r.evMu.Lock(); r.events = append(r.events, e); r.evMu.Unlock() },
 	})

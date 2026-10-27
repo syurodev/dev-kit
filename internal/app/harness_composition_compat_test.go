@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"slices"
@@ -101,6 +102,80 @@ func TestARewindLeavesToolUsageHistoryAlone(t *testing.T) {
 	}
 	if after := r.usageRows(); !slices.Equal(after, rows) {
 		t.Fatalf("a rewind rewrote tool-usage history:\nbefore %v\nafter  %v", rows, after)
+	}
+}
+
+// A session with no workspace (a scratch or catalog run) has no harness scope: it
+// launches as it always did, records no applied reference and is not "live".
+func TestASessionWithNoWorkspaceStaysLegacyAndWritesNoReference(t *testing.T) {
+	r := newCompRig(t, compOptions{})
+	outside := t.TempDir() // inside no workspace
+	sess, err := r.agents.CreateSession(r.ui(), agenthub.CreateInput{AgentType: agenthub.AgentTypeClaude, Cwd: outside})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.WorkspaceID != "" {
+		t.Fatalf("fixture: the session must have no workspace, got %q", sess.WorkspaceID)
+	}
+	spec := r.vendors[agenthub.AgentTypeClaude].LastSpec()
+	if spec.DevKit != nil {
+		t.Fatalf("a workspace-less launch is the legacy launch: %+v", spec.DevKit)
+	}
+	st, err := r.agents.HarnessStatus(context.Background(), sess.ID)
+	if err != nil || st.State != agenthub.HarnessUnconfigured || st.Live {
+		t.Fatalf("status = %+v %v", st, err)
+	}
+	var n int
+	if err := r.db.QueryRow(`SELECT COUNT(*) FROM agent_session_harness_applied WHERE session_id=?`, sess.ID).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("a workspace-less session must not gain an applied reference: %d %v", n, err)
+	}
+	if v := r.agents.ServingTarget(sess.ID); v.Active {
+		t.Fatalf("a legacy endpoint is not a policy endpoint: %+v", v)
+	}
+}
+
+// Deleting a session removes its subtree; a late approval for any of them is
+// refused and no coordinator, endpoint or override outlives the rows.
+func TestDeletingAParentRemovesTheSubtreeAndEveryHarnessRecord(t *testing.T) {
+	r := newCompRig(t, compOptions{})
+	r.workspaceOff("vault")
+	parent, _ := r.create(agenthub.AgentTypeClaude)
+	child, err := r.agents.CreateSession(r.agentCtx(parent.ID), agenthub.CreateInput{AgentType: agenthub.AgentTypeClaude, Cwd: r.root, ParentSessionID: parent.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{parent.ID, child.ID} {
+		if _, err := r.apply(id, []string{"vault"}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	late, err := r.propose(child.ID, nil, []string{"vault"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.agents.DeleteSession(r.ui(), parent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.asm.Service.Apply(r.agentCtx(child.ID), late.ID); err == nil {
+		t.Fatal("a late approval for a deleted child must be refused")
+	}
+	for _, id := range []string{parent.ID, child.ID} {
+		if v := r.agents.ServingTarget(id); v.Active {
+			t.Fatalf("a deleted session has no endpoint: %+v", v)
+		}
+		for _, table := range []string{"session_harness_overrides", "agent_session_harness_applied", "agent_sessions"} {
+			col := "session_id"
+			if table == "agent_sessions" {
+				col = "id"
+			}
+			var n int
+			if err := r.db.QueryRow(`SELECT COUNT(*) FROM `+table+` WHERE `+col+`=?`, id).Scan(&n); err != nil || n != 0 {
+				t.Fatalf("%s rows for deleted session %s: %d %v", table, id, n, err)
+			}
+		}
+	}
+	if socks, _ := filepath.Glob(filepath.Join(r.sockDir, "*.sock")); len(socks) != 0 {
+		t.Fatalf("endpoints outlived their sessions: %v", socks)
 	}
 }
 

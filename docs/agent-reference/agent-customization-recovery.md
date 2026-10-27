@@ -278,6 +278,13 @@ Composition adapters live in `internal/app/harness_config.go` (vendors from pref
 code builds the service yet: it needs a registry source and a public transport (H4/H5).
 `EventAudit`-style records (`Event`) hold outcome, tier, target, ids and revisions only.
 
+### Composition and activation (H4d, internal and inert)
+
+`app.NewHarnessAssembly` / `Attach` compose the graph below and are tested through the real stack; `main.go` does not
+call them, so production Harness stays inert. The vendor adapter now reads V for every registered vendor (opencode
+included) and refuses others. Gate table, decision, blockers and the H5 handoff:
+[Harness composition and activation](harness-composition-activation.md).
+
 ### Live publication of S (H4c, internal and inert)
 
 Plan: `docs/superpowers/plans/2026-10-27-harness-h4c-live-publication-implementation.md`. A committed
