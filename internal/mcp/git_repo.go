@@ -225,12 +225,25 @@ func (s *Server) gitFor(ctx context.Context, repo string, write bool) (GitAPI, s
 		candidates = []string{folder, target}
 	}
 	for _, key := range candidates {
-		api, err := s.deps.GitRepos.At(ctx, key)
+		// The module is opened at the path whose resolved form was checked above,
+		// never at the name the caller gave: a link that is pointed somewhere else
+		// after the check then changes nothing about where Git runs.
+		real := realPath(key)
+		api, err := s.deps.GitRepos.At(ctx, real)
 		if errors.Is(err, gitservice.ErrNoRepository) {
 			continue
 		}
 		if err != nil {
 			return nil, "", err
+		}
+		// And the repository that actually opened is the one that path belongs to. A
+		// folder swapped for a link between the check and the open shows up here as a
+		// checkout whose root does not contain the path that was checked. What is
+		// left is a swap after this point, which a path-based check cannot close.
+		if rooted, ok := api.(interface{ Toplevel() string }); ok {
+			if top := rooted.Toplevel(); top == "" || !workspace.Within(real, top) {
+				return nil, "", scope.unknown(repo)
+			}
 		}
 		return api, key, nil
 	}

@@ -100,13 +100,17 @@ func (f *fakeGit) WorktreePrune(context.Context) ([]string, error)          { re
 // fakeRepos holds a repository per workspace folder; anything else is not one.
 type fakeRepos map[string]*fakeGit
 
+// At matches by resolved path, as the Git module does: the server opens it at the
+// resolved form of a name it checked, which on macOS is not /tmp/... as written.
 func (f fakeRepos) At(_ context.Context, path string) (GitAPI, error) {
-	if repo, ok := f[path]; ok {
-		repo.basePath = path
-		return repo, nil
+	for root, repo := range f {
+		if realPath(root) == realPath(path) {
+			repo.basePath = root
+			return repo, nil
+		}
 	}
 	for root, repo := range f {
-		if workspace.Within(path, root) {
+		if workspace.Within(realPath(path), realPath(root)) {
 			repo.basePath = root
 			return repo, nil
 		}

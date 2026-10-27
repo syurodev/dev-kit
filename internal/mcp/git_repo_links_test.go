@@ -1,9 +1,16 @@
 package mcp
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"devkit/internal/agenthub"
+	gitservice "devkit/internal/git"
+	"devkit/internal/workspace"
+
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // A link inside a granted folder is only inside it if its target is. These are the
@@ -42,6 +49,93 @@ func TestScopeContainmentFollowsLinks(t *testing.T) {
 		}
 		if got := scope.folderOf(tc.path) != ""; got != tc.in {
 			t.Errorf("%s: folderOf(%s) found a folder = %v, want %v", name, tc.path, got, tc.in)
+		}
+	}
+}
+
+// recordingRepos stands in for the Git module: it records the path it is opened at
+// and answers with a repository whose checkout root the test chooses.
+type recordingRepos struct {
+	opened []string
+	top    func(path string) string
+}
+
+type rootedGit struct {
+	*fakeGit
+	top string
+}
+
+func (r rootedGit) Toplevel() string { return r.top }
+
+func (r *recordingRepos) At(_ context.Context, path string) (GitAPI, error) {
+	r.opened = append(r.opened, path)
+	return rootedGit{fakeGit: &fakeGit{name: "repo"}, top: r.top(path)}, nil
+}
+
+func (r *recordingRepos) Summaries(context.Context, []string) ([]gitservice.Repository, error) {
+	return nil, nil
+}
+
+func linkedScopeServer(t *testing.T, repos GitRepos) (*Server, string, string) {
+	t.Helper()
+	root, outside := t.TempDir(), t.TempDir()
+	// The temp dirs may themselves sit behind a link (/var -> /private/var on macOS).
+	root, outside = realPath(root), realPath(outside)
+	if err := os.MkdirAll(filepath.Join(root, "pkg"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	d := agentHubTestDeps(&fakeCaller{}, &fakeAgentHub{status: agenthub.AgentSession{ID: gitSession, ProjectPath: root}})
+	d.Workspace = fakeWorkspaces{
+		workspaces: []workspace.Workspace{{ID: "ws", Name: "ws", Root: root}},
+		services:   map[string][]workspace.WorkspaceService{"ws": {{Name: "ws", Path: root}}},
+	}
+	d.Git = &fakeGit{name: "open"}
+	d.GitRepos = repos
+	return NewServer(d), root, outside
+}
+
+// The module is opened at the path that was checked, not at the name the caller
+// gave. A link inside the folder that is pointed elsewhere after the check then
+// cannot change where Git runs.
+func TestGitIsOpenedAtTheCheckedPathNotTheCallersName(t *testing.T) {
+	repos := &recordingRepos{top: func(p string) string { return p }}
+	srv, root, _ := linkedScopeServer(t, repos)
+	link := filepath.Join(root, "alias")
+	if err := os.Mkdir(filepath.Join(root, "pkg", ".git"), 0o700); err != nil { // pkg is a repository of its own
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "pkg"), link); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := srv.toolGitStatus(agentCtx(), &sdk.CallToolRequest{}, gitRepoInput{Repo: link}); err != nil {
+		t.Fatal(err)
+	}
+	// Whatever the link points at from now on, the open was made at the resolved path.
+	if want := filepath.Join(root, "pkg"); len(repos.opened) != 1 || repos.opened[0] != want {
+		t.Fatalf("opened at %v, want exactly %s", repos.opened, want)
+	}
+}
+
+// A repository whose checkout root does not contain the path that was checked is
+// not the repository that was checked (a folder swapped for a link between the
+// check and the open): refused, and nothing runs in it.
+func TestARepositoryThatIsNotTheOneCheckedIsRefused(t *testing.T) {
+	outside := ""
+	repos := &recordingRepos{top: func(string) string { return outside }}
+	srv, root, out := linkedScopeServer(t, repos)
+	outside = out
+	for name, call := range map[string]func() error{
+		"read": func() error {
+			_, _, err := srv.toolGitStatus(agentCtx(), &sdk.CallToolRequest{}, gitRepoInput{Repo: filepath.Join(root, "pkg")})
+			return err
+		},
+		"write": func() error {
+			_, _, err := srv.toolGitStage(agentCtx(), &sdk.CallToolRequest{}, gitPathsInput{gitRepoInput: gitRepoInput{Repo: filepath.Join(root, "pkg")}, Paths: []string{"x"}})
+			return err
+		},
+	} {
+		if err := call(); appCode(err) != "git.repoOutsideWorkspace" {
+			t.Errorf("%s in a repository other than the one checked = %v", name, err)
 		}
 	}
 }
