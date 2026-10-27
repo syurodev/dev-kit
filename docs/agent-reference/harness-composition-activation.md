@@ -163,7 +163,7 @@ that block); then update the tripwire.
 
 | Gate | Status | Evidence / owner |
 | --- | --- | --- |
-| Independent review of the integrated H4c/#363/#367 invariants | **Partial** | AP1 below: a bounded review by a session that did not write H4c, at `e39d9060`. Two defects found in the guard owners and fixed; large parts of the lifecycle path were not traced (listed under AP1). It is not a human sign-off and does not by itself clear this gate. |
+| Independent review of the integrated H4c/#363/#367 invariants | **Partial** | AP1 completion review at `782a63c5`: `docs/reviews/2026-10-27-harness-ap1-completion.md`. Items 1-3 and 7 traced with no finding; items 4-6 traced in the main paths; item 8 has the #375 fixes, which the reviewer wrote and another reviewer must check. **One open finding (F-C): a stale group or tool name in a stored workspace profile blocks new sessions and cannot be repaired in the app.** Reviewer is an AI session, not a human sign-off. |
 | Composed guard tests through the controls | **Pass (scripted vendors)** | AP2 below: real Tasks and Git services, gateway, hub, SQLite and `SessionHost`, temporary repositories and local bare remotes. Earlier rows (grants, launch permission lists, prod and unknown-tag confirmation, identity matrix) are unchanged. |
 | Real Claude, Codex and opencode runtime processes | **Not run** | No runtimes, accounts or mocked-model fixture here; scripted vendors only. No paid request was made. |
 | Native desktop approval of the scope selection and confirmation | **Not run** | Headless host. The dialogs have SSR/state tests, not a real window. |
@@ -320,3 +320,9 @@ The frontend and `internal/arch` rows below are from the first run (no frontend 
 The CRLF Git test failure and the `fakeCaller` race mentioned in earlier reports did not occur in these runs. Linker warnings about the macOS deployment target are build noise.
 Not run, and not claimed: AP3 (real Claude/Codex/opencode processes, native approval dialogs, per-runtime `listChanged` measurement)
 and AP4 (activation). The A6 rows for those remain **Not run / Unmeasured**.
+
+### AP1 completion (2026-10-27)
+
+Report, ledger per parent item, findings and limits: [`docs/reviews/2026-10-27-harness-ap1-completion.md`](../reviews/2026-10-27-harness-ap1-completion.md). AP1 remains **Partial**. Open for activation:
+F-C (no repair path for a stale stored profile, owner decision), a reviewer other than the author for the #375 git-scope and claim-lock code, and the AP4 decision on sessions that have no
+applied reference (O-2). AP3 and AP4 are still **not run**; production is still inert.
