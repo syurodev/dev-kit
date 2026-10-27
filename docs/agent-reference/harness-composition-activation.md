@@ -255,8 +255,9 @@ Findings (both in code the harness does not own, reproduced through the harness-
   folder. Repro: `TestARepositoryOutsideTheWorkspaceIsRefusedHoweverItIsNamed` (fails on the base for the link cases),
   `TestScopeContainmentFollowsLinks`. Fix: containment compares resolved paths. **Follow-up (review of #375, concurrent
   case):** the first fix still opened Git at the caller's name, so a link repointed between the check and the open moved the
-  operation (reproduced with real Git). The module is now opened at the path whose resolved form was checked, and the opened
-  checkout's root (`git.Service.Toplevel`) must contain that path (`TestALinkRepointedBetweenTheCheckAndTheOpenDoesNotMoveTheOperation`,
+  operation (reproduced with real Git). The path is now resolved **once** per call (folders and granted roots are sealed once too);
+  the scope decision, the candidate Git is opened at and the opened checkout's root check (`git.Service.Toplevel`) all use that
+  single value, so a second review found no remaining double resolution (`TestALinkRepointedAfterTheSingleResolutionIsNeverFollowed`; `TestALinkRepointedBetweenTheCheckAndTheOpenDoesNotMoveTheOperation`,
   `TestGitIsOpenedAtTheCheckedPathNotTheCallersName`, `TestARepositoryThatIsNotTheOneCheckedIsRefused`). **Remaining limit:** the checks
   are path-based; an agent that swaps a real directory component of the checked path for a link after the open can still redirect
   later commands. Closing that needs descriptor-based execution in `internal/git`, which is not done. Not changed:
@@ -303,7 +304,7 @@ were already covered by `harness_budgets_test.go` and `harness_composition_*_tes
 
 Run 2026-10-27 on `harness/ap2-composed-guards`. The first run covered the earlier head; after the review of #375 the race
 suite (tasks, git, mcp, app, bridge, agenthub, harness, harnessconfig, preferences, interaction, usagemetrics, storage: 12 packages,
-no race reports), `go test ./internal/... ./cmd/... -count=1` and `go vet -tags server ./...` were re-run on the fixed head and pass.
+no race reports), `go test ./internal/... ./cmd/... -count=1` and `go vet -tags server ./...` were re-run on the fixed head (after the single-resolution change) and pass.
 The frontend and `internal/arch` rows below are from the first run (no frontend or import change since):
 
 | Check | Result |
