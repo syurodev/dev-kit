@@ -120,8 +120,26 @@ func (s *Service) resumeSession(ctx context.Context, id string, reload bool) err
 			return err
 		}
 	}
-	if _, err := s.runtimeFor(ctx, sess); err != nil {
+	resumed, err := s.runtimeFor(ctx, sess)
+	if err != nil {
 		return err
+	}
+	return s.completeResume(ctx, id, resumed)
+}
+
+// completeResume cannot restore idle after a Close that won after publication.
+func (s *Service) completeResume(ctx context.Context, id string, rt SessionRuntime) error {
+	c := s.servingCoord(id)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closing || c.closePending {
+		return ErrHarnessLaunchStale
+	}
+	s.mu.Lock()
+	current := s.runtimes[id] == rt
+	s.mu.Unlock()
+	if !current {
+		return ErrHarnessLaunchStale
 	}
 	return s.store.UpdateSessionStatus(ctx, id, SessionStatusIdle, time.Now().UTC())
 }

@@ -8,14 +8,6 @@ import (
 	"devkit/internal/harnessconfig"
 )
 
-// harnessSnapshots is Agent Hub's HarnessSnapshots over the proposal service's
-// provider: one resolution per launch, carrying the pinned serving basis.
-type harnessSnapshots struct{ provider *harnessconfig.Provider }
-
-func (h harnessSnapshots) Snapshot(ctx context.Context, sessionID, workspaceID, vendor string) (harness.Snapshot, error) {
-	return h.provider.Snapshot(ctx, harnessconfig.SnapshotRequest{SessionID: sessionID, WorkspaceID: workspaceID, Vendor: vendor})
-}
-
 // harnessLive binds harnessconfig.Live to Agent Hub's per-session coordinator and
 // the endpoint it holds. It adds no behavior: every decision is made by the
 // coordinator (agenthub/serving_live.go) and the endpoint (mcp/serving_live.go).
@@ -37,12 +29,14 @@ func (l harnessLive) Reconcile(ctx context.Context, sessionID string, read func(
 }
 
 func liveTarget(v agenthub.ServingView) harnessconfig.LiveTarget {
-	return harnessconfig.LiveTarget{Active: v.Active, Incarnation: v.Incarnation, Epoch: v.Epoch, Basis: v.Basis, Serving: v.Serving, Quarantined: v.Quarantined}
+	return harnessconfig.LiveTarget{Active: v.Active, Staged: v.Staged, Incarnation: v.Incarnation, Epoch: v.Epoch, Basis: v.Basis, Serving: v.Serving, Quarantined: v.Quarantined}
 }
 
 func publication(p agenthub.ServingPublication) harnessconfig.Publication {
 	out := harnessconfig.Publication{Serving: p.Serving, ToolsChanged: p.ToolsChanged, NotificationScheduled: p.NotificationScheduled}
 	switch {
+	case p.Installed && p.Staged:
+		out.State = harnessconfig.PublicationStaged
 	case p.Installed:
 		out.State = harnessconfig.PublicationInstalled
 	case p.Pending:

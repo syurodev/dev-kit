@@ -565,6 +565,8 @@ func TestVerifyRunsInTheNamedServicesPath(t *testing.T) {
 	apiDir := t.TempDir()
 	scope.services["ws-a"] = map[string]string{"": t.TempDir(), "api": apiDir}
 	svc.SetGate(NewGate(db, storage.TableTaskVerifyRuns, nil, nil))
+	// Transition only enqueues; join the worker before TempDir/SQLite cleanup.
+	defer waitForTerminalGateDrain(t, svc.Gate())
 
 	board := verifyBoard(t, svc, func(v *Verify, b *Board) { v.Service = "api" })
 	task, err := svc.Create(agent, CreateInput{BoardID: board.ID, Title: "x"})
@@ -587,6 +589,8 @@ func TestVerifyWithNoServiceNamedUsesThePrimary(t *testing.T) {
 	primary := t.TempDir()
 	scope.services["ws-a"] = map[string]string{"": primary}
 	svc.SetGate(NewGate(db, storage.TableTaskVerifyRuns, nil, nil))
+	// Transition only enqueues; join the worker before TempDir/SQLite cleanup.
+	defer waitForTerminalGateDrain(t, svc.Gate())
 
 	board := verifyBoard(t, svc, func(v *Verify, b *Board) {})
 	task, err := svc.Create(agent, CreateInput{BoardID: board.ID, Title: "x"})
@@ -612,6 +616,8 @@ func TestVerifyLegacyProjectPathKeepsWorkingWhenItMatchesAService(t *testing.T) 
 	legacy := t.TempDir()
 	scope.services["ws-a"] = map[string]string{"": t.TempDir(), "api": legacy}
 	svc.SetGate(NewGate(db, storage.TableTaskVerifyRuns, nil, nil))
+	// Transition only enqueues; join the worker before TempDir/SQLite cleanup.
+	defer waitForTerminalGateDrain(t, svc.Gate())
 
 	board := verifyBoard(t, svc, func(v *Verify, b *Board) { b.ProjectPath = legacy })
 	task, err := svc.Create(agent, CreateInput{BoardID: board.ID, Title: "x"})

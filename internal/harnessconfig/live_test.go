@@ -191,7 +191,7 @@ type liveEnv struct {
 
 func newLiveEnv(t *testing.T) *liveEnv {
 	a := newApplyEnv(t)
-	l := &liveEnv{applyEnv: a, live: newFakeLive(), store: &faultStore{Store: a.env.store}}
+	l := &liveEnv{applyEnv: a, live: newFakeLive(), store: &faultStore{Store: a.store}}
 	a.svc = New(Config{Store: l.store, Directory: a.dir, Vendors: a.vendors, Policy: a.policy, Validator: a.validator,
 		Registry: registry, Canonical: a.canonical.resolve, Confirmer: a.confirm, Boundary: a.boundary, Live: l.live,
 		Audit: func(ev Event) { a.evMu.Lock(); a.events = append(a.events, ev); a.evMu.Unlock() }})

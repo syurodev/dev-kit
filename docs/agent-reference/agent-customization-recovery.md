@@ -319,7 +319,7 @@ transport, editor or policy setting (H5); everything below is reachable only thr
   names replace, no handler is duplicated), tools that must go use `RemoveTools`, then policy and admission
   reopen in one store. `tools/list` is refused while paused (no half-updated registry), pagination cursors are
   name-based in SDK v1.7.0 so a cursor issued before a revoke cannot reveal a hidden tool (tested), and policy
-  endpoints set `HasTools` so an initially empty endpoint still advertises `listChanged`. The SDK's debounced
+  endpoints explicitly set the SDK tools capability so an initially empty endpoint still advertises `listChanged`. The SDK's debounced
   notification is reported as *scheduled*, never as an acknowledgement; "live" does not mean the vendor
   refreshed its tool list (`HarnessServing.DiscoveryReloadRequired`).
 - **Durable success, failure, reconciliation (C5).** `store.ErrStoreCommitUnknown` marks the only ambiguous
@@ -337,15 +337,20 @@ transport, editor or policy setting (H5); everything below is reachable only thr
 - **Every opening path is fenced (C6).** `prepareLaunch` (create, resume, reload, dead-runtime recovery,
   account reopen, both rewind opens) reserves the coordinator epoch before it reads S, registers the endpoint
   with the coordinator before the vendor exists (a commit now reaches the staged endpoint like a published
-  one), and `launchCurrent` re-checks the epoch right before publication (create before the row is inserted,
-  resume before the durable reference is written, rewind before the one cut+reference transaction). A stale
-  launch is discarded (`agenthub.ErrHarnessLaunchStale`, code `harness.snapshotUnavailable`); `prepareLaunch`
-  re-prepares at most 3 times in all, with no prompt replay and no new account choice. Explicit Close advances
-  the epoch and forgets the endpoint first, then commits `closed` and clears S (a tombstone); Delete drops the
-  coordinator only after the rows are gone. Reload/resume/rewind/account teardown keep S. A child resolves its
-  own S. An old endpoint's `Close`, `Quarantine`, `Install` or `Restore` cannot touch a replacement.
+  one). `publishServingLaunch` then holds the coordinator across final epoch/incarnation validation,
+  the durable launch write (the cut+reference transaction for rewind), and runtime-map publication.
+  No S commit or Close can slip between the check and publication. Vendor handlers/settings and checkpoint
+  work run outside this lock. A stale launch is discarded (`agenthub.ErrHarnessLaunchStale`, code
+  `harness.snapshotUnavailable`); `prepareLaunch` re-prepares at most 3 times, with no prompt replay or
+  new account choice. Close quarantines the endpoint and keeps an opening/commit fence until its status
+  and S tombstone cleanup both finish; callbacks cannot reopen from the old S. Failed Close remains fenced
+  in the current process until a successful Close retry. Resume's final idle write is also fenced, so a Close
+  after publication cannot be undone. Delete drops the coordinator only after rows are gone.
+  Reload/resume/rewind/account teardown keep S. Children resolve their own S. Old endpoint operations cannot
+  touch a replacement. A policy installed on a staged endpoint reports `PublicationStaged`, never `Live=true`;
+  the vendor runtime may still fail or be discarded. The staged/published phase is part of proposal binding.
 - **Truthful status, guidance, attribution (C7).** `HarnessStatus.Live` = the current endpoint is open,
-  serves exactly the identity it acknowledged and nothing is pending (point-in-time). `servedFor` (all host
+  has a successfully published vendor runtime, serves exactly the identity it acknowledged and nothing is pending (point-in-time). `servedFor` (all host
   guidance: peer envelope, workspace context, documents) follows the acknowledged surface, so new turns
   describe what is served; the launch value handed to adapters, the launch permission lists and the launch
   prompt are never mutated and a newly served tool follows the normal permission flow until a reload.

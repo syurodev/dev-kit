@@ -975,42 +975,33 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 		sess.ParentSessionID = &pid
 	}
 
-	// S moved while this session was opening: discard the launch rather than
-	// publish guidance and permissions written for the old configuration.
-	if err := s.launchCurrent(id, launch); err != nil {
+	// Final validation, durable reference and runtime publication share the
+	// coordinator. A Close or S commit cannot land between these steps.
+	err = s.publishServingLaunch(id, launch, func() error {
+		if err := s.store.InsertSession(ctx, sess); err != nil {
+			return err
+		}
+		if err := s.recordHarnessApplied(ctx, sess.ID, launch); err != nil {
+			_ = s.store.DeleteSessions(ctx, []string{sess.ID})
+			return err
+		}
+		s.mu.Lock()
+		s.runtimes[sess.ID] = rt
+		s.publishUsageLocked(sess, spec, acct.id)
+		s.publishHarnessLocked(sess.ID, launch)
+		s.endpoints[sess.ID] = closeEndpoint
+		s.mu.Unlock()
+		return nil
+	})
+	if err != nil {
 		_ = rt.Close(ctx)
 		closeEndpoint()
-		return AgentSession{}, err
-	}
-	if err := s.store.InsertSession(ctx, sess); err != nil {
-		_ = rt.Close(ctx)
-		closeEndpoint()
-		return AgentSession{}, err
-	}
-	if err := s.recordHarnessApplied(ctx, sess.ID, launch); err != nil {
-		_ = rt.Close(ctx)
-		closeEndpoint()
-		_ = s.store.DeleteSessions(ctx, []string{sess.ID})
 		return AgentSession{}, err
 	}
 	keepTemp = true
-	// After the insert: a row recorded for a session the store does not have
-	// yet would have nowhere to belong.
+	// Vendor callbacks and checkpoint work stay outside the coordinator.
 	s.attachUpdates(sess.ID, rt)
-
-	// Warm the project's shadow repository now, off any turn's path. The first
-	// snapshot of a project walks every file — 0.86s on this repository, far
-	// more on a monorepo — and every one after it costs 0.04s. Doing it here
-	// means the first prompt joins a snapshot that is already the cheap kind.
 	s.currentCheckpoints().Baseline(sess.ProjectPath)
-
-	s.mu.Lock()
-	s.runtimes[sess.ID] = rt
-	s.publishUsageLocked(sess, spec, acct.id)
-	s.publishHarnessLocked(sess.ID, launch)
-	s.endpoints[sess.ID] = closeEndpoint
-	s.mu.Unlock()
-	s.syncServingFacts(sess.ID)
 
 	// The window upserts the session it created itself from the call's answer.
 	if s.OnSessionCreated != nil && !invokeUnbounded(ctx) {
@@ -1602,6 +1593,12 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	if _, err := s.store.GetSession(ctx, id); err != nil {
 		return err
 	}
+	endClose, err := s.beginServingClose(id)
+	if err != nil {
+		return err
+	}
+	closed := false
+	defer func() { endClose(closed) }()
 	if s.CancelPendingPermissions != nil {
 		s.CancelPendingPermissions(id)
 	}
@@ -1619,10 +1616,12 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	delete(s.endpoints, id)
 	s.mu.Unlock()
 
-	// Explicit close fences live publication first: an Apply that already holds
-	// the coordinator finishes (its S is then cleared below), and any later one
-	// finds no endpoint and, once the status is closed, cannot write S at all.
-	s.fenceServingClose(id)
+	// Close the captured endpoint even if vendor shutdown fails. The close
+	// fence also quarantined any staged endpoint not yet in s.endpoints.
+	if closeEndpoint != nil {
+		closeEndpoint = sync.OnceFunc(closeEndpoint)
+		defer closeEndpoint()
+	}
 
 	// The conversation must be complete on disk before the session becomes
 	// history: closing is the one path after which no turn will ever flush.
@@ -1676,6 +1675,7 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	}
 	// Close parks this conversation; Invoke can reopen the same session. Keep
 	// its last applied reference so that reopen still checks executable changes.
+	closed = true
 	return nil
 }
 
@@ -2805,30 +2805,28 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 			}
 		}
 	}
-	// The same fence as create: a launch that read S before a committed change
-	// is discarded, not published as a coherent one.
-	if err := s.launchCurrent(sess.ID, launch); err != nil {
+	err = s.publishServingLaunch(sess.ID, launch, func() error {
+		if err := s.recordHarnessApplied(ctx, sess.ID, launch); err != nil {
+			return err
+		}
+		s.mu.Lock()
+		s.runtimes[sess.ID] = rt
+		s.publishUsageLocked(sess, spec, resolvedAccount)
+		s.publishHarnessLocked(sess.ID, launch)
+		s.endpoints[sess.ID] = closeEndpoint
+		s.forgetWorkspaceContextLocked(sess.ID)
+		s.mu.Unlock()
+		return nil
+	})
+	if err != nil {
 		_ = rt.Close(ctx)
 		closeEndpoint()
 		return nil, err
 	}
-	if err := s.recordHarnessApplied(ctx, sess.ID, launch); err != nil {
-		_ = rt.Close(ctx)
-		closeEndpoint()
-		return nil, err
-	}
-	// Before the runtime is published, so a caller waiting on this resume
-	// never gets a runtime that cannot hear the agent.
+	// Finish attaching handlers before releasing the resume's single-flight
+	// barrier, without calling into a vendor under the publication lock.
 	s.attachUpdates(sess.ID, rt)
 
-	s.mu.Lock()
-	s.runtimes[sess.ID] = rt
-	s.publishUsageLocked(sess, spec, resolvedAccount)
-	s.publishHarnessLocked(sess.ID, launch)
-	s.endpoints[sess.ID] = closeEndpoint
-	s.forgetWorkspaceContextLocked(sess.ID)
-	s.mu.Unlock()
-	s.syncServingFacts(sess.ID)
 	return rt, nil
 }
 

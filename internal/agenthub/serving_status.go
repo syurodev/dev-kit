@@ -67,7 +67,7 @@ func (s *Service) servingServed(sessionID string) *DevKitServing {
 // holds the session's coordinator; Service.mu is taken inside it (the only
 // order).
 func (s *Service) noteServedFacts(sessionID string, rt *liveServing) {
-	if !rt.acked || rt.pending {
+	if !rt.published || !rt.acked || rt.pending {
 		return
 	}
 	s.mu.Lock()
@@ -83,18 +83,6 @@ func (s *Service) noteServedFacts(sessionID string, rt *liveServing) {
 		f.OverrideRevision = &r
 	}
 	s.runtimeUsage[sessionID] = f
-}
-
-// syncServingFacts is noteServedFacts for a runtime that has just been
-// published, so a change committed between its launch and its publication is
-// reflected in the facts of its first turn.
-func (s *Service) syncServingFacts(sessionID string) {
-	c := s.servingCoord(sessionID)
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if rt := c.rt; rt != nil {
-		s.noteServedFacts(sessionID, rt)
-	}
 }
 
 // servingStatus observes the live endpoint against the desired snapshot.
@@ -144,7 +132,7 @@ func (s *Service) ReplacementGuidance(sessionID, group string, naming AgentType)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	rt := c.rt
-	if rt == nil || !rt.acked || rt.pending || rt.ep.State().Closed || rt.ep.State().Paused {
+	if rt == nil || !rt.published || !rt.acked || rt.pending || rt.ep.State().Closed || rt.ep.State().Paused {
 		return ""
 	}
 	launch := rt.basis.Launch()

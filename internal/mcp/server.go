@@ -345,7 +345,11 @@ func (s *Server) sdkServerWith(c *identity.Caller, endpointToken string, serving
 	if c != nil {
 		caller = *c
 	}
-	ms := sdk.NewServer(&sdk.Implementation{Name: "devkit", Version: "0.1.0"}, &sdk.ServerOptions{PageSize: s.pageSize, HasTools: serving != nil})
+	opts := &sdk.ServerOptions{PageSize: s.pageSize}
+	if serving != nil {
+		opts.Capabilities = &sdk.ServerCapabilities{Tools: &sdk.ToolCapabilities{ListChanged: true}}
+	}
+	ms := sdk.NewServer(&sdk.Implementation{Name: "devkit", Version: "0.1.0"}, opts)
 	ms.AddReceivingMiddleware(withCaller(caller))
 	var observer *ResultObservation
 	if caller.IsAgent() && endpointToken != "" && s.deps.RecordUsage != nil && s.deps.UsageScope != nil {

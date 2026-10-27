@@ -20,7 +20,8 @@ import (
 // that waits for a person, a vendor process or a prompt runs under the
 // coordinator, and it is never held across a vendor Open/Load/Fork: an opening
 // path reserves an epoch before it reads S and checks it again before it
-// publishes. Service.mu is never acquired inside the coordinator.
+// publishes. Short runtime-map updates take Service.mu inside the coordinator;
+// never acquire the coordinator while holding Service.mu.
 
 // EndpointTicket names one operation on an endpoint's admission. A later
 // operation supersedes an earlier one, so an old worker's Restore or Install
@@ -80,9 +81,11 @@ const launchAttempts = 3
 // every writer of S, every endpoint replacement and the session's close, and
 // holds the session's live endpoint.
 type servingCoord struct {
-	mu    sync.Mutex
-	epoch uint64
-	rt    *liveServing
+	mu           sync.Mutex
+	epoch        uint64
+	rt           *liveServing
+	closing      bool // a Close is in progress, including durable override cleanup
+	closePending bool // a failed Close must be retried before opening again
 }
 
 // liveServing is the runtime record of the session's current endpoint: staged
@@ -93,8 +96,9 @@ type liveServing struct {
 	serving harness.ServingIdentity // what the endpoint last acknowledged
 	// eff is the effective configuration serving describes: the launch's, then
 	// each installed one. It never replaces the launch reference.
-	eff   harness.Effective
-	acked bool
+	eff       harness.Effective
+	acked     bool
+	published bool // the vendor runtime and durable launch reference were published
 	// pending: a change is stored but not installed. Admission stays closed
 	// until a reconciliation installs the latest durable S.
 	pending bool
@@ -120,6 +124,7 @@ func (s *Service) servingCoord(sessionID string) *servingCoord {
 // ServingView is a point-in-time observation of a session's live endpoint.
 type ServingView struct {
 	Active      bool
+	Staged      bool
 	Incarnation string
 	// Epoch counts the session's S commits and lifecycle fences.
 	Epoch   uint64
@@ -147,9 +152,10 @@ func (c *servingCoord) viewLocked() ServingView {
 		return v
 	}
 	v.Active, v.Incarnation, v.Basis, v.Serving, v.Effective = true, rt.ep.Incarnation(), rt.basis, rt.serving, rt.eff
+	v.Staged = !rt.published
 	v.Quarantined = st.Paused || rt.pending
 	v.Pending = rt.pending
-	v.Acknowledged = rt.acked && !rt.pending && !st.Paused && st.Fingerprint == rt.serving.Fingerprint
+	v.Acknowledged = rt.published && rt.acked && !rt.pending && !st.Paused && st.Fingerprint == rt.serving.Fingerprint
 	return v
 }
 
@@ -164,6 +170,7 @@ func (s *Service) ServingTarget(sessionID string) ServingView {
 // ServingPublication is the outcome of installing a committed S.
 type ServingPublication struct {
 	Installed             bool
+	Staged                bool // policy installed, but vendor runtime not published
 	Pending               bool
 	Serving               harness.ServingIdentity
 	ToolsChanged          bool
@@ -186,6 +193,9 @@ func (s *Service) CoordinateServing(ctx context.Context, sessionID string, fn fu
 	c := s.servingCoord(sessionID)
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.closing || c.closePending {
+		return ErrHarnessCleanupFailed
+	}
 	return fn(&ServingTxn{s: s, c: c, id: sessionID})
 }
 
@@ -289,7 +299,7 @@ func (s *Service) installLocked(sessionID string, rt *liveServing, stamp harness
 	}
 	rt.serving, rt.eff, rt.acked, rt.pending, rt.held = id, eff, true, false, false
 	s.noteServedFacts(sessionID, rt)
-	return ServingPublication{Installed: true, Serving: id, ToolsChanged: rep.ToolsChanged, NotificationScheduled: rep.NotificationScheduled}, nil
+	return ServingPublication{Installed: true, Staged: !rt.published, Serving: id, ToolsChanged: rep.ToolsChanged, NotificationScheduled: rep.NotificationScheduled}, nil
 }
 
 // ReconcileServing brings the session's endpoint to the latest durable S. It is
@@ -301,6 +311,9 @@ func (s *Service) ReconcileServing(ctx context.Context, sessionID string, readS 
 	c := s.servingCoord(sessionID)
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.closing || c.closePending {
+		return ServingPublication{}, ErrHarnessCleanupFailed
+	}
 	rt := c.rt
 	if rt == nil || rt.ep.State().Closed {
 		return ServingPublication{}, nil
@@ -328,11 +341,14 @@ type servingReservation struct {
 }
 
 // reserveServing records the epoch before S is read for a launch.
-func (s *Service) reserveServing(sessionID string) servingReservation {
+func (s *Service) reserveServing(sessionID string) (servingReservation, error) {
 	c := s.servingCoord(sessionID)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return servingReservation{epoch: c.epoch, set: true}
+	if c.closing || c.closePending {
+		return servingReservation{}, ErrHarnessCleanupFailed
+	}
+	return servingReservation{epoch: c.epoch, set: true}, nil
 }
 
 // stageServing registers a launch's endpoint with the coordinator before the
@@ -343,25 +359,32 @@ func (s *Service) stageServing(sessionID string, res servingReservation, ep Serv
 	c := s.servingCoord(sessionID)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if res.set && c.epoch != res.epoch {
+	if c.closing || c.closePending || (res.set && c.epoch != res.epoch) {
 		return ErrHarnessLaunchStale
 	}
 	c.rt = &liveServing{ep: ep, basis: basis, serving: launch, eff: eff, acked: true}
 	return nil
 }
 
-// launchCurrent is the check made immediately before a launch is published: S
-// and the lifecycle are where the reservation saw them. A stale launch is
-// discarded by the caller, never published with guidance written for old S.
-func (s *Service) launchCurrent(sessionID string, l harnessLaunch) error {
-	if !l.reservation.set {
-		return nil
-	}
+// publishServingLaunch serializes final validation, the durable launch write
+// and runtime-map publication against S commits and Close. commit contains only
+// local storage/map operations, never vendor calls, handlers or user callbacks.
+func (s *Service) publishServingLaunch(sessionID string, l harnessLaunch, commit func() error) error {
 	c := s.servingCoord(sessionID)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.epoch != l.reservation.epoch {
+	if c.closing || c.closePending || (l.reservation.set && c.epoch != l.reservation.epoch) {
 		return ErrHarnessLaunchStale
+	}
+	if l.incarnation != "" && (c.rt == nil || c.rt.ep.Incarnation() != l.incarnation || c.rt.ep.State().Closed) {
+		return ErrHarnessLaunchStale
+	}
+	if err := commit(); err != nil {
+		return err
+	}
+	if l.incarnation != "" {
+		c.rt.published = true
+		s.noteServedFacts(sessionID, c.rt)
 	}
 	return nil
 }
@@ -385,13 +408,27 @@ func (s *Service) dropServingCoord(sessionID string) {
 	delete(s.servingCoords, sessionID)
 }
 
-// fenceServingClose is the session's explicit close or delete: the epoch
-// advances (any opening launch becomes stale) and the endpoint is forgotten.
-// Closing the endpoint itself is the caller's, outside the coordinator.
-func (s *Service) fenceServingClose(sessionID string) {
+// beginServingClose keeps opening and S commits fenced until the whole Close,
+// including its durable S tombstone, has finished. Vendor shutdown and callbacks
+// run without the coordinator lock. A failed cleanup stays fenced until retry.
+func (s *Service) beginServingClose(sessionID string) (func(bool), error) {
 	c := s.servingCoord(sessionID)
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	if c.closing {
+		c.mu.Unlock()
+		return nil, ErrSessionBusy
+	}
+	c.closing, c.closePending = true, true
 	c.epoch++
+	if c.rt != nil {
+		_, _ = c.rt.ep.Quarantine()
+	}
 	c.rt = nil
+	c.mu.Unlock()
+	return func(success bool) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.closing = false
+		c.closePending = !success
+	}, nil
 }
