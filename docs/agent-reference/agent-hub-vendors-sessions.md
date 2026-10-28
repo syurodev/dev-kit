@@ -37,6 +37,21 @@
   (`UpdateSessionACPID`); the model/effort chosen at creation come back from the stored `config_option_update`.
   Before this, every settings call on such a session after a restart failed, which the picker showed as
   "Models unavailable". Tests of the resume path must say the session was prompted (`markPrompted`).
+- **An idle session's process is released** (`internal/agenthub/idle_release.go`, `Service.StartIdleRelease`, setting
+  `preferences.AgentIdleRelease`, Settings → Models & subagents → Idle sessions). Every open session holds a vendor process,
+  its MCP proxy and whatever the agent started in the jail; sub-sessions that finished their task kept all of it until
+  DevKit quit. A sweep each minute runs the teardown half of `CloseSession` on a session that has been idle past its time
+  (default on: 10 min with a parent, 30 min without) and leaves everything else alone: the row stays `idle`, the vendor
+  session id, override S and the applied harness reference stay, and the next prompt, peer message or settings call reopens
+  it through `resumeRuntime` as after a restart. It never calls `UpdateSessionStatus(closed)`, `OnSessionClosed` or
+  `HarnessLifecycle.SessionClosed` (that one deletes S). Not released: a session that is not `idle`/`error`, one with a
+  running or waiting child, a pending permission or question, a queued or dispatching peer-outbox row, a resume in flight,
+  a runtime used since `lastUsed` (stamped under `mu` in `liveRuntime`, resume, create and rewind), one a vendor cannot
+  reopen (no `SessionLoader` or no ACP id, unless it was never prompted), or one whose `beginServingClose` fence is busy.
+  The runtime leaves the maps and a `resuming` barrier goes up in the same critical section as the last check, so a caller
+  that arrives later waits for the old process to exit before it reopens (Codex refuses two writers on one thread). The
+  setting is the window's own (`AgentIdleReleaseGet/Set`, `uiOnly`, scope `agent_idle_release`); nothing an agent can call
+  reads or writes it.
 - **A fresh Claude session carries its model list from the handshake.** claude-agent-acp sends the settings once,
   in the answer to `session/new` / `session/load`, and never a `config_option_update` until one changes — and
   DevKit used to drop that answer (only the catalog read it). `acpRuntime` now keeps it (`options`), folds
