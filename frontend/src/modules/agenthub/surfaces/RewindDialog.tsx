@@ -15,12 +15,15 @@ import { cn } from "@/lib/utils";
 import { agentHubApplyRewind, agentHubPlanRewind } from "@/bridge/agenthub";
 import { conflictReason, forcedPaths, toggleForced } from "../restore";
 import {
+  attemptRewind,
   canApplyRewind,
   defaultRewindMode,
   queueBlocksRewind,
+  rewindFailureSpendsThePlan,
   rewindOptions,
   rewindSummary,
   rewindTitle,
+  type RewindFailure,
 } from "../rewind";
 import {
   RewindMode,
@@ -69,6 +72,10 @@ export function RewindDialog({
   const [preview, setPreview] = React.useState<RewindPreview | null>(null);
   const [forced, setForced] = React.useState<ReadonlySet<string>>(new Set());
   const [error, setError] = React.useState("");
+  // A rewind that changed the files and did not finish: not a success, not "nothing
+  // changed". The plan's token is spent, so the confirm button stays off until the
+  // person asks for a new plan (another scope, or reopening).
+  const [outcome, setOutcome] = React.useState<RewindFailure | null>(null);
   const [busy, setBusy] = React.useState(false);
 
   // Reopening on another turn starts from that turn's own default rather than
@@ -82,12 +89,14 @@ export function RewindDialog({
       setPreview(null);
       setForced(new Set());
       setError("");
+      setOutcome(null);
       return;
     }
     let cancelled = false;
     setPreview(null);
     setForced(new Set());
     setError("");
+    setOutcome(null);
     agentHubPlanRewind({ sessionId, promptMessageId, mode })
       .then((result) => {
         if (!cancelled) setPreview(result);
@@ -105,21 +114,22 @@ export function RewindDialog({
   const actions = files?.actions ?? [];
   const conflicts = files?.conflicts ?? [];
   const queueWarning = queueBlocksRewind(mode === RewindMode.RewindCode ? 0 : queuedPrompts);
-  const ready = canApplyRewind(preview, forced) && !busy;
+  const ready = canApplyRewind(preview, forced) && !busy && !outcome;
 
   async function confirm() {
     if (!preview) return;
     setBusy(true);
     setError("");
-    try {
-      const result = await agentHubApplyRewind(preview.token, forcedPaths(files, forced));
-      onRewound?.(result, editAfter);
+    const attempt = await attemptRewind(() => agentHubApplyRewind(preview.token, forcedPaths(files, forced)));
+    setBusy(false);
+    if (attempt.done) {
+      onRewound?.(attempt.result, editAfter);
       onOpenChange(false);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Nothing was changed.");
-    } finally {
-      setBusy(false);
+      return;
     }
+    // Only a success refreshes the surfaces that depend on the rewind having happened.
+    if (rewindFailureSpendsThePlan(attempt.failure)) setOutcome(attempt.failure);
+    else setError(attempt.failure.message);
   }
 
   return (
@@ -127,7 +137,7 @@ export function RewindDialog({
       <DialogContent className="sm:max-w-lg" data-testid="rewind-dialog">
         <DialogHeader>
           <DialogTitle>{editAfter ? "Edit and run again from here" : words.title}</DialogTitle>
-          <DialogDescription>{rewindSummary(preview)}</DialogDescription>
+          <DialogDescription>{outcome ? "This rewind did not finish." : rewindSummary(preview)}</DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
@@ -169,14 +179,14 @@ export function RewindDialog({
             </p>
           ) : null}
 
-          {(preview?.warnings ?? []).map((warning) => (
+          {(outcome ? [] : (preview?.warnings ?? [])).map((warning) => (
             <p key={warning} className="flex items-start gap-2 text-caption-11 text-status-warning">
               <AlertTriangle aria-hidden="true" className="mt-px size-(--icon-12) shrink-0" />
               <span className="min-w-0">{warning}</span>
             </p>
           ))}
 
-          {actions.length > 0 || conflicts.length > 0 ? (
+          {!outcome && (actions.length > 0 || conflicts.length > 0) ? (
             <div className="max-h-56 overflow-y-auto">
               <ul className="flex flex-col gap-1">
                 {actions.map((action) => (
@@ -217,6 +227,18 @@ export function RewindDialog({
             </div>
           ) : null}
 
+          {outcome ? (
+            <p
+              role="alert"
+              data-testid="rewind-outcome"
+              data-kind={outcome.kind}
+              className="flex items-start gap-2 text-caption-11 text-status-warning"
+            >
+              <AlertTriangle aria-hidden="true" className="mt-px size-(--icon-12) shrink-0" />
+              <span className="min-w-0">{outcome.message}</span>
+            </p>
+          ) : null}
+
           {error ? (
             <p role="alert" className="text-caption-11 text-status-danger">
               {error}
@@ -226,7 +248,7 @@ export function RewindDialog({
 
         <DialogFooter className="mt-2">
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
+            {outcome ? "Close" : "Cancel"}
           </Button>
           <Button type="button" disabled={!ready} onClick={() => void confirm()} data-testid="rewind-confirm">
             {editAfter ? "Rewind and edit" : words.confirm}
