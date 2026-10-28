@@ -1,0 +1,24 @@
+package harnessconfig
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+	"testing"
+
+	"devkit/internal/harness"
+)
+
+func TestR1aProbeRepairSummaryBoundBudgets(t *testing.T) {
+	for _, nameLen := range []int{24, 40, 56, 64, 128} {
+		a := newApplyEnv(t)
+		a.seedProfile("w1", func(p *harness.Profile) {
+			p.ResultBudget = &harness.BudgetProfile{Groups: map[string]harness.BudgetRule{}}
+			for i := 0; i < 64; i++ {
+				p.ResultBudget.Groups[fmt.Sprintf("gone%03d-", i)+strings.Repeat("x", nameLen-8)] = harness.BudgetRule{Bytes: intp(100000 + i), Cut: harness.CutHeadTail}
+			}
+		})
+		_, err := a.svc.PrepareRepair(ui(), "w1")
+		t.Logf("groupBudget nameLen=%3d entries=64 prepare=%v too-large=%v", nameLen, err, errors.Is(err, ErrTooLargeToShow))
+	}
+}

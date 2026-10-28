@@ -1,0 +1,62 @@
+package app
+
+import (
+	"context"
+	"testing"
+
+	"devkit/internal/agenthub"
+	"devkit/internal/harness"
+	"devkit/internal/harnessconfig"
+	"devkit/internal/interaction"
+)
+
+// R1a probe: a session override (S) that names a group the build no longer
+// registers. F-C repairs W only. Does the same lockout exist for S, and can the
+// window repair or revoke it?
+func TestR1aProbeStaleSessionOverrideGroup(t *testing.T) {
+	r := newCompRig(t, compOptions{controls: true})
+	sess, _ := r.create(agenthub.AgentTypeClaude)
+	r.workspaceOff("pdf")
+	// An S that legitimately enabled pdf while the module was wired (fixture write).
+	_, ost := r.override(sess.ID)
+	if _, err := r.asm.Store.Apply(context.Background(), harness.StoreWrite{WorkspaceID: r.wsID, SessionID: sess.ID,
+		Override: &harness.OverrideWrite{Expect: ost, Value: &harness.Override{Schema: harness.SchemaVersion, Groups: []string{"pdf"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	// Build without the module.
+	r.opt.noPDF = true
+	r.restart()
+
+	// W is stale (pdf off); repair it through the real F-C path.
+	d := r.stale()
+	t.Logf("W diagnosis: state=%s entries=%s", d.State, entryNames(d))
+	r.prompter.answers = map[interaction.Kind]string{interaction.KindHarness: "allow"}
+	rev, err := r.asm.Controls().PrepareStaleRepair(r.ui(), r.wsID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.asm.Controls().Apply(r.ui(), rev.ID); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("W after repair: %s", r.stale().State)
+
+	// New session works (W repaired, no S).
+	if err := r.newSessionErr(); err != nil {
+		t.Fatalf("new session after W repair: %v", err)
+	}
+	// The existing session, whose S still names pdf:
+	err = r.agents.ResumeSession(r.ui(), sess.ID, true)
+	t.Logf("resume of the session whose S names the unwired group: %v", err)
+	_, rerr := r.asm.Controls().PrepareRevoke(r.ui(), r.wsID, sess.ID, []string{"pdf"})
+	t.Logf("window revoke of the stale S group: %v", rerr)
+	_, perr := r.asm.Provider.Snapshot(context.Background(), harnessconfig.SnapshotRequest{SessionID: sess.ID, WorkspaceID: r.wsID, Vendor: string(agenthub.AgentTypeClaude)})
+	t.Logf("snapshot for that session: %v", perr)
+	cerr := r.agents.CloseSession(r.ui(), sess.ID)
+	t.Logf("CloseSession: %v", cerr)
+	o, _ := r.override(sess.ID)
+	t.Logf("override after close: %+v", o)
+	t.Logf("resume after close: %v", r.agents.ResumeSession(r.ui(), sess.ID, false))
+	if err != nil || rerr != nil || perr != nil {
+		t.Errorf("STALE-S LOCKOUT: resume=%v revoke=%v snapshot=%v", err, rerr, perr)
+	}
+}

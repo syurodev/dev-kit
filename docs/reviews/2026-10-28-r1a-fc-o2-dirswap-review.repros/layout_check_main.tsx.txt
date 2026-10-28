@@ -1,0 +1,81 @@
+import React from "react";
+import ReactDOM from "react-dom/client";
+import "../src/index.css";
+import WorkspaceHarnessDialog from "../src/workbench/WorkspaceHarnessDialog";
+
+const out = document.getElementById("result")!;
+const rect = (el: Element | null) => {
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  return { top: Math.round(r.top), bottom: Math.round(r.bottom), left: Math.round(r.left), right: Math.round(r.right), h: Math.round(r.height) };
+};
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const $ = (s: string) => document.querySelector(s);
+const results: any[] = [];
+
+function metrics(label: string) {
+  const card = $('[data-slot="dialog-content"]');
+  const scroll = $('[data-testid="stale-repair-scroll"]') as HTMLElement | null;
+  const actions = $('[data-testid="stale-repair-actions"]');
+  const buttons = actions ? Array.from(actions.querySelectorAll("button")) : [];
+  const vh = innerHeight, vw = innerWidth;
+  const reach = buttons.map((b) => {
+    const r = b.getBoundingClientRect();
+    const cx = Math.round(r.left + r.width / 2), cy = Math.round(r.top + r.height / 2);
+    const hit = document.elementFromPoint(cx, cy);
+    return { text: b.textContent?.trim(), onScreen: r.top >= 0 && r.bottom <= vh && r.left >= 0 && r.right <= vw, topmost: hit === b || b.contains(hit), disabled: (b as HTMLButtonElement).disabled, rect: rect(b) };
+  });
+  let lastReachable: any = null;
+  if (scroll) {
+    scroll.style.scrollBehavior = 'auto'; scroll.scrollTop = scroll.scrollHeight; void scroll.offsetHeight;
+    const items = scroll.querySelectorAll("li");
+    const last = items[items.length - 1];
+    const sr = scroll.getBoundingClientRect();
+    const lr = last?.getBoundingClientRect();
+    lastReachable = last ? { lastItemInsideRegionAfterScrollToEnd: lr!.bottom <= sr.bottom + 1 && lr!.top >= sr.top - 1, items: items.length } : null;
+    scroll.scrollTop = 0;
+  }
+  const ae = document.activeElement as HTMLElement | null;
+  results.push({
+    label, viewport: { vw, vh }, card: rect(card),
+    cardBottomWithinViewport: card ? card.getBoundingClientRect().bottom <= vh : null,
+    scroll: scroll ? { clientHeight: scroll.clientHeight, scrollHeight: scroll.scrollHeight, scrollWidth: scroll.scrollWidth, clientWidth: scroll.clientWidth, hOverflow: scroll.scrollWidth > scroll.clientWidth } : null,
+    docHOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    lastReachable, reach,
+    actionsBottomMinusCardBottom: actions && card ? Math.round(actions.getBoundingClientRect().bottom - card.getBoundingClientRect().bottom) : null,
+    focus: ae ? `${ae.tagName}:${ae.textContent?.trim().slice(0, 30)}` : null,
+    editorPresent: !!document.querySelector('[aria-label="Tool groups"]'),
+    reviewChangesButtonPresent: Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Review changes"),
+    ordinaryCloseFooterPresent: !!document.querySelector('[data-slot="dialog-footer"]'),
+  });
+}
+
+function App() {
+  return <WorkspaceHarnessDialog workspace={{ id: "ws-1", name: "Payments" }} onClose={() => { (window as any).__closeCalls = ((window as any).__closeCalls ?? 0) + 1; }} />;
+}
+ReactDOM.createRoot(document.getElementById("root")!).render(<App />);
+
+(async () => {
+  try {
+    await sleep(700);
+    metrics("diagnosis");
+    const review = Array.from(document.querySelectorAll("button")).find((b) => b.textContent?.trim() === "Review repair") as HTMLButtonElement | undefined;
+    if (review) {
+      review.click();
+      await sleep(700);
+      metrics("review");
+      const repair = Array.from(document.querySelectorAll("button")).find((b) => b.textContent?.trim() === "Repair") as HTMLButtonElement | undefined;
+      if (repair) { repair.click(); await sleep(300); metrics("applying (waiting for confirmation)");
+        const tab = document.getElementById("harness-tab-limits") as HTMLButtonElement;
+        tab.click(); await sleep(400);
+        const closeBtn = Array.from(document.querySelectorAll("#harness-panel-limits button")).find((b) => b.textContent?.trim() === "Close") as HTMLButtonElement | undefined;
+        results.push({ probe: "limits-tab Close while a repair apply waits", closeButtonFound: !!closeBtn, disabled: closeBtn?.disabled, closeCallsBefore: (window as any).__closeCalls ?? 0 });
+        closeBtn?.click(); await sleep(200);
+        results.push({ probe: "after click", closeCalls: (window as any).__closeCalls ?? 0 });
+      }
+    }
+  } catch (e) {
+    results.push({ error: String(e) });
+  }
+  out.textContent = "RESULT_BEGIN" + JSON.stringify(results) + "RESULT_END";
+})();

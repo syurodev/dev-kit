@@ -1,0 +1,22 @@
+#!/bin/bash
+S=/tmp/claude-1001/-home-ptvu3-Downloads-dev-kit/5b140951-37b3-4275-ab2c-cfa418a9bb9d/scratchpad/shot.sh
+run() {
+  echo "#### window $1x$2 query $3"
+  $S "$1" "$2" "$3" | python3 -I -c '
+import sys,json
+for l in sys.stdin:
+    try: r=json.loads(l)
+    except Exception: print(l); continue
+    if "label" not in r: print(r); continue
+    sc=r["scroll"]
+    print(r["label"], "| vp",r["viewport"], "| card",r["card"]["top"],r["card"]["bottom"], "| scroll client/scrollH/hOverflow",(sc["clientHeight"],sc["scrollHeight"],sc["hOverflow"]) if sc else None, "| docHOv",r["docHOverflow"], "| lastReach",r["lastReachable"], "| btns",[(b["text"][:8],"on" if b["onScreen"] else "OFF",b["topmost"],b["disabled"]) for b in r["reach"]], "| act-card",r["actionsBottomMinusCardBottom"], "| focus",r["focus"], "| editor/reviewBtn/footer",r["editorPresent"],r["reviewChangesButtonPresent"],r["ordinaryCloseFooterPresent"])
+'
+}
+run 1080 787 "n=64"
+run 1080 787 "n=64&long=1"
+run 1080 787 "n=1"
+run 1080 787 "n=1&long=1"
+run 700 400 "n=64&long=1"
+run 420 567 "n=64&long=1"
+run 420 567 "n=64"
+run 320 447 "n=64&long=1"
