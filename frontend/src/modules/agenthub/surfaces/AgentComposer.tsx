@@ -45,6 +45,7 @@ import { AgentContextMeter } from "./AgentContextMeter";
 import { ModelSettingsPopover } from "./ModelSettingsPopover";
 import { ComposerEditorKit } from "./composer/composerEditorKit";
 import { ComposerEditorBoundary } from "./composer/ComposerEditorBoundary";
+import { replaceComposerValue } from "./composer/externalValue";
 import { filterContextFiles, mentionQueryBefore } from "./composer/mentionQuery";
 import { continueList, formatShortcut, toggleList, toggleWrap, type TextEdit } from "./composer/listEditing";
 import { ComposerPanelArea, type TrayPanel } from "./composer/ComposerTray";
@@ -526,7 +527,7 @@ export function AgentComposer({
     // an identical document would only throw away the caret.
     if (serializeComposerValue(editor.children, composerTypes(editor)) === value) return;
     isExternalResetRef.current = true;
-    editor.tf.setValue(deserializeComposerValue(value, composerTypes(editor)) as never);
+    replaceComposerValue(editor, deserializeComposerValue(value, composerTypes(editor)), { focused: editor.api.isFocused() });
   }, [value, editor]);
 
   useEffect(() => {

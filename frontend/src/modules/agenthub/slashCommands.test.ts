@@ -68,6 +68,11 @@ describe("putting the chosen command into the prompt", () => {
     expect(promptWithCommand("/", "compact")).toBe("/compact ");
   });
 
+  it("picking the name that is already typed does not double it (the companion rail left \"/get /get \")", () => {
+    expect(promptWithCommand("/get", "get")).toBe("/get ");
+    expect(promptWithCommand("/get", "/get")).toBe("/get ");
+  });
+
   it("appends when the prompt already holds a message", () => {
     // The pill can be clicked with words already in the box.
     expect(promptWithCommand("look at this", "review")).toBe("look at this /review ");
