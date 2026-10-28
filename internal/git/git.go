@@ -7,7 +7,9 @@
 // snapshot and silently wrong for a commit: a repo declaring `* text=auto` or
 // `*.bin filter=lfs` would get the wrong bytes written and nobody would notice
 // until someone else checked out. Everything here runs in the work tree with
-// the repository's own configuration.
+// the repository's own configuration, except for a call that comes from an
+// agent: the repository is the agent's to write, so what its configuration
+// would make git run is turned off for it (harden.go).
 //
 // What it does borrow from checkpoint is Locate: finding a usable git on a
 // machine that has none on PATH is a solved problem there, including the macOS

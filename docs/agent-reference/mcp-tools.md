@@ -38,6 +38,17 @@ as production-verified against a real Claude Code session in cloud CI.
   a view sharing guards, remotes, credentials and the confirmation gate, keyed by the
   workspace folder like the Git view, so a guarded branch is guarded whichever way it is
   reached — and never moves the app's open repository.
+- **Agent-origin Git is confined and hardened** (`internal/mcp/git_repo.go` `confineToScope`,
+  `internal/git/harden.go`). `gitFor` reads the `.git` at the top of an agent's checkout: a directory is
+  the repository; a file or link must name the git directory git found, inside the workspace or granted
+  scope (a linked worktree is also accepted when its worktree entry names the checkout back, so a child
+  granted only its checkout still works), and a `commondir` must be in scope too; refusal is
+  `git.repoOutsideWorkspace`. The handle is then pinned with `GIT_DIR`/`GIT_WORK_TREE`. For a caller of kind
+  agent git runs with `core.fsmonitor`, hooks (`core.hooksPath=/dev/null`), `core.sshCommand`, pager, askpass,
+  credential helpers, signing programs and the named filters/diff/merge drivers neutralised, so the
+  repository's hooks, LFS filters and credential helpers do not run for agents; the person's terminal is
+  unchanged. It is a denylist, not a sandbox; the directory-swap race is not closed here. Spec:
+  `docs/superpowers/specs/2026-10-28-git-agent-scope-hardening.md`.
 - **History tools never need a force push** (`internal/git/history.go`). `git.amend`,
   `git.squash` and `git.rebase` rewrite only commits no remote-tracking ref reaches
   (`git.pushedHistory` otherwise); `git.cherryPick` / `git.revert` add commits, so pushed
