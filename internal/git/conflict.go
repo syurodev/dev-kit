@@ -75,7 +75,7 @@ func (s *Service) Conflict(ctx context.Context, path string) (Conflict, error) {
 		*stage.present = true
 	}
 
-	merged, _, err := readWorkTreeFile(r.work, path)
+	merged, _, err := r.readWork(path)
 	if err != nil {
 		return Conflict{}, err
 	}
@@ -106,7 +106,7 @@ func (s *Service) Resolve(ctx context.Context, path, merged string) error {
 	if err != nil {
 		return err
 	}
-	if err := writeWorkTreeFile(r.work, path, merged); err != nil {
+	if err := r.writeWork(path, merged); err != nil {
 		return err
 	}
 	_, err = r.run(ctx, nil, "add", "--", path)

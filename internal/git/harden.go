@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"os"
-	"os/exec"
 	"runtime"
 	"strings"
 
@@ -107,12 +106,17 @@ func neutralValue(section, variable string) (string, bool) {
 // the agent picks the names. The listing is read for each command; a driver
 // added between that read and the command is a window this does not close.
 func (r runner) repositoryDrivers(ctx context.Context) []string {
-	cmd := exec.CommandContext(ctx, r.git, "--no-optional-locks", "-C", r.work, "config", "--list", "-z")
-	cmd.Env = r.hardenedEnv(cmd.Environ(), nil)
-	out, err := cmd.Output()
+	cmd, pins, err := r.build(ctx, []string{"--no-optional-locks"}, []string{"config", "--list", "-z"})
 	if err != nil {
 		return nil
 	}
+	cmd.Env = r.hardenedEnv(cmd.Environ(), pins, nil)
+	var listing bytes.Buffer
+	cmd.Stdout = &listing
+	if err := r.guarded(cmd); err != nil {
+		return nil
+	}
+	out := listing.Bytes()
 	var args []string
 	seen := map[string]bool{}
 	for _, entry := range bytes.Split(out, []byte{0}) {
@@ -145,7 +149,7 @@ var ownEnv = map[string]bool{
 // and, when the repository was pinned, GIT_DIR and GIT_WORK_TREE. extra is added
 // last: it is what the host itself decided (an account's askpass, a key's ssh
 // command, the committer identity).
-func (r runner) hardenedEnv(base, extra []string) []string {
+func (r runner) hardenedEnv(base, pins, extra []string) []string {
 	env := make([]string, 0, len(base)+16+len(extra))
 	for _, kv := range base {
 		if name, _, _ := strings.Cut(kv, "="); !ownEnv[name] {
@@ -163,7 +167,12 @@ func (r runner) hardenedEnv(base, extra []string) []string {
 		"GIT_EDITOR=true",
 		"GIT_SEQUENCE_EDITOR=true",
 	)
-	if r.gitDir != "" {
+	if pins != nil {
+		// A bound handle names its repository by what is held, relative to the
+		// directory the command starts in (or by descriptor): never by a path that
+		// can be looked up again.
+		env = append(env, pins...)
+	} else if r.gitDir != "" {
 		env = append(env, "GIT_DIR="+r.gitDir)
 		if r.workTree != "" {
 			env = append(env, "GIT_WORK_TREE="+r.workTree)

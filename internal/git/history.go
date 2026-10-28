@@ -73,6 +73,14 @@ func (s *Service) InProgress(ctx context.Context) (Operation, error) {
 		{"REVERT_HEAD", OperationRevert},
 		{"MERGE_HEAD", OperationMerge},
 	} {
+		if found, known := r.bound.existsInGitDir(probe.path); known {
+			// A held git directory is asked directly: git would print its own
+			// name for it (a descriptor path, for a bound handle).
+			if found {
+				return probe.op, nil
+			}
+			continue
+		}
 		out, err := r.run(ctx, nil, "rev-parse", "--git-path", probe.path)
 		if err != nil {
 			return OperationNone, err

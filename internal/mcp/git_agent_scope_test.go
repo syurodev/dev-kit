@@ -12,9 +12,9 @@ import (
 )
 
 // The directory-swap probes of the independent review (renaming a granted folder
-// for a link after gitFor opened it, and the RENAME_EXCHANGE race) are NOT in this
-// file: they need descriptor-bound execution, which is a separate delivery (steps 3
-// and 4 of the report's design 3.5). The two weaknesses below are steps 1 and 2.
+// for a link after gitFor opened it, and the RENAME_EXCHANGE race) are in
+// git_dirswap_test.go: they are what descriptor-bound execution (steps 3 and 4 of the
+// report's design 3.5) answers. The two weaknesses below are steps 1 and 2.
 
 func probeGit(t *testing.T, dir string, args ...string) {
 	t.Helper()

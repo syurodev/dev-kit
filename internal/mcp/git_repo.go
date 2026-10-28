@@ -270,15 +270,26 @@ func (s *Server) gitFor(ctx context.Context, repo string, write bool) (GitAPI, s
 		}
 		// The repository that opened is the one that path belongs to. A folder
 		// swapped for a link after the path was resolved shows up here as a
-		// checkout whose root does not contain it. A swap of a real directory
-		// component after this point is not closed by a path-based check.
+		// checkout whose root does not contain it.
 		if rooted, ok := api.(interface{ Toplevel() string }); ok {
 			if top := rooted.Toplevel(); top == "" || !workspace.Within(c.real, top) {
+				closeGit(api)
 				return nil, "", scope.unknown(repo)
 			}
 		}
 		if scope.agent {
+			// An agent-origin handle holds the directory it was opened at (see
+			// internal/git bound.go): it must be the directory this request was
+			// judged for, and every later command runs in it, not in whatever the
+			// name leads to by then.
+			if held, ok := api.(interface{ BoundPath() string }); ok {
+				if path := held.BoundPath(); path != "" && path != c.real {
+					closeGit(api)
+					return nil, "", scope.unknown(repo)
+				}
+			}
 			if err := confineToScope(api, scope); err != nil {
+				closeGit(api)
 				return nil, "", scope.unknown(repo)
 			}
 		}
@@ -293,6 +304,15 @@ type confinable interface {
 	Toplevel() string
 	GitDirs() (gitDir, commonDir string)
 	Confine(gitDir, workTree string)
+	DotGit() (gitservice.DotGit, error)
+	GitDirFile(name string) ([]byte, error)
+}
+
+// closeGit lets go of the descriptors an agent-origin handle holds, when it holds any.
+func closeGit(api GitAPI) {
+	if c, ok := api.(interface{ Close() }); ok {
+		c.Close()
+	}
 }
 
 // inReach reports whether real, an already resolved path, is somewhere the
@@ -326,41 +346,46 @@ func confineToScope(api GitAPI, scope gitScope) error {
 	if top == "" || gitDir == "" || commonDir == "" {
 		return errOutsideScope
 	}
-	dotGit := filepath.Join(top, ".git")
-	linked := false
-	info, err := os.Lstat(dotGit)
+	// What is at .git is read through the descriptor of the top when the handle holds
+	// one (internal/git bound.go), so a rewrite of the path cannot change what was read.
+	dot, err := c.DotGit()
 	if err != nil {
-		return errOutsideScope // a work tree with no .git at its top: configured from elsewhere
+		return errOutsideScope
 	}
-	switch {
-	case info.Mode()&os.ModeSymlink != 0:
+	linked := false
+	switch dot.Kind {
+	case "link":
 		// A link is only the repository it resolves to.
-		real := realPath(dotGit)
-		if !scope.inReach(real) || real != gitDir {
+		if !dot.IsGitDir || !scope.inReach(gitDir) {
 			return errOutsideScope
 		}
-	case info.IsDir():
-		if realPath(dotGit) != gitDir {
+	case "dir":
+		if !dot.IsGitDir {
 			return errOutsideScope
 		}
-	default:
-		target, err := readGitdirFile(dotGit)
-		if err != nil {
+	case "file":
+		target := dot.Gitdir
+		if target == "" {
 			return errOutsideScope
+		}
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(top, target)
 		}
 		real := realPath(target)
 		if real != gitDir {
 			return errOutsideScope
 		}
-		linked = linkedWorktreeOf(dotGit, gitDir, commonDir)
+		linked = linkedWorktreeOf(c, top, gitDir, commonDir)
 		if !linked && !scope.inReach(real) {
 			return errOutsideScope
 		}
+	default:
+		return errOutsideScope // a work tree with no .git at its top: configured from elsewhere
 	}
 	// The git directory can name another common directory (a linked worktree's
 	// commondir file), and git follows it whatever its own location is.
 	declared := gitDir
-	if raw, err := os.ReadFile(filepath.Join(gitDir, "commondir")); err == nil {
+	if raw, err := c.GitDirFile("commondir"); err == nil {
 		declared = strings.TrimSpace(string(raw))
 		if !filepath.IsAbs(declared) {
 			declared = filepath.Join(gitDir, declared)
@@ -374,7 +399,7 @@ func confineToScope(api GitAPI, scope gitScope) error {
 	return nil
 }
 
-// linkedWorktreeOf reports whether dotGit, the .git file of a checkout, and gitDir,
+// linkedWorktreeOf reports whether the .git file of the checkout at top and gitDir,
 // the git directory it names, are the two halves of a linked worktree: gitDir is
 // <commonDir>/worktrees/<name>, and the file git wrote there to find its checkout
 // (`gitdir`) names this very .git file. A code-editing child is granted its checkout
@@ -383,11 +408,11 @@ func confineToScope(api GitAPI, scope gitScope) error {
 // that was really added to that repository looks like, and what a folder redirected
 // to some other repository does not have: that repository's worktree entries name
 // other checkouts.
-func linkedWorktreeOf(dotGit, gitDir, commonDir string) bool {
+func linkedWorktreeOf(c confinable, top, gitDir, commonDir string) bool {
 	if gitDir != filepath.Join(commonDir, "worktrees", filepath.Base(gitDir)) {
 		return false
 	}
-	raw, err := os.ReadFile(filepath.Join(gitDir, "gitdir"))
+	raw, err := c.GitDirFile("gitdir")
 	if err != nil {
 		return false
 	}
@@ -395,31 +420,10 @@ func linkedWorktreeOf(dotGit, gitDir, commonDir string) bool {
 	if !filepath.IsAbs(back) {
 		back = filepath.Join(gitDir, back)
 	}
-	return realPath(back) == realPath(dotGit)
+	return realPath(back) == realPath(filepath.Join(top, ".git"))
 }
 
 var errOutsideScope = errors.New("repository outside the scope")
-
-// readGitdirFile is where a .git file says the git directory is. A relative path
-// is relative to the folder holding the file.
-func readGitdirFile(path string) (string, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	line, _, _ := strings.Cut(string(raw), "\n")
-	target, ok := strings.CutPrefix(strings.TrimSpace(line), "gitdir:")
-	if !ok {
-		return "", errors.New("not a gitdir file")
-	}
-	if target = strings.TrimSpace(target); target == "" {
-		return "", errors.New("empty gitdir")
-	}
-	if !filepath.IsAbs(target) {
-		target = filepath.Join(filepath.Dir(path), target)
-	}
-	return target, nil
-}
 
 // hasGitDir reports whether path is the top of a work tree: a .git directory,
 // or the .git file a submodule or linked worktree has.

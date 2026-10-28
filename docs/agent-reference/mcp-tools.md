@@ -47,8 +47,23 @@ as production-verified against a real Claude Code session in cloud CI.
   agent git runs with `core.fsmonitor`, hooks (`core.hooksPath=/dev/null`), `core.sshCommand`, pager, askpass,
   credential helpers, signing programs and the named filters/diff/merge drivers neutralised, so the
   repository's hooks, LFS filters and credential helpers do not run for agents; the person's terminal is
-  unchanged. It is a denylist, not a sandbox; the directory-swap race is not closed here. Spec:
+  unchanged. It is a denylist, not a sandbox. Spec:
   `docs/superpowers/specs/2026-10-28-git-agent-scope-hardening.md`.
+- **Agent-origin Git runs in a directory it holds open** (`internal/git/bound*.go`, `internal/fchdirexec`).
+  `Service.At` opens the folder without following a link, holds it, the checkout top and the git directory by
+  descriptor and starts git there with no path lookup (`/proc/<pid>/fd/N` as the working directory and
+  `GIT_DIR=/proc/self/fd/N` on Linux; elsewhere the app binary re-executed as an `argv[0]` helper that does
+  `fchdir` + `execve`). Identity (dev, ino) of the folder, top and git directory is checked before and after each
+  command, and on Linux a watcher refuses a command whose process leaves the directory; refusal is
+  `git.repoOutsideWorkspace`. Handles are closed with `closeGit` after each tool call. Do not add a path-based
+  `-C <path>` or an `os.ReadFile(<work tree path>)` on an agent handle. **Residual, not closed:** git itself
+  changes into the work tree by *name* for a command that needs it, so a name rebound in that instant sends that
+  one command into another directory (measured: 13 of 20,000 status calls under a continuous
+  `RENAME_EXCHANGE` flipper read the other directory's files; the repository's refs, objects, config and index
+  stayed the granted ones on Linux). Also path-resolved: `git.worktree.add` targets, local-path remotes,
+  `git.repos`, the PR tools (`internal/prwatch`) and the managed-writer resource key; guard keys stay path strings
+  (synced rows). macOS was compiled but not run; the helper costs about 24 ms per command. This is not a boundary
+  against a hostile agent. Spec: `docs/superpowers/specs/2026-10-28-git-descriptor-bound-execution.md`.
 - **History tools never need a force push** (`internal/git/history.go`). `git.amend`,
   `git.squash` and `git.rebase` rewrite only commits no remote-tracking ref reaches
   (`git.pushedHistory` otherwise); `git.cherryPick` / `git.revert` add commits, so pushed
