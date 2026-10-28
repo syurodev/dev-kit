@@ -42,6 +42,39 @@ describe("ErrorBoundary", () => {
     expect(b.state.failed).toBe(false);
   });
 
+  test("a function fallback is told the error and can put the children back", () => {
+    const thrown = new Error("boom");
+    const seen: Array<{ error: unknown }> = [];
+    const b = boundary({
+      fallback: ({ error }) => {
+        seen.push({ error });
+        return <p>fn fallback</p>;
+      },
+    });
+    b.state = { ...b.state, ...ErrorBoundary.getDerivedStateFromError(thrown) };
+    const drawn = b.render() as React.ReactElement;
+    expect(seen).toEqual([{ error: thrown }]);
+    expect(drawn).toEqual(<p>fn fallback</p>);
+    // reset() is a setState; a real instance has React's updater, this one does not.
+    const states: unknown[] = [];
+    b.setState = ((next: unknown) => void states.push(next)) as never;
+    (b as unknown as { reset: () => void }).reset();
+    expect(states).toEqual([{ failed: false, error: undefined }]);
+  });
+
+  test("tells onError about the throw after the console line", () => {
+    const consoleError = spyOn(console, "error").mockImplementation(mock(() => {}));
+    try {
+      const onError = mock(() => {});
+      const b = boundary({ onError });
+      const thrown = new Error("boom");
+      b.componentDidCatch(thrown, { componentStack: "" });
+      expect(onError).toHaveBeenCalledWith(thrown);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   test("says what failed once, on the console", () => {
     const error = spyOn(console, "error").mockImplementation(mock(() => {}));
     try {

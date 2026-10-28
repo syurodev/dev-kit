@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import './index.css'
 import App from './App'
+import { RootErrorBoundary } from './components/RootErrorBoundary'
 import { installNativeZoomGuard } from './lib/nativeZoom'
 import { installWindowShape } from './lib/windowShape'
 import { SQUIRCLE_SHELL_CLASS } from './lib/shellSquircle'
@@ -52,6 +53,8 @@ if (
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
-    <App />
+    <RootErrorBoundary>
+      <App />
+    </RootErrorBoundary>
   </React.StrictMode>,
 )
