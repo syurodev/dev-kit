@@ -29,6 +29,7 @@ import (
 	"devkit/internal/usagemetrics"
 	"devkit/internal/vault"
 	"devkit/internal/workspace"
+	"devkit/internal/workspacememory"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -253,32 +254,34 @@ func (u *usageLog) all() []usagemetrics.Observation {
 }
 
 type compRig struct {
-	t        *testing.T
-	ctx      context.Context
-	db       *sql.DB
-	prefs    *preferences.Service
-	ws       *workspace.Service
-	wsID     string
-	root     string
-	hub      *interaction.Hub
-	prompter *completingPrompter
-	gate     *compGate
-	server   *mcp.Server
-	host     *mcp.SessionHost
-	agents   *agenthub.Service
-	vendors  map[agenthub.AgentType]*scriptedVendor
-	asm      *HarnessAssembly
-	port     *HarnessPort
-	dbEnv    atomic.Value // string: the env tag of the stub database profile
-	book     *agenthub.SQLAccountStore
-	home     string
-	sockDir  string
-	metrics  *usagemetrics.Collector
-	usage    *usageLog
-	events   []harnessconfig.Event
-	evMu     sync.Mutex
-	opt      compOptions
-	work     *workRig
+	// memCreates counts workspace.memory.create handlers that ran (liveStatus rigs only).
+	memCreates atomic.Int32
+	t          *testing.T
+	ctx        context.Context
+	db         *sql.DB
+	prefs      *preferences.Service
+	ws         *workspace.Service
+	wsID       string
+	root       string
+	hub        *interaction.Hub
+	prompter   *completingPrompter
+	gate       *compGate
+	server     *mcp.Server
+	host       *mcp.SessionHost
+	agents     *agenthub.Service
+	vendors    map[agenthub.AgentType]*scriptedVendor
+	asm        *HarnessAssembly
+	port       *HarnessPort
+	dbEnv      atomic.Value // string: the env tag of the stub database profile
+	book       *agenthub.SQLAccountStore
+	home       string
+	sockDir    string
+	metrics    *usagemetrics.Collector
+	usage      *usageLog
+	events     []harnessconfig.Event
+	evMu       sync.Mutex
+	opt        compOptions
+	work       *workRig
 }
 
 type compOptions struct {
@@ -290,6 +293,9 @@ type compOptions struct {
 	accounts bool
 	// noPDF leaves the optional PDF module unwired, so its tools are not registered.
 	noPDF bool
+	// liveStatus answers the MCP server's session lookups (GetStatus) from the real Agent Hub, for
+	// tools that scope a call by its session; every other hub method stays the contract stub.
+	liveStatus bool
 	// realEnvs wires the application's real environment-tag policy and a database
 	// stub whose profile env is compRig.dbEnv.
 	realEnvs bool
@@ -306,6 +312,18 @@ type compOptions struct {
 	// wrapGitRepos puts a hook in front of the Git module the MCP tools open
 	// repositories through (needs work).
 	wrapGitRepos func(mcp.GitRepos) mcp.GitRepos
+	// realAdapters registers these vendor adapters, and only these, in place of
+	// the scripted ones (R2 real-runtime evidence). proxyPath is the stdio proxy
+	// the session host hands the vendors ("" keeps the inert /usr/bin/true) and
+	// resolvePermission answers the vendors' own permission requests.
+	realAdapters      map[agenthub.AgentType]agenthub.VendorAdapter
+	proxyPath         string
+	resolvePermission agenthub.PermissionResolver
+	// resolveGate wires the production confirmation route: the hub sends an
+	// agent's confirmation through Agent Hub's ConfirmTool, which asks this
+	// resolver (main.go: hub.ConfirmAgent = agentSvc.ConfirmTool). It is also what
+	// makes the gate-owned tools delegable to a vendor.
+	resolveGate agenthub.PermissionResolver
 }
 
 func newCompRig(t *testing.T, opt compOptions) *compRig {
@@ -357,6 +375,12 @@ func (r *compRig) build() {
 	r.vendors = map[agenthub.AgentType]*scriptedVendor{}
 	reg := agenthub.NewRegistry()
 	types := append([]agenthub.AgentType{agenthub.AgentTypeClaude, agenthub.AgentTypeOpenCode}, r.opt.extraTypes...)
+	if r.opt.realAdapters != nil {
+		types = nil
+		for _, a := range r.opt.realAdapters {
+			reg.Register(a)
+		}
+	}
 	for _, typ := range types {
 		v := &scriptedVendor{MockAdapter: agenthub.NewMockAdapter(), typ: typ}
 		r.vendors[typ] = v
@@ -369,6 +393,13 @@ func (r *compRig) build() {
 	}
 	r.agents = agenthub.NewService(reg, agenthub.NewSQLStore(r.db), func(string, json.RawMessage) {})
 	r.agents.MatchingWorkspaces = r.ws.MatchingWorkspaceIDs
+	if r.opt.resolvePermission != nil {
+		r.agents.ResolvePermission = r.opt.resolvePermission
+	}
+	if r.opt.resolveGate != nil {
+		r.agents.ResolveGatePermission = r.opt.resolveGate
+		r.hub.ConfirmAgent = r.agents.ConfirmTool
+	}
 	r.agents.SandboxExtras = func() preferences.AgentSandboxSettings {
 		s, _ := r.prefs.AgentSandbox()
 		return s
@@ -407,6 +438,10 @@ func (r *compRig) build() {
 		deps.Envs = NewContainer().Environments
 		deps.DB = dbWithEnv{rig: r}
 	}
+	if r.opt.liveStatus {
+		deps.AgentHub = hubStatus{AgentHubAPI: deps.AgentHub, svc: r.agents}
+		deps.WorkspaceMemory = memoryProbe{WorkspaceMemoryAPI: deps.WorkspaceMemory, n: &r.memCreates}
+	}
 	deps.Vault = vaultOK{}
 	deps.Hub = r.hub
 	if r.opt.work {
@@ -435,7 +470,11 @@ func (r *compRig) build() {
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	r.sockDir = dir
-	r.host = mcp.NewSessionHost(r.ctx, r.server, dir, "/usr/bin/true")
+	proxy := "/usr/bin/true"
+	if r.opt.proxyPath != "" {
+		proxy = r.opt.proxyPath
+	}
+	r.host = mcp.NewSessionHost(r.ctx, r.server, dir, proxy)
 	t.Cleanup(r.host.Close)
 	r.agents.MCPEndpoints = r.host
 
@@ -677,4 +716,25 @@ func contains(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// hubStatus is the contract stub with the one lookup a session-scoped tool needs.
+type hubStatus struct {
+	mcp.AgentHubAPI
+	svc *agenthub.Service
+}
+
+func (h hubStatus) GetStatus(ctx context.Context, id string) (agenthub.AgentSession, error) {
+	return h.svc.GetStatus(ctx, id)
+}
+
+// memoryProbe records that a create reached the memory service and stores nothing.
+type memoryProbe struct {
+	mcp.WorkspaceMemoryAPI
+	n *atomic.Int32
+}
+
+func (m memoryProbe) Create(context.Context, string, workspacememory.Input, workspacememory.Source) (workspacememory.Entry, error) {
+	m.n.Add(1)
+	return workspacememory.Entry{}, nil
 }

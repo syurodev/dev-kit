@@ -19,6 +19,13 @@ version: "2"
 # appears on — turning it on would mean either an unmaintainable per-type
 # allowlist or a genuine, separate pass to check every Close error, not
 # something this gate should force by proxy.
+run:
+  # Test files are not linted. The gate is for production code: the real-runtime
+  # evidence fixtures (internal/app/harness_runtime_*_test.go) and the review
+  # repro tests carry helpers and shapes that unused/staticcheck style findings
+  # would otherwise force into churn. Tests still run in CI (go test).
+  tests: false
+
 linters:
   default: standard
   disable:
