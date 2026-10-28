@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -251,6 +252,16 @@ type probeStore struct {
 	failReads atomic.Bool
 	// failUpdates makes UpdateCheckpoint fail, as a store whose bookkeeping cannot land.
 	failUpdates atomic.Bool
+	// failStatus makes UpdateSessionStatus fail: a Close that stops before it can mark the
+	// session closed, which leaves the durable status open.
+	failStatus atomic.Bool
+}
+
+func (p *probeStore) UpdateSessionStatus(ctx context.Context, id string, status agenthub.SessionStatus, at time.Time) error {
+	if p.failStatus.Load() {
+		return errors.New("injected: the session status cannot be written")
+	}
+	return p.SQLStore.UpdateSessionStatus(ctx, id, status, at)
 }
 
 func (p *probeStore) GetSession(ctx context.Context, id string) (agenthub.AgentSession, error) {
@@ -822,6 +833,84 @@ func TestAnSChangeTogetherWithALostEndpointIsNotRetriedAsS(t *testing.T) {
 	}
 	if r.svc.ServingTarget(r.session.ID).Active {
 		t.Fatal("nothing may be left serving")
+	}
+}
+
+// The reason a publication was refused is what decides whether the rewind finishes
+// forward, and it is checked on its own here (review R1b, F5). canFinishForward has
+// three further conditions that stop a retry in most scenarios: the caller's context,
+// the launch budget and the durable session status. A test that also trips one of them
+// cannot tell whether the reason was read. In each case below all three are open (live
+// context, budget untouched, durable status not closed), so the refusal's reason is the
+// only thing between the rewind and another fork. A retry would stage another launch,
+// so "nothing was prepared again" is what is asserted, besides the outcome.
+func TestOnlyAnSChangeIsRetriedWhenNothingElseStopsTheRetry(t *testing.T) {
+	cases := []struct {
+		name string
+		// refuse makes the first publication (after the restore) fail for a reason other than S.
+		refuse func(t *testing.T, r *filesRig)
+	}{
+		{"the staged endpoint was lost and S did not move", func(_ *testing.T, r *filesRig) {
+			r.lives.last().close()
+		}},
+		{"a Close failed before it marked the session closed", func(t *testing.T, r *filesRig) {
+			r.store.failStatus.Store(true)
+			if err := r.svc.CloseSession(context.Background(), r.session.ID); err == nil {
+				t.Fatal("the injected status failure must fail the Close")
+			}
+			r.store.failStatus.Store(false)
+		}},
+		{"a Close finished and the session was reopened durably", func(t *testing.T, r *filesRig) {
+			if err := r.svc.CloseSession(context.Background(), r.session.ID); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.store.UpdateSessionStatus(context.Background(), r.session.ID, agenthub.SessionStatusIdle, time.Now().UTC()); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, _ := newFilesRig(t)
+			ctx := context.Background()
+			var calls, opens int32
+			r.store.onRestore = func(int) {
+				calls, opens = r.harness.calls.Load(), r.opens.Load()
+				tc.refuse(t, r)
+			}
+			_, err := r.rewind(ctx)
+
+			// The three other conditions really were open when the refusal came.
+			if current, gerr := r.store.GetSession(ctx, r.session.ID); gerr != nil || current.Status == agenthub.SessionStatusClosed {
+				t.Fatalf("the durable status must not be closed here, or it would be the backstop: %+v (%v)", current.Status, gerr)
+			}
+			if ctx.Err() != nil {
+				t.Fatal("the caller's context must be alive")
+			}
+
+			partial := r.assertPartial(err)
+			if !errors.Is(err, agenthub.ErrHarnessLaunchStale) {
+				t.Fatalf("the cause is the refused publication, got %v", err)
+			}
+			if got := r.harness.calls.Load(); got != calls {
+				t.Fatalf("snapshots = %d, want %d: a refusal that is not S must not prepare another launch", got, calls)
+			}
+			if got := r.opens.Load(); got != opens {
+				t.Fatalf("endpoints opened = %d, want %d: nothing may be staged again", got, opens)
+			}
+			if got := int(r.forks.Load()); got != 1 {
+				t.Fatalf("forks = %d: only S is answered with another fork", got)
+			}
+			if _, cuts := r.store.counts(); cuts != 0 {
+				t.Fatal("a refused publication must not reach the cut")
+			}
+			if row := r.safetyRow(); row.Status != agenthub.CheckpointFailed || row.ID != partial.SafetyCheckpointID {
+				t.Fatalf("the safety row must be settled: %+v", row)
+			}
+			if r.svc.ServingTarget(r.session.ID).Active {
+				t.Fatal("nothing may be left serving")
+			}
+		})
 	}
 }
 

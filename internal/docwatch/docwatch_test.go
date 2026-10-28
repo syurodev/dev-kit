@@ -12,6 +12,7 @@ import (
 type sink struct {
 	mu     sync.Mutex
 	events []Event
+	at     []time.Time
 	ch     chan struct{}
 }
 
@@ -20,8 +21,16 @@ func newSink() *sink { return &sink{ch: make(chan struct{}, 64)} }
 func (s *sink) emit(e Event) {
 	s.mu.Lock()
 	s.events = append(s.events, e)
+	s.at = append(s.at, time.Now())
 	s.mu.Unlock()
 	s.ch <- struct{}{}
+}
+
+// snapshot is every report so far and when each one was delivered.
+func (s *sink) snapshot() ([]Event, []time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]Event(nil), s.events...), append([]time.Time(nil), s.at...)
 }
 
 func (s *sink) wait(t *testing.T) Event {
@@ -93,7 +102,7 @@ func TestWriteAndAtomicRenameAndDeleteAreReportedByKey(t *testing.T) {
 	}
 }
 
-func TestOtherFilesInTheDirectoryAreIgnoredAndBurstsCoalesce(t *testing.T) {
+func TestOtherFilesInTheDirectoryAreIgnored(t *testing.T) {
 	dir := t.TempDir()
 	a := filepath.Join(dir, "a.txt")
 	_ = os.WriteFile(a, []byte("1"), 0o644)
@@ -103,13 +112,99 @@ func TestOtherFilesInTheDirectoryAreIgnoredAndBurstsCoalesce(t *testing.T) {
 	w.Set([]Doc{{"A", a}})
 
 	_ = os.WriteFile(filepath.Join(dir, "unrelated.txt"), []byte("x"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "unrelated.txt"), []byte("y"), 0o644)
 	s.quiet(t, 150*time.Millisecond)
 
-	for i := 0; i < 20; i++ {
-		_ = os.WriteFile(a, []byte{byte(i)}, 0o644)
+	// The watch is live: the document itself is still heard.
+	_ = os.WriteFile(a, []byte("2"), 0o644)
+	if ev := s.wait(t); !reflect.DeepEqual(ev.Keys, []string{"A"}) {
+		t.Fatalf("write: %+v", ev)
 	}
+}
+
+// A burst of writes is one report only while no gap inside it outlasts the
+// debounce. This test used to assert "exactly one report" with a 20ms debounce
+// and 20 back-to-back writes; on a loaded runner the writer (or the goroutine
+// reading inotify) can be descheduled for longer than 20ms in the middle of the
+// burst, the quiet period then really elapses, and a second report is correct
+// behaviour — it failed in CI as "unexpected event". So: the window is wide
+// against the burst, the count is asserted only when the burst demonstrably
+// stayed inside it (the writer's own longest gap is measured), and what must hold
+// on every machine is asserted unconditionally: only the document is reported,
+// the burst is not delivered write by write, and the last report comes after the
+// last write, so the caller never ends up holding an older view of the file.
+func TestABurstCoalescesAndTheLastReportFollowsTheLastWrite(t *testing.T) {
+	const writes = 20
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.txt")
+	_ = os.WriteFile(a, []byte("1"), 0o644)
+	s := newSink()
+	opts := Options{Debounce: 300 * time.Millisecond, MaxWait: 3 * time.Second}
+	w, _ := New(s.emit, opts)
+	defer w.Close()
+	w.Set([]Doc{{"A", a}})
+
+	var longestGap time.Duration
+	last := time.Now()
+	for i := 0; i < writes; i++ {
+		_ = os.WriteFile(a, []byte{byte(i)}, 0o644)
+		now := time.Now()
+		if gap := now.Sub(last); gap > longestGap {
+			longestGap = gap
+		}
+		last = now
+	}
+	lastWrite := last
+
 	s.wait(t)
-	s.quiet(t, 150*time.Millisecond) // one report for the whole burst
+	time.Sleep(2 * opts.Debounce) // a second report, if one is coming, is already due
+	events, at := s.snapshot()
+
+	for _, ev := range events {
+		if !reflect.DeepEqual(ev.Keys, []string{"A"}) || ev.Resync {
+			t.Fatalf("report = %+v, want only A", ev)
+		}
+	}
+	if len(events) >= writes {
+		t.Fatalf("%d reports for %d writes: the burst was not coalesced", len(events), writes)
+	}
+	if !at[len(at)-1].After(lastWrite) {
+		t.Fatalf("the last report (%v) does not follow the last write (%v)", at[len(at)-1], lastWrite)
+	}
+	if longestGap < opts.Debounce/4 {
+		if len(events) != 1 {
+			t.Fatalf("%d reports for a burst whose longest gap was %v inside a %v window; want 1", len(events), longestGap, opts.Debounce)
+		}
+	} else {
+		t.Logf("writer stalled for %v inside a %v window: %d reports is legal, exact count not asserted", longestGap, opts.Debounce, len(events))
+	}
+}
+
+// The other half of the contract, deterministically: a change after the quiet
+// period has been reported is a new report, not a bug. (This is the shape the
+// loaded-runner flake produced by accident.)
+func TestAChangeAfterTheQuietPeriodIsReportedAgain(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.txt")
+	_ = os.WriteFile(a, []byte("1"), 0o644)
+	s := newSink()
+	w, _ := New(s.emit, fast())
+	defer w.Close()
+	w.Set([]Doc{{"A", a}})
+
+	for round := 0; round < 3; round++ {
+		for i := 0; i < 5; i++ {
+			_ = os.WriteFile(a, []byte{byte(round), byte(i)}, 0o644)
+		}
+		if ev := s.wait(t); !reflect.DeepEqual(ev.Keys, []string{"A"}) {
+			t.Fatalf("round %d: %+v", round, ev)
+		}
+		// Drain any straggler of this round before the next one starts.
+		time.Sleep(100 * time.Millisecond)
+		for len(s.ch) > 0 {
+			<-s.ch
+		}
+	}
 }
 
 func TestSetReleasesDirectoriesAndRespectsTheCeiling(t *testing.T) {
