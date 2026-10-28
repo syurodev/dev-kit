@@ -412,8 +412,18 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 			return RewindResult{}, err
 		}
 		applied, err := s.applyRestoreHeld(ctx, r.held.restoreToken, r.session, r.overwrite)
+		if err != nil && checkpoint.Changed(err) {
+			// The restore stopped part-way: the cut was never attempted, but files
+			// may have changed, so this is not a refusal. The fork is not wanted
+			// and is discarded. The safety row stays pending, not failed: it is the
+			// one record that a rewind did not finish, and InterruptedRewinds lists
+			// pending rows only. Its snapshot is the way back.
+			r.discardFork(ctx)
+			return RewindResult{}, &RewindPartialError{Cause: err, SafetyCheckpointID: r.safetyID, RestoreIncomplete: true}
+		}
 		if err != nil {
-			// Nothing has been committed: close the fork and delete it, so the
+			// The restore changed nothing (it was refused before its first write) and
+			// nothing has been committed: close the fork and delete it, so the
 			// vendor is not left holding a session nothing points at.
 			r.discardFork(ctx)
 			r.abandonSafety(ctx, err)
@@ -659,6 +669,9 @@ type RewindPartialError struct {
 }
 
 func (e *RewindPartialError) Error() string {
+	if e.RestoreIncomplete {
+		return "agenthub: the file restore stopped part-way and the conversation was not rewound: " + e.Cause.Error()
+	}
 	return "agenthub: the files were restored but the conversation was not rewound: " + e.Cause.Error()
 }
 func (e *RewindPartialError) Unwrap() error        { return e.Cause }
