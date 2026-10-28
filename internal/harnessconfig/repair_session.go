@@ -203,6 +203,9 @@ func (s *Service) PrepareSessionRepair(ctx context.Context, workspaceID, session
 	}
 	view, err := buildSessionRepairView(sc.staleGroups)
 	if err != nil {
+		if errors.Is(err, ErrTooLargeToShow) {
+			return Prepared{}, ErrRepairTooLarge // not "split it": a repair cannot be split
+		}
 		return Prepared{}, err
 	}
 	id, err := newID()
