@@ -338,7 +338,7 @@ Fix commits: `dd8e8150`, `d3aceead`, `952908e1`, `1e94743e` (base `eccc7c6c`). T
 Behavior. The window can diagnose a workspace's stored profile (`StaleProfile`) with no session and even when the ordinary read fails, and can prepare a repair
 (`PrepareStaleRepair`) that removes only the keys of `W.ToolGroups`, `W.ResultBudget.Tools` and `W.ResultBudget.Groups` that the server's registry does not have. The
 caller names only the workspace; Go derives the removals. States: `none` (no profile, or nothing stale and it resolves), `stale` (repairable), `unrepairable` (corrupt record,
-unsupported schema, another invalid setting such as a budget on a never-cut tool, an unavailable registry). More than 64 stale keys are shown in part and cannot be prepared.
+unsupported schema, another invalid setting such as a budget on a never-cut tool, an unavailable registry). More than 64 stale keys, or fewer whose review would exceed the 8 KiB confirmation summary, are shown (in part for the first case) with `truncated` set and cannot be prepared; the window explains this and offers no repair.
 The normal resolver is unchanged and still strict.
 
 Approval. The repair goes through the existing proposal service: prepared-record ownership, the shared hub confirmation (tier `widening`, always asked, `EnvBlocks`, so
@@ -474,8 +474,11 @@ used as an independent sign-off; the Git canonical-path binding and Claim/Releas
   is marked `failed`, so `InterruptedRewinds` never lists it) with F2 (two retry-budget tests that hang and exhaust memory instead of failing when the
   budget is broken; that, not a defect on `main`, was the 16 GB process that crashed the machine).
 
-**Open, not scheduled.** R1a-2 (the 64-entry repair bound is unreachable under the 8 KiB summary cap and the refusal says "split it" for a repair),
-R1a-3 (the Result limits tab can be closed while a repair apply waits for confirmation), R1a-4 (F-D, the action row hangs 16 px below the card at
-maximum height), R1b F3 and F4 (post-commit cleanup uses the caller's context; not reproduced), F5 (one test pins the retry reason on its own), and item 7
+**Fixed after R1a (2026-10-28, not independently reviewed):** R1a-2, R1a-3 and R1a-4, with a real headless-browser layout measurement but not the native window
+([spec](../superpowers/specs/2026-10-28-repair-dialog-lows.md)). The diagnosis reports a repair as not offered when its review would not fit the 8 KiB summary
+(the 64-entry bound is only an upper bound), and the refusal no longer says "split it"; every way out of the dialog, including the Result limits tab's Close, shares
+one busy rule; the dialog body shrinks inside the card so the action row no longer hangs below it (the same shared-component hang remains in other dialogs).
+
+**Open, not scheduled.** R1b F3 and F4 (post-commit cleanup uses the caller's context; not reproduced), F5 (one test pins the retry reason on its own), and item 7
 (`usagemetrics` and the budgets panel internals were not read). The window still has no control for interrupted rewinds (see the O-1 record above).
 Not run by either reviewer: a real jail, macOS, the native window, whole-package `-race`, lint, `bun run build`.

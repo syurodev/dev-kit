@@ -72,7 +72,10 @@ const (
 
 // MaxStaleEntries bounds the diagnosis and a repair. A profile with more stale
 // references than this is shown in part and cannot be prepared: an approval must
-// cover every removal.
+// cover every removal. It is an upper bound only: the review must also fit what a
+// confirmation can show (maxSummaryBytes), which long names reach with fewer
+// entries. The diagnosis therefore builds the review and reports Truncated when
+// it would not fit, so it never offers a repair that PrepareRepair would refuse.
 const MaxStaleEntries = 64
 
 const maxStaleNameRunes = 128
@@ -87,7 +90,11 @@ type StaleDiagnosis struct {
 	Entries         []StaleEntry `json:"entries"`
 	// Total counts every stale reference; Entries holds at most MaxStaleEntries.
 	Total int `json:"total"`
-	// Truncated: Total is larger than the listed entries, so a repair cannot be prepared.
+	// Truncated: a repair cannot be prepared because its review could not show every
+	// removal in full: there are more entries than MaxStaleEntries (Total is larger
+	// than the listed entries) or the review would exceed the confirmation's limit.
+	// A repair cannot be split, so nothing is offered; restoring the module or build
+	// is the way out.
 	Truncated bool `json:"truncated,omitempty"`
 	// Message is fixed host text explaining an unrepairable state.
 	Message string `json:"message,omitempty"`
@@ -96,7 +103,7 @@ type StaleDiagnosis struct {
 // Fixed refusals of the repair.
 var (
 	ErrRepairUnavailable = &harness.Error{Code: harness.CodeProfileInvalid, Message: "This workspace profile has a problem that stale-setting repair does not cover, so it cannot be repaired here."}
-	ErrRepairTooLarge    = &harness.Error{Code: harness.CodeNotAvailable, Message: "Too many saved settings are stale to review in one step, so nothing can be repaired from here."}
+	ErrRepairTooLarge    = &harness.Error{Code: harness.CodeNotAvailable, Message: "These stale settings are too many or too long to show in full in one review, and a repair cannot be split, so nothing can be repaired from here. Restore the missing module or build instead."}
 )
 
 const (
@@ -416,6 +423,12 @@ func (s *Service) DiagnoseStale(ctx context.Context, workspaceID string) (StaleD
 	if sc.state != StaleRepairable {
 		// Nothing is offered for removal in a state that cannot be repaired.
 		d.Entries, d.Total, d.Truncated = []StaleEntry{}, 0, false
+	} else if !d.Truncated {
+		// The review is what the person approves, so a repair is on offer only if it
+		// can be shown in full.
+		if _, err := buildRepairView(sc.entries); err != nil {
+			d.Truncated = true
+		}
 	}
 	return d, nil
 }
@@ -450,6 +463,9 @@ func (s *Service) PrepareRepair(ctx context.Context, workspaceID string) (Prepar
 	}
 	view, err := buildRepairView(sc.entries)
 	if err != nil {
+		if errors.Is(err, ErrTooLargeToShow) {
+			return Prepared{}, ErrRepairTooLarge // not "split it": a repair cannot be split
+		}
 		return Prepared{}, err
 	}
 	id, err := newID()

@@ -74,6 +74,26 @@ export function isDirty(draft: Draft): boolean {
   return Object.keys(draft).length > 0;
 }
 
+/** Which of the dialog's three writers is preparing or applying something. */
+export type HarnessPending = {
+  /** The ordinary group editor. */
+  editor: "" | "prepare" | "apply";
+  /** The stale-settings repair. */
+  repair: "" | "prepare" | "apply";
+  /** The Result limits tab (its own controller reports whether it prepares or applies). */
+  limits: boolean;
+};
+
+/**
+ * True while any of the dialog's writers is preparing or applying: the dialog must
+ * not close then (a write that waits for the person's confirmation would finish
+ * with nobody to show its outcome to). Every way out of the dialog (the corner
+ * button, Escape, and each tab's Close or Cancel) uses this one rule.
+ */
+export function closeBlocked(pending: HarnessPending): boolean {
+  return pending.editor !== "" || pending.repair !== "" || pending.limits;
+}
+
 /** The group edits to prepare, in the registry's order. Only differences. */
 export function buildEdits(view: ProfileView | null, draft: Draft): GroupEdit[] {
   return rows(view)

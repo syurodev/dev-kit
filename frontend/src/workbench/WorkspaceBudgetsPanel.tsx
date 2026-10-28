@@ -47,7 +47,16 @@ const INHERIT = "inherit";
  * single-flight reads); the review of the exact limits before and after is written
  * by Go and the shared confirmation flow asks before anything is saved.
  */
-export function WorkspaceBudgetsPanel({ workspaceId, active }: { workspaceId: string; active: boolean }) {
+export function WorkspaceBudgetsPanel({
+  workspaceId,
+  active,
+  onPendingChange,
+}: {
+  workspaceId: string;
+  active: boolean;
+  /** True while this tab prepares or applies a change (not while it only reads). The host must not close then. */
+  onPendingChange?: (pending: boolean) => void;
+}) {
   const [controller] = useState(() => new BudgetsController(ops));
   const state = useSyncExternalStore(controller.subscribe, controller.getState, controller.getState);
   const groupNames = useRef<string[]>([]);
@@ -68,6 +77,11 @@ export function WorkspaceBudgetsPanel({ workspaceId, active }: { workspaceId: st
   }, [controller]);
 
   const { page, draft, review, outcome, busy, error, loadError, nextCursor, group } = state;
+  const pending = busy === "prepare" || busy === "apply";
+  useEffect(() => {
+    onPendingChange?.(pending);
+    return () => onPendingChange?.(false);
+  }, [pending, onPendingChange]);
   if (page && group === "") {
     groupNames.current = (page.groups ?? []).map((g) => g.group);
   }

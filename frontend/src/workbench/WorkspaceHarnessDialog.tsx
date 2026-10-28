@@ -30,6 +30,7 @@ import { StaleRepairController, type StaleOps } from "./staleRepairController";
 import { LatestRequest } from "./WorkspaceMemoryModel";
 import {
   buildEdits,
+  closeBlocked,
   formatBytes,
   isDirty,
   outcomeNotice,
@@ -42,6 +43,21 @@ import {
 } from "./workspaceHarnessModel";
 
 const staleOps: StaleOps = { diagnose: staleProfile, prepare: prepareStaleRepair, apply: applyReview, cancel: cancelReview };
+
+/**
+ * The Result limits tab's Close. It follows the same rule as every other way out of
+ * the dialog: while a write is preparing or waiting for the person's confirmation it
+ * is disabled, so the outcome of that write is never left with nobody to show it to.
+ */
+export function LimitsTabClose({ blocked, onClose }: { blocked: boolean; onClose: () => void }) {
+  return (
+    <div className="flex justify-start">
+      <Button type="button" variant="outline" disabled={blocked} onClick={onClose}>
+        Close
+      </Button>
+    </div>
+  );
+}
 
 /**
  * "Agent tool groups": which DevKit tool groups sessions of this workspace get. It
@@ -79,6 +95,8 @@ export default function WorkspaceHarnessDialog({
   }, [stale, workspace.id]);
   useEffect(() => () => stale.dispose(), [stale]);
   const recovering = repairing(staleState);
+  // The Result limits tab writes through its own controller and reports whether it is busy.
+  const [limitsPending, setLimitsPending] = useState(false);
 
   const load = useCallback(async () => {
     const current = latest.current.begin();
@@ -190,12 +208,14 @@ export default function WorkspaceHarnessDialog({
   const notice = outcome ? outcomeNotice(outcome) : null;
   const list = rows(view);
   const dirty = isDirty(draft);
+  const closing = closeBlocked({ editor: busy, repair: staleState.busy, limits: limitsPending });
 
   return (
-    <Dialog open onOpenChange={(open) => !open && !busy && staleState.busy === "" && onClose()}>
+    <Dialog open onOpenChange={(open) => !open && !closing && onClose()}>
+      {/* The body inherits max-h from the card but the card's padding is outside its content box: letting the body shrink keeps the action row inside the card. */}
       <DialogContent
         portal={portal}
-        className="flex max-h-[85vh] flex-col gap-4 sm:max-w-2xl"
+        className="flex max-h-[85vh] flex-col gap-4 sm:max-w-2xl [&>[data-slot=dialog-body]]:shrink"
         aria-describedby="harness-dialog-description"
       >
         <DialogHeader>
@@ -334,7 +354,7 @@ export default function WorkspaceHarnessDialog({
                   Discard changes
                 </Button>
               ) : null}
-              <Button type="button" variant="outline" disabled={busy !== ""} onClick={onClose}>
+              <Button type="button" variant="outline" disabled={closing} onClick={onClose}>
                 Close
               </Button>
               <Button type="button" disabled={!dirty || busy !== "" || loading} onClick={() => void prepare()}>
@@ -348,12 +368,8 @@ export default function WorkspaceHarnessDialog({
 
         <div role="tabpanel" id="harness-panel-limits" aria-labelledby="harness-tab-limits" hidden={tab !== "limits"} className="flex min-h-0 flex-1 flex-col gap-4">
           {/* Mounted once opened and kept, so an unsaved limit edit survives a switch of tab. */}
-          {visited.has("limits") ? <WorkspaceBudgetsPanel workspaceId={workspace.id} active={tab === "limits"} /> : null}
-          {tab === "limits" ? (
-            <div className="flex justify-start">
-              <Button type="button" variant="outline" onClick={onClose}>Close</Button>
-            </div>
-          ) : null}
+          {visited.has("limits") ? <WorkspaceBudgetsPanel workspaceId={workspace.id} active={tab === "limits"} onPendingChange={setLimitsPending} /> : null}
+          {tab === "limits" ? <LimitsTabClose blocked={closing} onClose={onClose} /> : null}
         </div>
       </DialogContent>
     </Dialog>

@@ -4,6 +4,7 @@ import { GroupSetting, OutcomeStatus } from "../../bindings/devkit/internal/harn
 import type { GroupRow, Outcome, ProfileView, SessionState } from "../bridge/harness";
 import {
   buildEdits,
+  closeBlocked,
   formatBytes,
   isDirty,
   needsReconcile,
@@ -117,6 +118,18 @@ describe("session card", () => {
     expect(sessionStatusLine(session({ live: true }))).toBe("Live");
     expect(sessionStatusLine(session({ paused: true, live: true }))).toContain("Paused");
     expect(sessionStatusLine(session({ newSessionRequired: true }))).toContain("new session");
+  });
+});
+
+describe("closing the dialog (R1a-3)", () => {
+  it("is blocked while any of the three writers prepares or applies, and only then", () => {
+    const idle = { editor: "", repair: "", limits: false } as const;
+    expect(closeBlocked(idle)).toBe(false);
+    for (const phase of ["prepare", "apply"] as const) {
+      expect(closeBlocked({ ...idle, editor: phase })).toBe(true);
+      expect(closeBlocked({ ...idle, repair: phase })).toBe(true);
+    }
+    expect(closeBlocked({ ...idle, limits: true })).toBe(true);
   });
 });
 
