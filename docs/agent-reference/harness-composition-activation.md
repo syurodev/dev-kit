@@ -1,5 +1,8 @@
 # Harness composition and activation record (H4d)
 
+Next workstream: [acceptance and production activation after H5b-2](../superpowers/plans/2026-10-27-harness-acceptance-activation-implementation.md).
+This plan adds no acceptance evidence and does not change the blocked activation decision below.
+
 Plan: `docs/superpowers/plans/2026-10-27-harness-h4d-composition-activation-implementation.md` (local planning
 artifact, not on GitHub). Parent task OPT-79901a was **not** read or changed: no DevKit MCP tools were available
 to the implementing session. This is engineering evidence, not an approval policy.
