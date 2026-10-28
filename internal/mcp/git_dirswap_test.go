@@ -12,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"devkit/internal/agenthub"
 	gitservice "devkit/internal/git"
+	"devkit/internal/workspace"
 
 	"golang.org/x/sys/unix"
 )
@@ -131,6 +133,19 @@ func flipper(t *testing.T, a, b string, stop *atomic.Bool, flips *atomic.Int64, 
 	return wg.Wait
 }
 
+// serverAt is one more server over the same folder: each worker of a stress run has its
+// own, because the test fakes behind a server are not safe for concurrent use.
+func serverAt(root string) *Server {
+	d := agentHubTestDeps(&fakeCaller{}, &fakeAgentHub{status: agenthub.AgentSession{ID: gitSession, ProjectPath: root}})
+	d.Workspace = fakeWorkspaces{
+		workspaces: []workspace.Workspace{{ID: "ws", Name: "ws", Root: root}},
+		services:   map[string][]workspace.WorkspaceService{"ws": {{Name: "ws", Path: root}}},
+	}
+	d.Git = &fakeGit{name: "open"}
+	d.GitRepos = GitReposOf(gitservice.NewService(context.Background()))
+	return NewServer(d)
+}
+
 type swapTally struct {
 	granted, victim, refused, other atomic.Int64
 	// victimRepo counts answers that came from the other repository itself (its
@@ -159,6 +174,7 @@ func swapRace(t *testing.T, srv *Server, pkg, other, outside string, iterations,
 	var next atomic.Int64
 	var wg sync.WaitGroup
 	for w := 0; w < workers; w++ {
+		own := serverAt(filepath.Dir(pkg))
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -167,12 +183,14 @@ func swapRace(t *testing.T, srv *Server, pkg, other, outside string, iterations,
 				if i > int64(iterations) || time.Now().After(budget) || stop.Load() {
 					return
 				}
-				api, _, err := srv.gitFor(agentCtx(), pkg, false)
+				api, _, err := own.gitFor(agentCtx(), pkg, false)
 				if err != nil {
 					tally.refused.Add(1)
 					continue
 				}
-				switch got := read(api); {
+				got := read(api)
+				closeGit(api)
+				switch {
 				case strings.Contains(got, "VICTIM"):
 					tally.victim.Add(1)
 					if !strings.Contains(got, "work tree") {
