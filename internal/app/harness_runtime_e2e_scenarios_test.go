@@ -126,10 +126,11 @@ func runR2(t *testing.T, name string) {
 	if _, err := r.apply(s3.ID, []string{"vault"}, nil); err != nil {
 		t.Fatalf("re-enable: %v", err)
 	}
-	// The held call needs a runtime that has the tool again. Read what it offers first and, if it has
-	// not refreshed yet, use the explicit Reload, so a runtime that is merely slow is not read as a result.
+	// The held call needs a runtime that has the tool again. A probe call first: if it did not reach the
+	// gateway the runtime has not refreshed yet (the names it lists can be stale), so use the explicit
+	// Reload, and a runtime that is merely slow is not read as a result.
 	pre := c.turn(s3, "done", vaultStatus)
-	reloaded := len(devkitOffered(pre.offered(), "vault")) == 0
+	reloaded := pre.Handled == 0
 	if reloaded {
 		if err := r.agents.ResumeSession(r.ui(), s3.ID, true); err != nil {
 			t.Fatalf("reload s3 before the held call: %v", err)

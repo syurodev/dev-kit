@@ -604,6 +604,7 @@ type e2eModel struct {
 	reqs     []e2eRequest
 	all      int // every request, including side requests
 	nextID   int
+	searched string // the step a ToolSearch was already issued for in this turn (Claude)
 }
 
 func newE2EModel(t *testing.T, kind string) *e2eModel {
@@ -631,7 +632,7 @@ func newE2EModel(t *testing.T, kind string) *e2eModel {
 func (m *e2eModel) script(final string, steps ...e2eStep) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.steps, m.final, m.baseline = steps, final, -1
+	m.steps, m.final, m.baseline, m.searched = steps, final, -1, ""
 }
 
 func (m *e2eModel) requests() []e2eRequest {
@@ -748,9 +749,11 @@ func (m *e2eModel) anthropicHandler() http.Handler {
 			for _, b := range blocks {
 				switch b["type"] {
 				case "tool_use":
-					calls++
 					id, _ := b["id"].(string)
 					name, _ := b["name"].(string)
+					if name != "ToolSearch" { // loading a deferred tool is not one of the scripted calls
+						calls++
+					}
 					m.callName[id] = name
 				case "tool_result":
 					id, _ := b["tool_use_id"].(string)
@@ -760,7 +763,7 @@ func (m *e2eModel) anthropicHandler() http.Handler {
 					m.seen[id] = true
 					isErr, _ := b["is_error"].(bool)
 					text := anthropicText2(b["content"])
-					results = append(results, e2eResult{Tool: m.callName[id], IsError: isErr, Excerpt: excerpt(text), Bytes: len(text)})
+					results = append(results, e2eResult{Tool: m.callName[id], IsError: isErr, Excerpt: excerpt(text), Bytes: len(text), Text: capText(text)})
 				}
 			}
 		}
@@ -771,6 +774,14 @@ func (m *e2eModel) anthropicHandler() http.Handler {
 			return
 		}
 		name := e2ePick(tools, step.Tool)
+		if name == "" && containsFold(tools, "toolsearch") && m.searched != step.Tool {
+			// Claude Code keeps MCP tools deferred: they reach the model's tool list only after a
+			// ToolSearch select. Ask for the one tool; if it is still absent afterwards it is not offered.
+			m.searched = step.Tool
+			m.record(tools, calls, results, "search:"+step.Tool)
+			anthropicToolUse(w, "ToolSearch", map[string]any{"query": "select:mcp__devkit__" + fold(step.Tool), "max_results": 1}, m.id("toolu"))
+			return
+		}
 		if name == "" {
 			m.record(tools, calls, results, "not-offered:"+step.Tool)
 			anthropicText(w, req.Stream, "E2E:NOT-OFFERED "+step.Tool)

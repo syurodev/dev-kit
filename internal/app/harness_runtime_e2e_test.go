@@ -156,6 +156,12 @@ func e2eNewVendor(t *testing.T, name string) *e2eVendor {
 		v.adapter = agenthub.NewCodexAdapter(agenthub.CodexOptions{Command: bin, Home: e2eShortDir(t, "r2codexhome"),
 			APIKey: func(context.Context) (string, error) { return "sk-r2-dummy", nil }, Runner: v.runner, Version: "r2"})
 	case "claude":
+		// The adapter grants Claude Code's state directory only if it exists. An empty one in the
+		// temporary HOME (never the real home: e2eRequireIsolation) keeps a session's transcript
+		// across launches, which an explicit Reload resumes from. It holds no credential.
+		if err := os.MkdirAll(filepath.Join(os.Getenv("HOME"), ".claude"), 0o700); err != nil {
+			t.Fatal(err)
+		}
 		dir := e2eEnvPath(t, "DEVKIT_R2_CLAUDE_DIR")
 		node := e2eEnvPath(t, "DEVKIT_R2_NODE")
 		entry := filepath.Join(dir, "node_modules", "@agentclientprotocol", "claude-agent-acp", "dist", "index.js")
