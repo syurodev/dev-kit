@@ -37,6 +37,16 @@ var (
 	ErrHarnessNewSessionRequired = &harness.Error{Code: harness.CodeNewSessionRequired, Message: "The workspace profile changed which servers or skills load. Open a new session to use them."}
 )
 
+// snapshotRefusal is the refusal of a launch whose configuration could not be
+// resolved. A session override that names a group this build lacks says so, with
+// the way out; every other cause keeps the one generic sentence.
+func snapshotRefusal(err error) error {
+	if errors.Is(err, harness.ErrStaleSessionOverride) {
+		return harness.ErrStaleSessionOverride
+	}
+	return ErrHarnessUnavailable
+}
+
 // appliedHarness is what an opened runtime was actually given. It is published
 // only after the runtime opened, with the usage facts, and survives a runtime
 // teardown (account move, reload, crash) until the next successful open
@@ -126,7 +136,7 @@ func (s *Service) prepareLaunchOnce(ctx context.Context, spec *OpenSpec, session
 		snap, err := s.Harness.Snapshot(ctx, sessionID, workspaceID, string(vendor))
 		if err != nil {
 			log.Printf("agenthub: harness snapshot for session %s: %v", sessionID, err)
-			return l, ErrHarnessUnavailable
+			return l, snapshotRefusal(err)
 		}
 		l.snapshot = &snap
 	}
@@ -370,7 +380,7 @@ func (s *Service) preflightHarness(ctx context.Context, sess AgentSession) error
 	snap, err := s.Harness.Snapshot(ctx, sess.ID, sess.WorkspaceID, string(sess.AgentType))
 	if err != nil {
 		log.Printf("agenthub: harness snapshot for session %s: %v", sess.ID, err)
-		return ErrHarnessUnavailable
+		return snapshotRefusal(err)
 	}
 	previous, err := s.previousHarness(ctx, sess.ID)
 	if err != nil {

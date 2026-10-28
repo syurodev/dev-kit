@@ -13,7 +13,7 @@ import {
 import { agentHubResumeSession } from "@/bridge/agenthub";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
 import { HarnessReviewBody } from "@/workbench/HarnessReviewBody";
-import { needsReconcile, outcomeNotice, rows, sessionStatusLine } from "@/workbench/workspaceHarnessModel";
+import { needsReconcile, outcomeNotice, rows, sessionStatusLine, unavailableOverrides } from "@/workbench/workspaceHarnessModel";
 import { keepFresh, ToolGroupsController, type ToolGroupsOps } from "./toolGroupsController";
 
 /** How often an open card reads the backend again while the window is visible. */
@@ -97,6 +97,7 @@ export function SessionToolGroups({ sessionId }: { sessionId: string }) {
   }
   const session = view.session ?? null;
   const overrides = session?.overrides ?? [];
+  const unavailable = unavailableOverrides(view);
   const reconcile = needsReconcile(session);
   const notice = outcome ? outcomeNotice(outcome) : null;
   // Reload is the runtime's own explicit action. An executable change cannot be
@@ -142,6 +143,12 @@ export function SessionToolGroups({ sessionId }: { sessionId: string }) {
         </div>
       ) : (
         <>
+          {unavailable.length > 0 ? (
+            <p data-testid="summary-toolGroups-unavailable" role="status" className="text-caption-11 text-text-secondary">
+              This session has a group turned on that this build does not have, so it cannot start. Revoke it to remove it
+              (you confirm first); nothing is turned on by that.
+            </p>
+          ) : null}
           {overrides.length > 0 ? (
             <ul aria-label="Groups turned on for this session" className="flex flex-col gap-1">
               {overrides.map((group) => {
@@ -151,7 +158,7 @@ export function SessionToolGroups({ sessionId }: { sessionId: string }) {
                     <span className="min-w-0 flex-1 truncate text-text-primary" title={group}>
                       {group}
                       <span className="ml-2 text-caption-11 text-text-tertiary">
-                        {row ? `running ${row.running}` : "this session only"}
+                        {row ? `running ${row.running}` : unavailable.includes(group) ? "not available in this build" : "this session only"}
                       </span>
                     </span>
                     <Button type="button" size="sm" variant="outline" disabled={busy !== ""} onClick={() => void controller.revoke(group)} aria-label={`Revoke ${group}`}>

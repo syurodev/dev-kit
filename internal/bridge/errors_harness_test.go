@@ -24,6 +24,7 @@ func TestHarnessLaunchRefusalsAreSurvivingPublicErrors(t *testing.T) {
 		want string
 	}{
 		{"unresolved configuration", agenthub.ErrHarnessUnavailable, "harness.snapshotUnavailable: " + agenthub.ErrHarnessUnavailable.Message},
+		{"stale session override", harness.ErrStaleSessionOverride, "harness.snapshotUnavailable: " + harness.ErrStaleSessionOverride.Message},
 		{"launch went stale", agenthub.ErrHarnessLaunchStale, "harness.snapshotUnavailable: " + agenthub.ErrHarnessLaunchStale.Message},
 		{"not enforceable", agenthub.ErrHarnessNotEnforceable, "harness.notEnforceable: " + agenthub.ErrHarnessNotEnforceable.Message},
 		{"new session required", agenthub.ErrHarnessNewSessionRequired, "harness.newSessionRequired: " + agenthub.ErrHarnessNewSessionRequired.Message},

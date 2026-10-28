@@ -21,6 +21,8 @@ func TestEveryRefusalOfThePublicControlsIsAPublishedFixedSentence(t *testing.T) 
 		harnessconfig.ErrCancelled, harnessconfig.ErrTooLateToCancel, harnessconfig.ErrNotConfirmed, harnessconfig.ErrConfirmUnavailable,
 		harnessconfig.ErrLiveUnavailable, harnessconfig.ErrPublicationPending, harnessconfig.ErrStoredUnreadable,
 		harnessconfig.ErrRepairUnavailable, harnessconfig.ErrRepairTooLarge,
+		// R1a-1: the stale session-override repair reuses published codes.
+		harnessconfig.ErrNotStaleGroup, harnessconfig.ErrSessionRepairNeedsProfile, harness.ErrStaleSessionOverride,
 	}
 	for _, he := range refusals {
 		t.Run(he.Code+"/"+he.Message[:12], func(t *testing.T) {

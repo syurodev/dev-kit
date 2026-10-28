@@ -228,6 +228,15 @@ type repairScan struct {
 	// repaired is w without entries; nil unless state is StaleRepairable.
 	repaired *harness.Profile
 	binding  repairBinding
+
+	// The session repair's own readings (scanStaleSession): S and its stamp, the
+	// groups of S the registry lacks, S without them (nil: delete S) and whether the
+	// workspace profile, not S, is what stops the result from resolving.
+	o            *harness.Override
+	oStamp       harness.Stamp
+	staleGroups  []string
+	repairedS    *harness.Override
+	needsProfile bool
 }
 
 // repairBinding is everything an approval of a repair is bound to. A second scan
@@ -240,6 +249,10 @@ type repairBinding struct {
 	Vendors     []string
 	Policy      string
 	Repaired    string
+	// A session repair also binds the session, its S stamp and the groups to remove.
+	SessionID     string
+	S             harness.Stamp
+	RemovedGroups []string
 }
 
 func (b repairBinding) digest() string {
@@ -520,6 +533,9 @@ func ruleText(e StaleEntry) string {
 // fresh scan requires the very same binding before one compare-and-swap write of
 // the repaired profile. Nothing about a session, S or a running endpoint is touched.
 func (s *Service) applyRepair(ctx context.Context, p *pendingProposal) (Result, error) {
+	if p.repair.SessionID != "" {
+		return s.applySessionRepair(ctx, p)
+	}
 	fail := func(err error) (Result, error) {
 		s.auditRepair(p, harness.Applied{}, outcomeOf(err))
 		return Result{}, err
@@ -592,6 +608,6 @@ func (s *Service) auditRepair(p *pendingProposal, applied harness.Applied, outco
 	if s.cfg.Audit == nil {
 		return
 	}
-	s.cfg.Audit(Event{Outcome: outcome, Tier: p.view.Tier, Target: TargetRepair, Caller: p.caller,
-		WorkspaceID: p.repair.WorkspaceID, Profile: applied.Profile.Revision})
+	s.cfg.Audit(Event{Outcome: outcome, Tier: p.view.Tier, Target: p.view.Target, Caller: p.caller,
+		WorkspaceID: p.repair.WorkspaceID, SessionID: p.repair.SessionID, Profile: applied.Profile.Revision, Override: applied.Override.Revision})
 }

@@ -296,7 +296,11 @@ const (
 	// out of an uncertain one is to read the profile again.
 	messageRepairUnknown  = "DevKit could not confirm whether the repair was saved."
 	recoveryRepairUnknown = "Check the workspace's saved settings again before repairing anything else; do not repeat the repair until you have. No session was changed."
-	recoveryRepaired      = "The stale settings were removed. Sessions already running keep what they opened with; new and reloaded sessions use the repaired profile."
+	// A session repair writes S alone: the way out of an uncertain one is to read S
+	// again, and success only says the session can be opened.
+	recoverySessionRepairUnknown = "Check this session's Tool groups again before repairing anything else; do not repeat the repair until you have. The session was not started."
+	recoverySessionRepaired      = "The unavailable group was removed from this session's saved choices. Nothing was turned on. Open the session again."
+	recoveryRepaired             = "The stale settings were removed. Sessions already running keep what they opened with; new and reloaded sessions use the repaired profile."
 )
 
 // OutcomeOf reports what a change did. An error that carries no committed result
@@ -321,6 +325,9 @@ func OutcomeOf(target Target, res Result, err error) (Outcome, error) {
 		Live:                    res.Live, ReloadRequired: res.ReloadRequired,
 	}
 	switch {
+	case res.Commit == CommitUnknown && target == TargetSessionRepair:
+		out.Status, out.Live = OutcomeUnknown, false
+		out.Code, out.Message, out.Recovery = harness.CodeSnapshotUnavailable, messageRepairUnknown, recoverySessionRepairUnknown
 	case res.Commit == CommitUnknown && target == TargetRepair:
 		out.Status, out.Live = OutcomeUnknown, false
 		out.Code, out.Message, out.Recovery = harness.CodeSnapshotUnavailable, messageRepairUnknown, recoveryRepairUnknown
@@ -336,6 +343,8 @@ func OutcomeOf(target Target, res Result, err error) (Outcome, error) {
 	default:
 		out.Status = OutcomeApplied
 		switch {
+		case target == TargetSessionRepair:
+			out.Recovery = recoverySessionRepaired
 		case target == TargetRepair:
 			out.Recovery = recoveryRepaired
 		case res.Publication.State == PublicationNone:

@@ -12,6 +12,7 @@ import {
   rebase,
   sessionStatusLine,
   shownSetting,
+  unavailableOverrides,
 } from "./workspaceHarnessModel";
 
 const row = (name: string, workspace: GroupSetting): GroupRow => ({
@@ -100,6 +101,15 @@ describe("session card", () => {
     expect(needsReconcile(session({ pending: true }))).toBe(true);
     expect(needsReconcile(session({ live: true }))).toBe(false);
     expect(needsReconcile(null)).toBe(false);
+  });
+
+  it("names the session's groups that this build does not have, and claims nothing without a group list", () => {
+    const v = (overrides: string[], ...groups: GroupRow[]): ProfileView => ({ ...view(...groups), session: session({ overrides }) });
+    const git = row("git", GroupSetting.SettingInherit);
+    expect(unavailableOverrides(v(["pdf", "git"], git))).toEqual(["pdf"]);
+    expect(unavailableOverrides(v(["git"], git))).toEqual([]);
+    expect(unavailableOverrides(v(["pdf"]))).toEqual([]);
+    expect(unavailableOverrides(null)).toEqual([]);
   });
 
   it("never reports Live for a session that is not acknowledged", () => {
