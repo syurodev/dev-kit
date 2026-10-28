@@ -44,6 +44,7 @@ import { AgentMenu, type ContextFileItem } from "./AgentMenu";
 import { AgentContextMeter } from "./AgentContextMeter";
 import { ModelSettingsPopover } from "./ModelSettingsPopover";
 import { ComposerEditorKit } from "./composer/composerEditorKit";
+import { ComposerEditorBoundary } from "./composer/ComposerEditorBoundary";
 import { filterContextFiles, mentionQueryBefore } from "./composer/mentionQuery";
 import { continueList, formatShortcut, toggleList, toggleWrap, type TextEdit } from "./composer/listEditing";
 import { ComposerPanelArea, type TrayPanel } from "./composer/ComposerTray";
@@ -500,10 +501,19 @@ export function AgentComposer({
   // re-read was lossy (markdown dropped a trailing space) and echoed back,
   // the mirror trimmed every space out from under the one being typed in,
   // and reset its document — and its caret — on the way.
-  const editor = usePlateEditor({
-    plugins: ComposerEditorKit,
-    value: (created) => deserializeComposerValue(value, composerTypes(created)) as never,
-  });
+  //
+  // The editor is rebuilt, from `value` and nothing of the old one's state, when
+  // `editorEpoch` is raised: ComposerEditorBoundary does that after a render
+  // error inside the field, so the draft survives and the window does not go
+  // blank (see the boundary around <Plate> below).
+  const [editorEpoch, setEditorEpoch] = useState(0);
+  const editor = usePlateEditor(
+    {
+      plugins: ComposerEditorKit,
+      value: (created) => deserializeComposerValue(value, composerTypes(created)) as never,
+    },
+    [editorEpoch],
+  );
   const types = composerTypes(editor);
 
   const lastEmittedRef = useRef<string | null>(value);
@@ -522,6 +532,18 @@ export function AgentComposer({
   useEffect(() => {
     if (focusRequest > 0) editor.tf.focus({ edge: "end" });
   }, [focusRequest, editor]);
+
+  function remountEditor() {
+    // A new editor has no reset in flight.
+    isExternalResetRef.current = false;
+    setEditorEpoch((epoch) => epoch + 1);
+  }
+
+  function resetPrompt() {
+    lastEmittedRef.current = "";
+    onChange("");
+    remountEditor();
+  }
 
   function handleEditorChange() {
     const nextMention = readMention();
@@ -1013,6 +1035,7 @@ export function AgentComposer({
             the way the bare textarea it replaces did. */}
         <div className="flex min-w-0 items-end gap-2">
           <div className="min-w-0 flex-1">
+            <ComposerEditorBoundary epoch={editorEpoch} draft={value} onRemount={remountEditor} onResetPrompt={resetPrompt}>
             <Plate editor={editor} onChange={handleEditorChange}>
               <Editor
                 variant="none"
@@ -1101,6 +1124,7 @@ export function AgentComposer({
                 )}
               />
             </Plate>
+            </ComposerEditorBoundary>
           </div>
 
         </div>
