@@ -19,6 +19,7 @@ import { useAgentSessionList, useAgentSessionsStore } from "@/stores/agentSessio
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 import { appendChips, refChip, turnFromDraft } from "@/modules/agenthub/composerDraft";
 import { useComposerImagesStore } from "@/stores/composerImages";
+import { commandName, promptWithCommand } from "@/modules/agenthub/slashCommands";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import { queuedPrompt, resumeQueuedPrompts, sendAgentTurn } from "./agentPromptQueue";
 import { agentPaneSessionId, useAgentPaneSessionIds } from "./AgentPaneTabs";
@@ -150,12 +151,13 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
   function selectCommand(name: string) {
     if (!session) return;
     const command = transcriptModel.commands.find((item) => item.name.replace(/^\//, "") === name.replace(/^\//, ""));
-    const commandName = name.startsWith("/") ? name : `/${name}`;
     if (command?.input) {
       const current = useAgentSessionsStore.getState().promptBySession[session.id] ?? "";
-      setPrompt(session.id, `${current}${current && !/\s$/.test(current) ? " " : ""}${commandName} `);
+      // Replaces a half-typed name instead of appending to it, as the Agent Hub
+      // tab does: picking "/get" after typing "/get" left "/get /get ".
+      setPrompt(session.id, promptWithCommand(current, name));
     } else {
-      void handleSend(commandName);
+      void handleSend(commandName(name));
     }
   }
 
