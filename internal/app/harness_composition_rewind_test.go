@@ -217,3 +217,46 @@ func TestAnAccountMoveReopensThroughTheSharedPreparationAndKeepsS(t *testing.T) 
 }
 
 var _ = harness.CodeGroupOff
+
+// A move to another account closes the running process and reopens it through the
+// launch gate. When the gate refuses (the workspace profile gained an executable
+// since the session opened), the move must not start: the session keeps the
+// runtime it has, stays on its account, and the target account is not blamed for
+// a refusal that is about the workspace.
+func TestAnAccountMoveTheLaunchGateWouldRefuseLeavesTheSessionAlone(t *testing.T) {
+	r := newCompRig(t, compOptions{accounts: true})
+	r.workspaceOff("vault")
+	sess, _ := r.create(agenthub.AgentTypeClaude)
+	v := r.vendors[agenthub.AgentTypeClaude]
+	opens, before := v.opens.Load(), r.agents.ServingTarget(sess.ID).Incarnation
+
+	// The workspace adds an executable of its own: a reopen of this session is now
+	// refused ("open a new session"), so is any account move that reopens it.
+	_, st, err := r.asm.Store.GetProfile(context.Background(), r.wsID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.asm.Store.Apply(context.Background(), harness.StoreWrite{WorkspaceID: r.wsID, Profile: &harness.ProfileWrite{Expect: st,
+		Value: &harness.Profile{Schema: harness.SchemaVersion, ToolGroups: map[string]bool{"vault": false},
+			Servers: []harness.Server{{Name: "db", Command: "/bin/db", Enabled: true}}}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err = r.agents.ResumeSession(r.ui(), sess.ID, true); !errors.Is(err, agenthub.ErrHarnessNewSessionRequired) {
+		t.Fatalf("the premise: a reopen must be refused, got %v", err)
+	}
+
+	r.fillBuiltin(95) // the session's account is nearly out: the next turn would move it
+	if _, err = r.agents.Invoke(r.ui(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hello"}); err != nil {
+		t.Fatalf("the turn must run on the runtime the session has: %v", err)
+	}
+	if got := v.opens.Load(); got != opens {
+		t.Fatalf("a refused move reopened the runtime: opens %d -> %d", opens, got)
+	}
+	if now := r.agents.ServingTarget(sess.ID); now.Incarnation != before || !now.Acknowledged {
+		t.Fatalf("the running endpoint was replaced: %+v", now)
+	}
+	row, err := agenthub.NewSQLStore(r.db).GetSession(context.Background(), sess.ID)
+	if err != nil || row.AccountID != sess.AccountID {
+		t.Fatalf("the session was moved off its account: %q -> %q (%v)", sess.AccountID, row.AccountID, err)
+	}
+}

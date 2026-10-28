@@ -281,6 +281,14 @@ func (s *Service) ApplyRewind(ctx context.Context, token string, overwrite []str
 		s.mu.Unlock()
 	}()
 
+	// Before the live runtime is touched, as a reload does: a fork the launch gate
+	// would refuse (a new workspace executable, an unresolvable snapshot) must not
+	// be discovered after step 2 has closed the running session, which a reopen
+	// would then be refused by the same gate. The launch repeats the check.
+	if err := s.preflightHarness(ctx, session); err != nil {
+		return RewindResult{}, err
+	}
+
 	rewinder := &rewindRun{service: s, session: session, held: held, forker: forker, overwrite: overwrite}
 	return rewinder.run(ctx)
 }
@@ -346,9 +354,19 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 		r.abandonSafety(ctx, err)
 		return RewindResult{}, err
 	}
-	// 6. The files.
+	// 6. The files. Whether the fork's launch can still be published is asked
+	// first: a launch that went stale while the fork opened (S committed) is
+	// refused here, with the project untouched, rather than at step 7 after the
+	// files were already put back. A commit that lands during the restore itself
+	// still makes step 7 refuse; the files are then restored, the conversation
+	// uncut, the safety checkpoint is the way back, and a new rewind completes.
 	var files *RestoreResult
 	if r.held.restoreToken != "" {
+		if err := s.checkServingLaunch(r.session.ID, r.launch); err != nil {
+			r.discardFork(ctx)
+			r.abandonSafety(ctx, err)
+			return RewindResult{}, err
+		}
 		applied, err := s.applyRestoreHeld(ctx, r.held.restoreToken, r.session, r.overwrite)
 		if err != nil {
 			// Nothing has been committed: close the fork and delete it, so the
@@ -361,37 +379,36 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 	}
 
 	// 7. The one write. Everything or nothing.
-	spec := RewindSpec{
-		SessionID:               r.session.ID,
-		ACPSessionID:            r.newRuntime.ACPSessionID(),
-		CutSeq:                  r.held.cut.CutSeq,
-		DroppedPromptMessageIDs: r.held.cut.DroppedPrompts,
-		SafetyCheckpointID:      r.safetyID,
-		At:                      time.Now().UTC(),
-	}
-	if r.launch.snapshot != nil {
-		ref := r.launch.snapshot.Ref.Clone()
-		spec.HarnessRef, spec.HarnessEnforced = &ref, r.launch.enforced
-	}
-	// Keep the rewind transaction (including its applied reference) and runtime
-	// publication under the same epoch/Close boundary as create and resume.
-	if err := s.publishServingLaunch(r.session.ID, r.launch, func() error {
-		if err := s.store.RewindSession(ctx, spec); err != nil {
-			return err
+	//
+	// Nothing was restored (a conversation-only rewind): a refusal changed
+	// nothing, and says so. Files restored: the files are now ahead of the
+	// conversation, so a refusal that is only S having moved is finished forward
+	// (below) and anything else says exactly what state it leaves.
+	for attempt := 1; ; attempt++ {
+		err := r.commitCut(ctx)
+		if err == nil {
+			break
 		}
-		s.mu.Lock()
-		s.runtimes[r.session.ID] = r.newRuntime
-		s.runtimeUsage[r.session.ID] = r.usageFacts
-		s.publishHarnessLocked(r.session.ID, r.launch)
-		s.sessionAccount[r.session.ID] = r.usageFacts.AccountID
-		s.endpoints[r.session.ID] = r.closeNew
-		s.forgetWorkspaceContextLocked(r.session.ID)
-		s.mu.Unlock()
-		return nil
-	}); err != nil {
+		if files == nil {
+			r.discardFork(ctx)
+			r.abandonSafety(ctx, err)
+			return RewindResult{}, err
+		}
+		if attempt >= launchAttempts || !r.sMovedAfterRestore(ctx, err) {
+			r.discardFork(ctx)
+			r.abandonSafety(ctx, err)
+			return RewindResult{}, &RewindPartialError{Cause: err, SafetyCheckpointID: r.safetyID}
+		}
+		// S moved after the files were put back. The files, the rewind target, the
+		// cut and the safety checkpoint stay as they are; the fork and its endpoint
+		// were prepared for the old S, so both are discarded and a new launch is
+		// prepared by the ordinary rules, gate included, against the same session
+		// reference. Nothing of the discarded endpoint is carried over.
 		r.discardFork(ctx)
-		r.abandonSafety(ctx, err)
-		return RewindResult{}, err
+		if err := r.openForked(ctx); err != nil {
+			r.abandonSafety(ctx, err)
+			return RewindResult{}, &RewindPartialError{Cause: err, SafetyCheckpointID: r.safetyID}
+		}
 	}
 
 	// 8. Vendor settings and callbacks run outside the coordinator. The cut and
@@ -416,6 +433,76 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 		Files:      files,
 	}, nil
 }
+
+// commitCut is step 7 for the launch and fork the run currently holds: the
+// transcript cut, the turn and checkpoint rows, the safety row and the fork's
+// applied reference in one transaction, published under the session's epoch.
+func (r *rewindRun) commitCut(ctx context.Context) error {
+	s := r.service
+	spec := RewindSpec{
+		SessionID:               r.session.ID,
+		ACPSessionID:            r.newRuntime.ACPSessionID(),
+		CutSeq:                  r.held.cut.CutSeq,
+		DroppedPromptMessageIDs: r.held.cut.DroppedPrompts,
+		SafetyCheckpointID:      r.safetyID,
+		At:                      time.Now().UTC(),
+	}
+	if r.launch.snapshot != nil {
+		ref := r.launch.snapshot.Ref.Clone()
+		spec.HarnessRef, spec.HarnessEnforced = &ref, r.launch.enforced
+	}
+	// Keep the rewind transaction (including its applied reference) and runtime
+	// publication under the same epoch/Close boundary as create and resume.
+	return s.publishServingLaunch(r.session.ID, r.launch, func() error {
+		if err := s.store.RewindSession(ctx, spec); err != nil {
+			return err
+		}
+		s.mu.Lock()
+		s.runtimes[r.session.ID] = r.newRuntime
+		s.runtimeUsage[r.session.ID] = r.usageFacts
+		s.publishHarnessLocked(r.session.ID, r.launch)
+		s.sessionAccount[r.session.ID] = r.usageFacts.AccountID
+		s.endpoints[r.session.ID] = r.closeNew
+		s.forgetWorkspaceContextLocked(r.session.ID)
+		s.mu.Unlock()
+		return nil
+	})
+}
+
+// sMovedAfterRestore says whether a refused publication, after the files were
+// restored, is only the session's S (or lifecycle epoch) having moved while the
+// session is still open, so a launch prepared again can be published. Every other
+// refusal is final: a Close in progress or failed, a lost endpoint, a Close that
+// completed, a deleted session, a cancelled caller, a store or fork failure.
+func (r *rewindRun) sMovedAfterRestore(ctx context.Context, err error) bool {
+	var stale *launchStaleError
+	if !errors.As(err, &stale) || stale.reason != launchStaleEpoch || ctx.Err() != nil {
+		return false
+	}
+	// A completed Close advances the same epoch an S commit does.
+	current, gerr := r.service.store.GetSession(ctx, r.session.ID)
+	return gerr == nil && current.Status != SessionStatusClosed
+}
+
+// ErrRewindFilesRestored is a rewind that put the files back and then could not
+// cut the conversation. The project folder has changed; the conversation has not.
+var ErrRewindFilesRestored = errors.New("agenthub.rewindFilesRestored")
+
+// RewindPartialError is that outcome. Cause is why the cut could not be
+// published (still matches ErrHarnessLaunchStale, ErrSessionClosed and so on).
+// Rewinding the same message again finishes the job (the files already match,
+// the restore is a no-op); SafetyCheckpointID names the snapshot taken before the
+// files changed, for undoing the restore instead.
+type RewindPartialError struct {
+	Cause              error
+	SafetyCheckpointID string
+}
+
+func (e *RewindPartialError) Error() string {
+	return "agenthub: the files were restored but the conversation was not rewound: " + e.Cause.Error()
+}
+func (e *RewindPartialError) Unwrap() error        { return e.Cause }
+func (e *RewindPartialError) Is(target error) bool { return target == ErrRewindFilesRestored }
 
 func (r *rewindRun) writeSafetyRow(ctx context.Context) error {
 	s := r.service
@@ -552,6 +639,7 @@ func (r *rewindRun) discardFork(ctx context.Context) {
 	}
 	if r.closeNew != nil {
 		r.closeNew()
+		r.closeNew = nil
 	}
 	r.newRuntime = nil
 }

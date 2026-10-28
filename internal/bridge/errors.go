@@ -357,6 +357,11 @@ func publicError(subject string, err error) *apperrors.AppError {
 		// The harness's own refusals of a launch or a close. Fixed host sentences
 		// with a published code (see keptCodes); anything else of the harness's
 		// stays redacted.
+		// Before the harness's refusals, which it wraps: a rewind that put the
+		// files back and could not cut the conversation must say so, not only why.
+		if errors.Is(err, agenthub.ErrRewindFilesRestored) {
+			return apperrors.New(codeValidationFailed, "The files were put back, but the conversation was not rewound. Rewind the same message again to finish, or undo the file restore from its safety checkpoint.", true)
+		}
 		if refusal := harnessRefusal(err); refusal != nil {
 			return refusal
 		}

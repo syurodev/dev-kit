@@ -368,3 +368,27 @@ Validation (Go 1.27.2, Bun 1.4.2; bindings regenerated with the installed `wails
 in files this change does not touch. `golangci-lint` cannot run locally (built with an older Go); CI lint applies.
 
 Limits. Out of scope and unchanged: O-2 (sessions with no applied reference), AP3/AP4, the directory-swap limit from #375, repair of corrupt records, a Settings entry, any automatic migration or reset. Only the cases above are repairable.
+
+### AP1 R1 closeout (2026-10-27, base `c2d3074f`)
+
+Full ledger, repros and the row table: [`docs/reviews/2026-10-27-harness-ap1-completion.md`](../reviews/2026-10-27-harness-ap1-completion.md) ("R1 closeout (second pass)"). Production is still inert; AP3 and AP4 are **not run**.
+AP1 stays **Partial**. Not independently reviewed: every fix below, the #375 git-scope and claim-lock code, and the F-C backend at its final head were written by the reviewing session.
+
+| Finding | Severity | Fix (in this PR) | Independently reviewed |
+| --- | --- | --- | --- |
+| R-1: a rewind closed the running session before the launch gate could refuse the fork | medium | `78bfd1e5` (`preflightHarness` before step 2) | no |
+| R-2: an account move did the same and put the target account on cooldown | medium | `908d7d71` (same preflight before `moveSession`) | no |
+| O-1: files restored before the stale-launch check | low-medium | `786440e0` (`checkServingLaunch` before the restore) and `c9b7543e` (an S change during the restore is finished forward: discard the staged fork and endpoint, prepare again by the ordinary rules, no second restore, at most 3 attempts; anything else, or running out, returns `RewindPartialError` saying the files were restored and the conversation was not) | no |
+| R-3: `tasks.OnChanged` ran under `writeMu` (from #375) | low, latent | `daa43bf5` | no |
+| F-D: the shared dialog body overflows the card padding; action rows sit 16 px below the card (also on the existing editor footer) | low, pre-existing | not fixed (shared component, owner) | - |
+
+Evidence added: a probe that a crash between the S commit and its publication is recovered by the next launch; a real-browser layout check of the repair dialog at the final #377 head
+(64-entry diagnosis and review scroll in a bounded region, actions on screen, Cancel focused, long names wrap; scratch page, not the native window).
+
+Decisions prepared for the owner (details in the report): **O-2** - accept for AP4 on the precondition that no product path writes workspace executables, and add the conservative
+"no reference + workspace-owned executable => new session required" rule before any such path ships; no baseline is stamped from the current profile. **Directory swap (#375)** - an open,
+pre-existing limit of the shipped Git tools, not introduced or relied on by the harness, so **not an AP4 blocker**; it must not be described as a hard boundary against a hostile agent, and
+closing it needs a descriptor-bound execution design with owner review.
+
+Still required before AP1 can be marked complete: a different reviewer for the fixes above, the #375 code and the F-C backend; the O-2 decision; the owner's call on the directory-swap design and F-D; then AP3 (real runtimes, native dialogs) and AP4.
+

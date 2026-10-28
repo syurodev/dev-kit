@@ -653,39 +653,51 @@ func (s *Service) mutate(id string, apply func(*taskMetadata) error) (Task, erro
 
 // mutateAs is mutate on the caller's behalf, through the task's board.
 func (s *Service) mutateAs(caller Caller, id string, apply func(*taskMetadata) error) (Task, error) {
+	task, boards, err := s.mutateLocked(caller, id, apply)
+	// After writeMu is released: OnChanged must never run under a lock, and a
+	// subscriber that wrote a task would otherwise wait on the lock it is inside.
+	for _, boardID := range boards {
+		s.changed(boardID, id)
+	}
+	return task, err
+}
+
+// mutateLocked is the serialized read, check and write of one task's metadata. It
+// returns the boards to tell, for the caller to notify once the lock is gone.
+func (s *Service) mutateLocked(caller Caller, id string, apply func(*taskMetadata) error) (Task, []string, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	record, err := s.items.Get(id)
 	if err != nil {
-		return Task{}, ErrNotFound
+		return Task{}, nil, ErrNotFound
 	}
 	var meta taskMetadata
 	if err := decodeInto(record.Metadata, &meta); err != nil {
-		return Task{}, err
+		return Task{}, nil, err
 	}
 	if err := s.guard(caller, meta.BoardID); err != nil {
-		return Task{}, err
+		return Task{}, nil, err
 	}
 	// Captured before apply: apply may itself change BoardID (SetFields), and
 	// a move between boards has to tell both — the tree the task left and the
 	// one it landed on.
 	oldBoardID := meta.BoardID
 	if err := apply(&meta); err != nil {
-		return Task{}, err
+		return Task{}, nil, err
 	}
 	raw, err := json.Marshal(meta)
 	if err != nil {
-		return Task{}, err
+		return Task{}, nil, err
 	}
 	updated, err := s.items.UpdateMetadata(id, raw)
 	if err != nil {
-		return Task{}, err
+		return Task{}, nil, err
 	}
-	s.changed(meta.BoardID, id)
+	boards := []string{meta.BoardID}
 	if meta.BoardID != oldBoardID {
-		s.changed(oldBoardID, id)
+		boards = append(boards, oldBoardID)
 	}
-	return meta.task(id, updated.CreatedAt, updated.UpdatedAt), nil
+	return meta.task(id, updated.CreatedAt, updated.UpdatedAt), boards, nil
 }
 
 // Archive hides a task without destroying it. Deleting is a person's call and
