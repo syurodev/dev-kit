@@ -8,6 +8,7 @@ import type { ContextFileItem } from "./AgentMenu";
 import { TranscriptStream } from "./TranscriptStream";
 import { refContextOf } from "../transcript/openReference";
 import { loadCheckpointFileDiff, useSessionCheckpoints } from "../useSessionCheckpoints";
+import { InterruptedRewindNotice } from "./InterruptedRewindNotice";
 import { RewindDialog } from "./RewindDialog";
 import { AgentComposer } from "./AgentComposer";
 import { composerPlaceholder } from "./AgentHubContent";
@@ -294,6 +295,16 @@ export function AgentRail({
               the synthetic rate-limit one, which carries no actions — a
               vendor failure with a real action (sign-in, retry) needs the
               Hub's own flows for those, not yet threaded through the rail. */}
+
+          {activeSession ? (
+            <div className="px-4 pb-1">
+              <InterruptedRewindNotice
+                sessionId={activeSession.id}
+                sessionRunning={streaming}
+                suspended={Boolean(rewinding.promptMessageId)}
+              />
+            </div>
+          ) : null}
 
           {failure ? (
             <div className="px-4 pb-1">

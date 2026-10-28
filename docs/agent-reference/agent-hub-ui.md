@@ -210,3 +210,10 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     `go test ./internal/forge/ ./internal/prwatch/ ./internal/mcp/ -run 'GitLab' -count=1`.
   - A GitLab error's own text reaches an agent only once `internal/bridge/errors.go` `keptCodes` keeps the `pr.*` codes
     (a separate change); until then the agent sees the code's generic message.
+- **Interrupted rewind notice** (`surfaces/InterruptedRewindNotice.tsx`, rules in `interruptedRewind.ts`, read in
+  `useInterruptedRewind.ts`): above the composer in the content and the rail, only while the session's own checkpoint list
+  has a `rewind_safety` row still `pending` and no rewind dialog is open. Actions are the backend's two: put the files back
+  through the `undoRestore` preview and confirmation (`UndoRewindFilesDialog`, `RestoreFileList` shared with `RewindDialog`),
+  or settle the row (`AgentHubDismissInterruptedRewind`, asked first). No retry, no "finish the rewind". A failed call reloads
+  the list rather than guessing. A rewind refused after its restore settles `failed` and raises no notice. See
+  `docs/superpowers/specs/2026-10-28-rewind-recovery-ui.md`.

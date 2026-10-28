@@ -19,6 +19,7 @@ import type { ContextFileItem } from "./AgentMenu";
 import { TranscriptStream } from "./TranscriptStream";
 import { refContextOf } from "../transcript/openReference";
 import { loadCheckpointFileDiff, useSessionCheckpoints } from "../useSessionCheckpoints";
+import { InterruptedRewindNotice } from "./InterruptedRewindNotice";
 import { RewindDialog } from "./RewindDialog";
 import { AgentComposer } from "./AgentComposer";
 import { ProjectPicker } from "./ProjectPicker";
@@ -514,6 +515,17 @@ export function AgentHubContent({
             className="composer-region-cap flex min-h-0 w-full shrink-0 flex-col px-6 pb-3 @6xl/agent-conversation:pr-80"
           >
             <div className="mx-auto flex min-h-0 w-full max-w-190 flex-col gap-2 @7xl/agent-conversation:max-w-220">
+              {/* A rewind that stopped part-way: said only while this session has one,
+                  and hidden while the rewind dialog is open (a running rewind holds the
+                  same pending record). Its own region, in the flow like the cards below. */}
+              {session && !draft ? (
+                <InterruptedRewindNotice
+                  sessionId={session.id}
+                  sessionRunning={streaming}
+                  suspended={Boolean(rewinding.promptMessageId)}
+                  className="max-w-none shrink-0"
+                />
+              ) : null}
               {/* A failed session keeps its composer. The card used to replace it,
                   which left Retry as the only way forward: the same prompt again,
                   or nothing. A turn that failed is often one you want to answer
