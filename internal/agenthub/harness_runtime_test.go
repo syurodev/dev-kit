@@ -65,6 +65,8 @@ type launchAdapter struct {
 	openErrFor func(agenthub.OpenSpec) error
 	specs      []agenthub.OpenSpec
 	last       *mortal
+	// wrapRT, when set, wraps every runtime the adapter makes (under the mortal).
+	wrapRT func(agenthub.SessionRuntime) agenthub.SessionRuntime
 }
 
 // mortal is a runtime whose process a test can declare dead.
@@ -76,6 +78,9 @@ type mortal struct {
 func (m *mortal) Dead() (bool, error) { return m.dead.Load(), nil }
 
 func (a *launchAdapter) wrap(rt agenthub.SessionRuntime) agenthub.SessionRuntime {
+	if a.wrapRT != nil {
+		rt = a.wrapRT(rt)
+	}
 	m := &mortal{SessionRuntime: rt}
 	a.mu.Lock()
 	a.last = m
