@@ -300,6 +300,9 @@ func publicError(subject string, err error) *apperrors.AppError {
 	if errors.Is(err, preferences.ErrHarnessPolicyConflict) {
 		return apperrors.New(codeValidationFailed, "The setting changed. Refresh and choose again.", true)
 	}
+	if errors.Is(err, preferences.ErrIdleReleaseInvalid) {
+		return apperrors.New(codeValidationFailed, "Idle sessions: the times must be between 2 minutes and 24 hours.", true)
+	}
 	if errors.Is(err, preferences.ErrAccountPolicyConflict) {
 		return apperrors.New(codeValidationFailed, "The account switching rules changed. Refresh and apply your change again.", true)
 	}

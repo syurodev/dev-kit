@@ -278,6 +278,10 @@ type Repository interface {
 	// 0): every proposal then asks, which is the closed state.
 	GetAgentHarnessPolicy() (AgentHarnessPolicy, bool, error)
 	SetAgentHarnessPolicy(policy AgentHarnessPolicy) error
+	// GetAgentIdleRelease reports unset when nothing is stored or the value cannot
+	// be parsed; the Service then answers the defaults.
+	GetAgentIdleRelease() (AgentIdleRelease, bool, error)
+	SetAgentIdleRelease(policy AgentIdleRelease) error
 }
 
 type Service struct {

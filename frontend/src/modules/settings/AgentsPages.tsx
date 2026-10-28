@@ -8,6 +8,7 @@ import { AgentEnvironmentPanel } from "@/modules/agenthub/environment/AgentEnvir
 import { CODEX_INFO, SHIPPED_VENDORS, vendorInfo } from "@/modules/agenthub/vendors";
 import { AgentRuntimeSetting } from "./AgentRuntimeSetting";
 import { AgentModelProfilesSetting } from "./AgentModelProfilesSetting";
+import { AgentIdleReleaseSetting } from "./AgentIdleReleaseSetting";
 import { AgentSubagentLimitsSetting } from "./AgentSubagentLimitsSetting";
 import { AgentCheckpointSetting } from "./AgentCheckpointSetting";
 import { AgentHarnessPolicySetting } from "./AgentHarnessPolicySetting";
@@ -90,10 +91,11 @@ export function AgentModelsPage() {
     <TabColumn>
       <SectionHeader
         title="Models & subagents"
-        description="Which model and effort each kind of job uses, and which profiles agents can delegate to as subagents."
+        description="Which model and effort each kind of job uses, which profiles agents can delegate to as subagents, and when idle sessions give their memory back."
       />
       <AgentModelProfilesSetting />
       <AgentSubagentLimitsSetting />
+      <AgentIdleReleaseSetting />
     </TabColumn>
   );
 }

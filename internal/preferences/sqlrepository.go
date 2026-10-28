@@ -21,6 +21,7 @@ const (
 	agentSubagentLimitsKey = "agent_subagent_limits"
 	agentAccountPolicyKey  = "agent_account_policy"
 	agentHarnessPolicyKey  = "agent_harness_policy"
+	agentIdleReleaseKey    = "agent_idle_release"
 )
 
 // GetRevealRequiresPassword treats a value it cannot read as unset, so the
@@ -389,5 +390,34 @@ func (r *SQLRepository) SetAgentAccountPolicy(policy AgentAccountPolicy) error {
 	_, err = r.db.ExecContext(context.Background(),
 		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, agentAccountPolicyKey, string(body))
+	return err
+}
+
+// GetAgentIdleRelease reads a value it cannot parse as unset.
+func (r *SQLRepository) GetAgentIdleRelease() (AgentIdleRelease, bool, error) {
+	var value string
+	err := r.db.QueryRowContext(context.Background(),
+		"SELECT value FROM app_preferences WHERE key = ?", agentIdleReleaseKey).Scan(&value)
+	if err == sql.ErrNoRows {
+		return AgentIdleRelease{}, false, nil
+	}
+	if err != nil {
+		return AgentIdleRelease{}, false, err
+	}
+	var policy AgentIdleRelease
+	if json.Unmarshal([]byte(value), &policy) != nil {
+		return AgentIdleRelease{}, false, nil
+	}
+	return policy, true, nil
+}
+
+func (r *SQLRepository) SetAgentIdleRelease(policy AgentIdleRelease) error {
+	body, err := json.Marshal(policy)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(context.Background(),
+		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, agentIdleReleaseKey, string(body))
 	return err
 }

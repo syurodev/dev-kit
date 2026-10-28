@@ -702,6 +702,22 @@ func main() {
 	if err := agentSvc.RecoverPeerOutbox(context.Background()); err != nil {
 		log.Printf("agenthub: recover peer outbox: %v", err)
 	}
+	// Give back the memory of sessions nobody is using: an idle session's process
+	// is released after the person's chosen time and reopens on the next prompt.
+	// The policy is read on every sweep, so a change in Settings applies at once; a
+	// setting that cannot be read releases nothing.
+	idleReleaseCtx, stopIdleRelease := context.WithCancel(context.Background())
+	agentSvc.StartIdleRelease(idleReleaseCtx, func() agenthub.IdlePolicy {
+		p, err := container.Preferences.AgentIdleRelease()
+		if err != nil {
+			return agenthub.IdlePolicy{}
+		}
+		return agenthub.IdlePolicy{
+			Enabled:    p.Enabled,
+			ChildAfter: time.Duration(p.ChildMinutes) * time.Minute,
+			TopAfter:   time.Duration(p.TopMinutes) * time.Minute,
+		}
+	}, 0)
 	// Codex and opencode never name their sessions; the first prompt does.
 	if err := agentSvc.BackfillSessionTitles(context.Background()); err != nil {
 		log.Printf("agenthub: backfill session titles: %v", err)
@@ -1290,6 +1306,7 @@ func main() {
 		// while the database is still open (it closes in main's defers,
 		// after Run returns).
 		OnShutdown: func() {
+			stopIdleRelease()
 			sessionHost.Close()
 			mcpCancel()
 			if metrics != nil {

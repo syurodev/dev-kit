@@ -271,3 +271,11 @@ func (s *Service) SetAccountPickedHookForTest(hook func(accountID string)) {
 func (s *Service) HandleUpdateForTest(ctx context.Context, id string, update json.RawMessage) {
 	s.handleUpdate(ctx, id, update)
 }
+
+// SetLastUsedForTest sets when a session's runtime was last used, without a call
+// that would stamp the real clock (the idle release reads it).
+func (s *Service) SetLastUsedForTest(id string, at time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastUsed[id] = at
+}
