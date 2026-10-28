@@ -369,6 +369,16 @@ in files this change does not touch. `golangci-lint` cannot run locally (built w
 
 Limits. Out of scope and unchanged: O-2 (sessions with no applied reference), AP3/AP4, the directory-swap limit from #375, repair of corrupt records, a Settings entry, any automatic migration or reset. Only the cases above are repairable.
 
+### Stale session override (R1a-1, 2026-10-28)
+
+F-C covers W only. A session override (S) that names a group the build no longer registers cannot resume, and the window's revoke could not evaluate it. The window's Revoke now accepts such a name
+(`harnessControls.PrepareRevoke`) and prepares `Service.PrepareSessionRepair` (`internal/harnessconfig/repair_session.go`): UI-only in Go, removal only, every stale group derived from the stored S and the registry
+(the sent name only selects and must be one of them; a registered group is never removed this way), always confirmed (`TargetSessionRepair`, labelled narrowing, hub `EnvBlocks`), bound to the S and W stamps, the registry,
+the vendor and policy revisions, one S compare-and-swap under the session's coordinator, spent on use, ambiguous commits read back. A session with a running endpoint is refused. The resolver stays strict;
+`harness.ErrStaleSessionOverride` (published code `harness.snapshotUnavailable`, fixed sentence, no stored name) replaces the generic resume refusal only when S is the stale part and W has none.
+If W is stale too, repair W first. Tests: `internal/app/harness_stale_session_repair_test.go`, `internal/harnessconfig/repair_session_test.go`. Spec: `docs/superpowers/specs/2026-10-28-stale-session-override-repair.md`.
+Not independently reviewed; the native card is AP3.
+
 ### AP1 R1 closeout (2026-10-27, base `c2d3074f`)
 
 Full ledger, repros and the row table: [`docs/reviews/2026-10-27-harness-ap1-completion.md`](../reviews/2026-10-27-harness-ap1-completion.md) ("R1 closeout (second pass)"). Production is still inert; AP3 and AP4 are **not run**.
