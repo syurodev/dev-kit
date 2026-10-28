@@ -24,6 +24,19 @@ export function rows(view: ProfileView | null): GroupRow[] {
   return view?.groups ?? [];
 }
 
+/**
+ * Groups the session's saved override still names that this build does not have.
+ * Revoke on one of them prepares the removal-only repair Go derives; nothing is
+ * decided here. With no group list at all nothing is claimed.
+ */
+export function unavailableOverrides(view: ProfileView | null): string[] {
+  const known = new Set(rows(view).map((r) => r.name));
+  if (known.size === 0) {
+    return [];
+  }
+  return (view?.session?.overrides ?? []).filter((g) => !known.has(g));
+}
+
 /** The setting shown for a row: the draft's if the person changed it, else the saved one. */
 export function shownSetting(row: GroupRow, draft: Draft): GroupSetting {
   return draft[row.name] ?? row.workspace;
