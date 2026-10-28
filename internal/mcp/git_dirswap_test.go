@@ -109,7 +109,7 @@ func TestAgentGitFreshOpenAfterTheSwapIsTheLinksTargetAndIsRefused(t *testing.T)
 // flipper exchanges two names with renameat2(RENAME_EXCHANGE) until stop, so a
 // name is the real directory half of the time and a link to the other repository
 // the other half. It never runs more than maxFlips times: a broken test must stop.
-func flipper(t *testing.T, a, b string, stop *atomic.Bool, flips *atomic.Int64, maxFlips int64) (wait func()) {
+func flipper(t *testing.T, a, b string, stop *atomic.Bool, flips *atomic.Int64, maxFlips, burst int64, pause time.Duration) (wait func()) {
 	t.Helper()
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -122,8 +122,8 @@ func flipper(t *testing.T, a, b string, stop *atomic.Bool, flips *atomic.Int64, 
 			}
 			// Bursts, not a solid wall of flips: a pause now and then lets some calls
 			// open the granted directory, so the run tells refusals from answers.
-			if flips.Add(1)%16 == 0 {
-				time.Sleep(60 * time.Microsecond)
+			if flips.Add(1)%burst == 0 {
+				time.Sleep(pause)
 			}
 		}
 	}()
@@ -137,14 +137,14 @@ type swapTally struct {
 // swapRace runs iterations tool calls (open + one read) on workers goroutines against a
 // directory that is being flipped, and tallies where the answers came from. It stops
 // early, failing the test, when the test's own deadline is near.
-func swapRace(t *testing.T, srv *Server, pkg, other, outside string, iterations, workers int, maxFlips int64, read func(api GitAPI) string) (*swapTally, int64) {
+func swapRace(t *testing.T, srv *Server, pkg, other, outside string, iterations, workers int, maxFlips, burst int64, pause time.Duration, read func(api GitAPI) string) (*swapTally, int64) {
 	t.Helper()
 	if err := os.Symlink(outside, other); err != nil {
 		t.Fatal(err)
 	}
 	var stop atomic.Bool
 	var flips atomic.Int64
-	waitFlipper := flipper(t, pkg, other, &stop, &flips, maxFlips)
+	waitFlipper := flipper(t, pkg, other, &stop, &flips, maxFlips, burst, pause)
 
 	budget := time.Now().Add(20 * time.Second)
 	if d, ok := t.Deadline(); ok && d.Add(-5*time.Second).Before(budget) {
@@ -223,29 +223,47 @@ func statusAnswer(api GitAPI) string {
 	return "other"
 }
 
+type rhythm struct {
+	name  string
+	burst int64
+	pause time.Duration
+}
+
+// Two rhythms: a solid wall of flips (most calls are refused at the open) and bursts
+// with pauses (more calls open the granted directory and are in flight while it flips).
+var rhythms = []rhythm{{"wall", 16, 60 * time.Microsecond}, {"bursts", 4, 300 * time.Microsecond}}
+
 // Probe 2: the flipper. Zero answers may come from the repository outside the grant over
 // a fixed number of tool calls; the other outcomes (refused, granted) are both fine. The
-// iteration count is high so that the 3% the unbound handle lost at 400 calls would be
-// seen about sixty times.
+// unbound handle lost 3% of 400 calls in the review and 58 of 2000 here before the
+// change, so a bound handle that failed would show dozens.
 func TestAgentGitDirectorySwapRaceNeverAnswersFromAnotherRepository(t *testing.T) {
-	srv, pkg, other, outside := swapFixture(t)
-	tally, flips := swapRace(t, srv, pkg, other, outside, 2000, 8, 400_000, logAnswer)
-	t.Logf("log: flips=%d granted=%d refused=%d victim=%d other=%d", flips, tally.granted.Load(), tally.refused.Load(), tally.victim.Load(), tally.other.Load())
-	if n := tally.victim.Load(); n > 0 {
-		t.Errorf("RACE WON: %d of the calls were answered from a repository outside the grant", n)
-	}
-	if tally.granted.Load() == 0 {
-		t.Errorf("no call was ever answered by the granted repository: the test is not exercising the handle")
+	for _, r := range rhythms {
+		t.Run(r.name, func(t *testing.T) {
+			srv, pkg, other, outside := swapFixture(t)
+			tally, flips := swapRace(t, srv, pkg, other, outside, 2000, 8, 400_000, r.burst, r.pause, logAnswer)
+			t.Logf("log: flips=%d granted=%d refused=%d victim=%d other=%d", flips, tally.granted.Load(), tally.refused.Load(), tally.victim.Load(), tally.other.Load())
+			if n := tally.victim.Load(); n > 0 {
+				t.Errorf("RACE WON: %d of the calls were answered from a repository outside the grant", n)
+			}
+			if tally.granted.Load() == 0 {
+				t.Errorf("no call was ever answered by the granted repository: the test is not exercising the handle")
+			}
+		})
 	}
 }
 
 // The same flipper against status, which reads the work tree and not only the refs:
 // it must not show the other repository's files.
 func TestAgentGitDirectorySwapRaceNeverReadsAnotherWorkTree(t *testing.T) {
-	srv, pkg, other, outside := swapFixture(t)
-	tally, flips := swapRace(t, srv, pkg, other, outside, 1000, 8, 400_000, statusAnswer)
-	t.Logf("status: flips=%d granted=%d refused=%d victim=%d other=%d", flips, tally.granted.Load(), tally.refused.Load(), tally.victim.Load(), tally.other.Load())
-	if n := tally.victim.Load(); n > 0 {
-		t.Errorf("RACE WON: %d status calls read the work tree of a repository outside the grant", n)
+	for _, r := range rhythms {
+		t.Run(r.name, func(t *testing.T) {
+			srv, pkg, other, outside := swapFixture(t)
+			tally, flips := swapRace(t, srv, pkg, other, outside, 1000, 8, 400_000, r.burst, r.pause, statusAnswer)
+			t.Logf("status: flips=%d granted=%d refused=%d victim=%d other=%d", flips, tally.granted.Load(), tally.refused.Load(), tally.victim.Load(), tally.other.Load())
+			if n := tally.victim.Load(); n > 0 {
+				t.Errorf("RACE WON: %d status calls read the work tree of a repository outside the grant", n)
+			}
+		})
 	}
 }

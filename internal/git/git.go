@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -95,11 +96,15 @@ type runner struct {
 	// discovery from the folder cannot select another repository than the one
 	// that was checked. Only a hardened runner is pinned.
 	gitDir, workTree string
+	// bound, when set, holds the checkout open by descriptor and every command
+	// runs in it without a path lookup (bound.go). It is set for an agent-origin
+	// handle on a platform that has descriptors; its pins replace gitDir/workTree.
+	bound *boundCheckout
 }
 
 // command builds one git invocation. extraEnv is added last: it is the host's
 // own decision (an account's askpass, a key's ssh command, an identity).
-func (r runner) command(ctx context.Context, extraEnv []string, args ...string) *exec.Cmd {
+func (r runner) command(ctx context.Context, extraEnv []string, args ...string) (*exec.Cmd, error) {
 	prefix := []string{"--no-optional-locks"}
 	hardened := r.isHardened(ctx)
 	if hardened {
@@ -111,22 +116,60 @@ func (r runner) command(ctx context.Context, extraEnv []string, args ...string) 
 			prefix = append(prefix, r.repositoryDrivers(ctx)...)
 		}
 	}
-	prefix = append(prefix, "-C", r.work)
-	cmd := exec.CommandContext(ctx, r.git, append(prefix, args...)...)
+	cmd, pins, err := r.build(ctx, prefix, args)
+	if err != nil {
+		return nil, err
+	}
 	if hardened {
-		cmd.Env = r.hardenedEnv(cmd.Environ(), extraEnv)
+		cmd.Env = r.hardenedEnv(cmd.Environ(), pins, extraEnv)
 	} else {
 		cmd.Env = append(cmd.Environ(), extraEnv...)
 	}
-	return cmd
+	return cmd, nil
+}
+
+// build is the process for `git <prefix> <args>` in this runner's work tree: the
+// helper that changes into the held directory by descriptor when the checkout is
+// bound, `git -C <path>` otherwise.
+func (r runner) build(ctx context.Context, prefix, args []string) (*exec.Cmd, []string, error) {
+	if r.bound != nil {
+		return r.bound.command(ctx, r.git, append(append([]string{}, prefix...), args...))
+	}
+	prefix = append(append([]string{}, prefix...), "-C", r.work)
+	return exec.CommandContext(ctx, r.git, append(prefix, args...)...), nil, nil
+}
+
+// guarded runs one command with the checkout's identity checked before and after:
+// a name that was rebound to another directory refuses the command, or discards the
+// answer of one that ran while it was.
+func (r runner) guarded(cmd *exec.Cmd) error {
+	if err := r.bound.verify(); err != nil {
+		return err
+	}
+	var runErr error
+	if r.bound != nil {
+		runErr = r.bound.run(cmd)
+	} else {
+		runErr = cmd.Run()
+	}
+	if err := r.bound.verify(); err != nil {
+		return err
+	}
+	return runErr
 }
 
 // runWithEnv runs git with extra environment, for the credential helper.
 func (r runner) runWithEnv(ctx context.Context, env []string, args ...string) error {
-	cmd := r.command(ctx, append([]string{"GIT_TERMINAL_PROMPT=0"}, env...), args...)
+	cmd, err := r.command(ctx, append([]string{"GIT_TERMINAL_PROMPT=0"}, env...), args...)
+	if err != nil {
+		return err
+	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	if err := r.guarded(cmd); err != nil {
+		if isMoved(err) {
+			return err
+		}
 		return fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
@@ -134,13 +177,19 @@ func (r runner) runWithEnv(ctx context.Context, env []string, args ...string) er
 
 func (r runner) run(ctx context.Context, stdin []byte, args ...string) ([]byte, error) {
 	// Never let git ask: a prompt in a subprocess nobody is watching is a hang.
-	cmd := r.command(ctx, []string{"GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "GCM_INTERACTIVE=never"}, args...)
+	cmd, err := r.command(ctx, []string{"GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "GCM_INTERACTIVE=never"}, args...)
+	if err != nil {
+		return nil, err
+	}
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
+	if err := r.guarded(cmd); err != nil {
+		if isMoved(err) {
+			return nil, err
+		}
 		return stdout.Bytes(), fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.Bytes(), nil
@@ -267,12 +316,48 @@ func (s *Service) At(ctx context.Context, projectPath string) (*Service, error) 
 	// An agent-origin call opens a hardened handle (harden.go); the person's keeps
 	// the repository's own configuration.
 	r := runner{git: s.availability.Path, work: projectPath, hardened: agentOrigin(ctx)}
+	if r.hardened {
+		// And a bound one where the platform has descriptors: the folder is opened
+		// once, without following a link, and every command runs in that directory
+		// (bound.go). Where it has none the handle stays path-based, as hardened.
+		b, err := openBound(projectPath)
+		switch {
+		case err == nil:
+			r.bound, r.work = b, b.path
+		case errors.Is(err, errBoundUnsupported):
+		case errors.Is(err, fs.ErrNotExist):
+			return nil, ErrNoRepository
+		case isMoved(err):
+			return nil, err
+		default:
+			return nil, ErrNoRepository
+		}
+	}
+	svc, err := s.openAt(ctx, r, projectPath)
+	if err != nil {
+		r.bound.Close()
+		return nil, err
+	}
+	return svc, nil
+}
+
+func (s *Service) openAt(ctx context.Context, r runner, projectPath string) (*Service, error) {
 	if _, err := r.run(ctx, nil, "rev-parse", "--is-inside-work-tree"); err != nil {
+		if isMoved(err) {
+			return nil, err
+		}
 		return nil, ErrNoRepository
 	}
-	policyProject, top, gitDir, commonDir, err := repositoryPolicyKey(ctx, r, projectPath)
+	policyProject, top, gitDir, commonDir, err := repositoryPolicyKey(ctx, r, r.work)
 	if err != nil {
 		return nil, err
+	}
+	if r.bound != nil {
+		// What git said is checked against what is held: the top reached by walking
+		// up from the directory, the git directory a name leads to.
+		if err := r.bound.attach(top, gitDir); err != nil {
+			return nil, err
+		}
 	}
 	return &Service{
 		availability:  s.availability,

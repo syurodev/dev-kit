@@ -282,7 +282,7 @@ func TestTheHostsOwnCredentialEnvironmentSurvivesHardening(t *testing.T) {
 	t.Setenv("GIT_ASKPASS", "/host/askpass")
 	r := runner{git: "git", work: t.TempDir(), hardened: true, gitDir: "/checked/.git", workTree: "/checked"}
 	host := []string{"GIT_ASKPASS=/devkit/askpass.sh", "DEVKIT_GIT_SECRET=s3", "GIT_SSH_COMMAND=ssh -o IdentityAgent=/sock", "GIT_COMMITTER_NAME=Acct"}
-	cmd := r.command(context.Background(), host, "push", "origin", "main")
+	cmd, _ := r.command(context.Background(), host, "push", "origin", "main")
 	for name, want := range map[string]string{
 		"GIT_ASKPASS":         "/devkit/askpass.sh",
 		"DEVKIT_GIT_SECRET":   "s3",
@@ -309,7 +309,7 @@ func TestTheHostsOwnCredentialEnvironmentSurvivesHardening(t *testing.T) {
 	}
 
 	// The person's runner is what it was: nothing added, nothing removed.
-	person := runner{git: "git", work: r.work}.command(context.Background(), host, "push", "origin", "main")
+	person, _ := runner{git: "git", work: r.work}.command(context.Background(), host, "push", "origin", "main")
 	if v, _ := lastEnv(person.Env, "GIT_EXTERNAL_DIFF"); v != "/host/external-diff" {
 		t.Errorf("the person's environment lost GIT_EXTERNAL_DIFF: %q", v)
 	}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -387,9 +386,9 @@ func untrackedPatch(ctx context.Context, r runner, path string) (string, error) 
 	if strings.TrimRight(string(listed), "\x00") != path {
 		return "", nil
 	}
-	if info, err := os.Lstat(filepath.Join(r.work, filepath.FromSlash(path))); err != nil {
+	if mode, size, err := r.lstatWork(path); err != nil {
 		return "", nil
-	} else if info.Mode().IsRegular() && info.Size() > maxUntrackedPatch {
+	} else if mode.IsRegular() && size > maxUntrackedPatch {
 		return fmt.Sprintf("diff --git a/%[1]s b/%[1]s\nnew file mode 100644\nBinary files /dev/null and b/%[1]s differ\n", path), nil
 	}
 	// --no-index diffs two paths git does not have to track; it exits 1 when
