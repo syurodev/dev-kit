@@ -306,6 +306,10 @@ type Service struct {
 	// notice on screen, so the turn that ends can clear it (see endProviderRetry).
 	retrying map[string]struct{}
 	runtimes map[string]SessionRuntime
+	// lastUsed is when a session's runtime was last handed to a caller, opened
+	// or replaced. The idle release reads it under mu so a caller that just
+	// took the runtime always wins over a sweep (idle_release.go).
+	lastUsed map[string]time.Time
 	// stops remembers, per session, every runtime this process opened and how
 	// its process was seen to end (see WriterStopProof).
 	stops *runtimeTracker
@@ -587,6 +591,7 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 		recorder:        NewRecorder(store),
 		recoveryID:      uuid.NewString(),
 		runtimes:        make(map[string]SessionRuntime),
+		lastUsed:        make(map[string]time.Time),
 		stops:           newRuntimeTracker(),
 		admission:       newWriterAdmission(),
 		endpoints:       make(map[string]func()),
@@ -987,6 +992,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 		}
 		s.mu.Lock()
 		s.runtimes[sess.ID] = rt
+		s.markUsedLocked(sess.ID)
 		s.publishUsageLocked(sess, spec, acct.id)
 		s.publishHarnessLocked(sess.ID, launch)
 		s.endpoints[sess.ID] = closeEndpoint
@@ -1605,6 +1611,7 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	s.mu.Lock()
 	rt := s.runtimes[id]
 	delete(s.runtimes, id)
+	delete(s.lastUsed, id)
 	delete(s.runtimeUsage, id)
 	s.forgetWorkspaceContextLocked(id)
 	s.forgetSessionAccountLocked(id)
@@ -2611,10 +2618,14 @@ func (s *Service) liveRuntime(ctx context.Context, id string) SessionRuntime {
 		dead, _ = liveness.Dead()
 	}
 	if !dead {
+		if rt != nil {
+			s.markUsedLocked(id)
+		}
 		s.mu.Unlock()
 		return rt
 	}
 	delete(s.runtimes, id)
+	delete(s.lastUsed, id)
 	delete(s.runtimeUsage, id)
 	s.forgetWorkspaceContextLocked(id)
 	// Nothing runs as an account now; the reopen writes it again. The switch
@@ -2807,6 +2818,7 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 		}
 		s.mu.Lock()
 		s.runtimes[sess.ID] = rt
+		s.markUsedLocked(sess.ID)
 		s.publishUsageLocked(sess, spec, resolvedAccount)
 		s.publishHarnessLocked(sess.ID, launch)
 		s.endpoints[sess.ID] = closeEndpoint

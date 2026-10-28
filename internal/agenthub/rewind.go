@@ -542,6 +542,7 @@ func (r *rewindRun) publishRuntime() {
 	s := r.service
 	s.mu.Lock()
 	s.runtimes[r.session.ID] = r.newRuntime
+	s.markUsedLocked(r.session.ID)
 	s.runtimeUsage[r.session.ID] = r.usageFacts
 	s.publishHarnessLocked(r.session.ID, r.launch)
 	s.sessionAccount[r.session.ID] = r.usageFacts.AccountID
