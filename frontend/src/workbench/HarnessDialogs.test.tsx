@@ -3,7 +3,7 @@ import { renderToString } from "react-dom/server";
 import type { PendingInteraction } from "@/bridge/interaction";
 import { HarnessReviewBody } from "./HarnessReviewBody";
 import { HarnessScopeDialog } from "./HarnessScopeDialog";
-import WorkspaceHarnessDialog from "./WorkspaceHarnessDialog";
+import WorkspaceHarnessDialog, { LimitsTabClose } from "./WorkspaceHarnessDialog";
 import { WorkspaceBudgetsPanel } from "./WorkspaceBudgetsPanel";
 import { AgentHarnessPolicySetting } from "../modules/settings/AgentHarnessPolicySetting";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -174,4 +174,37 @@ test("a long review scrolls and keeps Repair and Cancel outside the scrolling re
 test("with nothing to repair the panel takes no room from the ordinary editor", () => {
   const html = renderRepair(staleState({ diagnosis: null }));
   expect(html).not.toMatch(/class="[^"]*\bflex-1\b[^"]*"[^>]*data-testid="stale-repair"/);
+});
+
+// R1a-2: when the review of a repairable profile would not fit, the panel says so in
+// plain words, offers no repair and points at the way out.
+test("a repair too long to show in full is explained and not offered", () => {
+  const html = renderRepair(staleState({ diagnosis: { ...longDiagnosis, truncated: true } as StaleDiagnosis }));
+  expect(html).toContain('data-testid="stale-repair-too-large"');
+  expect(html).toContain("too long");
+  expect(html).toContain("to show in full");
+  expect(html).toContain("restore the missing module or build");
+  expect(html).not.toContain("Split");
+  // The explanation comes before the list, so it is read without scrolling past 64 entries.
+  expect(html.indexOf("stale-repair-too-large")).toBeLessThan(html.indexOf("group-0"));
+  expect(html).not.toContain("Repair removes exactly the settings below");
+  expect(html).toMatch(/<button[^>]*disabled[^>]*>(<[^>]*>)*Review repair/);
+});
+
+// R1a-3: the Result limits tab's Close follows the same rule as every other way out of
+// the dialog. While a write is preparing or waiting for the person it is disabled.
+test("the limits tab's Close is disabled while a write waits and enabled otherwise", () => {
+  const closeButton = (html: string) => html.match(/<button[^>]*>Close<\/button>/)?.[0] ?? "";
+  expect(closeButton(renderToString(<LimitsTabClose blocked onClose={noop} />))).toMatch(/\sdisabled(=""|\s|>)/);
+  expect(closeButton(renderToString(<LimitsTabClose blocked={false} onClose={noop} />))).not.toMatch(/\sdisabled(=""|\s|>)/);
+});
+
+// R1a-4: the shared dialog body inherits the card's max height although the card's
+// padding is outside it; letting the body shrink keeps the action row inside the card.
+test("the dialog card lets its body shrink inside the card's padding", () => {
+  const html = renderToString(
+    <WorkspaceHarnessDialog workspace={{ id: "ws-1", name: "Payments" }} onClose={() => {}} portal={false} />,
+  );
+  const card = html.match(/<[^>]*data-slot="dialog-content"[^>]*>/)?.[0] ?? "";
+  expect(card).toContain("data-slot=dialog-body]]:shrink");
 });
