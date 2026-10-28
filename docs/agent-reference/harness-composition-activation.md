@@ -456,6 +456,13 @@ used as an independent sign-off; the Git canonical-path binding and Claim/Releas
   refuse with `ErrHarnessNewSessionRequired`, reading only, writing no row; `HarnessStatus` shows it before the launch refuses. Create is unchanged.
   Option C (stamp a baseline from today's W) is rejected. **Not yet decided:** whether an inert build should keep deleting existing references
   (`harness_runtime.go`, `rewind_store.go`); it stays as it is until the owner decides, and B makes it less urgent.
+  **Implemented (condition ii, 2026-10-28, branch `feat/harness-o2-reopen-gate`, not independently reviewed):** `harnessGate` takes a `launchKind`
+  (`launchCreate` or `launchReopen`); with `previous == nil`, a reopen and `len(snap.Ref.WorkspaceOwned) > 0` it returns `ErrHarnessNewSessionRequired`.
+  `CreateSession` (`openNewRuntime`) passes `launchCreate`; resume/reload/account reopen (`resumeRuntime`), the rewind forks (`openForked`) and the
+  three preflights (`preflightHarness`, always a reopen) pass `launchReopen`. It reads only (no row, no baseline), an unreadable row is still
+  `ErrHarnessUnavailable`, and `HarnessStatus` maps "no reference and W owns an executable" to `new_session_required` (the window already shows it via
+  `SessionState.newSessionRequired`). Condition (i) still holds and the inert-build deletion question is **still open and unchanged**. Tests:
+  `internal/agenthub/harness_o2_reopen_test.go`.
 - **The Git directory-swap and `.git` indirection (#375): treated as a release-security blocker, and being fixed.** The Git scope must not be described
   as a boundary against a hostile agent until it is. Three routes reach a repository outside the grant (two need no race) and one reaches host execution.
   Under the plan's literal criterion this is not an AP4 blocker (the Git group is on by default today and activation only adds an off switch), but the

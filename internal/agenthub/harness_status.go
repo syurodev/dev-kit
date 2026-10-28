@@ -8,7 +8,8 @@ import (
 
 // HarnessState says how a session's saved harness configuration relates to the
 // runtime it is actually running. Empty data never means "applied": a session
-// with no record is not_applied, one whose configuration cannot be read is
+// with no record is not_applied (or new_session_required when its saved
+// configuration owns a workspace executable: a reopen would be refused, O-2), one whose configuration cannot be read is
 // unavailable, and one with no harness provider is unconfigured.
 type HarnessState string
 
@@ -87,6 +88,11 @@ func (s *Service) HarnessStatus(ctx context.Context, sessionID string) (HarnessS
 	st.Serving = s.servingStatus(sessionID, &desired)
 	st.Live = st.Serving.Acknowledged
 	switch {
+	case applied == nil && len(desired.Ref.WorkspaceOwned) > 0:
+		// The same fact the reopen gate judges (O-2): no baseline and a workspace-owned
+		// executable in what the session would open with. Say it before the launch
+		// refuses; nothing is claimed about the profile being approved.
+		st.State = HarnessNewSessionRequired
 	case applied == nil:
 		st.State = HarnessNotApplied
 	case desired.Ref.Equal(applied.Ref):
