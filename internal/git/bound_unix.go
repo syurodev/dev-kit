@@ -43,6 +43,10 @@ type boundCheckout struct {
 	path  string
 	cwd   *os.File
 	cwdID fileID
+	// ancestors are the identities of the directory and each directory above it up to
+	// the root, read by walking up from the held descriptor: where a process that is
+	// legitimately in this checkout can be.
+	ancestors []fileID
 
 	// top and gitDir are set by attach, once git has said where they are.
 	top      *os.File
@@ -136,7 +140,48 @@ func openBound(path string) (*boundCheckout, error) {
 		f.Close()
 		return nil, err
 	}
-	return &boundCheckout{path: resolved, cwd: f, cwdID: id, procFD: procFDUsable()}, nil
+	return &boundCheckout{path: resolved, cwd: f, cwdID: id, ancestors: ancestorsOf(int(f.Fd())), procFD: procFDUsable()}, nil
+}
+
+// ancestorsOf is the identity of fd's directory and of every directory above it, by
+// walking up through the directories themselves (no path is looked up).
+func ancestorsOf(fd int) []fileID {
+	cur, err := unix.Dup(fd)
+	if err != nil {
+		return nil
+	}
+	var ids []fileID
+	for i := 0; i < 4096; i++ {
+		id, err := fstatID(cur)
+		if err != nil || (len(ids) > 0 && ids[len(ids)-1] == id) {
+			break
+		}
+		ids = append(ids, id)
+		up, err := unix.Openat(cur, "..", dirFlags, 0)
+		_ = unix.Close(cur)
+		if err != nil {
+			return ids
+		}
+		cur = up
+	}
+	_ = unix.Close(cur)
+	return ids
+}
+
+// inCheckout reports whether id is a directory a process of this handle may be in:
+// the directory it was opened at and the ones above it up to the top of the checkout
+// (git walks up to find it), or, before the top is known, any above it.
+func (b *boundCheckout) inCheckout(id fileID) bool {
+	allowed := b.ancestors
+	if b.top != nil && b.depth+1 <= len(allowed) {
+		allowed = allowed[:b.depth+1]
+	}
+	for _, a := range allowed {
+		if a == id {
+			return true
+		}
+	}
+	return false
 }
 
 // attach holds the top of the checkout and the git directory, both as git reported
@@ -345,7 +390,8 @@ func (b *boundCheckout) command(ctx context.Context, gitPath string, argv []stri
 // watcher's first look is not caught by this (the identity check after the command is
 // then what remains).
 func (b *boundCheckout) run(cmd *exec.Cmd) error {
-	if !b.procFD {
+	if !b.procFD || forceHelper {
+		// No /proc to look at, or the helper has not yet changed into the directory.
 		return cmd.Run()
 	}
 	if err := cmd.Start(); err != nil {
@@ -363,7 +409,7 @@ func (b *boundCheckout) run(cmd *exec.Cmd) error {
 				return
 			default:
 			}
-			if id, err := statID(cwd); err == nil && id != b.cwdID && id != b.topID {
+			if id, err := statID(cwd); err == nil && !b.inCheckout(id) {
 				strayed.Store(true)
 				_ = cmd.Process.Kill()
 				return

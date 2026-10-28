@@ -342,14 +342,16 @@ func (s *Service) At(ctx context.Context, projectPath string) (*Service, error) 
 }
 
 func (s *Service) openAt(ctx context.Context, r runner, projectPath string) (*Service, error) {
-	if _, err := r.run(ctx, nil, "rev-parse", "--is-inside-work-tree"); err != nil {
-		if isMoved(err) {
-			return nil, err
+	if r.bound == nil {
+		if _, err := r.run(ctx, nil, "rev-parse", "--is-inside-work-tree"); err != nil {
+			return nil, ErrNoRepository
 		}
-		return nil, ErrNoRepository
 	}
 	policyProject, top, gitDir, commonDir, err := repositoryPolicyKey(ctx, r, r.work)
 	if err != nil {
+		if r.bound != nil && !isMoved(err) {
+			return nil, ErrNoRepository // not a work tree: the one rev-parse failed
+		}
 		return nil, err
 	}
 	if r.bound != nil {
@@ -397,9 +399,24 @@ func (s *Service) Reset() {
 // for the checkout: what the checkout really is, which a caller that must keep
 // an agent inside its scope compares with the scope.
 func repositoryPolicyKey(ctx context.Context, r runner, projectPath string) (policy, top, gitDir, commonDir string, err error) {
-	topOut, err := r.run(ctx, nil, "rev-parse", "--show-toplevel")
-	if err != nil {
-		return "", "", "", "", err
+	var topOut, gitDirOut, commonOut []byte
+	if r.bound != nil {
+		// One process for the three answers: a bound handle starts each command
+		// through the helper on a platform without /proc, which costs a process image.
+		out, err := r.run(ctx, nil, "rev-parse", "--show-toplevel", "--absolute-git-dir", "--git-common-dir")
+		if err != nil {
+			return "", "", "", "", err
+		}
+		lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+		if len(lines) != 3 {
+			return "", "", "", "", ErrNoRepository
+		}
+		topOut, gitDirOut, commonOut = []byte(lines[0]), []byte(lines[1]), []byte(lines[2])
+	} else {
+		topOut, err = r.run(ctx, nil, "rev-parse", "--show-toplevel")
+		if err != nil {
+			return "", "", "", "", err
+		}
 	}
 	top = strings.TrimSpace(string(topOut))
 	if !filepath.IsAbs(top) {
@@ -412,13 +429,13 @@ func repositoryPolicyKey(ctx context.Context, r runner, projectPath string) (pol
 	if err != nil {
 		return "", "", "", "", err
 	}
-	gitDirOut, err := r.run(ctx, nil, "rev-parse", "--absolute-git-dir")
-	if err != nil {
-		return "", "", "", "", err
-	}
-	commonOut, err := r.run(ctx, nil, "rev-parse", "--git-common-dir")
-	if err != nil {
-		return "", "", "", "", err
+	if r.bound == nil {
+		if gitDirOut, err = r.run(ctx, nil, "rev-parse", "--absolute-git-dir"); err != nil {
+			return "", "", "", "", err
+		}
+		if commonOut, err = r.run(ctx, nil, "rev-parse", "--git-common-dir"); err != nil {
+			return "", "", "", "", err
+		}
 	}
 	gitDir = strings.TrimSpace(string(gitDirOut))
 	commonDir = strings.TrimSpace(string(commonOut))

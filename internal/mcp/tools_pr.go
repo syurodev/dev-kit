@@ -97,10 +97,11 @@ func (s *Server) registerPullRequests(ms *sdk.Server) {
 // prOpen resolves a `repo` argument like git does and opens its repository on
 // the code host. The returned caller is who is asking.
 func (s *Server) prOpen(ctx context.Context, repo string, number int, write bool) (*prwatch.Handle, identity.Caller, error) {
-	_, folder, err := s.gitFor(ctx, repo, write)
+	api, folder, err := s.gitFor(ctx, repo, write)
 	if err != nil {
 		return nil, identity.Caller{}, err
 	}
+	closeGit(api) // only the folder is wanted: the descriptors are not needed
 	if folder == "" {
 		return nil, identity.Caller{}, apperrors.New("pr.repoRequired",
 			"Say which repository: pass `repo` (a folder name from workspace.list or git.repos, or an absolute path).", true)

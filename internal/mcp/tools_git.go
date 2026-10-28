@@ -340,6 +340,7 @@ func (s *Server) toolGitStatus(ctx context.Context, _ *sdk.CallToolRequest, in g
 		if err != nil {
 			return nil, err
 		}
+		defer closeGit(git)
 		status, err := git.Status(ctx)
 		return compactGitStatus(repo, status), err
 	})
@@ -361,6 +362,7 @@ func (s *Server) toolGitDiff(ctx context.Context, _ *sdk.CallToolRequest, in git
 		if err != nil {
 			return nil, err
 		}
+		defer closeGit(git)
 		return git.Diff(ctx, in.Rev, in.Staged)
 	})
 	if err != nil {
@@ -380,6 +382,7 @@ func (s *Server) toolGitLog(ctx context.Context, _ *sdk.CallToolRequest, in gitL
 		if err != nil {
 			return nil, err
 		}
+		defer closeGit(git)
 		return git.Log(ctx, in.Limit)
 	})
 	if err != nil {
@@ -400,6 +403,7 @@ func (s *Server) toolGitCommitsForTask(ctx context.Context, _ *sdk.CallToolReque
 		if err != nil {
 			return nil, err
 		}
+		defer closeGit(git)
 		return git.CommitsForTask(ctx, in.Key, in.Limit)
 	})
 	if err != nil {
@@ -414,6 +418,7 @@ func (s *Server) toolGitBranchList(ctx context.Context, _ *sdk.CallToolRequest, 
 		if err != nil {
 			return nil, err
 		}
+		defer closeGit(git)
 		return git.Branches(ctx)
 	})
 	if err != nil {
@@ -434,6 +439,7 @@ func (s *Server) toolGitBranchCreate(ctx context.Context, _ *sdk.CallToolRequest
 		if err != nil {
 			return nil, err
 		}
+		defer closeGit(git)
 		return git.CreateBranch(ctx, in.Name, in.From)
 	})
 	if err != nil {
@@ -453,6 +459,7 @@ func (s *Server) toolGitCheckout(ctx context.Context, _ *sdk.CallToolRequest, in
 		if err != nil {
 			return nil, err
 		}
+		defer closeGit(git)
 		return nil, git.Checkout(ctx, in.Name)
 	})
 	if err != nil {
@@ -475,6 +482,7 @@ func (s *Server) toolGitStage(ctx context.Context, _ *sdk.CallToolRequest, in gi
 		if err != nil {
 			return nil, err
 		}
+		defer closeGit(git)
 		if in.Turn {
 			return git.StageTurn(ctx, in.Paths)
 		}
@@ -500,6 +508,7 @@ func (s *Server) toolGitCommit(ctx context.Context, _ *sdk.CallToolRequest, in g
 		if err != nil {
 			return nil, err
 		}
+		defer closeGit(git)
 		return git.Commit(ctx, gitservice.CommitInput{
 			Message: in.Message, TaskKey: in.TaskKey, ByAgent: true,
 		})
@@ -521,6 +530,7 @@ func (s *Server) toolGitStash(ctx context.Context, _ *sdk.CallToolRequest, in gi
 		if err != nil {
 			return nil, err
 		}
+		defer closeGit(git)
 		return nil, git.Stash(ctx, in.Message)
 	})
 	if err != nil {
@@ -555,6 +565,7 @@ func (s *Server) toolGitPush(ctx context.Context, _ *sdk.CallToolRequest, in git
 		if err != nil {
 			return nil, err
 		}
+		defer closeGit(git)
 		return nil, git.Push(ctx, gitservice.PushInput{
 			Remote: remote, Branch: in.Branch, ByAgent: true, TaskBranches: allowed,
 		})
@@ -577,6 +588,7 @@ func (s *Server) toolGitConflicts(ctx context.Context, _ *sdk.CallToolRequest, i
 		if err != nil {
 			return nil, err
 		}
+		defer closeGit(git)
 		if in.Path == "" {
 			return git.Conflicts(ctx)
 		}
@@ -600,6 +612,7 @@ func (s *Server) toolGitResolve(ctx context.Context, _ *sdk.CallToolRequest, in 
 		if err != nil {
 			return nil, err
 		}
+		defer closeGit(git)
 		return nil, git.Resolve(ctx, in.Path, in.Merged)
 	})
 	if err != nil {
@@ -679,6 +692,7 @@ func (s *Server) toolGitAmend(ctx context.Context, _ *sdk.CallToolRequest, in gi
 		if err != nil {
 			return nil, err
 		}
+		defer closeGit(git)
 		return git.Amend(ctx, gitservice.AmendInput{Message: in.Message, TaskKey: in.TaskKey})
 	})
 	if err != nil {
@@ -699,6 +713,7 @@ func (s *Server) toolGitSquash(ctx context.Context, _ *sdk.CallToolRequest, in g
 		if err != nil {
 			return nil, err
 		}
+		defer closeGit(git)
 		return git.Squash(ctx, gitservice.SquashInput{Count: in.Count, Message: in.Message})
 	})
 	if err != nil {
@@ -722,6 +737,7 @@ func (s *Server) toolGitRebase(ctx context.Context, _ *sdk.CallToolRequest, in g
 		if err != nil {
 			return nil, err
 		}
+		defer closeGit(git)
 		return git.Rebase(ctx, gitservice.RebaseInput{Action: gitservice.RebaseAction(in.Action), Onto: in.Onto})
 	})
 	if err != nil {
@@ -758,6 +774,7 @@ func (s *Server) gitPick(ctx context.Context, in gitPickInput, op string, run fu
 		if err != nil {
 			return nil, err
 		}
+		defer closeGit(git)
 		return run(git, ctx, gitservice.PickInput{Action: gitservice.PickAction(in.Action), Commits: in.Commits, TaskKey: in.TaskKey})
 	})
 	if err != nil {
@@ -815,6 +832,7 @@ func (s *Server) gitSync(ctx context.Context, in gitRemoteInput, op string, run 
 		if err != nil {
 			return nil, err
 		}
+		defer closeGit(git)
 		if err := run(git, ctx, remote); err != nil {
 			return nil, err
 		}
@@ -844,6 +862,7 @@ func (s *Server) toolGitWorktreeAdd(ctx context.Context, _ *sdk.CallToolRequest,
 		if err != nil {
 			return nil, err
 		}
+		defer closeGit(git)
 		root, target, err := git.WorktreeTarget(ctx, in.Branch)
 		if err != nil {
 			return nil, err
@@ -869,6 +888,7 @@ func (s *Server) toolGitWorktreeList(ctx context.Context, _ *sdk.CallToolRequest
 		if err != nil {
 			return nil, err
 		}
+		defer closeGit(git)
 		return git.Worktrees(ctx)
 	})
 	if err != nil {
@@ -888,6 +908,7 @@ func (s *Server) toolGitWorktreeRemove(ctx context.Context, _ *sdk.CallToolReque
 		if err != nil {
 			return nil, err
 		}
+		defer closeGit(git)
 		worktrees, err := git.Worktrees(ctx)
 		if err != nil {
 			return nil, err
