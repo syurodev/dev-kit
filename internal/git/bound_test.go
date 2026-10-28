@@ -392,3 +392,46 @@ func TestWalkDirRefusesLinksOnTheWay(t *testing.T) {
 		t.Errorf("openBound resolves a link once and holds what it led to: %v", err)
 	}
 }
+
+// The guard judges the repository the command runs in: the handle's policy key was read
+// from the held directory when it opened, so a guarded branch is guarded, and a folder
+// swapped for another repository cannot make the command run (or commit) there, where
+// no guard is set.
+func TestBoundGuardIsTheOneOfTheRepositoryTheCommandRunsIn(t *testing.T) {
+	svc, dir := newRepo(t)
+	victim := t.TempDir()
+	runGit(t, svc, victim, "init", "-q", "--initial-branch=main")
+	commitIn(t, svc, victim, "VICTIM")
+	before := runGit(t, svc, victim, "rev-parse", "HEAD")
+
+	confirm := &stubConfirm{allow: false}
+	svc.SetConfirmer(confirm)
+	agent := agentAt(t, svc, dir)
+	defer agent.Close()
+	svc.SetGuards(keyedGuardStore{rows: map[string][]Guard{agent.PolicyProject(): {{Pattern: "main", Env: "prod"}}}})
+	agent.guards, agent.confirm = svc.guards, confirm
+	svc.SetEnvs(stubEnvs{"prod": true})
+	agent.envs = svc.envs
+
+	write(t, dir, "a.txt", "a\n")
+	if err := agent.Stage(agentCtx(), []string{"a.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := agent.Commit(agentCtx(), CommitInput{Message: "guarded", ByAgent: true}); err == nil || confirm.asked != 1 {
+		t.Fatalf("a commit on a guarded branch: err=%v asked=%d", err, confirm.asked)
+	}
+
+	if err := os.Rename(dir, dir+".moved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, dir); err != nil {
+		t.Fatal(err)
+	}
+	write(t, victim, "b.txt", "b\n")
+	if _, err := agent.Commit(agentCtx(), CommitInput{Message: "into the victim", ByAgent: true}); err == nil {
+		t.Fatal("a commit went through a folder that was swapped for another repository")
+	}
+	if after := runGit(t, svc, victim, "rev-parse", "HEAD"); after != before {
+		t.Fatalf("the other repository got a commit: %s -> %s", strings.TrimSpace(before), strings.TrimSpace(after))
+	}
+}

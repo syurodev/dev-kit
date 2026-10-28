@@ -460,7 +460,8 @@ used as an independent sign-off; the Git canonical-path binding and Claim/Releas
   as a boundary against a hostile agent until it is. Three routes reach a repository outside the grant (two need no race) and one reaches host execution.
   Under the plan's literal criterion this is not an AP4 blocker (the Git group is on by default today and activation only adds an off switch), but the
   owner chose to fix it now. Delivered in stages: the `.git`-file redirect and repository-supplied execution for agent-origin calls first, then
-  descriptor-bound execution and guards keyed on verified identity. Links to the PRs are in the commit history of each stage.
+  descriptor-bound execution and guards keyed on verified identity (stage 2: `docs/superpowers/specs/2026-10-28-git-descriptor-bound-execution.md`;
+  it narrows the swap, and a few microseconds of git's own work-tree `chdir` by name remain). Links to the PRs are in the commit history of each stage.
 - **Findings the owner chose to fix before R4:** R1a-1 (a session override S naming a group that is no longer registered locks the session out and the
   window's revoke fails with `harness.groupUnknown`) and R1b F1 (a file restore that fails part-way is reported as a plain refusal and its safety row
   is marked `failed`, so `InterruptedRewinds` never lists it) with F2 (two retry-budget tests that hang and exhaust memory instead of failing when the

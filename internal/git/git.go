@@ -323,7 +323,7 @@ func (s *Service) At(ctx context.Context, projectPath string) (*Service, error) 
 		b, err := openBound(projectPath)
 		switch {
 		case err == nil:
-			r.bound, r.work = b, b.path
+			r.bound, r.work = b, b.boundPath()
 		case errors.Is(err, errBoundUnsupported):
 		case errors.Is(err, fs.ErrNotExist):
 			return nil, ErrNoRepository
