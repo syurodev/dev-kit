@@ -29,6 +29,8 @@ type MemoryRepository struct {
 	hasAccountPolicy      bool
 	harnessPolicy         AgentHarnessPolicy
 	hasHarnessPolicy      bool
+	idleRelease           AgentIdleRelease
+	hasIdleRelease        bool
 
 	revealRequiresPassword    bool
 	hasRevealRequiresPassword bool
@@ -224,5 +226,19 @@ func (r *MemoryRepository) SetAgentAccountPolicy(policy AgentAccountPolicy) erro
 	defer r.mu.Unlock()
 	r.accountPolicy = policy.clone()
 	r.hasAccountPolicy = true
+	return nil
+}
+
+func (r *MemoryRepository) GetAgentIdleRelease() (AgentIdleRelease, bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.idleRelease, r.hasIdleRelease, nil
+}
+
+func (r *MemoryRepository) SetAgentIdleRelease(policy AgentIdleRelease) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.idleRelease = policy
+	r.hasIdleRelease = true
 	return nil
 }

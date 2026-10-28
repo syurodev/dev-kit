@@ -89,6 +89,25 @@ export interface AgentHarnessPolicyState {
 }
 
 /**
+ * AgentIdleReleaseState is the person's setting for giving back the memory of idle
+ * agent sessions, as the window sees it.
+ */
+export interface AgentIdleReleaseState {
+    /**
+     * Enabled turns the release on. It is on until the person turns it off.
+     */
+    "enabled": boolean;
+
+    /**
+     * ChildMinutes is how long a sub-session (one with a parent) may sit idle
+     * before its process is released; TopMinutes is the same for the others. A
+     * released session stays in the rail and reopens on the next prompt.
+     */
+    "childMinutes": number;
+    "topMinutes": number;
+}
+
+/**
  * AgentModelProfilesState is the person's list as Settings edits it. Statuses
  * are left empty here — checking one asks its vendor for the model list, which
  * can take seconds — and AgentHubCheckModelProfiles fills them in.

@@ -922,6 +922,22 @@ export function AgentHubTranscriptPage(id: string, beforeSeq: number, limit: num
 }
 
 /**
+ * AgentIdleReleaseGet reads the setting. Window only: the check is made here in Go
+ * and no MCP tool reaches this method.
+ */
+export function AgentIdleReleaseGet(): $CancellablePromise<$models.AgentIdleReleaseState> {
+    return $Call.ByID(94703386);
+}
+
+/**
+ * AgentIdleReleaseSet stores the setting and returns what is stored. A time outside
+ * 2 minutes to 24 hours is refused and nothing changes. Window only.
+ */
+export function AgentIdleReleaseSet(enabled: boolean, childMinutes: number, topMinutes: number): $CancellablePromise<$models.AgentIdleReleaseState> {
+    return $Call.ByID(2006371414, enabled, childMinutes, topMinutes);
+}
+
+/**
  * AgentRuntimeActivate switches to an installed version — a rollback when it
  * is the previous one. Sessions already running keep their process.
  */

@@ -443,6 +443,10 @@ func NewContainerWithStores(
 		// methods refuse any caller but the window; no agent tool reaches them.
 		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_harness_policy"},
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_harness_policy"},
+		// Releasing the process of an idle agent session: the window's own setting,
+		// read and written only through methods that refuse every other caller.
+		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_idle_release"},
+		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_idle_release"},
 		// Which Accounts token Codex signs in with: the id, never the key.
 		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_codex_api_key"},
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_codex_api_key"},
