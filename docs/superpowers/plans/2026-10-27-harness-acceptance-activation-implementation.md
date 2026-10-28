@@ -1,5 +1,7 @@
 # Harness acceptance and production activation after H5b-2
 
+> Publication update, 2026-10-28: #375–#378 have merged; current main is `a4b64bcc`. Historical baseline/status rows below are preserved. The next focused R1 delivery is `2026-10-27-harness-rewind-finish-forward-implementation.md`; AP1 remains Partial and AP3/AP4 are not accepted. Recheck repository state before execution.
+
 Date: 2026-10-27. Status: **plan prepared; acceptance not performed; production remains inert**.
 This is the next acceptance workstream, not an assertion that an official H5c implementation already exists.
 
@@ -35,6 +37,8 @@ Accept **group controls + result budgets + the existing narrowly scoped auto-nar
 AP1/AP2 can proceed while another owner prepares runtime fixtures; do not edit the same files concurrently. This plan does not dispatch other sessions or authorize cross-thread messages. Use a separate worktree. No production feature flag, environment toggle or fallback runner is added to get around the acceptance gates.
 
 ## AP1 — independent review, not another self-review
+
+After #375 merged, its scope-limited report left AP1 partial. Continue with the focused [AP1 completion plan](2026-10-27-harness-ap1-completion-implementation.md); AP2's focused delivery is merged, while AP3/AP4 remain unperformed.
 
 A reviewer who did not author H4c must inspect the **current integrated tree**, not only #360's original diff or the author's test report. If the receiving implementer authored that code, record that limitation and obtain a separate reviewer; do not sign off your own work as independent evidence.
 
@@ -153,3 +157,7 @@ Start with AP1: inspect the current integrated H4c/#363/#367, #353 and H5 contro
 
 AP3 real-runtime/native evidence and AP4 activation are separate gates. No paid model call, account use, sign-in, real workspace setting change, feature flag, executable proposal or production activation is authorized by this prompt. Keep blocked evidence explicit; do independent work that can proceed. Open PRs with terminal gh, report tests and limits, and do not auto-merge. Stop after the AP1 report/AP2 tests PR for review before progressing to activation.
 ```
+
+## Continuation after #376 / #377
+
+Use the [remaining acceptance and TEAM handoff plan](2026-10-27-harness-remaining-acceptance-team-implementation.md) for R1 (remaining AP1), R2/R3 (AP3), R4 (AP4) and the bounded C1 handoff. It records open review limits rather than treating the F-C fix as full AP1 completion.
