@@ -77,7 +77,7 @@ func (s *Service) Repositories(ctx context.Context, root string) ([]Repository, 
 	}
 
 	paths := []string{root}
-	if _, err := (runner{git: s.availability.Path, work: root}).run(ctx, nil, "rev-parse", "--is-inside-work-tree"); err != nil {
+	if _, err := (runner{git: s.availability.Path, work: root, hardened: agentOrigin(ctx)}).run(ctx, nil, "rev-parse", "--is-inside-work-tree"); err != nil {
 		paths = findRepos(ctx, root)
 	}
 
@@ -126,7 +126,7 @@ func (s *Service) Summaries(ctx context.Context, paths []string) ([]Repository, 
 func (s *Service) summarise(ctx context.Context, repo *Repository) {
 	ctx, cancel := context.WithTimeout(ctx, repoStatusTimeout)
 	defer cancel()
-	status, err := readStatus(ctx, runner{git: s.availability.Path, work: repo.Path}, "normal")
+	status, err := readStatus(ctx, runner{git: s.availability.Path, work: repo.Path, hardened: agentOrigin(ctx)}, "normal")
 	if err != nil {
 		repo.Error = err.Error()
 		return

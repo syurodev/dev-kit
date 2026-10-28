@@ -248,7 +248,7 @@ func (s *Service) Push(ctx context.Context, in PushInput) error {
 	defer cleanup()
 	remote = ignoreUnusedAccount(remote, env)
 
-	args := []string{"push"}
+	args := append([]string{"push"}, r.remoteFlags(ctx, "push", in.Remote)...)
 	if in.SetUpstream {
 		args = append(args, "-u")
 	}
@@ -279,7 +279,7 @@ func (s *Service) Fetch(ctx context.Context, remote string) error {
 	}
 	defer cleanup()
 	bound = ignoreUnusedAccount(bound, env)
-	return s.explainRemoteError("fetch", bound, r.runWithEnv(ctx, env, "fetch", remote))
+	return s.explainRemoteError("fetch", bound, r.runWithEnv(ctx, env, append(append([]string{"fetch"}, r.remoteFlags(ctx, "fetch", remote)...), remote)...))
 }
 
 func (s *Service) Pull(ctx context.Context, remote string) error {
@@ -303,7 +303,7 @@ func (s *Service) Pull(ctx context.Context, remote string) error {
 	}
 	defer cleanup()
 	bound = ignoreUnusedAccount(bound, env)
-	return s.explainRemoteError("pull", bound, r.runWithEnv(ctx, env, "pull", "--ff-only", remote))
+	return s.explainRemoteError("pull", bound, r.runWithEnv(ctx, env, append(append([]string{"pull", "--ff-only"}, r.remoteFlags(ctx, "pull", remote)...), remote)...))
 }
 
 func (s *Service) gateRemote(ctx context.Context, remote, branch string) error {

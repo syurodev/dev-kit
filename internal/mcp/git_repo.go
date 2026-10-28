@@ -277,9 +277,148 @@ func (s *Server) gitFor(ctx context.Context, repo string, write bool) (GitAPI, s
 				return nil, "", scope.unknown(repo)
 			}
 		}
+		if scope.agent {
+			if err := confineToScope(api, scope); err != nil {
+				return nil, "", scope.unknown(repo)
+			}
+		}
 		return api, c.key, nil
 	}
 	return nil, "", apperrors.New("git.notARepository", target+" is not inside a git repository.", true)
+}
+
+// confinable is the half of the Git module that lets an agent-origin handle be
+// kept to the repository that was checked.
+type confinable interface {
+	Toplevel() string
+	GitDirs() (gitDir, commonDir string)
+	Confine(gitDir, workTree string)
+}
+
+// inReach reports whether real, an already resolved path, is somewhere the
+// request was judged against: a folder of the workspace or a root the session was
+// granted. A linked worktree's git directory lives in the main repository, which
+// is a workspace folder even when the session was granted only the worktree.
+func (g gitScope) inReach(real string) bool {
+	folder, _ := g.folderOfReal(real)
+	return folder != "" || g.coversReal(real)
+}
+
+// confineToScope is what keeps a checkout from being another repository's work
+// tree. Git decides which repository a folder belongs to from its .git: a
+// directory is the repository itself, and a file (a linked worktree or a
+// submodule has one) says `gitdir: <path>`, which can name any repository on the
+// machine. An agent can write that file in a folder it was granted, and the
+// checkout root would still be the granted folder. So the .git at the top of
+// the checkout is read, and where it points, with the common directory the git
+// directory names, must be what git itself found and must be inside the scope
+// the request was judged against; the handle is then pinned to exactly those
+// with GIT_DIR and GIT_WORK_TREE. A .git directory is the repository and is
+// accepted as it always was. Handles that are not the real Git module (the
+// tests' fakes) have nothing to confine.
+func confineToScope(api GitAPI, scope gitScope) error {
+	c, ok := api.(confinable)
+	if !ok {
+		return nil
+	}
+	top := c.Toplevel()
+	gitDir, commonDir := c.GitDirs()
+	if top == "" || gitDir == "" || commonDir == "" {
+		return errOutsideScope
+	}
+	dotGit := filepath.Join(top, ".git")
+	linked := false
+	info, err := os.Lstat(dotGit)
+	if err != nil {
+		return errOutsideScope // a work tree with no .git at its top: configured from elsewhere
+	}
+	switch {
+	case info.Mode()&os.ModeSymlink != 0:
+		// A link is only the repository it resolves to.
+		real := realPath(dotGit)
+		if !scope.inReach(real) || real != gitDir {
+			return errOutsideScope
+		}
+	case info.IsDir():
+		if realPath(dotGit) != gitDir {
+			return errOutsideScope
+		}
+	default:
+		target, err := readGitdirFile(dotGit)
+		if err != nil {
+			return errOutsideScope
+		}
+		real := realPath(target)
+		if real != gitDir {
+			return errOutsideScope
+		}
+		linked = linkedWorktreeOf(dotGit, gitDir, commonDir)
+		if !linked && !scope.inReach(real) {
+			return errOutsideScope
+		}
+	}
+	// The git directory can name another common directory (a linked worktree's
+	// commondir file), and git follows it whatever its own location is.
+	declared := gitDir
+	if raw, err := os.ReadFile(filepath.Join(gitDir, "commondir")); err == nil {
+		declared = strings.TrimSpace(string(raw))
+		if !filepath.IsAbs(declared) {
+			declared = filepath.Join(gitDir, declared)
+		}
+		declared = realPath(declared)
+	}
+	if declared != commonDir || (commonDir != gitDir && !linked && !scope.inReach(commonDir)) {
+		return errOutsideScope
+	}
+	c.Confine(gitDir, top)
+	return nil
+}
+
+// linkedWorktreeOf reports whether dotGit, the .git file of a checkout, and gitDir,
+// the git directory it names, are the two halves of a linked worktree: gitDir is
+// <commonDir>/worktrees/<name>, and the file git wrote there to find its checkout
+// (`gitdir`) names this very .git file. A code-editing child is granted its checkout
+// alone, so the repository it was cut from is not one of its granted roots (and may
+// belong to no workspace); the two names pointing at each other is what a checkout
+// that was really added to that repository looks like, and what a folder redirected
+// to some other repository does not have: that repository's worktree entries name
+// other checkouts.
+func linkedWorktreeOf(dotGit, gitDir, commonDir string) bool {
+	if gitDir != filepath.Join(commonDir, "worktrees", filepath.Base(gitDir)) {
+		return false
+	}
+	raw, err := os.ReadFile(filepath.Join(gitDir, "gitdir"))
+	if err != nil {
+		return false
+	}
+	back := strings.TrimSpace(string(raw))
+	if !filepath.IsAbs(back) {
+		back = filepath.Join(gitDir, back)
+	}
+	return realPath(back) == realPath(dotGit)
+}
+
+var errOutsideScope = errors.New("repository outside the scope")
+
+// readGitdirFile is where a .git file says the git directory is. A relative path
+// is relative to the folder holding the file.
+func readGitdirFile(path string) (string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	line, _, _ := strings.Cut(string(raw), "\n")
+	target, ok := strings.CutPrefix(strings.TrimSpace(line), "gitdir:")
+	if !ok {
+		return "", errors.New("not a gitdir file")
+	}
+	if target = strings.TrimSpace(target); target == "" {
+		return "", errors.New("empty gitdir")
+	}
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(path), target)
+	}
+	return target, nil
 }
 
 // hasGitDir reports whether path is the top of a work tree: a .git directory,

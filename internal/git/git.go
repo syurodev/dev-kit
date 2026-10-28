@@ -7,7 +7,9 @@
 // snapshot and silently wrong for a commit: a repo declaring `* text=auto` or
 // `*.bin filter=lfs` would get the wrong bytes written and nobody would notice
 // until someone else checked out. Everything here runs in the work tree with
-// the repository's own configuration.
+// the repository's own configuration, except for a call that comes from an
+// agent: the repository is the agent's to write, so what its configuration
+// would make git run is turned off for it (harden.go).
 //
 // What it does borrow from checkpoint is Locate: finding a usable git on a
 // machine that has none on PATH is a solved problem there, including the macOS
@@ -85,12 +87,43 @@ type Branch struct {
 type runner struct {
 	git  string
 	work string
+	// hardened runs every command with repository-supplied execution turned off
+	// (harden.go). It is set for a service opened by an agent-origin call; a
+	// command whose own context carries an agent is hardened regardless.
+	hardened bool
+	// gitDir and workTree, when set, are passed as GIT_DIR and GIT_WORK_TREE so
+	// discovery from the folder cannot select another repository than the one
+	// that was checked. Only a hardened runner is pinned.
+	gitDir, workTree string
+}
+
+// command builds one git invocation. extraEnv is added last: it is the host's
+// own decision (an account's askpass, a key's ssh command, an identity).
+func (r runner) command(ctx context.Context, extraEnv []string, args ...string) *exec.Cmd {
+	prefix := []string{"--no-optional-locks"}
+	hardened := r.isHardened(ctx)
+	if hardened {
+		for _, kv := range neutralConfig() {
+			prefix = append(prefix, "-c", kv)
+		}
+		// rev-parse reads the repository's shape and runs nothing it names.
+		if subcommand(args) != "rev-parse" {
+			prefix = append(prefix, r.repositoryDrivers(ctx)...)
+		}
+	}
+	prefix = append(prefix, "-C", r.work)
+	cmd := exec.CommandContext(ctx, r.git, append(prefix, args...)...)
+	if hardened {
+		cmd.Env = r.hardenedEnv(cmd.Environ(), extraEnv)
+	} else {
+		cmd.Env = append(cmd.Environ(), extraEnv...)
+	}
+	return cmd
 }
 
 // runWithEnv runs git with extra environment, for the credential helper.
 func (r runner) runWithEnv(ctx context.Context, env []string, args ...string) error {
-	cmd := exec.CommandContext(ctx, r.git, append([]string{"--no-optional-locks", "-C", r.work}, args...)...)
-	cmd.Env = append(append(cmd.Environ(), "GIT_TERMINAL_PROMPT=0"), env...)
+	cmd := r.command(ctx, append([]string{"GIT_TERMINAL_PROMPT=0"}, env...), args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -100,16 +133,11 @@ func (r runner) runWithEnv(ctx context.Context, env []string, args ...string) er
 }
 
 func (r runner) run(ctx context.Context, stdin []byte, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, r.git, append([]string{"--no-optional-locks", "-C", r.work}, args...)...)
+	// Never let git ask: a prompt in a subprocess nobody is watching is a hang.
+	cmd := r.command(ctx, []string{"GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "GCM_INTERACTIVE=never"}, args...)
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}
-	// Never let git ask: a prompt in a subprocess nobody is watching is a hang.
-	cmd.Env = append(cmd.Environ(),
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_ASKPASS=",
-		"GCM_INTERACTIVE=never",
-	)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
@@ -134,7 +162,10 @@ type Service struct {
 	// toplevel is the resolved root of the checkout this service was opened at,
 	// read when it was opened: the repository its commands really run in.
 	toplevel string
-	runner   runner
+	// gitDir and commonDir are the resolved git directory and common directory
+	// git found for the checkout, read when it was opened.
+	gitDir, commonDir string
+	runner            runner
 
 	guards  GuardStore
 	remotes RemoteStore
@@ -208,12 +239,12 @@ func (s *Service) Open(ctx context.Context, projectPath string) error {
 	if _, err := r.run(ctx, nil, "rev-parse", "--is-inside-work-tree"); err != nil {
 		return ErrNoRepository
 	}
-	policyProject, top, err := repositoryPolicyKey(ctx, r, projectPath)
+	policyProject, top, gitDir, commonDir, err := repositoryPolicyKey(ctx, r, projectPath)
 	if err != nil {
 		return err
 	}
 	s.mu.Lock()
-	s.toplevel = top
+	s.toplevel, s.gitDir, s.commonDir = top, gitDir, commonDir
 	s.project, s.policyProject, s.runner = projectPath, policyProject, r
 	s.mu.Unlock()
 	return nil
@@ -233,11 +264,13 @@ func (s *Service) At(ctx context.Context, projectPath string) (*Service, error) 
 	if !s.availability.OK() {
 		return nil, ErrGitUnavailable
 	}
-	r := runner{git: s.availability.Path, work: projectPath}
+	// An agent-origin call opens a hardened handle (harden.go); the person's keeps
+	// the repository's own configuration.
+	r := runner{git: s.availability.Path, work: projectPath, hardened: agentOrigin(ctx)}
 	if _, err := r.run(ctx, nil, "rev-parse", "--is-inside-work-tree"); err != nil {
 		return nil, ErrNoRepository
 	}
-	policyProject, top, err := repositoryPolicyKey(ctx, r, projectPath)
+	policyProject, top, gitDir, commonDir, err := repositoryPolicyKey(ctx, r, projectPath)
 	if err != nil {
 		return nil, err
 	}
@@ -246,6 +279,8 @@ func (s *Service) At(ctx context.Context, projectPath string) (*Service, error) 
 		project:       projectPath,
 		policyProject: policyProject,
 		toplevel:      top,
+		gitDir:        gitDir,
+		commonDir:     commonDir,
 		runner:        r,
 		guards:        s.guards,
 		remotes:       s.remotes,
@@ -264,7 +299,7 @@ func (s *Service) At(ctx context.Context, projectPath string) (*Service, error) 
 // would go on showing the previous repository under the new folder's name.
 func (s *Service) Reset() {
 	s.mu.Lock()
-	s.project, s.policyProject, s.toplevel, s.runner = "", "", "", runner{}
+	s.project, s.policyProject, s.toplevel, s.gitDir, s.commonDir, s.runner = "", "", "", "", "", runner{}
 	s.mu.Unlock()
 }
 
@@ -272,32 +307,36 @@ func (s *Service) Reset() {
 // bindings apply to this checkout. For linked worktrees Git points the
 // per-worktree git dir at a common metadata directory under the main repo's
 // .git; ordinary repositories (including submodules) use their own top-level.
-func repositoryPolicyKey(ctx context.Context, r runner, projectPath string) (policy, top string, err error) {
+//
+// It also returns the resolved git directory and common directory git found
+// for the checkout: what the checkout really is, which a caller that must keep
+// an agent inside its scope compares with the scope.
+func repositoryPolicyKey(ctx context.Context, r runner, projectPath string) (policy, top, gitDir, commonDir string, err error) {
 	topOut, err := r.run(ctx, nil, "rev-parse", "--show-toplevel")
 	if err != nil {
-		return "", "", err
+		return "", "", "", "", err
 	}
 	top = strings.TrimSpace(string(topOut))
 	if !filepath.IsAbs(top) {
 		top, err = filepath.Abs(filepath.Join(projectPath, top))
 		if err != nil {
-			return "", "", err
+			return "", "", "", "", err
 		}
 	}
 	top, err = filepath.EvalSymlinks(top)
 	if err != nil {
-		return "", "", err
+		return "", "", "", "", err
 	}
 	gitDirOut, err := r.run(ctx, nil, "rev-parse", "--absolute-git-dir")
 	if err != nil {
-		return "", "", err
+		return "", "", "", "", err
 	}
 	commonOut, err := r.run(ctx, nil, "rev-parse", "--git-common-dir")
 	if err != nil {
-		return "", "", err
+		return "", "", "", "", err
 	}
-	gitDir := strings.TrimSpace(string(gitDirOut))
-	commonDir := strings.TrimSpace(string(commonOut))
+	gitDir = strings.TrimSpace(string(gitDirOut))
+	commonDir = strings.TrimSpace(string(commonOut))
 	if !filepath.IsAbs(commonDir) {
 		// --git-common-dir is relative to the invocation directory, which can
 		// be a subdirectory of the worktree root.
@@ -305,16 +344,38 @@ func repositoryPolicyKey(ctx context.Context, r runner, projectPath string) (pol
 	}
 	gitDir, err = filepath.EvalSymlinks(gitDir)
 	if err != nil {
-		return "", "", err
+		return "", "", "", "", err
 	}
 	commonDir, err = filepath.EvalSymlinks(commonDir)
 	if err != nil {
-		return "", "", err
+		return "", "", "", "", err
 	}
 	if gitDir != commonDir && filepath.Base(commonDir) == ".git" {
-		return filepath.Dir(commonDir), top, nil
+		return filepath.Dir(commonDir), top, gitDir, commonDir, nil
 	}
-	return top, top, nil
+	return top, top, gitDir, commonDir, nil
+}
+
+// GitDirs are the resolved git directory and common directory of the checkout
+// this service was opened at, as git found them; "" when it was not opened.
+func (s *Service) GitDirs() (gitDir, commonDir string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.gitDir, s.commonDir
+}
+
+// Confine pins every later command of an agent-origin handle to the git
+// directory and work tree a caller has checked, passing them as GIT_DIR and
+// GIT_WORK_TREE so discovery from the folder cannot select another repository
+// (a .git file, a core.worktree, a link) than the one that was judged. It has no
+// effect on a handle that is not hardened: the person's own handle keeps the
+// repository's own configuration and discovery.
+func (s *Service) Confine(gitDir, workTree string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.runner.hardened {
+		s.runner.gitDir, s.runner.workTree = gitDir, workTree
+	}
 }
 
 // Toplevel is the resolved root of the checkout this service was opened at, or ""
