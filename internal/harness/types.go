@@ -244,6 +244,13 @@ func (e *Error) Error() string { return e.Code + ": " + e.Message }
 
 func fail(code, message string) error { return &Error{Code: code, Message: message} }
 
+// ErrStaleSessionOverride is the refusal of a launch whose session override (S)
+// names a tool group this build does not register and which has no other stale
+// reference. It reuses the published launch-refusal code and says, in fixed host
+// text with no stored name, what is wrong and the ways out. It is a refusal only:
+// the resolver stays strict and nothing here ignores the unknown name.
+var ErrStaleSessionOverride = &Error{Code: CodeSnapshotUnavailable, Message: "This session was not started: its saved tool-group choices include a group this build does not have. Use Revoke on the unavailable group in the session's Tool groups panel and confirm, then open the session again. Closing the session also discards its saved tool-group choices."}
+
 // lexical is the canonicalizer used when the host injects none.
 func lexical(path string) (string, error) {
 	if !filepath.IsAbs(path) {

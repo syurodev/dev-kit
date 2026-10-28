@@ -84,6 +84,12 @@ func (p *Provider) Snapshot(ctx context.Context, req SnapshotRequest) (harness.S
 	}
 	eff, err := harness.Resolve(in)
 	if err != nil {
+		// Only to say why: an S that names a group this build lacks, with W otherwise
+		// clean, gets a refusal that names the way out. The resolver stays strict and
+		// nothing is launched either way.
+		if o != nil && len(InspectStaleOverride(o, in.Registry)) > 0 && len(InspectStale(w, in.Registry)) == 0 {
+			return harness.Snapshot{}, harness.ErrStaleSessionOverride
+		}
 		return harness.Snapshot{}, ErrSnapshotUnavailable
 	}
 	// The basis is frozen from the same inputs and reads as this one resolve, so

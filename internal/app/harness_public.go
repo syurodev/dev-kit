@@ -368,6 +368,15 @@ func (c *harnessControls) PrepareRevoke(ctx context.Context, workspaceID, sessio
 		return harnessconfig.Review{}, err
 	}
 	names, err := c.validGroups(groups)
+	if errors.Is(err, errHarnessGroupUnknown) {
+		// A name the registry lacks may be a group this session's stored override
+		// still holds from a build that had it (R1a-1). That is not a revoke the
+		// resolver could evaluate: it is the stale-override repair, which removes
+		// exactly the stale groups Go finds in the stored S and refuses any name that
+		// is not one of them. A request that mixes it with a registered group is
+		// still refused.
+		return c.prepareStaleOverrideRepair(ctx, workspaceID, sessionID, groups)
+	}
 	if err != nil {
 		return harnessconfig.Review{}, err
 	}
@@ -375,6 +384,28 @@ func (c *harnessControls) PrepareRevoke(ctx context.Context, workspaceID, sessio
 		return harnessconfig.Review{}, harnessconfig.ErrInvalid
 	}
 	return c.prepare(ctx, harnessconfig.Request{WorkspaceID: workspaceID, SessionID: sessionID, Target: harnessconfig.TargetSession, Patch: harnessconfig.Patch{RevokeGroups: names}})
+}
+
+// prepareStaleOverrideRepair is PrepareRevoke for names the registry does not have.
+// The names only select the repair: they are bounded and must all be unregistered
+// here and then stale in the stored S there.
+func (c *harnessControls) prepareStaleOverrideRepair(ctx context.Context, workspaceID, sessionID string, groups []string) (harnessconfig.Review, error) {
+	known := c.groupSet()
+	var named []string
+	for _, g := range groups {
+		g = strings.TrimSpace(g)
+		if g == "" || utf8.RuneCountInString(g) > maxGroupName || known[g] {
+			return harnessconfig.Review{}, errHarnessGroupUnknown
+		}
+		if !slices.Contains(named, g) {
+			named = append(named, g)
+		}
+	}
+	p, err := c.svc.PrepareSessionRepair(ctx, workspaceID, sessionID, named)
+	if err != nil {
+		return harnessconfig.Review{}, err
+	}
+	return c.review(p, harnessconfig.TargetSessionRepair, workspaceID, sessionID), nil
 }
 
 func (c *harnessControls) prepare(ctx context.Context, req harnessconfig.Request) (harnessconfig.Review, error) {
