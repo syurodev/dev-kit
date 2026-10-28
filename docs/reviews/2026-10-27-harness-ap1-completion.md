@@ -187,6 +187,12 @@ Not read: the vendor adapters, accounts storage and sign-in, `usagemetrics` stor
   (retrying a fenced Close is stopped by the fence itself). **Limits:** the second fork is a second vendor process (one more `Fork`/`Delete`); the retry bound is the same constant as launch preparation; the rig's endpoint is a
   fake with the real coordinator, not the MCP host (the host's own incarnation checks were read, not driven, here); not exercised against a real vendor. Author-written fix: **pending another reviewer**.
 
+- **Follow-up 2026-10-28 (base `87159250`, code `7e4dbe98` and `6f182c85`; ledger: `docs/agent-reference/harness-composition-activation.md`, "O-1 finish-forward hardening").** Checking the above against the finish-forward plan found six
+  gaps, each shown by a failing test first: S together with a lost endpoint was retried as S; the retry budget was per round, not per rewind (4 launches); a partial rewind caused by a cancelled caller or a locked vault reached
+  the window as "Operation cancelled." / "Vault is locked"; a failed `Commit` was reported as "not committed" and deleted the fork; a cancelled caller left the safety row pending; the dialog's fallback said "Nothing was changed.".
+  The public sentence quoted above is **superseded**: the bridge now publishes `agenthub.rewindFilesRestored` or `agenthub.rewindOutcomeUnknown` with fixed sentences that no longer mention a safety-checkpoint control,
+  because the window has none. The committed-S path is covered in `internal/app`; AP1 stays **Partial**, and this follow-up is **pending another reviewer** too.
+
 ### R-3 (low, latent) - `OnChanged` ran under the task write lock (code from #375)
 
 - Where: `internal/tasks/service.go` `mutateAs`, as merged in #375 (`f8e99e04`): `s.changed(...)` was called before the deferred `writeMu.Unlock`, against the field's contract ("never call this while holding a lock").

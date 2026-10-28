@@ -2,6 +2,7 @@ import {
   RewindMode,
   type CheckpointSummary,
   type RewindPreview,
+  type RewindResult,
 } from "../../../bindings/devkit/internal/agenthub/models";
 
 /**
@@ -140,4 +141,50 @@ export function queueBlocksRewind(queued: number): string | null {
 export function interruptedRewindNotice(record: CheckpointSummary | null | undefined): string | null {
   if (!record || record.kind !== "rewind_safety" || record.status !== "pending") return null;
   return "A rewind was interrupted. The files in this project may be half-restored.";
+}
+
+/** The public codes of a rewind that changed the files and did not finish (internal/bridge). */
+export const REWIND_FILES_RESTORED = "agenthub.rewindFilesRestored";
+export const REWIND_OUTCOME_UNKNOWN = "agenthub.rewindOutcomeUnknown";
+
+/**
+ * What a rewind that did not succeed was.
+ *
+ * - `partial`: the files were put back and the conversation was proven not rewound.
+ * - `unknown`: the files were put back (or not) and what happened to the conversation
+ *   could not be confirmed.
+ * - `refused`: anything else. Its sentence is the host's own and claims nothing about
+ *   the project folder.
+ *
+ * The first two are not "nothing changed" and not a success: the plan's token is spent,
+ * the files may differ from what the dialog showed, and repeating the apply is a new
+ * decision that needs a new plan.
+ */
+export type RewindFailure = { kind: "partial" | "unknown" | "refused"; message: string };
+
+export function rewindFailure(error: unknown): RewindFailure {
+  const code = typeof error === "object" && error !== null && "code" in error ? (error as { code?: unknown }).code : undefined;
+  // Never a sentence of our own that says nothing happened: the host's message, or one
+  // that only says the rewind did not finish.
+  const message = error instanceof Error && error.message ? error.message : "The rewind did not finish.";
+  if (code === REWIND_FILES_RESTORED) return { kind: "partial", message };
+  if (code === REWIND_OUTCOME_UNKNOWN) return { kind: "unknown", message };
+  return { kind: "refused", message };
+}
+
+/** The result of one attempt: success, or why not. A failure never carries a result. */
+export type RewindAttempt = { done: true; result: RewindResult } | { done: false; failure: RewindFailure };
+
+/** Runs the apply and sorts its outcome; only a resolved call is `done`. */
+export async function attemptRewind(apply: () => Promise<RewindResult>): Promise<RewindAttempt> {
+  try {
+    return { done: true, result: await apply() };
+  } catch (error: unknown) {
+    return { done: false, failure: rewindFailure(error) };
+  }
+}
+
+/** Whether a failure leaves the dialog's plan unusable: the files already moved. */
+export function rewindFailureSpendsThePlan(failure: RewindFailure | null | undefined): boolean {
+  return failure?.kind === "partial" || failure?.kind === "unknown";
 }

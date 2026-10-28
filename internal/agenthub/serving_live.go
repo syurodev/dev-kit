@@ -81,8 +81,12 @@ const launchAttempts = 3
 // every writer of S, every endpoint replacement and the session's close, and
 // holds the session's live endpoint.
 type servingCoord struct {
-	mu           sync.Mutex
-	epoch        uint64
+	mu    sync.Mutex
+	epoch uint64
+	// lifecycle counts the session's Closes only. epoch moves for an S commit and for
+	// a Close alike, so epoch alone cannot say which; a launch prepared under an older
+	// lifecycle belongs to a session that has since been closed and never resumes.
+	lifecycle    uint64
 	rt           *liveServing
 	closing      bool // a Close is in progress, including durable override cleanup
 	closePending bool // a failed Close must be retried before opening again
@@ -336,8 +340,9 @@ func (s *Service) ReconcileServing(ctx context.Context, sessionID string, readS 
 
 // servingReservation is an opening path's claim on the session's epoch.
 type servingReservation struct {
-	epoch uint64
-	set   bool
+	epoch     uint64
+	lifecycle uint64
+	set       bool
 }
 
 // reserveServing records the epoch before S is read for a launch.
@@ -348,7 +353,7 @@ func (s *Service) reserveServing(sessionID string) (servingReservation, error) {
 	if c.closing || c.closePending {
 		return servingReservation{}, ErrHarnessCleanupFailed
 	}
-	return servingReservation{epoch: c.epoch, set: true}, nil
+	return servingReservation{epoch: c.epoch, lifecycle: c.lifecycle, set: true}, nil
 }
 
 // stageServing registers a launch's endpoint with the coordinator before the
@@ -359,7 +364,7 @@ func (s *Service) stageServing(sessionID string, res servingReservation, ep Serv
 	c := s.servingCoord(sessionID)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.closing || c.closePending || (res.set && c.epoch != res.epoch) {
+	if c.closing || c.closePending || (res.set && (c.epoch != res.epoch || c.lifecycle != res.lifecycle)) {
 		return ErrHarnessLaunchStale
 	}
 	c.rt = &liveServing{ep: ep, basis: basis, serving: launch, eff: eff, acked: true}
@@ -390,18 +395,24 @@ func (s *Service) publishServingLaunch(sessionID string, l harnessLaunch, commit
 // caller that has already done something it cannot take back (a rewind that
 // restored files) can tell a change of S, which a fresh launch resolves, from a
 // Close or a lost endpoint, which it does not.
+//
+// The reason is decided at the refused publication, under the coordinator, from
+// every fact the coordinator holds. Exactly one holds: the order below is from the
+// most final to the least, so S having moved never hides a Close or a lost endpoint.
 type launchStaleReason int
 
 const (
 	launchCurrent launchStaleReason = iota
 	// launchStaleClose: a Close is in progress, or a failed Close must be retried.
 	launchStaleClose
-	// launchStaleEpoch: S, or the session's lifecycle, moved since the reservation.
-	// A completed Close moves it too; the caller checks the session before trusting
-	// that it was S.
-	launchStaleEpoch
-	// launchStaleEndpoint: the staged endpoint is no longer the session's.
+	// launchStaleLifecycle: a Close has run since the reservation (and finished).
+	launchStaleLifecycle
+	// launchStaleEndpoint: the staged endpoint is no longer the session's: it was
+	// closed, or another launch replaced it.
 	launchStaleEndpoint
+	// launchStaleEpoch: S moved since the reservation and nothing else did. It is
+	// the only reason a fresh launch can resolve.
+	launchStaleEpoch
 )
 
 // launchStaleError is ErrHarnessLaunchStale with its reason. It is ErrHarnessLaunchStale
@@ -412,16 +423,18 @@ type launchStaleError struct{ reason launchStaleReason }
 func (e *launchStaleError) Error() string { return ErrHarnessLaunchStale.Error() }
 func (e *launchStaleError) Unwrap() error { return ErrHarnessLaunchStale }
 
-// launchStaleLocked is publishServingLaunch's validation: S or the session's
-// lifecycle moved since the reservation, or the staged endpoint is gone.
+// launchStaleLocked is publishServingLaunch's validation: a Close, the session's
+// lifecycle, the staged endpoint, or S, in that order of finality.
 func launchStaleLocked(c *servingCoord, l harnessLaunch) launchStaleReason {
 	switch {
 	case c.closing || c.closePending:
 		return launchStaleClose
-	case l.reservation.set && c.epoch != l.reservation.epoch:
-		return launchStaleEpoch
+	case l.reservation.set && c.lifecycle != l.reservation.lifecycle:
+		return launchStaleLifecycle
 	case l.incarnation != "" && (c.rt == nil || c.rt.ep.Incarnation() != l.incarnation || c.rt.ep.State().Closed):
 		return launchStaleEndpoint
+	case l.reservation.set && c.epoch != l.reservation.epoch:
+		return launchStaleEpoch
 	}
 	return launchCurrent
 }
@@ -472,6 +485,7 @@ func (s *Service) beginServingClose(sessionID string) (func(bool), error) {
 	}
 	c.closing, c.closePending = true, true
 	c.epoch++
+	c.lifecycle++
 	if c.rt != nil {
 		_, _ = c.rt.ep.Quarantine()
 	}

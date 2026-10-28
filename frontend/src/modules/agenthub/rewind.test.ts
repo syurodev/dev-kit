@@ -1,15 +1,21 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  REWIND_FILES_RESTORED,
+  REWIND_OUTCOME_UNKNOWN,
+  attemptRewind,
   canApplyRewind,
   defaultRewindMode,
   interruptedRewindNotice,
   queueBlocksRewind,
   restorableFiles,
+  rewindFailure,
+  rewindFailureSpendsThePlan,
   rewindOptions,
   rewindSummary,
   rewindTitle,
 } from "./rewind";
+import { toAppError } from "../../bridge/errors";
 import {
   ChangedSource,
   CheckpointKind,
@@ -17,6 +23,7 @@ import {
   RewindMode,
   type CheckpointSummary,
   type RewindPreview,
+  type RewindResult,
 } from "../../../bindings/devkit/internal/agenthub/models";
 
 function checkpoint(overrides: Partial<CheckpointSummary> = {}): CheckpointSummary {
@@ -147,6 +154,50 @@ describe("whether the button does anything", () => {
 
   it("is dead with no plan at all", () => {
     expect(canApplyRewind(null, new Set())).toBe(false);
+  });
+});
+
+describe("a rewind that did not succeed", () => {
+  // What the window receives is the bridge's payload: Wails wraps the Go error in a
+  // RuntimeError whose `cause` carries { code, message, recoverable }.
+  const fromBridge = (code: string, message: string) =>
+    toAppError(Object.assign(new Error("runtime"), { cause: { code, message, recoverable: true } }));
+  const result = { sessionId: "s1", promptText: "p" } as RewindResult;
+
+  it("tells the files-restored and the unconfirmed outcomes from a plain refusal by code", () => {
+    expect(rewindFailure(fromBridge(REWIND_FILES_RESTORED, "The files were put back.")).kind).toBe("partial");
+    expect(rewindFailure(fromBridge(REWIND_OUTCOME_UNKNOWN, "Could not confirm.")).kind).toBe("unknown");
+    expect(rewindFailure(fromBridge("validation_failed", "Validation failed.")).kind).toBe("refused");
+    expect(rewindFailure(fromBridge("operation_cancelled", "Operation cancelled.")).kind).toBe("refused");
+  });
+
+  it("shows the host's sentence, and never one that says nothing changed", () => {
+    expect(rewindFailure(fromBridge(REWIND_FILES_RESTORED, "The files were put back.")).message).toBe("The files were put back.");
+    for (const odd of [undefined, null, "boom", {}, new Error("")]) {
+      const failure = rewindFailure(odd);
+      expect(failure.kind).toBe("refused");
+      expect(failure.message).toBe("The rewind did not finish.");
+      expect(failure.message.toLowerCase()).not.toContain("nothing was changed");
+    }
+  });
+
+  it("is a success only when the call resolved, and a failure carries no result", async () => {
+    const ok = await attemptRewind(async () => result);
+    expect(ok.done).toBe(true);
+    for (const code of [REWIND_FILES_RESTORED, REWIND_OUTCOME_UNKNOWN, "validation_failed"]) {
+      const attempt = await attemptRewind(async () => {
+        throw fromBridge(code, "x");
+      });
+      expect(attempt.done).toBe(false);
+      expect("result" in attempt).toBe(false);
+    }
+  });
+
+  it("spends the plan for the two outcomes that moved the files, not for a refusal", () => {
+    expect(rewindFailureSpendsThePlan({ kind: "partial", message: "" })).toBe(true);
+    expect(rewindFailureSpendsThePlan({ kind: "unknown", message: "" })).toBe(true);
+    expect(rewindFailureSpendsThePlan({ kind: "refused", message: "" })).toBe(false);
+    expect(rewindFailureSpendsThePlan(null)).toBe(false);
   });
 });
 

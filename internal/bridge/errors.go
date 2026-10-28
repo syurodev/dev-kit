@@ -86,6 +86,12 @@ const (
 	codeTaskStatusChanged       = "task_status_changed"
 	codeManagedTerminalNotReady = "tasks.managedTerminalNotReady"
 	codeManagedWriterBlocked    = "agenthub.managedWriterBlocked"
+	// A rewind put the files back and the conversation was proven not rewound
+	// (codeRewindFilesRestored), or it put the files back and what happened to
+	// the conversation could not be proven (codeRewindOutcomeUnknown). Neither is
+	// a success and neither is "nothing changed".
+	codeRewindFilesRestored  = "agenthub.rewindFilesRestored"
+	codeRewindOutcomeUnknown = "agenthub.rewindOutcomeUnknown"
 	// The three states of an agent runtime the UI answers with an action of
 	// its own: offer the install, show what Node is missing, show the log.
 	codeAgentNotInstalled  = "agent_not_installed"
@@ -138,6 +144,13 @@ var safeValidationMessages = map[string]struct{}{
 }
 
 func publicError(subject string, err error) *apperrors.AppError {
+	// First, before anything that reads the cause chain: a rewind that changed the
+	// files wraps whatever stopped it (a cancelled caller, a locked vault, a store
+	// failure), and every check below would report that cause as if nothing had
+	// been changed.
+	if refusal := rewindOutcomeRefusal(err); refusal != nil {
+		return refusal
+	}
 	var telegramError *telegramcontrol.SettingsError
 	if errors.As(err, &telegramError) {
 		return apperrors.New(codeValidationFailed, telegramError.Message, true)
@@ -357,11 +370,6 @@ func publicError(subject string, err error) *apperrors.AppError {
 		// The harness's own refusals of a launch or a close. Fixed host sentences
 		// with a published code (see keptCodes); anything else of the harness's
 		// stays redacted.
-		// Before the harness's refusals, which it wraps: a rewind that put the
-		// files back and could not cut the conversation must say so, not only why.
-		if errors.Is(err, agenthub.ErrRewindFilesRestored) {
-			return apperrors.New(codeValidationFailed, "The files were put back, but the conversation was not rewound. Rewind the same message again to finish, or undo the file restore from its safety checkpoint.", true)
-		}
 		if refusal := harnessRefusal(err); refusal != nil {
 			return refusal
 		}
@@ -771,6 +779,27 @@ func harnessControlRefusal(err error) *apperrors.AppError {
 	return nil
 }
 
+// rewindOutcomeRefusal is the public answer to a rewind that restored the files
+// and then did not finish. The sentences are fixed host text: the cause (a path,
+// a store or vendor error) is never part of them, and neither claims more than
+// was proven. The safety checkpoint is kept in both cases; the window has no
+// control for it today, so the sentences point only at what the person can do:
+// rewind the same message again, which is a new decision.
+func rewindOutcomeRefusal(err error) *apperrors.AppError {
+	switch {
+	case errors.Is(err, agenthub.ErrRewindOutcomeUnknown):
+		return apperrors.New(codeRewindOutcomeUnknown, "The files were put back, but DevKit could not confirm whether the conversation was rewound. Reopen the session to see where it stands before rewinding again. The files' earlier state is kept as a safety checkpoint.", true)
+	case errors.Is(err, agenthub.ErrRewindFilesRestored):
+		return apperrors.New(codeRewindFilesRestored, "The files were put back, but the conversation was not rewound. Rewinding the same message again can finish it. The files' earlier state is kept as a safety checkpoint.", true)
+	case errors.Is(err, agenthub.ErrRewindCommitUnknown):
+		// A conversation-only rewind: no file was touched, so the sentence says only
+		// what is unknown. (A rewind that restored files never reaches this case: it
+		// is one of the two above.)
+		return apperrors.New(codeRewindOutcomeUnknown, "DevKit could not confirm whether the conversation was rewound. No files were changed. Reopen the session to see where it stands.", true)
+	}
+	return nil
+}
+
 func publicErrorForCode(subject string, err error, existing *apperrors.AppError) *apperrors.AppError {
 	code := existing.Code
 	switch code {
@@ -910,6 +939,10 @@ var keptCodes = map[string]bool{
 	harness.CodeFactsUnavailable: true,
 	harness.CodeNotAvailable:     true,
 	harness.CodeNoChange:         true,
+	// rewindOutcomeRefusal's fixed sentences; kept so a mapped error that passes
+	// through the funnel a second time is not redacted into internal_error.
+	codeRewindFilesRestored:  true,
+	codeRewindOutcomeUnknown: true,
 }
 
 // unexpectedError is the bottom of publicError's funnel: every cause that

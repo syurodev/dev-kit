@@ -392,3 +392,33 @@ closing it needs a descriptor-bound execution design with owner review.
 
 Still required before AP1 can be marked complete: a different reviewer for the fixes above, the #375 code and the F-C backend; the O-2 decision; the owner's call on the directory-swap design and F-D; then AP3 (real runtimes, native dialogs) and AP4.
 
+### O-1 finish-forward hardening (2026-10-28, base `87159250`)
+
+`c9b7543e` (above) already put a bounded finish-forward on main; the plan `2026-10-27-harness-rewind-finish-forward-implementation.md` was written as if it were not there. This delivery checked that
+code against the plan, test first, and fixed what the checks found. Code and tests: `7e4dbe98` (backend, bridge) and `6f182c85` (frontend). Production is inert; AP3 and AP4 were **not run**; AP1 stays **Partial**; none of this is independently reviewed.
+
+| # | Found by a failing test | Fix |
+| --- | --- | --- |
+| 1 | S moved **and** the staged endpoint was lost: the rewind retried as if only S had moved (`TestAnSChangeTogetherWithALostEndpointIsNotRetriedAsS` returned success) | The coordinator decides the reason at the refused publication. Order, most final first: Close in progress or failed, a finished Close (new `servingCoord.lifecycle`, moved by Close only), a lost or replaced endpoint, S (the epoch). Only the last is retried. The session row is still re-read as a second word |
+| 2 | `prepareLaunch` kept its own `launchAttempts` per round: a rewind could prepare 4 launches (`TestEveryPreparationOfARewindSharesOneLaunchBudget`) | One budget per rewind, `prepareLaunchWithin`: the first launch and every finish-forward round draw from the same `launchAttempts` (3). Upper bound: 3 launches/endpoints; forks 3 x (1 + the vendor's fallback candidates, which stay their own finite loop) |
+| 3 | `publicError` read the cause chain first, so a partial rewind caused by a cancelled caller reached the window as "Operation cancelled." and one caused by a locked vault as "Vault is locked" (`TestAPartialRewindIsNeverReportedAsTheCauseBehindIt`) | `rewindOutcomeRefusal` is the first check. Two published codes, both fixed sentences with no cause, both in `keptCodes`: `agenthub.rewindFilesRestored` (proven not cut) and `agenthub.rewindOutcomeUnknown` |
+| 4 | A failed `Commit` was treated as "not committed": the fork was deleted and "the conversation was not rewound" was claimed | `RewindSession` wraps a commit failure in `ErrRewindCommitUnknown`. The rewind reads back (the session's vendor id, else the safety row, both written by the same transaction) on a bounded host context. Committed: finished as a success, publication only, no second cut. Not committed: the partial outcome. Unreadable: `RewindUnknownError`, the fork is closed and never deleted, the source stays, the safety row stays pending |
+| 5 | A cancelled caller left the safety row pending and the forks undeleted (`TestACancelledCallerStillSettlesTheSafetyRowAndDiscardsTheForks`) | Safety bookkeeping, fork discard and the read-back run on `hostContext` (15 s, no caller cancellation). A bookkeeping write that fails is logged and reported through `OnRecordError`; the row is left as it is, not claimed settled |
+| 6 | `RewindDialog` showed "Nothing was changed." for any non-Error and left the spent plan's button on | `attemptRewind`/`rewindFailure` sort a failure by the published code; a partial or unconfirmed outcome keeps its own warning, clears the plan, never calls `onRewound` |
+
+Evidence (real SQL, real git checkpoints, scripted vendors, no network): `internal/agenthub/harness_rewind_files_test.go` (restore once, one safety row, bounded rounds, lost endpoint, budget, ambiguous commit in
+three forms and a conversation-only one, cancelled caller, unsettleable row, crash during the retry replays nothing, gate refusal on a changed executable or an unreadable snapshot, endpoint staging failure,
+winner announced once and the source deleted once); `serving_live_internal_test.go` (reason precedence); `internal/bridge/errors_harness_test.go` (the funnel, and the payload as `AppService.call` and `json.Marshal`
+hand it to Wails: code, message, recoverable and nothing else); `frontend/src/modules/agenthub/rewind.test.ts` (the bridge payload through `toAppError`).
+`internal/app/harness_composition_rewind_files_test.go` is the primary acceptance case: an S change **committed through the real harness configuration service, MCP session host and coordinator** after the files were
+restored (`OnFilesRestored`, which fires inside the restore under the rewind's claim) finishes the rewind: one restore, two forks, the winning launch resolved the new S (the revoked group is not served, the
+stored reference carries its fingerprint), cut and reference together; and on every attempt it ends in the partial outcome with 3 forks, one restore and the safety row kept. With the retry switched off the first test fails with the original O-1 symptom.
+The agenthub tests move S with an epoch-only seam (`MarkPending`); the committed path is the app test's.
+
+Validation (Go 1.27.1, linux/amd64, headless, no Wails GUI): see the PR. Limits that remain:
+
+- **Not atomic.** Files and SQL are not one transaction. A crash after the restore and before the cut leaves a pending `rewind_safety` row (listed by `InterruptedRewinds`); nothing is replayed or restored again by the host.
+- **No window control for recovery.** The frontend has bindings for interrupted rewinds and for undoing a restore (`AgentHubInterruptedRewinds`, `RestoreUndoRestore`) but **no component uses them**, so the public sentences point only at what a person can do today (rewind the same message again, a new decision with a new plan) and say the safety checkpoint is kept. A rewind that ended `failed` is not listed by `InterruptedRewinds` (pending rows only).
+- **Seams.** The agenthub test hook fires inside the restore before the files are written (restore-safety row insert); the app test fires after they are written. Neither interleaves with the middle of a file write, which S does not touch.
+- **Not exercised:** a session deleted between the restore and the retry (read as final: the session row cannot be read); a committed cut whose publication the fence then refuses (the session has no live runtime and resumes from the stored conversation; the old vendor session is left, not deleted); a real vendor, a native window, account switching.
+
