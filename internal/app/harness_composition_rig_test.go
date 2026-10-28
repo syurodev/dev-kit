@@ -100,13 +100,16 @@ type scriptedVendor struct {
 	forks  atomic.Int32
 	mu     sync.Mutex
 	onOpen func()
-	rts    []*mortal
+	// onPrompt runs as each prompt starts, on any process of this vendor: a test's
+	// agent that writes files during its turn.
+	onPrompt func()
+	rts      []*mortal
 }
 
 func (v *scriptedVendor) Type() agenthub.AgentType { return v.typ }
 
 func (v *scriptedVendor) start(rt agenthub.SessionRuntime) agenthub.SessionRuntime {
-	m := &mortal{SessionRuntime: rt}
+	m := &mortal{SessionRuntime: rt, vendor: v}
 	v.mu.Lock()
 	v.rts = append(v.rts, m)
 	v.mu.Unlock()
@@ -158,6 +161,7 @@ type mortal struct {
 	dead     atomic.Bool
 	handlers agenthub.RuntimeHandlers
 	replies  int
+	vendor   *scriptedVendor
 }
 
 func (m *mortal) Dead() (bool, error) { return m.dead.Load(), nil }
@@ -171,6 +175,14 @@ func (m *mortal) SetHandlers(h agenthub.RuntimeHandlers) {
 
 func (m *mortal) Prompt(ctx context.Context, prompt []acp.ContentBlock, meta json.RawMessage) (agenthub.PromptOutcome, error) {
 	m.replies++
+	if m.vendor != nil {
+		m.vendor.mu.Lock()
+		hook := m.vendor.onPrompt
+		m.vendor.mu.Unlock()
+		if hook != nil {
+			hook()
+		}
+	}
 	if m.handlers.OnUpdate != nil {
 		update := fmt.Sprintf(`{"sessionUpdate":"agent_message_chunk","messageId":"msg_%s_%d","content":{"type":"text","text":"reply"}}`, m.ACPSessionID(), m.replies)
 		m.handlers.OnUpdate(json.RawMessage(update), nil)

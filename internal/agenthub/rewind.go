@@ -28,9 +28,9 @@ import (
 //	 3. flush the recorder, then drop its state
 //	 4. write the safety row, pending: the log that says a rewind was started
 //	 5. new endpoint, fork the vendor session
-//	 6. restore the files
+//	 6. restore the files, once
 //	 7. one transaction: new vendor id, cut transcript, drop turns and
-//	    checkpoints, safety row done
+//	    checkpoints, safety row done, applied reference
 //	 8. publish the runtime, re-apply mode and model
 //	 9. tell the UI
 //	10. best-effort delete of the old vendor session; release the claim
@@ -42,6 +42,35 @@ import (
 // only thing that will say so. Step 7 is one transaction because a session
 // pointed at a forked conversation whose transcript still holds the dropped
 // messages answers out of a history the user cannot see.
+//
+// Files and database are not one transaction, and this is not pretending they
+// are. Once step 6 has changed the files nothing automatic puts them back, so
+// step 7 is finished forward instead of given up:
+//
+//   - The files are restored once and the safety row is written once. A retry
+//     never restores or snapshots again.
+//   - Step 7 refused only because S moved (the coordinator's reason, read at the
+//     refused publication) is finished forward: the abandoned fork and its endpoint
+//     are discarded, the same rewind target is prepared and forked again from the
+//     same source conversation by the ordinary rules (the launch gate included), and
+//     step 7 is attempted again. The preparations of the whole rewind, the first
+//     one included, share one budget of launchAttempts; vendor fallback candidates
+//     are a separate, finite loop inside each preparation's fork.
+//   - Every other refusal ends the rewind: a Close (in progress, failed or
+//     finished), a lost or replaced endpoint, a deleted session, a cancelled
+//     caller, a gate refusal, a fork or store failure. Nothing here is retried as
+//     if S had moved.
+//   - A step 7 that failed while committing is ambiguous. The durable facts (the
+//     session's vendor id, the safety row) are read back first: a cut that did
+//     commit is published and finished as a success; one that did not is a proven
+//     non-commit; one that cannot be read back deletes nothing and is reported
+//     as unknown.
+//
+// After the files changed, a rewind that does not finish says so: RewindPartialError
+// when the conversation was proven not rewound, RewindUnknownError when that could
+// not be proven. Both keep the safety snapshot; neither is ever retried by the
+// host. The cleanup they need runs on a bounded context of the host's own, so a
+// caller that has gone away cannot strand it.
 
 // RewindMode is how much of a turn to take back.
 type RewindMode string
@@ -289,8 +318,19 @@ func (s *Service) ApplyRewind(ctx context.Context, token string, overwrite []str
 		return RewindResult{}, err
 	}
 
-	rewinder := &rewindRun{service: s, session: session, held: held, forker: forker, overwrite: overwrite}
+	rewinder := &rewindRun{service: s, session: session, held: held, forker: forker, overwrite: overwrite, launchBudget: launchAttempts}
 	return rewinder.run(ctx)
+}
+
+// rewindCleanupTimeout bounds the cleanup a rewind owes after its caller is gone:
+// settling the safety row, discarding a fork, reading the durable facts back.
+const rewindCleanupTimeout = 15 * time.Second
+
+// hostContext is a context for work the rewind owes whether or not the caller is
+// still there. It keeps the caller's values (identity, tracing) but not its
+// cancellation, and it is bounded.
+func hostContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), rewindCleanupTimeout)
 }
 
 // rewindRun carries the state of one rewind through its steps, so each step can
@@ -301,6 +341,10 @@ type rewindRun struct {
 	held      heldRewindPlan
 	forker    RuntimeForker
 	overwrite []string
+
+	// launchBudget is the number of launch preparations this rewind may still
+	// make, shared by its first launch and every finish-forward round.
+	launchBudget int
 
 	usageFacts RuntimeUsageFacts
 	launch     harnessLaunch
@@ -384,17 +428,41 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 	// nothing, and says so. Files restored: the files are now ahead of the
 	// conversation, so a refusal that is only S having moved is finished forward
 	// (below) and anything else says exactly what state it leaves.
-	for attempt := 1; ; attempt++ {
+	published := true
+	for {
 		err := r.commitCut(ctx)
 		if err == nil {
 			break
 		}
+		outcome := r.cutOutcome(ctx, err)
+		if outcome == cutCommitted {
+			// The transaction landed and only its acknowledgement was lost. The cut,
+			// the vendor id and the reference are durable, so this rewind succeeded;
+			// what is left is the in-memory publication the failed call skipped.
+			published = r.publishCommitted()
+			break
+		}
+		if outcome == cutUnknown {
+			// Neither proven. The fork may be the durable winner: close it, delete
+			// nothing (not it, not the source), and keep the safety row pending so a
+			// restart still reports a rewind that did not finish.
+			r.closeFork(ctx)
+			if files == nil {
+				return RewindResult{}, fmt.Errorf("%w: %v", ErrRewindCommitUnknown, err)
+			}
+			return RewindResult{}, &RewindUnknownError{Cause: err, SafetyCheckpointID: r.safetyID}
+		}
 		if files == nil {
 			r.discardFork(ctx)
 			r.abandonSafety(ctx, err)
+			// Proven not committed: the failure is reported as what it was, without the
+			// commit sentinel, which would say the opposite.
+			if errors.Is(err, ErrRewindCommitUnknown) {
+				return RewindResult{}, fmt.Errorf("agenthub: the rewind was not committed: %v", err)
+			}
 			return RewindResult{}, err
 		}
-		if attempt >= launchAttempts || !r.sMovedAfterRestore(ctx, err) {
+		if !r.canFinishForward(ctx, err) {
 			r.discardFork(ctx)
 			r.abandonSafety(ctx, err)
 			return RewindResult{}, &RewindPartialError{Cause: err, SafetyCheckpointID: r.safetyID}
@@ -413,9 +481,10 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 
 	// 8. Vendor settings and callbacks run outside the coordinator. The cut and
 	// reference committed atomically; a crash still leaves the restart guard.
-
-	s.attachUpdates(r.session.ID, r.newRuntime)
-	s.reapplySessionSettings(ctx, r.session.ID, r.newRuntime)
+	if published {
+		s.attachUpdates(r.session.ID, r.newRuntime)
+		s.reapplySessionSettings(ctx, r.session.ID, r.newRuntime)
+	}
 
 	// 9. Tell the UI. Its transcript is now wrong in a way no event it already
 	// listens to would explain.
@@ -424,8 +493,12 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 	}
 
 	// 10. The old vendor session is unreachable now. Best effort: a vendor that
-	// refuses is holding a file, not blocking the user.
-	r.deleteOldVendorSession(ctx)
+	// refuses is holding a file, not blocking the user. With no live fork to ask
+	// (a committed cut that could not be published) it stays, rather than being
+	// deleted through anything but the winner.
+	if published {
+		r.deleteOldVendorSession(ctx)
+	}
 
 	return RewindResult{
 		SessionID:  r.session.ID,
@@ -457,29 +530,109 @@ func (r *rewindRun) commitCut(ctx context.Context) error {
 		if err := s.store.RewindSession(ctx, spec); err != nil {
 			return err
 		}
-		s.mu.Lock()
-		s.runtimes[r.session.ID] = r.newRuntime
-		s.runtimeUsage[r.session.ID] = r.usageFacts
-		s.publishHarnessLocked(r.session.ID, r.launch)
-		s.sessionAccount[r.session.ID] = r.usageFacts.AccountID
-		s.endpoints[r.session.ID] = r.closeNew
-		s.forgetWorkspaceContextLocked(r.session.ID)
-		s.mu.Unlock()
+		r.publishRuntime()
 		return nil
 	})
 }
 
-// sMovedAfterRestore says whether a refused publication, after the files were
-// restored, is only the session's S (or lifecycle epoch) having moved while the
-// session is still open, so a launch prepared again can be published. Every other
-// refusal is final: a Close in progress or failed, a lost endpoint, a Close that
-// completed, a deleted session, a cancelled caller, a store or fork failure.
-func (r *rewindRun) sMovedAfterRestore(ctx context.Context, err error) bool {
+// publishRuntime puts the fork's runtime, usage facts, applied reference and
+// endpoint into the service's maps. It runs under the coordinator, from
+// publishServingLaunch, and only after the cut is durable.
+func (r *rewindRun) publishRuntime() {
+	s := r.service
+	s.mu.Lock()
+	s.runtimes[r.session.ID] = r.newRuntime
+	s.runtimeUsage[r.session.ID] = r.usageFacts
+	s.publishHarnessLocked(r.session.ID, r.launch)
+	s.sessionAccount[r.session.ID] = r.usageFacts.AccountID
+	s.endpoints[r.session.ID] = r.closeNew
+	s.forgetWorkspaceContextLocked(r.session.ID)
+	s.mu.Unlock()
+}
+
+// cutOutcome is what a failed commitCut proves about the transaction.
+type cutOutcome int
+
+const (
+	// cutNotCommitted: nothing was written. Every refusal before the commit (the
+	// publication fence, a failed statement) rolled the whole cut back.
+	cutNotCommitted cutOutcome = iota
+	// cutCommitted: the cut, the vendor id and the reference are durable.
+	cutCommitted
+	// cutUnknown: the commit failed and the durable facts could not settle it.
+	cutUnknown
+)
+
+// cutOutcome decides what to believe about a failed commitCut. Only a failure while
+// committing is ambiguous; it is settled from what is durable: the session's vendor
+// id (the same transaction wrote it), else the safety row (marked done by the same
+// transaction). Whatever cannot be read, or reads as something else, is unknown.
+func (r *rewindRun) cutOutcome(ctx context.Context, err error) cutOutcome {
+	if !errors.Is(err, ErrRewindCommitUnknown) {
+		return cutNotCommitted
+	}
+	hctx, cancel := hostContext(ctx)
+	defer cancel()
+	s := r.service
+	if next := r.newRuntime.ACPSessionID(); next != "" && next != r.session.ACPSessionID {
+		current, gerr := s.store.GetSession(hctx, r.session.ID)
+		switch {
+		case gerr != nil:
+			return cutUnknown
+		case current.ACPSessionID == next:
+			return cutCommitted
+		case current.ACPSessionID == r.session.ACPSessionID:
+			return cutNotCommitted
+		}
+		return cutUnknown
+	}
+	if r.safetyID == "" {
+		return cutUnknown
+	}
+	record, gerr := s.store.GetCheckpoint(hctx, r.safetyID)
+	switch {
+	case gerr != nil:
+		return cutUnknown
+	case record.Status == CheckpointDone:
+		return cutCommitted
+	case record.Status == CheckpointPending:
+		return cutNotCommitted
+	}
+	return cutUnknown
+}
+
+// publishCommitted publishes the runtime of a cut that is proven durable, under the
+// same fence as any publication but without writing the cut again. It reports
+// whether the fork became the session's live runtime. When the fence refuses (S
+// moved, a Close began) the cut is still durable and the session simply has no
+// live runtime: the fork is closed, never deleted, and the next prompt resumes from
+// the durable vendor id.
+func (r *rewindRun) publishCommitted() bool {
+	err := r.service.publishServingLaunch(r.session.ID, r.launch, func() error {
+		r.publishRuntime()
+		return nil
+	})
+	if err == nil {
+		return true
+	}
+	log.Printf("agenthub: rewind %s: the cut is committed but its runtime could not be published (%v); the session resumes from the stored conversation", r.session.ID, err)
+	r.closeFork(context.Background())
+	return false
+}
+
+// canFinishForward says whether a refused publication, after the files were
+// restored, may be answered with another launch: only when S moved and nothing else
+// did (the coordinator decided that at the refusal), the session is still open, the
+// caller is still there and the rewind has budget left. Every other refusal is
+// final: a Close in progress, failed or finished, a lost or replaced endpoint, a
+// deleted session, a cancelled caller, a store or fork failure.
+func (r *rewindRun) canFinishForward(ctx context.Context, err error) bool {
 	var stale *launchStaleError
-	if !errors.As(err, &stale) || stale.reason != launchStaleEpoch || ctx.Err() != nil {
+	if !errors.As(err, &stale) || stale.reason != launchStaleEpoch || ctx.Err() != nil || r.launchBudget <= 0 {
 		return false
 	}
-	// A completed Close advances the same epoch an S commit does.
+	// Belt and braces: the lifecycle generation already excludes a Close; this is
+	// the durable word on it, and on a deleted session.
 	current, gerr := r.service.store.GetSession(ctx, r.session.ID)
 	return gerr == nil && current.Status != SessionStatusClosed
 }
@@ -488,11 +641,13 @@ func (r *rewindRun) sMovedAfterRestore(ctx context.Context, err error) bool {
 // cut the conversation. The project folder has changed; the conversation has not.
 var ErrRewindFilesRestored = errors.New("agenthub.rewindFilesRestored")
 
-// RewindPartialError is that outcome. Cause is why the cut could not be
-// published (still matches ErrHarnessLaunchStale, ErrSessionClosed and so on).
-// Rewinding the same message again finishes the job (the files already match,
-// the restore is a no-op); SafetyCheckpointID names the snapshot taken before the
-// files changed, for undoing the restore instead.
+// RewindPartialError is that outcome, and it is only returned when the cut was
+// proven not to have committed. Cause is why the cut could not be published (still
+// matches ErrHarnessLaunchStale, ErrSessionClosed and so on). Rewinding the same
+// message again finishes the job (the files already match, the restore is a
+// no-op); SafetyCheckpointID names the snapshot taken before the files changed,
+// which is kept, for undoing the restore instead. The host never repeats the
+// restore by itself.
 type RewindPartialError struct {
 	Cause              error
 	SafetyCheckpointID string
@@ -503,6 +658,28 @@ func (e *RewindPartialError) Error() string {
 }
 func (e *RewindPartialError) Unwrap() error        { return e.Cause }
 func (e *RewindPartialError) Is(target error) bool { return target == ErrRewindFilesRestored }
+
+// ErrRewindOutcomeUnknown is a rewind that restored the files and then could not
+// prove whether the cut committed: the store failed while committing and the
+// durable facts could not be read back. Neither "rewound" nor "not rewound" is
+// true of the conversation as far as this process can tell.
+var ErrRewindOutcomeUnknown = errors.New("agenthub.rewindOutcomeUnknown")
+
+// RewindUnknownError is that outcome. It never matches ErrRewindFilesRestored:
+// that sentence says the conversation was not rewound, which was not proven.
+// Nothing is deleted on this path (not the fork, which may be the durable
+// winner, and not the old vendor session), and the safety row stays pending so
+// the next start still reports a rewind that did not finish.
+type RewindUnknownError struct {
+	Cause              error
+	SafetyCheckpointID string
+}
+
+func (e *RewindUnknownError) Error() string {
+	return "agenthub: the files were restored and it is not known whether the conversation was rewound: " + e.Cause.Error()
+}
+func (e *RewindUnknownError) Unwrap() error        { return e.Cause }
+func (e *RewindUnknownError) Is(target error) bool { return target == ErrRewindOutcomeUnknown }
 
 func (r *rewindRun) writeSafetyRow(ctx context.Context) error {
 	s := r.service
@@ -543,19 +720,37 @@ func (r *rewindRun) writeSafetyRow(ctx context.Context) error {
 // abandonSafety marks the safety row failed when the rewind gives up before the
 // cut. The snapshot stays usable — a rewind that failed half-way is when a way
 // back matters most — but the row stops claiming to be in flight.
+//
+// It runs on the host's own bounded context, not the caller's: a caller that
+// cancelled is exactly when the row would otherwise stay "in flight" forever. When
+// the row cannot be read or written the failure is reported and logged, never
+// swallowed, and the row is left as it is (pending) rather than claimed settled.
 func (r *rewindRun) abandonSafety(ctx context.Context, cause error) {
 	if r.safetyID == "" {
 		return
 	}
-	record, err := r.service.store.GetCheckpoint(ctx, r.safetyID)
+	hctx, cancel := hostContext(ctx)
+	defer cancel()
+	record, err := r.service.store.GetCheckpoint(hctx, r.safetyID)
 	if err != nil {
+		r.reportBookkeeping("reading the safety row", err)
 		return
 	}
 	finishedAt := time.Now().UTC()
 	record.Status = CheckpointFailed
 	record.FinishedAt = &finishedAt
 	record.Detail = reasonDetail(cause)
-	if err := r.service.store.UpdateCheckpoint(ctx, record); err != nil && r.service.OnRecordError != nil {
+	if err := r.service.store.UpdateCheckpoint(hctx, record); err != nil {
+		r.reportBookkeeping("settling the safety row", err)
+	}
+}
+
+// reportBookkeeping surfaces a failure of the rewind's own records. The log line
+// names the step and the safety row, never a path or the cause's payload beyond
+// the store's own error text.
+func (r *rewindRun) reportBookkeeping(what string, err error) {
+	log.Printf("agenthub: rewind %s: %s %s: %v", r.session.ID, what, r.safetyID, err)
+	if r.service.OnRecordError != nil {
 		r.service.OnRecordError(r.session.ID, err)
 	}
 }
@@ -568,7 +763,7 @@ func (r *rewindRun) openForked(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	launch, err := s.prepareLaunch(ctx, &spec, r.session.ID, r.session.WorkspaceID, r.session.AgentType, previous)
+	launch, err := s.prepareLaunchWithin(ctx, &spec, r.session.ID, r.session.WorkspaceID, r.session.AgentType, previous, &r.launchBudget)
 	if err != nil {
 		return err
 	}
@@ -625,17 +820,35 @@ func (r *rewindRun) openForked(ctx context.Context) error {
 
 // discardFork closes a fork the rewind is not going to use and asks the vendor
 // to forget it, so a failed rewind does not leave a session nothing points at.
+//
+// Only a fork that is proven not to be the durable winner is deleted. Where the
+// cut's outcome is unknown, closeFork is used instead. Both run on the host's own
+// bounded context: the caller may be gone, and the fork and its endpoint are owed
+// their cleanup regardless.
 func (r *rewindRun) discardFork(ctx context.Context) {
 	if r.newRuntime == nil {
 		return
 	}
+	hctx, cancel := hostContext(ctx)
+	defer cancel()
 	if deleter, ok := r.newRuntime.(RuntimeDeleter); ok {
-		if err := deleter.Delete(ctx); err != nil {
+		if err := deleter.Delete(hctx); err != nil {
 			log.Printf("agenthub: rewind %s: deleting the abandoned fork: %v", r.session.ID, err)
 		}
 	}
-	if err := r.newRuntime.Close(ctx); err != nil {
-		log.Printf("agenthub: rewind %s: closing the abandoned fork: %v", r.session.ID, err)
+	r.closeFork(ctx)
+}
+
+// closeFork shuts the fork's runtime and releases its endpoint without asking the
+// vendor to forget the conversation: the vendor session survives a Close, which is
+// what makes this safe for a fork that might be the durable winner.
+func (r *rewindRun) closeFork(ctx context.Context) {
+	if r.newRuntime != nil {
+		hctx, cancel := hostContext(ctx)
+		if err := r.newRuntime.Close(hctx); err != nil {
+			log.Printf("agenthub: rewind %s: closing the abandoned fork: %v", r.session.ID, err)
+		}
+		cancel()
 	}
 	if r.closeNew != nil {
 		r.closeNew()

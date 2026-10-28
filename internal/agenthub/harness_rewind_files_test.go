@@ -62,16 +62,46 @@ func (f *fakeServing) Install(_ agenthub.EndpointTicket, eff harness.Effective, 
 }
 func (f *fakeServing) close() { f.mu.Lock(); f.closed = true; f.mu.Unlock() }
 
+// liveLog records the live handles the endpoints hand out, so a test can lose one.
+type liveLog struct {
+	mu  sync.Mutex
+	eps []*fakeServing
+}
+
+func (l *liveLog) add(f *fakeServing) {
+	l.mu.Lock()
+	l.eps = append(l.eps, f)
+	l.mu.Unlock()
+}
+
+func (l *liveLog) last() *fakeServing {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.eps[len(l.eps)-1]
+}
+
 // liveEndpoints is the policy endpoint plus a live handle, so launches are staged with
-// the session's coordinator as they are on the real host.
-type liveEndpoints struct{ *policyEndpoints }
+// the session's coordinator as they are on the real host. fail makes the nth open
+// (1-based, counted from the first rewind) refuse, as an endpoint that cannot be staged.
+type liveEndpoints struct {
+	*policyEndpoints
+	log   *liveLog
+	opens *atomic.Int32
+	fail  func(n int) error
+}
 
 func (l liveEndpoints) OpenWithPolicy(sessionID string, e harness.Effective) (agenthub.MCPEndpoint, error) {
+	if n := int(l.opens.Add(1)); l.fail != nil {
+		if err := l.fail(n); err != nil {
+			return agenthub.MCPEndpoint{}, err
+		}
+	}
 	ep, err := l.policyEndpoints.OpenWithPolicy(sessionID, e)
 	if err != nil {
 		return ep, err
 	}
 	live := &fakeServing{id: uuid.NewString(), fingerprint: e.Fingerprint}
+	l.log.add(live)
 	inner := ep.Close
 	ep.Close = func() { live.close(); inner() }
 	ep.Live = live
@@ -92,11 +122,90 @@ func basisSnapshot(t *testing.T, session, ws, vendor string) (harness.Snapshot, 
 	return snap, nil
 }
 
+// forkProbe is one forked vendor runtime as a test sees it: whether the rewind closed it,
+// whether it asked the vendor to forget it (Delete, which destroys the conversation) and
+// which vendor sessions it was asked to delete (the source, after a rewind that won).
+type forkProbe struct {
+	agenthub.SessionRuntime
+	mu              sync.Mutex
+	closed          bool
+	deleted         bool
+	deletedSessions []string
+}
+
+func (f *forkProbe) Close(ctx context.Context) error {
+	f.mu.Lock()
+	f.closed = true
+	f.mu.Unlock()
+	return f.SessionRuntime.Close(ctx)
+}
+
+func (f *forkProbe) Delete(ctx context.Context) error {
+	f.mu.Lock()
+	f.deleted = true
+	f.mu.Unlock()
+	if d, ok := f.SessionRuntime.(agenthub.RuntimeDeleter); ok {
+		return d.Delete(ctx)
+	}
+	return nil
+}
+
+func (f *forkProbe) DeleteSession(ctx context.Context, id string) error {
+	f.mu.Lock()
+	f.deletedSessions = append(f.deletedSessions, id)
+	f.mu.Unlock()
+	if d, ok := f.SessionRuntime.(agenthub.VendorSessionDeleter); ok {
+		return d.DeleteSession(ctx, id)
+	}
+	return nil
+}
+
+func (f *forkProbe) Unwrap() agenthub.SessionRuntime { return f.SessionRuntime }
+
+func (f *forkProbe) SetMode(ctx context.Context, mode string) error {
+	if c, ok := f.SessionRuntime.(agenthub.RuntimeConfigurator); ok {
+		return c.SetMode(ctx, mode)
+	}
+	return nil
+}
+
+func (f *forkProbe) SetConfigOption(ctx context.Context, id, value string) error {
+	if c, ok := f.SessionRuntime.(agenthub.RuntimeConfigurator); ok {
+		return c.SetConfigOption(ctx, id, value)
+	}
+	return nil
+}
+
+func (f *forkProbe) state() (closed, deleted bool, sessions []string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.closed, f.deleted, append([]string(nil), f.deletedSessions...)
+}
+
+type probeLog struct {
+	mu     sync.Mutex
+	probes []*forkProbe
+}
+
+func (l *probeLog) add(p *forkProbe) {
+	l.mu.Lock()
+	l.probes = append(l.probes, p)
+	l.mu.Unlock()
+}
+
+// fork returns the nth fork runtime the vendor made (1-based).
+func (l *probeLog) fork(n int) *forkProbe {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.probes[n-1]
+}
+
 // forkHookAdapter runs a hook as the nth fork starts. A non-nil error fails it.
 type forkHookAdapter struct {
 	replyingAdapter
 	onFork func(n int) error
 	forks  *atomic.Int32
+	probes *probeLog
 }
 
 func (a forkHookAdapter) Fork(ctx context.Context, spec agenthub.OpenSpec, src, messageID string) (agenthub.SessionRuntime, error) {
@@ -106,7 +215,13 @@ func (a forkHookAdapter) Fork(ctx context.Context, spec agenthub.OpenSpec, src, 
 			return nil, err
 		}
 	}
-	return a.replyingAdapter.Fork(ctx, spec, src, messageID)
+	rt, err := a.replyingAdapter.Fork(ctx, spec, src, messageID)
+	if err != nil {
+		return nil, err
+	}
+	probe := &forkProbe{SessionRuntime: rt}
+	a.probes.add(probe)
+	return probe, nil
 }
 
 // probeStore sees the two writes a rewind makes through the service's own store:
@@ -118,6 +233,28 @@ type probeStore struct {
 	restores    int
 	cuts        int
 	failCutWith error
+	// cutFn replaces the cut transaction: it is handed the real one, so a test can run it
+	// and still report a failure (a commit whose acknowledgement was lost), or report one
+	// without running it (a commit that did not happen).
+	cutFn func(real func() error) error
+	// failReads makes GetSession fail, as a store that cannot be read back.
+	failReads atomic.Bool
+	// failUpdates makes UpdateCheckpoint fail, as a store whose bookkeeping cannot land.
+	failUpdates atomic.Bool
+}
+
+func (p *probeStore) GetSession(ctx context.Context, id string) (agenthub.AgentSession, error) {
+	if p.failReads.Load() {
+		return agenthub.AgentSession{}, errors.New("injected: the store cannot be read")
+	}
+	return p.SQLStore.GetSession(ctx, id)
+}
+
+func (p *probeStore) UpdateCheckpoint(ctx context.Context, rec agenthub.CheckpointRecord) error {
+	if p.failUpdates.Load() {
+		return errors.New("injected: the checkpoint cannot be updated")
+	}
+	return p.SQLStore.UpdateCheckpoint(ctx, rec)
 }
 
 func (p *probeStore) InsertCheckpoint(ctx context.Context, rec agenthub.CheckpointRecord) error {
@@ -136,12 +273,16 @@ func (p *probeStore) InsertCheckpoint(ctx context.Context, rec agenthub.Checkpoi
 func (p *probeStore) RewindSession(ctx context.Context, spec agenthub.RewindSpec) error {
 	p.mu.Lock()
 	p.cuts++
-	fail := p.failCutWith
+	fail, cutFn := p.failCutWith, p.cutFn
 	p.mu.Unlock()
 	if fail != nil {
 		return fail
 	}
-	return p.SQLStore.RewindSession(ctx, spec)
+	real := func() error { return p.SQLStore.RewindSession(ctx, spec) }
+	if cutFn != nil {
+		return cutFn(real)
+	}
+	return real()
 }
 
 func (p *probeStore) counts() (restores, cuts int) {
@@ -160,6 +301,15 @@ type filesRig struct {
 	ev      *events
 	forks   *atomic.Int32
 	hooks   *forkHooks
+	lives   *liveLog
+	opens   *atomic.Int32
+	probes  *probeLog
+	// failOpen makes the nth endpoint staged by the rewind refuse.
+	failOpen atomic.Pointer[func(n int) error]
+	harness  *fakeHarness
+	// rewound counts OnSessionRewound; recordErrs the bookkeeping failures the service reported.
+	rewound    atomic.Int32
+	recordErrs atomic.Int32
 }
 
 type forkHooks struct {
@@ -202,6 +352,8 @@ func newFilesRig(t *testing.T) (*filesRig, func(sql string)) {
 	turn := 0
 	hooks := &forkHooks{}
 	forks := &atomic.Int32{}
+	probes := &probeLog{}
+	r := &filesRig{t: t, store: store, project: project, forks: forks, hooks: hooks, probes: probes, lives: &liveLog{}, opens: &atomic.Int32{}}
 	reg := agenthub.NewRegistry()
 	reg.Register(forkHookAdapter{
 		replyingAdapter: replyingAdapter{MockAdapter: agenthub.NewMockAdapter(), closed: &atomic.Bool{}, writeDuringTurn: func() {
@@ -210,12 +362,25 @@ func newFilesRig(t *testing.T) (*filesRig, func(sql string)) {
 		}},
 		onFork: hooks.call,
 		forks:  forks,
+		probes: probes,
 	})
 	svc := agenthub.NewService(reg, store, func(string, json.RawMessage) {})
 	svc.SetCheckpoints(agenthub.NewEngineCheckpoints(checkpoint.New(filepath.Join(t.TempDir(), "checkpoints"), git, checkpoint.Limits{}), raw, raw))
 	svc.MatchingWorkspaces = func(string) ([]string, error) { return []string{"w1"}, nil }
+	svc.OnSessionRewound = func(string, string) { r.rewound.Add(1) }
+	svc.OnRecordError = func(string, error) { r.recordErrs.Add(1) }
 	ev := &events{}
-	svc.MCPEndpoints = liveEndpoints{&policyEndpoints{plainEndpoints: plainEndpoints{ev: ev}}}
+	svc.MCPEndpoints = liveEndpoints{
+		policyEndpoints: &policyEndpoints{plainEndpoints: plainEndpoints{ev: ev}},
+		log:             r.lives,
+		opens:           r.opens,
+		fail: func(n int) error {
+			if f := r.failOpen.Load(); f != nil {
+				return (*f)(n)
+			}
+			return nil
+		},
+	}
 	fh := &fakeHarness{ev: ev}
 	fh.set(func(session, ws, vendor string) (harness.Snapshot, error) {
 		return basisSnapshot(t, session, ws, vendor)
@@ -235,7 +400,8 @@ func newFilesRig(t *testing.T) (*filesRig, func(sql string)) {
 		prompts = append(prompts, waitForCheckpoint(t, raw, session.ID, i+1)[i].PromptMessageID)
 	}
 	forks.Store(0)
-	r := &filesRig{t: t, svc: svc, store: store, project: project, session: session, prompts: prompts, ev: ev, forks: forks, hooks: hooks}
+	r.opens.Store(0)
+	r.svc, r.session, r.prompts, r.ev, r.harness = svc, session, prompts, ev, fh
 	return r, func(q string) {
 		if _, err := db.Exec(q); err != nil {
 			t.Fatal(err)
@@ -373,6 +539,21 @@ func TestAnSChangeDuringTheRestoreFinishesTheRewindForward(t *testing.T) {
 	rows, err := r.store.ListTurns(ctx, r.session.ID)
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("turns = %d: %v", len(rows), err)
+	}
+	// Only the winning attempt is announced and attached, and only it deletes the source:
+	// the abandoned fork is closed and forgotten, never the vendor's source conversation.
+	if got := r.rewound.Load(); got != 1 {
+		t.Fatalf("OnSessionRewound fired %d times, want once for the winning attempt", got)
+	}
+	if closed, deleted, sessions := r.probes.fork(1).state(); !closed || !deleted || len(sessions) != 0 {
+		t.Fatalf("the abandoned fork: closed=%v deleted=%v deletedSessions=%v", closed, deleted, sessions)
+	}
+	winner := r.probes.fork(2)
+	if closed, deleted, sessions := winner.state(); closed || deleted || len(sessions) != 1 || sessions[0] != r.session.ACPSessionID {
+		t.Fatalf("the winning fork: closed=%v deleted=%v deletedSessions=%v, want it open and the source deleted once", closed, deleted, sessions)
+	}
+	if stored, err := r.store.SQLStore.GetSession(ctx, r.session.ID); err != nil || stored.ACPSessionID != winner.ACPSessionID() {
+		t.Fatalf("the stored vendor id must be the winning fork's: %q vs %q (%v)", stored.ACPSessionID, winner.ACPSessionID(), err)
 	}
 }
 
@@ -556,4 +737,372 @@ func TestRefusalsOtherThanSAreNotRetried(t *testing.T) {
 			t.Fatal("conversation uncut and nothing left serving")
 		}
 	})
+}
+
+// ---- classification, budget, ambiguity, cleanup and recovery -----------------------
+//
+// moveS in this file is an epoch-only seam: it marks S as moved on the coordinator,
+// which is all the launch fence reads. The same flow with an S edit committed through
+// the real harness configuration service is exercised in internal/app
+// (TestACommittedSChangeDuringTheFileRestoreFinishesTheRewind).
+
+func (r *filesRig) dropped() bool { return !r.exists("turn2.txt") }
+
+// assertPartial: the files were put back, the conversation was proven not rewound.
+func (r *filesRig) assertPartial(err error) *agenthub.RewindPartialError {
+	r.t.Helper()
+	var partial *agenthub.RewindPartialError
+	if !errors.As(err, &partial) || !errors.Is(err, agenthub.ErrRewindFilesRestored) || errors.Is(err, agenthub.ErrRewindOutcomeUnknown) {
+		r.t.Fatalf("want a proven partial rewind, got %v", err)
+	}
+	if !r.dropped() || r.messages() != 2 {
+		r.t.Fatal("files restored, conversation uncut")
+	}
+	return partial
+}
+
+// A commit of S together with the loss of the staged endpoint is not "S moved": the
+// epoch moved too, but the endpoint is no longer this launch's, and re-preparing would
+// stage a new one over whatever replaced it.
+func TestAnSChangeTogetherWithALostEndpointIsNotRetriedAsS(t *testing.T) {
+	r, _ := newFilesRig(t)
+	r.store.onRestore = func(int) {
+		r.moveS()
+		r.lives.last().close() // the staged endpoint is gone
+	}
+	_, err := r.rewind(context.Background())
+	partial := r.assertPartial(err)
+	if !errors.Is(err, agenthub.ErrHarnessLaunchStale) {
+		t.Fatalf("the cause is the refused publication, got %v", err)
+	}
+	if got := int(r.forks.Load()); got != 1 {
+		t.Fatalf("forks = %d: a lost endpoint must not be answered with another fork", got)
+	}
+	if _, cuts := r.store.counts(); cuts != 0 {
+		t.Fatal("a refused publication must not reach the cut")
+	}
+	if row := r.safetyRow(); row.Status != agenthub.CheckpointFailed || row.ID != partial.SafetyCheckpointID || row.BeforeTree == "" {
+		t.Fatalf("the safety row must be settled with its tree kept: %+v", row)
+	}
+	if r.svc.ServingTarget(r.session.ID).Active {
+		t.Fatal("nothing may be left serving")
+	}
+}
+
+// The launch budget is one for the whole rewind. A re-prepared launch that goes stale
+// while it is being prepared consumes the same budget the finish-forward rounds do,
+// instead of getting a budget of its own (launchAttempts preparations in all: 3).
+func TestEveryPreparationOfARewindSharesOneLaunchBudget(t *testing.T) {
+	r, _ := newFilesRig(t)
+	ctx := context.Background()
+	opens, closes := r.counts()
+	var armed atomic.Bool
+	r.store.onRestore = func(int) { armed.Store(true); r.moveS() }
+	r.harness.set(func(session, ws, vendor string) (harness.Snapshot, error) {
+		if armed.Load() {
+			r.moveS() // every preparation after the restore goes stale before it is staged
+		}
+		return basisSnapshot(t, session, ws, vendor)
+	})
+
+	_, err := r.rewind(ctx)
+	r.assertPartial(err)
+	if !errors.Is(err, agenthub.ErrHarnessLaunchStale) {
+		t.Fatalf("want the stale launch as the cause, got %v", err)
+	}
+	do, dc := r.endpointDelta(opens, closes)
+	if do != 3 {
+		t.Fatalf("prepared %d launches (each opens an endpoint), want at most 3 in all for one rewind", do)
+	}
+	if dc != do+1 {
+		t.Fatalf("endpoint closes = %d, want every staged endpoint and the old one closed (%d)", dc, do+1)
+	}
+	if got := int(r.forks.Load()); got != 1 {
+		t.Fatalf("forks = %d: a launch that never became current is never forked", got)
+	}
+	if restores, cuts := r.store.counts(); restores != 1 || cuts != 0 {
+		t.Fatalf("restores=%d cuts=%d", restores, cuts)
+	}
+}
+
+// The cut transaction can fail while committing, and then nobody knows whether it
+// happened. The rewind reads the durable facts back before it deletes, reports or
+// publishes anything.
+func TestAnAmbiguousCutCommitIsReadBackBeforeAnythingIsDeleted(t *testing.T) {
+	lost := func() error { return errors.Join(agenthub.ErrRewindCommitUnknown, errors.New("acknowledgement lost")) }
+
+	t.Run("it did commit", func(t *testing.T) {
+		r, _ := newFilesRig(t)
+		r.store.cutFn = func(real func() error) error {
+			if err := real(); err != nil {
+				return err
+			}
+			return lost()
+		}
+		if _, err := r.rewind(context.Background()); err != nil {
+			t.Fatalf("a cut that did commit is a rewind that succeeded: %v", err)
+		}
+		if !r.dropped() || r.messages() != 1 {
+			t.Fatal("files and conversation must both be rewound")
+		}
+		if _, cuts := r.store.counts(); cuts != 1 {
+			t.Fatalf("cuts = %d: a proven commit is never cut again", cuts)
+		}
+		fork := r.probes.fork(1)
+		if closed, deleted, sessions := fork.state(); closed || deleted || len(sessions) != 1 || sessions[0] != r.session.ACPSessionID {
+			t.Fatalf("the durable winner must stay and the source go once: closed=%v deleted=%v sessions=%v", closed, deleted, sessions)
+		}
+		stored, err := r.store.SQLStore.GetSession(context.Background(), r.session.ID)
+		if err != nil || stored.ACPSessionID != fork.ACPSessionID() {
+			t.Fatalf("the durable vendor id must be the fork's: %q vs %q (%v)", stored.ACPSessionID, fork.ACPSessionID(), err)
+		}
+		if view := r.svc.ServingTarget(r.session.ID); !view.Active || !view.Acknowledged {
+			t.Fatalf("a proven commit publishes its endpoint: %+v", view)
+		}
+		if got := r.rewound.Load(); got != 1 {
+			t.Fatalf("OnSessionRewound fired %d times, want once", got)
+		}
+		if pending, err := r.svc.InterruptedRewinds(context.Background()); err != nil || len(pending) != 0 {
+			t.Fatalf("a committed rewind leaves no pending safety row: %v %v", pending, err)
+		}
+	})
+
+	t.Run("it did not commit", func(t *testing.T) {
+		r, _ := newFilesRig(t)
+		r.store.cutFn = func(func() error) error { return lost() }
+		_, err := r.rewind(context.Background())
+		partial := r.assertPartial(err)
+		if got := int(r.forks.Load()); got != 1 {
+			t.Fatalf("forks = %d: a proven non-commit is not an S refusal and is not retried", got)
+		}
+		fork := r.probes.fork(1)
+		if closed, deleted, sessions := fork.state(); !closed || !deleted || len(sessions) != 0 {
+			t.Fatalf("a proven non-commit discards its own fork and never touches the source: closed=%v deleted=%v sessions=%v", closed, deleted, sessions)
+		}
+		if row := r.safetyRow(); row.Status != agenthub.CheckpointFailed || row.ID != partial.SafetyCheckpointID {
+			t.Fatalf("safety row: %+v", row)
+		}
+		if r.svc.ServingTarget(r.session.ID).Active || r.rewound.Load() != 0 {
+			t.Fatal("nothing is published and nobody is told the conversation was rewound")
+		}
+	})
+
+	t.Run("it cannot be read back", func(t *testing.T) {
+		r, _ := newFilesRig(t)
+		r.store.cutFn = func(func() error) error {
+			r.store.failReads.Store(true)
+			return lost()
+		}
+		_, err := r.rewind(context.Background())
+		r.store.failReads.Store(false)
+		var unknown *agenthub.RewindUnknownError
+		if !errors.As(err, &unknown) || !errors.Is(err, agenthub.ErrRewindOutcomeUnknown) || errors.Is(err, agenthub.ErrRewindFilesRestored) {
+			t.Fatalf("want an unproven outcome, got %v", err)
+		}
+		fork := r.probes.fork(1)
+		if closed, deleted, sessions := fork.state(); !closed || deleted || len(sessions) != 0 {
+			t.Fatalf("a fork that may be the durable winner is closed, never deleted, and the source stays: closed=%v deleted=%v sessions=%v", closed, deleted, sessions)
+		}
+		row := r.safetyRow()
+		if row.Status != agenthub.CheckpointPending || row.ID != unknown.SafetyCheckpointID || row.BeforeTree == "" {
+			t.Fatalf("an unproven outcome keeps its safety row pending, tree kept: %+v", row)
+		}
+		if pending, err := r.svc.InterruptedRewinds(context.Background()); err != nil || len(pending) != 1 {
+			t.Fatalf("the next start must still report it: %v %v", pending, err)
+		}
+		if r.svc.ServingTarget(r.session.ID).Active || r.rewound.Load() != 0 {
+			t.Fatal("an unproven outcome publishes nothing and announces nothing")
+		}
+	})
+}
+
+// A conversation-only rewind restored no file, so an unprovable commit must not be
+// reported with the file sentence; it is the commit sentinel itself, and nothing is deleted.
+func TestAnUnprovableCutOfAConversationOnlyRewindClaimsNoFileChange(t *testing.T) {
+	r, _ := newFilesRig(t)
+	ctx := context.Background()
+	r.store.cutFn = func(func() error) error {
+		r.store.failReads.Store(true)
+		return errors.Join(agenthub.ErrRewindCommitUnknown, errors.New("acknowledgement lost"))
+	}
+	preview, err := r.svc.PlanRewind(ctx, agenthub.RewindRequest{SessionID: r.session.ID, PromptMessageID: r.prompts[1], Mode: agenthub.RewindConversation})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = r.svc.ApplyRewind(ctx, preview.Token, nil)
+	r.store.failReads.Store(false)
+	if !errors.Is(err, agenthub.ErrRewindCommitUnknown) || errors.Is(err, agenthub.ErrRewindFilesRestored) || errors.Is(err, agenthub.ErrRewindOutcomeUnknown) {
+		t.Fatalf("want the bare commit-unknown error, got %v", err)
+	}
+	if !r.exists("turn2.txt") {
+		t.Fatal("a conversation-only rewind must not touch a file")
+	}
+	if closed, deleted, sessions := r.probes.fork(1).state(); !closed || deleted || len(sessions) != 0 {
+		t.Fatalf("closed=%v deleted=%v sessions=%v: the fork may be the durable winner", closed, deleted, sessions)
+	}
+	if r.svc.ServingTarget(r.session.ID).Active || r.rewound.Load() != 0 {
+		t.Fatal("nothing is published and nobody is told")
+	}
+}
+
+// A caller that goes away must not strand the rewind's own bookkeeping: the safety row
+// is settled and the abandoned forks are discarded on a bounded context of the host's.
+func TestACancelledCallerStillSettlesTheSafetyRowAndDiscardsTheForks(t *testing.T) {
+	r, _ := newFilesRig(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r.store.onRestore = func(int) { r.moveS() }
+	r.hooks.set(func(n int) error {
+		if n == 2 {
+			r.moveS()
+			cancel()
+		}
+		return nil
+	})
+	_, err := r.rewind(ctx)
+	partial := r.assertPartial(err)
+	if row := r.safetyRow(); row.Status != agenthub.CheckpointFailed || row.ID != partial.SafetyCheckpointID || row.BeforeTree == "" {
+		t.Fatalf("the safety row must be settled although the caller is gone: %+v", row)
+	}
+	// The second fork was refused by the vendor with the caller's context already
+	// dead, so only the first one exists; it is the one owed a discard.
+	if closed, deleted, _ := r.probes.fork(1).state(); !closed || !deleted {
+		t.Fatalf("the abandoned fork: closed=%v deleted=%v, want both", closed, deleted)
+	}
+	if r.svc.ServingTarget(r.session.ID).Active {
+		t.Fatal("nothing may be left serving")
+	}
+}
+
+// When even the bookkeeping cannot be written, the outcome is still reported as it is
+// and the failure is surfaced, not swallowed; the row is not claimed to be settled.
+func TestASafetyRowThatCannotBeSettledIsReported(t *testing.T) {
+	r, _ := newFilesRig(t)
+	r.store.onRestore = func(int) { r.moveS() }
+	r.hooks.set(func(n int) error {
+		if n >= 2 {
+			r.moveS()
+		}
+		if n == 3 {
+			r.store.failUpdates.Store(true) // the restore's own update already landed
+		}
+		return nil
+	})
+	_, err := r.rewind(context.Background())
+	r.store.failUpdates.Store(false)
+	partial := r.assertPartial(err)
+	if r.recordErrs.Load() == 0 {
+		t.Fatal("a failed bookkeeping write must be reported through OnRecordError")
+	}
+	row := r.safetyRow()
+	if row.ID != partial.SafetyCheckpointID || row.Status != agenthub.CheckpointPending || row.BeforeTree == "" {
+		t.Fatalf("an unsettled row stays pending with its tree: %+v", row)
+	}
+}
+
+// A process that dies while the finish-forward retry is running leaves the pending
+// safety row with its pre-restore tree, and a restart replays nothing.
+func TestACrashDuringTheRetryLeavesThePendingSafetyRowAndReplaysNothing(t *testing.T) {
+	r, _ := newFilesRig(t)
+	ctx := context.Background()
+	r.store.onRestore = func(int) { r.moveS() }
+	forksAtRestart := int32(-1)
+	r.hooks.set(func(n int) error {
+		if n != 2 {
+			return nil
+		}
+		// The process "dies" here: a new Service over the same database is a restart.
+		restarted := agenthub.NewService(agenthub.NewRegistry(), r.store.SQLStore, func(string, json.RawMessage) {})
+		pending, err := restarted.InterruptedRewinds(ctx)
+		if err != nil || len(pending) != 1 || pending[0].Kind != agenthub.CheckpointRewindSafety || pending[0].Status != agenthub.CheckpointPending || pending[0].BeforeTree == "" {
+			t.Errorf("a restart during the retry must see one pending rewind with its tree: %+v %v", pending, err)
+		}
+		forksAtRestart = r.forks.Load()
+		return nil
+	})
+	if _, err := r.rewind(ctx); err != nil {
+		t.Fatalf("the rewind itself finishes: %v", err)
+	}
+	if forksAtRestart != 2 || r.forks.Load() != 2 {
+		t.Fatalf("forks at restart %d, in all %d: a restart replays nothing", forksAtRestart, r.forks.Load())
+	}
+}
+
+// W or V changing while the restore runs does not freeze the old permissions and does
+// not bypass a gate: the re-preparation is refused by the ordinary rules, nothing
+// executable is launched, and the answer is the truthful partial one.
+func TestARetryTheLaunchGateRefusesIsPartialAndLaunchesNothing(t *testing.T) {
+	changedServer := func(t *testing.T) func(string, string, string) (harness.Snapshot, error) {
+		return func(s, ws, v string) (harness.Snapshot, error) {
+			return snapshotFor(t, s, ws, v, func(in *harness.Inputs) {
+				in.Workspace = &harness.Profile{Schema: 1, Revision: 2,
+					Servers: []harness.Server{{Name: "db", Command: "a-different-command", Enabled: true}}}
+			}), nil
+		}
+	}
+	unreadable := func(*testing.T) func(string, string, string) (harness.Snapshot, error) {
+		return func(string, string, string) (harness.Snapshot, error) {
+			return harness.Snapshot{}, errors.New("the workspace profile could not be read")
+		}
+	}
+	for name, tc := range map[string]struct {
+		next func(*testing.T) func(string, string, string) (harness.Snapshot, error)
+		want error
+	}{
+		"a new workspace executable": {changedServer, agenthub.ErrHarnessNewSessionRequired},
+		"an unresolvable snapshot":   {unreadable, agenthub.ErrHarnessUnavailable},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r, _ := newFilesRig(t)
+			opens, closes := r.counts()
+			r.store.onRestore = func(int) {
+				r.moveS()
+				r.harness.set(tc.next(t))
+			}
+			_, err := r.rewind(context.Background())
+			r.assertPartial(err)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("want the gate's refusal %v as the cause, got %v", tc.want, err)
+			}
+			if got := int(r.forks.Load()); got != 1 {
+				t.Fatalf("forks = %d: a refused gate launches nothing", got)
+			}
+			if do, dc := r.endpointDelta(opens, closes); do != 1 || dc != 2 {
+				t.Fatalf("endpoint opens=%d closes=%d, want the first staged one and the old one closed (1 and 2)", do, dc)
+			}
+			if r.svc.ServingTarget(r.session.ID).Active {
+				t.Fatal("nothing may be left serving")
+			}
+		})
+	}
+}
+
+// An endpoint that cannot be staged on the re-prepared launch leaves nothing behind and
+// the first, discarded attempt's resources are all closed.
+func TestAnEndpointThatCannotBeStagedOnTheRetryLeavesNothingBehind(t *testing.T) {
+	r, _ := newFilesRig(t)
+	opens, closes := r.counts()
+	boom := errors.New("the endpoint host refused")
+	fail := func(n int) error {
+		if n >= 2 {
+			return boom
+		}
+		return nil
+	}
+	r.failOpen.Store(&fail)
+	r.store.onRestore = func(int) { r.moveS() }
+	_, err := r.rewind(context.Background())
+	r.assertPartial(err)
+	if !errors.Is(err, boom) {
+		t.Fatalf("want the staging failure as the cause, got %v", err)
+	}
+	if do, dc := r.endpointDelta(opens, closes); do != 1 || dc != 2 {
+		t.Fatalf("endpoint opens=%d closes=%d, want 1 and 2", do, dc)
+	}
+	if closed, deleted, _ := r.probes.fork(1).state(); !closed || !deleted {
+		t.Fatal("the abandoned first fork must be closed and deleted")
+	}
+	if r.svc.ServingTarget(r.session.ID).Active {
+		t.Fatal("nothing may be left serving")
+	}
 }

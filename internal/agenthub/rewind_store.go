@@ -4,6 +4,7 @@ package agenthub
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -54,6 +55,14 @@ type RewindStore interface {
 // would leave the picker empty until the agent happened to republish. Usage is
 // not kept — it is the running cost of messages that no longer exist.
 var rewindKeptStateKinds = []UpdateKind{UpdateCurrentMode, UpdateConfigOptions, UpdateAvailableCommands}
+
+// ErrRewindCommitUnknown is a RewindSession that failed while committing: the
+// transaction may or may not have reached the database. Every other failure of
+// RewindSession happens before the commit and rolled the whole cut back, so it
+// is proof that nothing was written. The caller reads the durable facts back
+// (the session's vendor id, the safety row) before it deletes or reports
+// anything.
+var ErrRewindCommitUnknown = errors.New("agenthub: the rewind transaction's outcome is unknown")
 
 // RewindSession applies the cut in one transaction.
 func (st *SQLStore) RewindSession(ctx context.Context, spec RewindSpec) error {
@@ -128,7 +137,12 @@ func (st *SQLStore) RewindSession(ctx context.Context, spec RewindSpec) error {
 	} else if _, err := tx.ExecContext(ctx, `DELETE FROM agent_session_harness_applied WHERE session_id=?`, spec.SessionID); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		// The driver's text stays out of the chain's public face; the sentinel is
+		// what the caller acts on.
+		return fmt.Errorf("%w: %v", ErrRewindCommitUnknown, err)
+	}
+	return nil
 }
 
 type keptRow struct {

@@ -90,9 +90,24 @@ type harnessLaunch struct {
 // prepared again, at most launchAttempts times in all; it never sends a prompt or
 // picks another account.
 func (s *Service) prepareLaunch(ctx context.Context, spec *OpenSpec, sessionID, workspaceID string, vendor AgentType, previous *appliedHarness) (harnessLaunch, error) {
-	for attempt := 1; ; attempt++ {
+	budget := launchAttempts
+	return s.prepareLaunchWithin(ctx, spec, sessionID, workspaceID, vendor, previous, &budget)
+}
+
+// prepareLaunchWithin is prepareLaunch against a budget the caller owns: every
+// preparation takes one from *budget, a stale one is prepared again only while any
+// is left, and nothing here starts a preparation of its own beyond it. A rewind
+// shares one budget between its first launch and every finish-forward round, so
+// the preparations of one rewind are bounded by launchAttempts in all rather than
+// by launchAttempts each.
+func (s *Service) prepareLaunchWithin(ctx context.Context, spec *OpenSpec, sessionID, workspaceID string, vendor AgentType, previous *appliedHarness, budget *int) (harnessLaunch, error) {
+	if *budget <= 0 {
+		return harnessLaunch{closeEndpoint: func() {}}, ErrHarnessLaunchStale
+	}
+	for {
+		*budget--
 		l, err := s.prepareLaunchOnce(ctx, spec, sessionID, workspaceID, vendor, previous)
-		if err != nil && errors.Is(err, ErrHarnessLaunchStale) && attempt < launchAttempts {
+		if err != nil && errors.Is(err, ErrHarnessLaunchStale) && *budget > 0 {
 			continue
 		}
 		return l, err
