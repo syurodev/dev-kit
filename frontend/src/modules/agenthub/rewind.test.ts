@@ -181,6 +181,16 @@ describe("a rewind that did not succeed", () => {
     }
   });
 
+  it("keeps a restore that stopped part-way a partial outcome under its own sentence", () => {
+    // Same published code, different host sentence (Go: RewindPartialError.RestoreIncomplete).
+    const sentence = "The files were only partly put back, and the conversation was not rewound.";
+    const failure = rewindFailure(fromBridge(REWIND_FILES_RESTORED, sentence));
+    expect(failure).toEqual({ kind: "partial", message: sentence });
+    expect(rewindFailureSpendsThePlan(failure)).toBe(true);
+    expect(failure.kind).not.toBe("unknown");
+    expect(failure.kind).not.toBe("refused");
+  });
+
   it("is a success only when the call resolved, and a failure carries no result", async () => {
     const ok = await attemptRewind(async () => result);
     expect(ok.done).toBe(true);
