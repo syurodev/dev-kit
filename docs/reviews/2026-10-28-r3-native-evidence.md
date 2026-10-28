@@ -1,8 +1,9 @@
 # R3 native evidence record (PARTIAL)
 
-Status: **partial and owner-deferred.** The owner asked on 2026-10-28 to close what can be closed now and to finish the remaining rows
-during normal use of the candidate. This record states which rows have evidence, which were not run, and which cannot be run. It does
-not say AP3 is complete, and it does not by itself satisfy R4's "accepted R1–R3 evidence" gate (see "What this does and does not allow").
+Status: **accepted by the owner on 2026-10-28, with the rows listed under Limits still open.** The owner directed that R3 be closed now and
+that the remaining rows be exercised during normal use of the candidate. The evidence itself is partial: this file states which rows have
+evidence, which were not run and which cannot be run, and it does not claim they passed. The acceptance is the owner's decision, not a claim
+that every row passed; it carries no independent review (see Review below).
 
 The candidate is **acceptance-only and unmerged**. Its branch `candidate/harness-ap3-native` exists only on the owner's machine (not
 pushed). Its build, launcher, scripted fixture peer and the full click-by-click checklist are in that branch's
@@ -78,6 +79,7 @@ Result: **Pass** has evidence named in the Source column; **Partial** says what 
 ## What this does and does not allow
 
 This record shows the wiring starts, the two public tools reach the real hub, the ordinary approval and refusal paths behave as the
-design says on the rows above, and server mode and the terminal identity fail closed. It leaves the rows listed under Limits open. R4's
-gate (R1–R3 evidence accepted, O-2 decided, ordinary owner review) is therefore **not met by this file alone**. Either the open rows are
-completed and added here, or the owner records in the R4 pull request that they accept R4 with those rows open.
+design says on the rows above, and server mode and the terminal identity fail closed. The owner accepted it as R3 evidence on
+2026-10-28 with the rows under Limits open. R4's gate (R1–R3 evidence accepted, O-2 decided, ordinary owner review) therefore still needs
+the O-2 decision on inert-build reference deletion and the ordinary review of the R4 pull request. Rows run later in normal use should be
+added here with the candidate head they ran on. Nothing in this file authorises production activation.

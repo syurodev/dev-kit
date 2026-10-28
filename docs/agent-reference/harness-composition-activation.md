@@ -487,11 +487,11 @@ one busy rule; the dialog body shrinks inside the card so the action row no long
 (`usagemetrics` and the budgets panel internals were not read). The window still has no control for interrupted rewinds (see the O-1 record above).
 Not run by either reviewer: a real jail, macOS, the native window, whole-package `-race`, lint, `bun run build`.
 
-## R3 native evidence (partial, 2026-10-28)
+## R3 native evidence (accepted by the owner with rows open, 2026-10-28)
 
 [`docs/reviews/2026-10-28-r3-native-evidence.md`](../reviews/2026-10-28-r3-native-evidence.md) records the native and server-mode rows run on an
-acceptance-only candidate (unmerged, local branch `candidate/harness-ap3-native`, head `384a95d4`) with a scripted peer in a disposable data root. It is
+acceptance-only candidate (unmerged, local branch `candidate/harness-ap3-native`, head `384a95d4`) with a scripted peer in a disposable data root. The owner accepted it as R3 evidence on 2026-10-28 with open rows. It is
 **partial**: the approval, revoke, auto-narrowing, terminal-identity and server-mode rows have evidence; stale repair, restart, the exact budget review in
-the window and the late-approval variants were not run, and a failed publication cannot be produced natively. R4's gate is not met by it alone. It also
+the window and the late-approval variants were not run, and a failed publication cannot be produced natively. The O-2 decision and the ordinary review of the R4 pull request are still required. It also
 records a window-blanking render error reachable from the prompt box (present on `main`, not harness code) and the candidate's startup-behaviour
 differences R4 must decide.
