@@ -422,3 +422,41 @@ Validation (Go 1.27.1, linux/amd64, headless, no Wails GUI): see the PR. Limits 
 - **Seams.** The agenthub test hook fires inside the restore before the files are written (restore-safety row insert); the app test fires after they are written. Neither interleaves with the middle of a file write, which S does not touch.
 - **Not exercised:** a session deleted between the restore and the retry (read as final: the session row cannot be read); a committed cut whose publication the fence then refuses (the session has no live runtime and resumes from the stored conversation; the old vendor session is left, not deleted); a real vendor, a native window, account switching.
 
+
+### R1 independent reviews and the owner's decisions (2026-10-28, base `8c5e64d0`)
+
+Two reviews by other instances of the same model family (not a human sign-off; neither wrote the code it read):
+[R1a](../reviews/2026-10-28-r1a-fc-o2-dirswap-review.md) (F-C #377, O-2, the #375 directory-swap boundary) and
+[R1b](../reviews/2026-10-28-r1b-376-items-and-379-review.md) (the merged O-1 finish-forward #379 and ledger items 4-8 of #376).
+R2 (real-runtime protocol evidence, [report](../reviews/2026-10-28-r2-real-runtime-evidence.md)) is merged. **AP1 stays Partial; AP3 (R3, native)
+and AP4 (activation) are not run; production is still inert.** Nothing below is an acceptance.
+
+**What now has independent evidence.** F-C backend and UI (traced, focused tests run, a real headless-browser layout check of the repair dialog; not the
+native window). #379: retry classification, the shared three-launch budget, ambiguous-commit read-back, bridge sentences and the frontend outcome
+sorting held up under reading and four mutations. Ledger items 4, 5 and 6 (item 6 with a probe test that every harness setter and budget read refuses a
+caller that is not the window). Item 7 only in part; item 8: the comments on #375 are a bot review and the author's own replies, so they are **not**
+used as an independent sign-off; the Git canonical-path binding and Claim/Release serialization were reviewed on their own and no defect was found.
+
+**Decisions of the owner (recorded 2026-10-28).**
+- **O-2 (sessions with no applied reference): the reviewer's recommendation is accepted.** AP4 may proceed on O-2 only on two conditions, both now
+  activation conditions: (i) no product path writes workspace executables (`Servers`, `SkillFolders`); the one unconditional refusal
+  (`ErrExecutableNotReady`) stays; (ii) **Option B with E** is a hard prerequisite of AP4 and of any change that lets W carry executables: on any reopen
+  (resume, reload, rewind forks, account move and their preflights) with no stored reference and a snapshot that has a workspace-owned executable,
+  refuse with `ErrHarnessNewSessionRequired`, reading only, writing no row; `HarnessStatus` shows it before the launch refuses. Create is unchanged.
+  Option C (stamp a baseline from today's W) is rejected. **Not yet decided:** whether an inert build should keep deleting existing references
+  (`harness_runtime.go`, `rewind_store.go`); it stays as it is until the owner decides, and B makes it less urgent.
+- **The Git directory-swap and `.git` indirection (#375): treated as a release-security blocker, and being fixed.** The Git scope must not be described
+  as a boundary against a hostile agent until it is. Three routes reach a repository outside the grant (two need no race) and one reaches host execution.
+  Under the plan's literal criterion this is not an AP4 blocker (the Git group is on by default today and activation only adds an off switch), but the
+  owner chose to fix it now. Delivered in stages: the `.git`-file redirect and repository-supplied execution for agent-origin calls first, then
+  descriptor-bound execution and guards keyed on verified identity. Links to the PRs are in the commit history of each stage.
+- **Findings the owner chose to fix before R4:** R1a-1 (a session override S naming a group that is no longer registered locks the session out and the
+  window's revoke fails with `harness.groupUnknown`) and R1b F1 (a file restore that fails part-way is reported as a plain refusal and its safety row
+  is marked `failed`, so `InterruptedRewinds` never lists it) with F2 (two retry-budget tests that hang and exhaust memory instead of failing when the
+  budget is broken; that, not a defect on `main`, was the 16 GB process that crashed the machine).
+
+**Open, not scheduled.** R1a-2 (the 64-entry repair bound is unreachable under the 8 KiB summary cap and the refusal says "split it" for a repair),
+R1a-3 (the Result limits tab can be closed while a repair apply waits for confirmation), R1a-4 (F-D, the action row hangs 16 px below the card at
+maximum height), R1b F3 and F4 (post-commit cleanup uses the caller's context; not reproduced), F5 (one test pins the retry reason on its own), and item 7
+(`usagemetrics` and the budgets panel internals were not read). The window still has no control for interrupted rewinds (see the O-1 record above).
+Not run by either reviewer: a real jail, macOS, the native window, whole-package `-race`, lint, `bun run build`.
