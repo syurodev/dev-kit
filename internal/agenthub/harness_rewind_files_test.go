@@ -131,6 +131,11 @@ type forkProbe struct {
 	closed          bool
 	deleted         bool
 	deletedSessions []string
+	// modes are the modes it was asked to take, and each with whether the caller's
+	// context was still alive; deleteCtxErrs the same for the source session's deletion.
+	modes         []string
+	modeCtxErrs   []error
+	deleteCtxErrs []error
 }
 
 func (f *forkProbe) Close(ctx context.Context) error {
@@ -153,6 +158,7 @@ func (f *forkProbe) Delete(ctx context.Context) error {
 func (f *forkProbe) DeleteSession(ctx context.Context, id string) error {
 	f.mu.Lock()
 	f.deletedSessions = append(f.deletedSessions, id)
+	f.deleteCtxErrs = append(f.deleteCtxErrs, ctx.Err())
 	f.mu.Unlock()
 	if d, ok := f.SessionRuntime.(agenthub.VendorSessionDeleter); ok {
 		return d.DeleteSession(ctx, id)
@@ -163,6 +169,10 @@ func (f *forkProbe) DeleteSession(ctx context.Context, id string) error {
 func (f *forkProbe) Unwrap() agenthub.SessionRuntime { return f.SessionRuntime }
 
 func (f *forkProbe) SetMode(ctx context.Context, mode string) error {
+	f.mu.Lock()
+	f.modes = append(f.modes, mode)
+	f.modeCtxErrs = append(f.modeCtxErrs, ctx.Err())
+	f.mu.Unlock()
 	if c, ok := f.SessionRuntime.(agenthub.RuntimeConfigurator); ok {
 		return c.SetMode(ctx, mode)
 	}

@@ -491,9 +491,13 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 
 	// 8. Vendor settings and callbacks run outside the coordinator. The cut and
 	// reference committed atomically; a crash still leaves the restart guard.
+	// The cut is durable, so what follows is owed whether or not the caller is still
+	// there: on the host's own bounded context, as the cleanup before the cut is.
 	if published {
 		s.attachUpdates(r.session.ID, r.newRuntime)
-		s.reapplySessionSettings(ctx, r.session.ID, r.newRuntime)
+		hctx, cancel := hostContext(ctx)
+		s.reapplySessionSettings(hctx, r.session.ID, r.newRuntime)
+		cancel()
 	}
 
 	// 9. Tell the UI. Its transcript is now wrong in a way no event it already
@@ -889,7 +893,10 @@ func (r *rewindRun) deleteOldVendorSession(ctx context.Context) {
 	if !ok {
 		return
 	}
-	if err := deleter.DeleteSession(ctx, r.session.ACPSessionID); err != nil {
+	// The cut is durable: the deletion is owed whether or not the caller is still there.
+	hctx, cancel := hostContext(ctx)
+	defer cancel()
+	if err := deleter.DeleteSession(hctx, r.session.ACPSessionID); err != nil {
 		log.Printf("agenthub: rewind %s: the old vendor session %s could not be deleted: %v",
 			r.session.ID, r.session.ACPSessionID, err)
 	}
