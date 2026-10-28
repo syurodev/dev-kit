@@ -1,0 +1,24 @@
+import path from "node:path";
+import { defineConfig } from "vite";
+import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
+
+const here = path.resolve(__dirname);
+const root = path.resolve(__dirname, "..");
+export default defineConfig({
+  root,
+  resolve: { alias: [{ find: /^@\//, replacement: path.join(root, "src") + "/" }] },
+  server: { host: "127.0.0.1", port: 9391, strictPort: true, fs: { allow: [root, path.resolve(root, "..")] } },
+  plugins: [
+    {
+      name: "stub-appservice",
+      enforce: "pre",
+      resolveId(id: string) {
+        if (/bindings\/devkit\/internal\/bridge$/.test(id)) return path.join(here, "stub.ts");
+        return null;
+      },
+    },
+    react(),
+    tailwindcss(),
+  ],
+});

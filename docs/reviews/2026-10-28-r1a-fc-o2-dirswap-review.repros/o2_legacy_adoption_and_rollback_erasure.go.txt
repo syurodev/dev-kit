@@ -1,0 +1,85 @@
+package agenthub_test
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"devkit/internal/agenthub"
+)
+
+func lastServerNames(e *launchEnv) []string {
+	e.adapter.mu.Lock()
+	defer e.adapter.mu.Unlock()
+	var out []string
+	if len(e.adapter.specs) == 0 {
+		return nil
+	}
+	spec := e.adapter.specs[len(e.adapter.specs)-1]
+	for _, c := range spec.Customizations {
+		for _, s := range c.Servers {
+			out = append(out, s.Name)
+		}
+	}
+	return out
+}
+
+// O-2 probe 1: a session created while no harness was wired has no applied
+// reference. After a harness is wired and the workspace profile owns a server,
+// does its first reopen adopt that server?
+func TestR1aProbeLegacySessionFirstReopenAdoptsWorkspaceExecutable(t *testing.T) {
+	e := newLaunchEnv(t, policy)
+	e.svc.Harness = nil
+	session := e.mustCreate() // inert: no snapshot, no reference
+	if _, _, found := e.durable(session.ID); found {
+		t.Fatal("setup: an inert session must have no reference")
+	}
+	e.harness.set(workspaceServer(t, true))
+	svc := e.restart() // harness wired, W owns server "db"
+	_, err := svc.Invoke(context.Background(), agenthub.InvokeInput{SessionID: session.ID, Prompt: "continue"})
+	ref, _, found := e.durable(session.ID)
+	t.Logf("first reopen after activation: err=%v servers-in-spec=%v reference-written=%v workspaceOwned=%d", err, lastServerNames(e), found, len(ref.WorkspaceOwned))
+	// Control: the same reopen once a reference exists is refused when W adds a server later.
+	e.harness.set(workspaceServer(t, false))
+	if _, err := svc.Invoke(context.Background(), agenthub.InvokeInput{SessionID: session.ID, Prompt: "again"}); err != nil {
+		t.Logf("control reopen with W lacking the server: %v", err)
+	}
+}
+
+// O-2 probe 2: a rolled-back (inert) build reopens a session that had a reference.
+// Is the reference erased, so a later re-activation has no baseline for it?
+func TestR1aProbeRollbackBuildErasesTheAppliedReference(t *testing.T) {
+	e := newLaunchEnv(t, policy)
+	e.harness.set(workspaceServer(t, false)) // W without a server
+	session := e.mustCreate()
+	if _, _, found := e.durable(session.ID); !found {
+		t.Fatal("setup: harness-wired session must have a reference")
+	}
+	// Control: with the reference, a W that now owns a server is refused.
+	ctl := e.restart()
+	e.harness.set(workspaceServer(t, true))
+	_, errCtl := ctl.Invoke(context.Background(), agenthub.InvokeInput{SessionID: session.ID, Prompt: "control"})
+	t.Logf("control (reference present, W adds server): %v", errCtl)
+	if !errors.Is(errCtl, agenthub.ErrHarnessNewSessionRequired) {
+		t.Fatalf("control must be refused, got %v", errCtl)
+	}
+
+	// Roll back: an inert build (Harness nil) reopens the same session.
+	e.harness.set(workspaceServer(t, false))
+	rb := e.restart()
+	rb.Harness = nil
+	if _, err := rb.Invoke(context.Background(), agenthub.InvokeInput{SessionID: session.ID, Prompt: "rolled back"}); err != nil {
+		t.Fatalf("rolled-back reopen: %v", err)
+	}
+	_, _, found := e.durable(session.ID)
+	t.Logf("reference after a rolled-back (inert) reopen: found=%v", found)
+
+	// Re-activate with W owning a server.
+	e.harness.set(workspaceServer(t, true))
+	re := e.restart()
+	_, errRe := re.Invoke(context.Background(), agenthub.InvokeInput{SessionID: session.ID, Prompt: "reactivated"})
+	t.Logf("re-activated reopen with a W-owned server: err=%v servers-in-spec=%v", errRe, lastServerNames(e))
+	if errRe == nil {
+		t.Errorf("ROLLBACK ERASES THE GUARD: the session adopted a workspace executable after rollback + re-activation (reference found after rollback = %v)", found)
+	}
+}

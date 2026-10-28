@@ -1,0 +1,14 @@
+#!/bin/bash
+# usage: shot.sh <width> <height> <query>
+W=$1; H=$2; Q=$3
+timeout 90 google-chrome --headless=new --no-sandbox --disable-gpu --hide-scrollbars --user-data-dir=/tmp/claude-1001/-home-ptvu3-Downloads-dev-kit/5b140951-37b3-4275-ab2c-cfa418a9bb9d/scratchpad/chrome-profile \
+  --window-size=${W},${H} --virtual-time-budget=15000 --dump-dom \
+  "http://127.0.0.1:9391/r1a-scratch/index.html?${Q}" 2>/dev/null | python3 -I -c '
+import sys,re,json,html
+s=sys.stdin.read()
+m=re.search(r"RESULT_BEGIN(.*?)RESULT_END",s,re.S)
+if not m: print("NO RESULT", s[:300]); sys.exit()
+d=json.loads(html.unescape(m.group(1)))
+for r in d:
+    print(json.dumps(r))
+'
