@@ -186,17 +186,44 @@ func subcommand(args []string) string {
 // of a local or ssh remote. remote.<name>.uploadpack and .receivepack would run
 // whatever the repository says, and a -c override does not beat them (git keeps
 // the first value it reads), but an option does.
-func (r runner) remoteFlags(ctx context.Context, command string) []string {
+//
+// A remote on this machine is another repository, and its receiving git runs
+// that repository's own hooks in the host's process tree (a -c option does not
+// reach it: git clears its configuration environment for a local remote). The
+// agent can make such a repository, so for a local remote the receiving side is
+// started by the host's git with hooks off. A remote reached over ssh or http
+// runs on someone else's machine, and is asked for the plain program.
+func (r runner) remoteFlags(ctx context.Context, command, remote string) []string {
 	if !r.isHardened(ctx) {
 		return nil
 	}
 	switch command {
 	case "push":
+		if r.isLocalRemote(ctx, remote, true) {
+			return []string{"--receive-pack=" + shellWord(r.git) + " -c core.hooksPath=" + noHooksPath() +
+				" -c receive.denyCurrentBranch=refuse receive-pack"}
+		}
 		return []string{"--receive-pack=git-receive-pack"}
 	case "fetch", "pull":
 		return []string{"--upload-pack=git-upload-pack"}
 	}
 	return nil
+}
+
+// isLocalRemote reports whether the remote's address is a path or file:// URL,
+// after url.<base>.insteadOf. Unknown is not local: the push then fails on its own.
+func (r runner) isLocalRemote(ctx context.Context, remote string, push bool) bool {
+	args := []string{"remote", "get-url"}
+	if push {
+		args = append(args, "--push")
+	}
+	out, err := r.run(ctx, nil, append(args, remote)...)
+	return err == nil && transportOf(strings.TrimSpace(string(out))) == TransportLocal
+}
+
+// shellWord quotes s as one word for the shell git starts a remote program with.
+func shellWord(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func (r runner) isHardened(ctx context.Context) bool { return r.hardened || agentOrigin(ctx) }
