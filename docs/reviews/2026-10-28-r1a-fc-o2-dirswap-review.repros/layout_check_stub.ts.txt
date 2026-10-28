@@ -1,0 +1,36 @@
+// Stub of the Wails AppService for a scratch layout page. Not the real bindings.
+const q = new URLSearchParams(location.search);
+const N = Number(q.get("n") ?? "64");
+const LONG = q.get("long") === "1";
+const name = (i: number) => (LONG ? `group-${i}-` + "very-long-unbroken-name-".repeat(6) + "x".repeat(40) : `grp${i}`);
+const kinds = ["group", "toolBudget", "groupBudget"] as const;
+const entries = Array.from({ length: N }, (_, i) => {
+  const kind = kinds[i % 3];
+  return kind === "group"
+    ? { kind, name: name(i), on: i % 2 === 0 }
+    : { kind, name: name(i), bytes: 4096 + i, cut: "headTail" };
+});
+const line = (e: any) =>
+  e.kind === "group"
+    ? `remove the saved "${e.on ? "on" : "off"}" setting for tool group "${e.name}"`
+    : `remove the saved result limit for ${e.kind === "toolBudget" ? "tool" : "tool group"} "${e.name}" (size ${e.bytes} bytes, cut ${e.cut})`;
+const summary =
+  `Repair this workspace's saved harness profile. ${N} saved setting(s) refer to tool groups or tools this build does not have, which stops new sessions from starting. Approving removes exactly these and changes nothing else:` +
+  entries.map((e) => "\n- " + line(e)).join("") +
+  `\nEffect: widening. A removed "off" setting is forgotten: if that group returns later (a module or build adds it back) it uses the default, which is available, instead of what was saved. Removed result limits are not restored either.` +
+  `\nSessions already running keep what they opened with. The repaired profile applies when a session is next opened or reloaded, and the usual checks on servers and skills still apply then. No session is reloaded now.` +
+  `\nIf you would rather restore the missing module or build, cancel and do that instead.`;
+const review = {
+  id: "r1", target: "repair", workspaceId: "ws-1", sessionId: "", tier: "widening", summary, needsConfirmation: true, rationaleUntrusted: "",
+  changes: entries.map((e) => ({ vendor: "", field: e.kind, key: e.name, effect: line(e), scope: "stored" })),
+};
+export const AppService = {
+  HarnessAvailable: async () => true,
+  // The ordinary read refuses a stale profile, as the real resolver does.
+  HarnessWorkspaceProfile: async () => { throw new Error("The stored harness profile cannot be read, and this app cannot repair it."); },
+  HarnessStaleProfile: async () => ({ workspaceId: "ws-1", profileRevision: 3, profilePresent: true, state: N === 0 ? "none" : "stale", entries: entries.slice(0, 64), total: N, truncated: false }),
+  HarnessPrepareStaleRepair: async () => review,
+  HarnessCancel: async () => {},
+  HarnessApply: async () => new Promise(() => {}), // waits for the person, as the real hub does
+  HarnessWorkspaceBudgets: async () => ({ rows: [], groups: [] }),
+};
