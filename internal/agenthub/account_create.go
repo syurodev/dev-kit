@@ -262,7 +262,7 @@ func (s *Service) openNewRuntime(ctx context.Context, adapter VendorAdapter, bas
 	for {
 		spec := base
 		acct.apply(s, &spec)
-		launch, err := s.prepareLaunch(ctx, &spec, base.SessionID, base.WorkspaceID, adapter.Type(), nil)
+		launch, err := s.prepareLaunch(ctx, &spec, base.SessionID, base.WorkspaceID, adapter.Type(), nil, launchCreate) // a new session: nothing earlier to compare with, and not judged as a reopen
 		if err != nil {
 			log.Printf("agenthub: %s session: prepare launch: %v", adapter.Type(), err)
 			return newRuntime{}, err

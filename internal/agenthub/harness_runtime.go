@@ -87,6 +87,17 @@ type harnessLaunch struct {
 	incarnation string
 }
 
+// launchKind says whether a launch opens a session that has never run
+// (launchCreate) or brings back one that existed (launchReopen: resume, reload,
+// account move, both rewind opens and every preflight). It is explicit because
+// "no stored reference" means "new" for a create and "no baseline" for a reopen.
+type launchKind int
+
+const (
+	launchCreate launchKind = iota
+	launchReopen
+)
+
 // prepareLaunch is the single place an endpoint and a harness snapshot are
 // produced together, before launch arguments, prompt or pre-approved lists are
 // finalized. It runs for CreateSession, resumeRuntime (Load, reload, account
@@ -99,9 +110,9 @@ type harnessLaunch struct {
 // A launch whose S (or lifecycle) moved while it was preparing is discarded and
 // prepared again, at most launchAttempts times in all; it never sends a prompt or
 // picks another account.
-func (s *Service) prepareLaunch(ctx context.Context, spec *OpenSpec, sessionID, workspaceID string, vendor AgentType, previous *appliedHarness) (harnessLaunch, error) {
+func (s *Service) prepareLaunch(ctx context.Context, spec *OpenSpec, sessionID, workspaceID string, vendor AgentType, previous *appliedHarness, kind launchKind) (harnessLaunch, error) {
 	budget := launchAttempts
-	return s.prepareLaunchWithin(ctx, spec, sessionID, workspaceID, vendor, previous, &budget)
+	return s.prepareLaunchWithin(ctx, spec, sessionID, workspaceID, vendor, previous, kind, &budget)
 }
 
 // prepareLaunchWithin is prepareLaunch against a budget the caller owns: every
@@ -110,13 +121,13 @@ func (s *Service) prepareLaunch(ctx context.Context, spec *OpenSpec, sessionID, 
 // shares one budget between its first launch and every finish-forward round, so
 // the preparations of one rewind are bounded by launchAttempts in all rather than
 // by launchAttempts each.
-func (s *Service) prepareLaunchWithin(ctx context.Context, spec *OpenSpec, sessionID, workspaceID string, vendor AgentType, previous *appliedHarness, budget *int) (harnessLaunch, error) {
+func (s *Service) prepareLaunchWithin(ctx context.Context, spec *OpenSpec, sessionID, workspaceID string, vendor AgentType, previous *appliedHarness, kind launchKind, budget *int) (harnessLaunch, error) {
 	if *budget <= 0 {
 		return harnessLaunch{closeEndpoint: func() {}}, ErrHarnessLaunchStale
 	}
 	for {
 		*budget--
-		l, err := s.prepareLaunchOnce(ctx, spec, sessionID, workspaceID, vendor, previous)
+		l, err := s.prepareLaunchOnce(ctx, spec, sessionID, workspaceID, vendor, previous, kind)
 		if err != nil && errors.Is(err, ErrHarnessLaunchStale) && *budget > 0 {
 			continue
 		}
@@ -124,7 +135,7 @@ func (s *Service) prepareLaunchWithin(ctx context.Context, spec *OpenSpec, sessi
 	}
 }
 
-func (s *Service) prepareLaunchOnce(ctx context.Context, spec *OpenSpec, sessionID, workspaceID string, vendor AgentType, previous *appliedHarness) (harnessLaunch, error) {
+func (s *Service) prepareLaunchOnce(ctx context.Context, spec *OpenSpec, sessionID, workspaceID string, vendor AgentType, previous *appliedHarness, kind launchKind) (harnessLaunch, error) {
 	l := harnessLaunch{closeEndpoint: func() {}}
 	// Before S is read: any S commit after this point makes the launch stale.
 	var reserveErr error
@@ -144,7 +155,7 @@ func (s *Service) prepareLaunchOnce(ctx context.Context, spec *OpenSpec, session
 	if s.MCPEndpoints != nil && nilHarnessEndpoint(s.MCPEndpoints) {
 		return l, ErrHarnessNotEnforceable
 	}
-	if err := s.harnessGate(l.snapshot, previous, canEnforce); err != nil {
+	if err := s.harnessGate(l.snapshot, previous, kind, canEnforce); err != nil {
 		return l, err
 	}
 	if s.MCPEndpoints == nil {
@@ -351,7 +362,7 @@ func (s *Service) recordHarnessApplied(ctx context.Context, sessionID string, l 
 // harnessGate refuses what cannot honestly be launched: a profile that needs the
 // server to enforce it when the endpoint cannot, and a reopen that would adopt a
 // changed set of executables the person has not seen in a new session.
-func (s *Service) harnessGate(snap *harness.Snapshot, previous *appliedHarness, canEnforce bool) error {
+func (s *Service) harnessGate(snap *harness.Snapshot, previous *appliedHarness, kind launchKind, canEnforce bool) error {
 	if snap == nil {
 		return nil
 	}
@@ -363,6 +374,16 @@ func (s *Service) harnessGate(snap *harness.Snapshot, previous *appliedHarness, 
 	// symlink counts) needs a new session; removals, narrowing and changes that
 	// come from the vendor customization with W's content unchanged do not.
 	if previous != nil && snap.Ref.AdoptsNewExecutables(previous.Ref) {
+		return ErrHarnessNewSessionRequired
+	}
+	// O-2: a reopen with no stored reference has no baseline to compare with, and
+	// the runtime it had before (a launch that never merged the workspace profile)
+	// never carried a workspace-owned executable. Absence is not approval: with
+	// any such executable in the snapshot the person opens a new session. This
+	// reads only; it writes no row and never stamps a reference from today's
+	// profile. A create is a new session and is not judged by it. An unreadable
+	// reference never reaches this point (previousHarness already refused it).
+	if previous == nil && kind == launchReopen && len(snap.Ref.WorkspaceOwned) > 0 {
 		return ErrHarnessNewSessionRequired
 	}
 	return nil
@@ -390,7 +411,7 @@ func (s *Service) preflightHarness(ctx context.Context, sess AgentSession) error
 	if s.MCPEndpoints != nil && nilHarnessEndpoint(s.MCPEndpoints) {
 		return ErrHarnessNotEnforceable
 	}
-	return s.harnessGate(&snap, previous, canEnforce)
+	return s.harnessGate(&snap, previous, launchReopen, canEnforce)
 }
 
 // nilHarnessEndpoint catches a missing publication handle or a typed nil hidden

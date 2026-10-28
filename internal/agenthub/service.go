@@ -2754,7 +2754,7 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 	if err != nil {
 		return nil, err
 	}
-	launch, err := s.prepareLaunch(ctx, &spec, sess.ID, sess.WorkspaceID, sess.AgentType, previous)
+	launch, err := s.prepareLaunch(ctx, &spec, sess.ID, sess.WorkspaceID, sess.AgentType, previous, launchReopen)
 	if err != nil {
 		return nil, err
 	}

@@ -233,8 +233,7 @@ func TestO2DRewindForkLaunchRefusesALegacySessionWithoutAdopting(t *testing.T) {
 }
 
 // newAccountMoveEnv adds an account book and a second account to a launch
-// environment, with the built-in account over its threshold: the next turn wants
-// to move the session to "work".
+// environment.
 func newAccountMoveEnv(t *testing.T) *launchEnv {
 	t.Helper()
 	e := newLaunchEnv(t, policy)
@@ -243,10 +242,6 @@ func newAccountMoveEnv(t *testing.T) *launchEnv {
 		t.Fatal(err)
 	}
 	if err := book.Put(t.Context(), agenthub.AccountRecord{ID: "work", Vendor: agenthub.AgentTypeMock, HomeDir: t.TempDir(), SignedIn: true}); err != nil {
-		t.Fatal(err)
-	}
-	w := agenthub.LimitWindow{Label: "Weekly", UsedPercent: 95, ResetsAt: time.Now().Add(24 * time.Hour).Unix()}
-	if err := book.SaveUsage(t.Context(), builtinMock, []agenthub.LimitWindow{w}, "observed", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	e.svc.Accounts = book
@@ -258,10 +253,21 @@ func newAccountMoveEnv(t *testing.T) *launchEnv {
 	return e
 }
 
+// overThreshold fills the built-in account after the session was created on it,
+// so that the next turn wants to move the session to "work".
+func (e *launchEnv) overThreshold() {
+	e.t.Helper()
+	w := agenthub.LimitWindow{Label: "Weekly", UsedPercent: 95, ResetsAt: time.Now().Add(24 * time.Hour).Unix()}
+	if err := agenthub.NewSQLAccountStore(e.db).SaveUsage(e.t.Context(), builtinMock, []agenthub.LimitWindow{w}, "observed", time.Now()); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
 func TestO2EAccountMovePreflightKeepsALegacySessionWhereItIs(t *testing.T) {
 	ctx := context.Background()
 	e := newAccountMoveEnv(t)
 	s := e.legacySession()
+	e.overThreshold()
 	e.harness.set(workspaceServer(t, true))
 	rt, ok := e.svc.RuntimeForTest(s.ID)
 	if !ok {
@@ -466,10 +472,10 @@ func TestO2LStatusSaysNewSessionRequiredBeforeTheLaunchRefuses(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.harness.set(workspaceServer(t, true))
-	if st := e.status(created.ID); st.State != agenthub.HarnessUnavailable {
-		t.Fatalf("unreadable: %+v", st)
+	// A new process: the running service still holds its own in-memory record.
+	if st, err := e.restart().HarnessStatus(ctx, created.ID); err != nil || st.State != agenthub.HarnessUnavailable {
+		t.Fatalf("unreadable: %+v %v", st, err)
 	}
-	_ = ctx
 }
 
 // The rule is stateless: nothing it does can be seen in the store. A refused

@@ -785,7 +785,7 @@ func (r *rewindRun) openForked(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	launch, err := s.prepareLaunchWithin(ctx, &spec, r.session.ID, r.session.WorkspaceID, r.session.AgentType, previous, &r.launchBudget)
+	launch, err := s.prepareLaunchWithin(ctx, &spec, r.session.ID, r.session.WorkspaceID, r.session.AgentType, previous, launchReopen, &r.launchBudget)
 	if err != nil {
 		return err
 	}
