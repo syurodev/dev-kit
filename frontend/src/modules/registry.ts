@@ -128,9 +128,11 @@ export type ModuleManifest = {
    * Show a tab strip at the top of this module's content area.
    *
    * Opt-in: a strip earns its 48px only where a module has several items open
-   * at once — Notes (a tab per note), Agent Hub (per session), Database (per
-   * table). With one view there is nothing to switch between, and the shell
-   * already reads 40px of title bar before any content. Tab STATE exists for
+   * at once — Notes (a tab per note), Database (per table). With one view
+   * there is nothing to switch between, and the shell already reads 40px of
+   * title bar before any content. A module whose rail is how you move between
+   * its objects draws none either: Agent Hub shows one session at a time and
+   * opens each as the preview tab (agenthub/documents.ts). Tab STATE exists for
    * every module regardless (stores/workbenchTabs.ts); this only decides
    * whether the strip is drawn.
    *

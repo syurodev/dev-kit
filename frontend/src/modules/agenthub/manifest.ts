@@ -18,9 +18,12 @@ export const agenthubModule: ModuleManifest = {
   // The session list is where every Agent Hub visit starts. Its home costs nothing to open, so it opens
   // rather than showing "has nothing open" (ModuleManifest.opensHome).
   opensHome: true,
-  // One tab per session (documents.ts); the home tab is where a new one is
-  // drafted, and the strip's + opens it.
-  tabs: true,
+  // No strip: the sidebar is how you move between sessions. The session on
+  // screen is a preview tab that the next one replaces (documents.ts), so the
+  // module never piles up tabs nobody can see; the home tab is where a new
+  // session is drafted. `newTab` stays for the module's own "new" entry points
+  // (the title-bar menu, the nothing-open state), which have no strip to share.
+  tabs: false,
   newTab: () => openNewAgentSession(),
   // The swarm tree, as the module's rail: there with no tab open, and not
   // registered by every session tab (AgentHubSidebar).

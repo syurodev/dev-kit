@@ -134,14 +134,26 @@ Dùng `useModuleVisibility()` cho dialog/portal thuộc document. Một tab đan
 
 Các trang [Sidebar](../dev-kit/sidebar.mdx), [Module tabs](../dev-kit/module-tabs.mdx) và [Layout](../dev-kit/layout.mdx) có thêm bối cảnh thiết kế; các phần ghi là lịch sử phải đối chiếu với runtime và hướng dẫn này trước khi áp dụng.
 
-### Agent Hub: một session, một tab
+### Agent Hub: một session một lúc, điều hướng bằng sidebar
 
-Agent Hub bật `tabs: true`; mỗi session là một document `agenthub.sessions` với
-`params.sessionId`, mở qua helper trong [`documents.ts`](../../frontend/src/modules/agenthub/documents.ts)
-(sidebar, palette, peek, notification, permission toast đều đi qua đó). Tab không có
-`sessionId` là tab "New session": draft sống trong tab này; tạo xong thì mở tab của
-session và đóng tab draft. Nút + và ⌘N mở tab draft; `+` theo project/child trong
-sidebar gửi yêu cầu qua `useAgentDraftRequests`. Đóng tab **không** đóng session.
+Agent Hub đặt `tabs: false`: **không vẽ tab strip**, và đây là ngoại lệ có chủ đích của luật
+"module nhiều đối tượng thì bật `tabs`". Chuyển giữa các session là việc của sidebar. Mỗi
+session vẫn là một document `agenthub.sessions` với `params.sessionId`, mở qua helper trong
+[`documents.ts`](../../frontend/src/modules/agenthub/documents.ts) (sidebar, palette, peek,
+notification, permission toast đều đi qua đó), nhưng `openAgentSession` mở nó như **tab
+preview**: workbench chỉ giữ một slot preview cho mỗi module và mỗi group, nên mở session khác
+thay session đang xem tại chỗ và không để lại tab ẩn nào. Một session đã mở sẵn dưới dạng tab
+giữ lại (Agent panel tự thêm bằng `addAgentSessionTabInBackground`) được focus tại chỗ, không bị
+thay. Tab không có `sessionId` là tab "New session": nó là tab thường, nên draft chưa gửi còn
+nguyên khi bạn xem session khác; tạo xong thì mở session và đóng tab draft. ⌘N, "New session"
+trong palette và `+` theo project/child trong sidebar mở draft (yêu cầu đi qua
+`useAgentDraftRequests`); `newTab` của manifest còn dùng cho menu ở title bar và màn "nothing
+open". Đóng một session đang xem (⌘W) **không** đóng session và không ghi vào danh sách đã đóng.
+
+Hệ quả: Agent Hub không có split hai session cạnh nhau và không có pin tab (pin ở sidebar,
+`agentPins`, vẫn còn). Agent panel đọc cùng danh sách tab nên chỉ thấy session Agent Hub đang
+xem cộng các tab nó tự thêm. Tab session đã lưu từ trước khi đổi vẫn nằm yên (đóng được từ
+Agent panel) và không còn tăng thêm.
 
 - Sidebar là `ModuleManifest.sidebar` (`AgentHubSidebar`), không đăng ký từ từng tab;
   dòng được chọn là session của focused group (`activeAgentHubSessionId`).
