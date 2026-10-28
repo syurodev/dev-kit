@@ -288,7 +288,7 @@ func (s *Service) Worktrees(ctx context.Context) ([]Worktree, error) {
 // isWorktreeDirty checks if a worktree has uncommitted changes.
 func (s *Service) isWorktreeDirty(ctx context.Context, path string) bool {
 	// Run status in the worktree directory with "normal" untracked mode.
-	r := runner{git: s.runner.git, work: path}
+	r := s.runner.sibling(path)
 	status, err := readStatus(ctx, r, "normal")
 	if err != nil {
 		return false
@@ -298,7 +298,7 @@ func (s *Service) isWorktreeDirty(ctx context.Context, path string) bool {
 
 // worktreeInfo returns Worktree info for a given path and branch.
 func (s *Service) worktreeInfo(ctx context.Context, path, branch string) (Worktree, error) {
-	r := runner{git: s.runner.git, work: path}
+	r := s.runner.sibling(path)
 	headOut, err := r.run(ctx, nil, "rev-parse", "HEAD")
 	if err != nil {
 		return Worktree{}, err
