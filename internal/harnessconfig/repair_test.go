@@ -244,6 +244,73 @@ func TestMoreStaleEntriesThanCanBeShownCannotBePrepared(t *testing.T) {
 	}
 }
 
+// R1a-2: the count bound is only an upper bound. What can be reviewed is what the
+// confirmation can show in full, so the diagnosis must say so (and offer nothing)
+// whenever the prepare would refuse, with the repair's own sentence and not the
+// ordinary editor's "split it into smaller changes".
+func staleGroupsProfile(count, nameLen int) func(p *harness.Profile) {
+	return func(p *harness.Profile) {
+		p.ToolGroups = map[string]bool{}
+		for i := 0; i < count; i++ {
+			p.ToolGroups[fmt.Sprintf("gone%03d-", i)+strings.Repeat("x", nameLen-8)] = false
+		}
+	}
+}
+
+func TestARepairTooLongToShowInFullIsNotOfferedAndSaysWhy(t *testing.T) {
+	a := newApplyEnv(t)
+	a.seedProfile("w1", staleGroupsProfile(MaxStaleEntries, 128))
+	before, _, _ := a.store.GetProfile(ui(), "w1")
+	d, err := a.svc.DiagnoseStale(ui(), "w1")
+	if err != nil || d.State != StaleRepairable || !d.Truncated || d.Total != MaxStaleEntries {
+		t.Fatalf("diagnosis = state %s total %d truncated %v %v", d.State, d.Total, d.Truncated, err)
+	}
+	_, err = a.svc.PrepareRepair(ui(), "w1")
+	if !errors.Is(err, ErrRepairTooLarge) || errors.Is(err, ErrTooLargeToShow) {
+		t.Fatalf("prepare = %v", err)
+	}
+	if strings.Contains(ErrRepairTooLarge.Message, "Split") {
+		t.Fatalf("a repair cannot be split: %s", ErrRepairTooLarge.Message)
+	}
+	for _, want := range []string{"cannot be split", "Restore the missing module or build"} {
+		if !strings.Contains(ErrRepairTooLarge.Message, want) {
+			t.Errorf("refusal lacks %q: %s", want, ErrRepairTooLarge.Message)
+		}
+	}
+	after, _, _ := a.store.GetProfile(ui(), "w1")
+	if profileDigest(before) != profileDigest(after) {
+		t.Fatal("a refused repair wrote")
+	}
+}
+
+// The diagnosis and the prepare agree for every size: whatever is offered prepares
+// (and shows every entry), whatever does not prepare is not offered.
+func TestTheDiagnosisOffersARepairExactlyWhenItCanBePrepared(t *testing.T) {
+	for _, count := range []int{1, 8, 16, 32, 48, MaxStaleEntries} {
+		for _, nameLen := range []int{8, 24, 64, 128} {
+			a := newApplyEnv(t)
+			a.seedProfile("w1", staleGroupsProfile(count, nameLen))
+			d, err := a.svc.DiagnoseStale(ui(), "w1")
+			if err != nil || d.State != StaleRepairable || d.Total != count {
+				t.Fatalf("count %d len %d: diagnosis %+v %v", count, nameLen, d, err)
+			}
+			p, perr := a.svc.PrepareRepair(ui(), "w1")
+			if d.Truncated {
+				if !errors.Is(perr, ErrRepairTooLarge) {
+					t.Fatalf("count %d len %d: not offered but prepare = %v", count, nameLen, perr)
+				}
+				continue
+			}
+			if perr != nil {
+				t.Fatalf("count %d len %d: offered but prepare = %v", count, nameLen, perr)
+			}
+			if len(p.View.Changes) != count {
+				t.Fatalf("count %d len %d: review lists %d", count, nameLen, len(p.View.Changes))
+			}
+		}
+	}
+}
+
 func TestAStoredNameIsShownBoundedAndWithoutControlCharacters(t *testing.T) {
 	a := newApplyEnv(t)
 	hostile := "gone\n\x1b[31m" + strings.Repeat("x", 300)

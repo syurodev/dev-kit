@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -524,5 +525,26 @@ func TestAnAmbiguousSessionRepairCommitIsReportedAsUncertain(t *testing.T) {
 	f.mode.Store("")
 	if o, _ := r.override(sess.ID); o != nil {
 		t.Fatalf("a fresh read shows the write: %q", storedGroups(o))
+	}
+}
+
+// R1a-2: a session repair whose review could not show every removal in full is
+// refused with the repair's own sentence (a repair cannot be split), not the
+// ordinary editor's "split it into smaller changes", and nothing is written.
+func TestASessionRepairTooLongToShowInFullIsRefusedWithoutAdviceToSplitIt(t *testing.T) {
+	// The window may name only a short group (it is a selector); the removal is every
+	// stale group stored, and the long ones are what the review cannot hold.
+	names := []string{"gone"}
+	for i := 1; i < harnessconfig.MaxStaleEntries; i++ {
+		names = append(names, fmt.Sprintf("gone%03d-", i)+strings.Repeat("x", 120))
+	}
+	r, sid := staleSessionRig(t, names...)
+	_, sBefore := r.override(sid)
+	_, err := r.revokeReview(sid, names[0])
+	if err == nil || strings.Contains(err.Error(), "Split") || !strings.Contains(err.Error(), "cannot be split") {
+		t.Fatalf("revoke = %v", err)
+	}
+	if _, sAfter := r.override(sid); sAfter != sBefore {
+		t.Fatal("a refused repair wrote")
 	}
 }

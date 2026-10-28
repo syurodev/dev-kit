@@ -105,23 +105,26 @@ export function StaleRepairView({
           <p className="text-body-13 font-medium text-text-primary">
             This workspace’s saved settings refer to {diagnosis.total} tool group{diagnosis.total === 1 ? "" : "s"} or tool{diagnosis.total === 1 ? "" : "s"} this build does not have.
           </p>
-          <p className="text-body-12 text-text-secondary">
-            That stops new sessions from starting here, and other edits are refused until it is fixed. Repair removes exactly the settings below and nothing else; you review and confirm first.
-            Sessions already running keep what they opened with. If one of these returns later (a module or build adds it back) its removed setting is not remembered: a group
-            uses the default, which is available. To keep them, cancel and restore the missing module or build instead.
-          </p>
-          <ul aria-label="Settings to remove" className="space-y-1.5">
+          {diagnosis.truncated ? (
+            <p role="status" className="text-body-12 text-text-secondary" data-testid="stale-repair-too-large">
+              That stops new sessions from starting here, and other edits are refused until it is fixed. Repair is not offered: the review of these {diagnosis.total} settings would be too long
+              to show in full, and a removal you were not shown is never confirmed. A repair cannot be split into smaller steps. To get new sessions starting again, restore the missing module or build instead.
+              {(diagnosis.entries ?? []).length < diagnosis.total ? ` Only the first ${(diagnosis.entries ?? []).length} are listed below.` : ""}
+            </p>
+          ) : (
+            <p className="text-body-12 text-text-secondary">
+              That stops new sessions from starting here, and other edits are refused until it is fixed. Repair removes exactly the settings below and nothing else; you review and confirm first.
+              Sessions already running keep what they opened with. If one of these returns later (a module or build adds it back) its removed setting is not remembered: a group
+              uses the default, which is available. To keep them, cancel and restore the missing module or build instead.
+            </p>
+          )}
+          <ul aria-label={diagnosis.truncated ? "Stale settings" : "Settings to remove"} className="space-y-1.5">
             {(diagnosis.entries ?? []).map((e, i) => (
               <li key={`${e.kind}-${e.name}-${i}`} className="rounded-md border border-border-subtle px-3 py-2 text-body-12 text-text-primary break-words">
                 {describeStaleEntry(e)}
               </li>
             ))}
           </ul>
-          {diagnosis.truncated ? (
-            <p role="status" className="text-body-12 text-text-secondary">
-              {diagnosis.total} settings are stale, too many to review in one step, so no repair is offered here.
-            </p>
-          ) : null}
           </div>
           <div className="flex shrink-0 justify-end gap-2" data-testid="stale-repair-actions">
             <Button type="button" variant="outline" disabled={busy !== ""} onClick={onClose}>
