@@ -785,9 +785,12 @@ func harnessControlRefusal(err error) *apperrors.AppError {
 // rewindOutcomeRefusal is the public answer to a rewind that restored the files
 // and then did not finish. The sentences are fixed host text: the cause (a path,
 // a store or vendor error) is never part of them, and neither claims more than
-// was proven. The safety checkpoint is kept in both cases; the window has no
-// control for it today, so the sentences point only at what the person can do:
-// rewind the same message again, which is a new decision.
+// was proven. The safety checkpoint is kept in both cases. The window has a
+// recovery notice only for a rewind whose safety row stays pending (a restore
+// that stopped part-way, an unproven commit, a crash); a rewind that restored the
+// files and was then refused settles its row failed and has no notice. The
+// sentences therefore point only at what is true of every outcome: rewind the
+// same message again, which is a new decision.
 func rewindOutcomeRefusal(err error) *apperrors.AppError {
 	switch {
 	case errors.Is(err, agenthub.ErrRewindOutcomeUnknown):
