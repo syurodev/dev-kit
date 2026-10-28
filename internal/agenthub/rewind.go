@@ -652,6 +652,10 @@ var ErrRewindFilesRestored = errors.New("agenthub.rewindFilesRestored")
 type RewindPartialError struct {
 	Cause              error
 	SafetyCheckpointID string
+	// RestoreIncomplete is set when the file restore itself stopped part-way: some
+	// files may have been put back and others not, so the outcome must not say the
+	// files were put back.
+	RestoreIncomplete bool
 }
 
 func (e *RewindPartialError) Error() string {

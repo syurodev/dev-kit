@@ -328,7 +328,9 @@ func (h *forkHooks) call(n int) error {
 	return fn(n)
 }
 
-func newFilesRig(t *testing.T) (*filesRig, func(sql string)) {
+// newFilesRig builds the rig. Each turnHook runs inside the mock vendor's turn after the
+// turn's own file is written, so a test can give a turn more to undo than its one file.
+func newFilesRig(t *testing.T, turnHooks ...func(project string, turn int)) (*filesRig, func(sql string)) {
 	t.Helper()
 	git := checkpoint.Locate(context.Background())
 	if !git.OK() {
@@ -359,6 +361,9 @@ func newFilesRig(t *testing.T) (*filesRig, func(sql string)) {
 		replyingAdapter: replyingAdapter{MockAdapter: agenthub.NewMockAdapter(), closed: &atomic.Bool{}, writeDuringTurn: func() {
 			turn++
 			writeFile(t, project, "turn"+itoa(turn)+".txt", "from turn "+itoa(turn)+"\n")
+			for _, hook := range turnHooks {
+				hook(project, turn)
+			}
 		}},
 		onFork: hooks.call,
 		forks:  forks,
