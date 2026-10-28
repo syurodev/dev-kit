@@ -844,7 +844,7 @@ func TestAnSChangeTogetherWithALostEndpointIsNotRetriedAsS(t *testing.T) {
 // context, budget untouched, durable status not closed), so the refusal's reason is the
 // only thing between the rewind and another fork. A retry would stage another launch,
 // so "nothing was prepared again" is what is asserted, besides the outcome.
-func TestOnlyARefusalForSIsRetriedWhenNothingElseStopsTheRetry(t *testing.T) {
+func TestOnlyAnSChangeIsRetriedWhenNothingElseStopsTheRetry(t *testing.T) {
 	cases := []struct {
 		name string
 		// refuse makes the first publication (after the restore) fail for a reason other than S.
