@@ -184,6 +184,23 @@ type Applied struct {
 	Deleted []string `json:"deleted"`
 }
 
+// ChangedError is a restore failure that happened after the project folder had
+// started to change: a checkout that may have written some of its paths, or a
+// delete after an earlier one succeeded. The files may differ from before and from
+// the target. A failure that carries no ChangedError (a stale plan, a refused path,
+// a snapshot or index that could not be read, a first delete that was refused)
+// happened before the first byte was written, and the folder is as it was.
+type ChangedError struct{ Err error }
+
+func (e *ChangedError) Error() string { return e.Err.Error() }
+func (e *ChangedError) Unwrap() error { return e.Err }
+
+// Changed reports whether err says the project folder may have been modified.
+func Changed(err error) bool {
+	var changed *ChangedError
+	return errors.As(err, &changed)
+}
+
 // ApplyRestore carries out a plan.
 //
 // overwrite names paths from plan.Conflicts the user chose to force. Only
@@ -239,16 +256,19 @@ func (r *Repo) ApplyRestore(ctx context.Context, plan RestorePlan, overwrite []s
 				writes = append(writes, action.Path)
 			}
 		}
+		mutated := false
 		if len(writes) > 0 {
-			if err := r.checkoutPaths(ctx, plan.Target, writes); err != nil {
-				return err
+			if err := r.checkoutPaths(ctx, plan.Target, writes, func() { mutated = true }); err != nil {
+				return changedIf(mutated, err)
 			}
 			applied.Written = writes
 		}
 		for _, path := range deletes {
-			if err := r.deletePath(path); err != nil {
-				return err
+			removed, err := r.deletePath(path)
+			if err != nil {
+				return changedIf(mutated, err)
 			}
+			mutated = mutated || removed
 			applied.Deleted = append(applied.Deleted, path)
 		}
 		r.pruneEmptyDirs(deletes)
@@ -260,12 +280,24 @@ func (r *Repo) ApplyRestore(ctx context.Context, plan RestorePlan, overwrite []s
 	return applied, nil
 }
 
+// changedIf marks err as one that happened after the folder began to change.
+func changedIf(mutated bool, err error) error {
+	if mutated {
+		return &ChangedError{Err: err}
+	}
+	return err
+}
+
 // checkoutPaths writes paths out of a tree using a scratch index.
 //
 // GIT_INDEX_FILE points somewhere disposable so the shadow repository's own
 // index — the baseline the next snapshot diffs against — is untouched by a
 // restore.
-func (r *Repo) checkoutPaths(ctx context.Context, tree string, paths []string) error {
+//
+// begin is called once, after the scratch index is ready and immediately before the
+// first path can be written: an error before it left the folder untouched, an error
+// from checkout-index may not have.
+func (r *Repo) checkoutPaths(ctx context.Context, tree string, paths []string, begin func()) error {
 	suffix := make([]byte, 8)
 	if _, err := rand.Read(suffix); err != nil {
 		return err
@@ -279,6 +311,7 @@ func (r *Repo) checkoutPaths(ctx context.Context, tree string, paths []string) e
 	}
 	// -f overwrites what is there; without it checkout-index skips every path
 	// that already exists, which is most of a restore.
+	begin()
 	_, err := r.gitWithEnv(ctx, env, joinNUL(paths), "checkout-index", "--stdin", "-z", "-f")
 	return err
 }
@@ -321,19 +354,22 @@ func (r *Repo) leadingPathUnsafe(rel string) bool {
 // is real. A directory where the tree expected a file is left alone: it is not
 // the file we checkpointed, and removing a tree of unknown contents is not
 // something a restore gets to do.
-func (r *Repo) deletePath(rel string) error {
+func (r *Repo) deletePath(rel string) (removed bool, err error) {
 	full := filepath.Join(r.work, filepath.FromSlash(rel))
 	info, err := os.Lstat(full)
 	if notPresent(err) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if info.IsDir() {
-		return nil
+		return false, nil
 	}
-	return os.Remove(full)
+	if err := os.Remove(full); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // pruneEmptyDirs removes directories this restore emptied, and only those: the

@@ -793,6 +793,12 @@ func rewindOutcomeRefusal(err error) *apperrors.AppError {
 	case errors.Is(err, agenthub.ErrRewindOutcomeUnknown):
 		return apperrors.New(codeRewindOutcomeUnknown, "The files were put back, but DevKit could not confirm whether the conversation was rewound. Reopen the session to see where it stands before rewinding again. The files' earlier state is kept as a safety checkpoint.", true)
 	case errors.Is(err, agenthub.ErrRewindFilesRestored):
+		var partial *agenthub.RewindPartialError
+		if errors.As(err, &partial) && partial.RestoreIncomplete {
+			// The restore itself stopped part-way: some files may have been put back and
+			// others not, so the sentence must not say they were. Same code, same class.
+			return apperrors.New(codeRewindFilesRestored, "The files were only partly put back, and the conversation was not rewound. Some files in the project may differ from before. Rewinding the same message again shows what is left to put back. The files' earlier state is kept as a safety checkpoint.", true)
+		}
 		return apperrors.New(codeRewindFilesRestored, "The files were put back, but the conversation was not rewound. Rewinding the same message again can finish it. The files' earlier state is kept as a safety checkpoint.", true)
 	case errors.Is(err, agenthub.ErrRewindCommitUnknown):
 		// A conversation-only rewind: no file was touched, so the sentence says only

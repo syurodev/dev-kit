@@ -131,6 +131,11 @@ type forkProbe struct {
 	closed          bool
 	deleted         bool
 	deletedSessions []string
+	// modes are the modes it was asked to take, and each with whether the caller's
+	// context was still alive; deleteCtxErrs the same for the source session's deletion.
+	modes         []string
+	modeCtxErrs   []error
+	deleteCtxErrs []error
 }
 
 func (f *forkProbe) Close(ctx context.Context) error {
@@ -153,6 +158,7 @@ func (f *forkProbe) Delete(ctx context.Context) error {
 func (f *forkProbe) DeleteSession(ctx context.Context, id string) error {
 	f.mu.Lock()
 	f.deletedSessions = append(f.deletedSessions, id)
+	f.deleteCtxErrs = append(f.deleteCtxErrs, ctx.Err())
 	f.mu.Unlock()
 	if d, ok := f.SessionRuntime.(agenthub.VendorSessionDeleter); ok {
 		return d.DeleteSession(ctx, id)
@@ -163,6 +169,10 @@ func (f *forkProbe) DeleteSession(ctx context.Context, id string) error {
 func (f *forkProbe) Unwrap() agenthub.SessionRuntime { return f.SessionRuntime }
 
 func (f *forkProbe) SetMode(ctx context.Context, mode string) error {
+	f.mu.Lock()
+	f.modes = append(f.modes, mode)
+	f.modeCtxErrs = append(f.modeCtxErrs, ctx.Err())
+	f.mu.Unlock()
 	if c, ok := f.SessionRuntime.(agenthub.RuntimeConfigurator); ok {
 		return c.SetMode(ctx, mode)
 	}
@@ -328,7 +338,9 @@ func (h *forkHooks) call(n int) error {
 	return fn(n)
 }
 
-func newFilesRig(t *testing.T) (*filesRig, func(sql string)) {
+// newFilesRig builds the rig. Each turnHook runs inside the mock vendor's turn after the
+// turn's own file is written, so a test can give a turn more to undo than its one file.
+func newFilesRig(t *testing.T, turnHooks ...func(project string, turn int)) (*filesRig, func(sql string)) {
 	t.Helper()
 	git := checkpoint.Locate(context.Background())
 	if !git.OK() {
@@ -359,6 +371,9 @@ func newFilesRig(t *testing.T) (*filesRig, func(sql string)) {
 		replyingAdapter: replyingAdapter{MockAdapter: agenthub.NewMockAdapter(), closed: &atomic.Bool{}, writeDuringTurn: func() {
 			turn++
 			writeFile(t, project, "turn"+itoa(turn)+".txt", "from turn "+itoa(turn)+"\n")
+			for _, hook := range turnHooks {
+				hook(project, turn)
+			}
 		}},
 		onFork: hooks.call,
 		forks:  forks,
@@ -415,6 +430,26 @@ func (r *filesRig) moveS() {
 	r.t.Helper()
 	if err := r.svc.CoordinateServing(context.Background(), r.session.ID, func(txn *agenthub.ServingTxn) error { txn.MarkPending(); return nil }); err != nil {
 		r.t.Fatal(err)
+	}
+}
+
+// cappedMoveS is moveS for a hook that fires on every preparation or fork: it moves S at
+// most limit times. A rewind whose launch budget holds can never ask for more than the
+// budget allows; one whose budget is broken would otherwise keep a stale launch coming
+// forever (each round stages an endpoint and a fork), so past the limit the test fails
+// with a clear message and S stops moving, which lets the rewind end and the test fail
+// fast instead of exhausting memory.
+func (r *filesRig) cappedMoveS(limit int32) func() {
+	var moves atomic.Int32
+	var reported atomic.Bool
+	return func() {
+		if moves.Add(1) > limit {
+			if reported.CompareAndSwap(false, true) {
+				r.t.Errorf("S was moved for more than %d launches: the rewind's launch budget (%d) is not bounding it", limit, 3)
+			}
+			return
+		}
+		r.moveS()
 	}
 }
 
@@ -565,9 +600,10 @@ func TestRepeatedSChangesAreRetriedAFiniteNumberOfTimes(t *testing.T) {
 	ctx := context.Background()
 	opens, closes := r.counts()
 	r.store.onRestore = func(int) { r.moveS() }
+	moveCapped := r.cappedMoveS(5) // the budget allows 2 re-prepared forks; 5 is already a failure
 	r.hooks.set(func(n int) error {
 		if n >= 2 {
-			r.moveS() // every re-prepared launch goes stale too
+			moveCapped() // every re-prepared launch goes stale too
 		}
 		return nil
 	})
@@ -797,10 +833,11 @@ func TestEveryPreparationOfARewindSharesOneLaunchBudget(t *testing.T) {
 	ctx := context.Background()
 	opens, closes := r.counts()
 	var armed atomic.Bool
+	moveCapped := r.cappedMoveS(6) // the budget allows 3 preparations in all; 6 is already a failure
 	r.store.onRestore = func(int) { armed.Store(true); r.moveS() }
 	r.harness.set(func(session, ws, vendor string) (harness.Snapshot, error) {
 		if armed.Load() {
-			r.moveS() // every preparation after the restore goes stale before it is staged
+			moveCapped() // every preparation after the restore goes stale before it is staged
 		}
 		return basisSnapshot(t, session, ws, vendor)
 	})

@@ -412,8 +412,18 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 			return RewindResult{}, err
 		}
 		applied, err := s.applyRestoreHeld(ctx, r.held.restoreToken, r.session, r.overwrite)
+		if err != nil && checkpoint.Changed(err) {
+			// The restore stopped part-way: the cut was never attempted, but files
+			// may have changed, so this is not a refusal. The fork is not wanted
+			// and is discarded. The safety row stays pending, not failed: it is the
+			// one record that a rewind did not finish, and InterruptedRewinds lists
+			// pending rows only. Its snapshot is the way back.
+			r.discardFork(ctx)
+			return RewindResult{}, &RewindPartialError{Cause: err, SafetyCheckpointID: r.safetyID, RestoreIncomplete: true}
+		}
 		if err != nil {
-			// Nothing has been committed: close the fork and delete it, so the
+			// The restore changed nothing (it was refused before its first write) and
+			// nothing has been committed: close the fork and delete it, so the
 			// vendor is not left holding a session nothing points at.
 			r.discardFork(ctx)
 			r.abandonSafety(ctx, err)
@@ -481,9 +491,13 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 
 	// 8. Vendor settings and callbacks run outside the coordinator. The cut and
 	// reference committed atomically; a crash still leaves the restart guard.
+	// The cut is durable, so what follows is owed whether or not the caller is still
+	// there: on the host's own bounded context, as the cleanup before the cut is.
 	if published {
 		s.attachUpdates(r.session.ID, r.newRuntime)
-		s.reapplySessionSettings(ctx, r.session.ID, r.newRuntime)
+		hctx, cancel := hostContext(ctx)
+		s.reapplySessionSettings(hctx, r.session.ID, r.newRuntime)
+		cancel()
 	}
 
 	// 9. Tell the UI. Its transcript is now wrong in a way no event it already
@@ -652,9 +666,16 @@ var ErrRewindFilesRestored = errors.New("agenthub.rewindFilesRestored")
 type RewindPartialError struct {
 	Cause              error
 	SafetyCheckpointID string
+	// RestoreIncomplete is set when the file restore itself stopped part-way: some
+	// files may have been put back and others not, so the outcome must not say the
+	// files were put back.
+	RestoreIncomplete bool
 }
 
 func (e *RewindPartialError) Error() string {
+	if e.RestoreIncomplete {
+		return "agenthub: the file restore stopped part-way and the conversation was not rewound: " + e.Cause.Error()
+	}
 	return "agenthub: the files were restored but the conversation was not rewound: " + e.Cause.Error()
 }
 func (e *RewindPartialError) Unwrap() error        { return e.Cause }
@@ -872,7 +893,10 @@ func (r *rewindRun) deleteOldVendorSession(ctx context.Context) {
 	if !ok {
 		return
 	}
-	if err := deleter.DeleteSession(ctx, r.session.ACPSessionID); err != nil {
+	// The cut is durable: the deletion is owed whether or not the caller is still there.
+	hctx, cancel := hostContext(ctx)
+	defer cancel()
+	if err := deleter.DeleteSession(hctx, r.session.ACPSessionID); err != nil {
 		log.Printf("agenthub: rewind %s: the old vendor session %s could not be deleted: %v",
 			r.session.ID, r.session.ACPSessionID, err)
 	}

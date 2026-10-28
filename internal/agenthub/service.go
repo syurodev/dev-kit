@@ -2784,7 +2784,11 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 	}
 	if fresh && rt.ACPSessionID() != sess.ACPSessionID {
 		if err := s.store.UpdateSessionACPID(ctx, sess.ID, rt.ACPSessionID(), time.Now().UTC()); err != nil {
-			_ = rt.Close(ctx)
+			// Owed whether or not the caller is still there: it may be a cancelled
+			// caller that made this write fail, and its context would also refuse the close.
+			hctx, cancel := hostContext(ctx)
+			_ = rt.Close(hctx)
+			cancel()
 			closeEndpoint()
 			return nil, err
 		}
@@ -2827,7 +2831,12 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 		return nil
 	})
 	if err != nil {
-		_ = rt.Close(ctx)
+		// The process was started for a launch that cannot be published, and is owed its
+		// shutdown whether or not the caller is still there: a cancelled context would
+		// leave it running with nothing pointing at it.
+		hctx, cancel := hostContext(ctx)
+		_ = rt.Close(hctx)
+		cancel()
 		closeEndpoint()
 		return nil, err
 	}
