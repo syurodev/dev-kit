@@ -418,6 +418,26 @@ func (r *filesRig) moveS() {
 	}
 }
 
+// cappedMoveS is moveS for a hook that fires on every preparation or fork: it moves S at
+// most limit times. A rewind whose launch budget holds can never ask for more than the
+// budget allows; one whose budget is broken would otherwise keep a stale launch coming
+// forever (each round stages an endpoint and a fork), so past the limit the test fails
+// with a clear message and S stops moving, which lets the rewind end and the test fail
+// fast instead of exhausting memory.
+func (r *filesRig) cappedMoveS(limit int32) func() {
+	var moves atomic.Int32
+	var reported atomic.Bool
+	return func() {
+		if moves.Add(1) > limit {
+			if reported.CompareAndSwap(false, true) {
+				r.t.Errorf("S was moved for more than %d launches: the rewind's launch budget (%d) is not bounding it", limit, 3)
+			}
+			return
+		}
+		r.moveS()
+	}
+}
+
 func (r *filesRig) rewind(ctx context.Context) (agenthub.RewindResult, error) {
 	r.t.Helper()
 	preview, err := r.svc.PlanRewind(ctx, agenthub.RewindRequest{SessionID: r.session.ID, PromptMessageID: r.prompts[1], Mode: agenthub.RewindBoth})
@@ -565,9 +585,10 @@ func TestRepeatedSChangesAreRetriedAFiniteNumberOfTimes(t *testing.T) {
 	ctx := context.Background()
 	opens, closes := r.counts()
 	r.store.onRestore = func(int) { r.moveS() }
+	moveCapped := r.cappedMoveS(5) // the budget allows 2 re-prepared forks; 5 is already a failure
 	r.hooks.set(func(n int) error {
 		if n >= 2 {
-			r.moveS() // every re-prepared launch goes stale too
+			moveCapped() // every re-prepared launch goes stale too
 		}
 		return nil
 	})
@@ -797,10 +818,11 @@ func TestEveryPreparationOfARewindSharesOneLaunchBudget(t *testing.T) {
 	ctx := context.Background()
 	opens, closes := r.counts()
 	var armed atomic.Bool
+	moveCapped := r.cappedMoveS(6) // the budget allows 3 preparations in all; 6 is already a failure
 	r.store.onRestore = func(int) { armed.Store(true); r.moveS() }
 	r.harness.set(func(session, ws, vendor string) (harness.Snapshot, error) {
 		if armed.Load() {
-			r.moveS() // every preparation after the restore goes stale before it is staged
+			moveCapped() // every preparation after the restore goes stale before it is staged
 		}
 		return basisSnapshot(t, session, ws, vendor)
 	})
