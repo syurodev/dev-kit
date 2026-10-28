@@ -3,7 +3,7 @@ import { renderToString } from "react-dom/server";
 import type { AgentSession } from "@/bridge/agenthub";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
-import { agentSessionTabs, openAgentSession, openNewAgentSession, tabSessionId } from "@/modules/agenthub/documents";
+import { addAgentSessionTabInBackground, agentSessionTabs, openAgentSession, openNewAgentSession, tabSessionId } from "@/modules/agenthub/documents";
 import { AgentPaneTabs, agentPaneSessionId } from "./AgentPaneTabs";
 import { agentPanelAllowed } from "./AgentCompanionSlot";
 
@@ -30,12 +30,17 @@ test("the panel shows the session it follows only while that session has a tab",
 });
 
 test("its tabs are Agent Hub's session tabs, in Agent Hub's order, without the new-session tab", () => {
-  openAgentSession(session("b"));
+  // The panel's own tabs are kept ones, and so is the home tab; Agent Hub's main area adds only the one it shows.
+  addAgentSessionTabInBackground(session("b"));
   openNewAgentSession();
-  openAgentSession(session("a"));
+  addAgentSessionTabInBackground(session("a"));
   // What useAgentPaneSessionIds selects (SSR cannot read a store a test set).
   const ids = agentSessionTabs(useWorkbenchTabsStore.getState()).map(tabSessionId);
   expect(ids).toEqual(["b", "a"]);
+  // The session Agent Hub is showing is one of them too; opening another replaces it and adds no tab.
+  openAgentSession(session("c"));
+  openAgentSession(session("d"));
+  expect(agentSessionTabs(useWorkbenchTabsStore.getState()).map(tabSessionId)).toEqual(["b", "a", "d"]);
 });
 
 test("with no session tab the header still names the pane", () => {

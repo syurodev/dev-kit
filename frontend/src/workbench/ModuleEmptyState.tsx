@@ -27,7 +27,12 @@ export function ModuleEmptyState({ module }: { module: ModuleManifest | undefine
     <EmptyState
       icon={module.icon}
       title={`${module.title} has nothing open`}
-      body={`Open ${home.title.toLowerCase()} to start, or use the tab strip's + button.`}
+      body={
+        // A module without a strip has no + button to point at.
+        module.tabs
+          ? `Open ${home.title.toLowerCase()} to start, or use the tab strip's + button.`
+          : `Open ${home.title.toLowerCase()} to start.`
+      }
       // The one control on an otherwise empty screen. EmptyState gives a lone
       // invitation the craft treatment, at full size: there is nothing else to
       // press here, and a 28px control is a control sized to share a row.

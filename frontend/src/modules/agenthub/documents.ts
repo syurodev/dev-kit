@@ -9,6 +9,12 @@ import { forgetClosed, moduleTabs, retitleClosedTabs, tabKey, useWorkbenchTabsSt
  * `params.sessionId` (docs/design/module-shell-integration.md § 4), plus the
  * module's home tab — no session id — which is where a new session is drafted.
  *
+ * Agent Hub draws no tab strip: you move between sessions in the sidebar, and
+ * the session on screen is the group's preview tab, which opening another one
+ * replaces in place (the workbench keeps one preview slot per module and group).
+ * What stays open besides it is the home tab, with its unsent draft, and the
+ * tabs the Agent panel added for itself (`addAgentSessionTabInBackground`).
+ *
  * Every way of showing a session goes through here: the sidebar, the palette,
  * the title-bar peek, a notification, the Agent panel. The module keeps no list
  * of open sessions of its own; the workbench's tabs are that list, and the
@@ -33,7 +39,7 @@ export function tabSessionId(tab: Pick<WorkbenchTab, "params"> | undefined): str
   return typeof id === "string" ? id : "";
 }
 
-/** Agent Hub's open session tabs, in strip order. The home tab is not one. */
+/** Agent Hub's open session tabs, in tab order. The home tab is not one. */
 export function agentSessionTabs(state: Pick<WorkbenchTabsState, "modules">): WorkbenchTab[] {
   return moduleTabs(state.modules, AGENTHUB_MODULE).openTabs.filter((tab) => tabSessionId(tab) !== "");
 }
@@ -52,16 +58,19 @@ export function activeAgentHubSessionId(state: WorkbenchTabsState): string {
   return tabSessionId(shownAgentHubTab(state));
 }
 
-/** Opens (or focuses) a session's tab, which brings Agent Hub on screen. */
-export function openAgentSession(session: Pick<AgentSession, "id" | "title">, options: { beside?: boolean } = {}): string {
+/**
+ * Shows a session in Agent Hub, which brings the module on screen: a session
+ * already open (one the Agent panel holds, say) is focused where it is, any
+ * other replaces the session the module was showing. Nothing piles up behind it.
+ */
+export function openAgentSession(session: Pick<AgentSession, "id" | "title">): string {
   return useWorkbenchTabsStore.getState().openTab({
     moduleId: AGENTHUB_MODULE,
     viewId: AGENTHUB_VIEW,
     title: sessionTitle(session),
     icon: Bot,
     params: { sessionId: session.id },
-    preview: false,
-    beside: options.beside,
+    preview: true,
   });
 }
 

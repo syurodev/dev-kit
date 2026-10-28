@@ -24,25 +24,65 @@ function session(id: string, title: string | null = `Title ${id}`): AgentSession
 
 const tabs = () => moduleTabs(useWorkbenchTabsStore.getState().modules, "agenthub");
 
+/** A session tab that is not the preview slot: one that stays when the next session is opened. */
+function openKept(s: AgentSession) {
+  return useWorkbenchTabsStore.getState().openTab({
+    moduleId: "agenthub",
+    viewId: "agenthub.sessions",
+    title: s.title ?? `Session ${s.id}`,
+    params: { sessionId: s.id },
+    preview: false,
+  });
+}
+
 beforeEach(() => {
   useWorkbenchTabsStore.setState({ modules: {}, groups: [], focusedGroupId: "", activeModuleId: "notes", recentlyClosed: [] });
   useAgentSessionsStore.setState({ sessionsById: {}, sessionIds: [], activeSessionId: "", chatOpen: false });
   useAgentDraftRequests.setState({ request: null });
 });
 
-test("each session is a workbench document; reopening focuses rather than duplicates", () => {
+test("Agent Hub shows one session at a time: the next one replaces it, and reopening does not duplicate", () => {
   openAgentSession(session("a"));
   openAgentSession(session("b"));
-  openAgentSession(session("a"));
-  expect(tabs().openTabs.map((t) => t.title)).toEqual(["Title a", "Title b"]);
-  expect(tabs().openTabs[0].params).toEqual({ sessionId: "a" });
+  expect(tabs().openTabs.map((t) => t.title)).toEqual(["Title b"]);
+  openAgentSession(session("b"));
+  expect(tabs().openTabs).toHaveLength(1);
+  expect(tabs().openTabs[0].params).toEqual({ sessionId: "b" });
+  expect(tabs().openTabs[0].preview).toBe(true);
   expect(useWorkbenchTabsStore.getState().activeModuleId).toBe("agenthub");
-  expect(activeAgentHubSessionId(useWorkbenchTabsStore.getState())).toBe("a");
+  expect(activeAgentHubSessionId(useWorkbenchTabsStore.getState())).toBe("b");
+});
+
+test("moving on from a session leaves no tab behind, and the draft and the panel's tabs stay", () => {
+  openNewAgentSession();
+  addAgentSessionTabInBackground(session("panel"));
+  openAgentSession(session("a"));
+  openAgentSession(session("b"));
+  openAgentSession(session("c"));
+  const open = tabs().openTabs.map((t) => (typeof t.params?.sessionId === "string" ? t.params.sessionId : "draft"));
+  expect(open.sort()).toEqual(["c", "draft", "panel"]);
+  // The panel follows what is open: the session left behind is no longer one of its tabs.
+  expect(agentSessionTabs(useWorkbenchTabsStore.getState()).map((t) => t.params?.sessionId).sort()).toEqual(["c", "panel"]);
+});
+
+test("a session the Agent panel already holds is focused where it is, not replaced", () => {
+  addAgentSessionTabInBackground(session("panel"));
+  openAgentSession(session("a"));
+  openAgentSession(session("panel"));
+  expect(tabs().openTabs.map((t) => t.params?.sessionId).sort()).toEqual(["a", "panel"]);
+  expect(activeAgentHubSessionId(useWorkbenchTabsStore.getState())).toBe("panel");
+});
+
+test("closing the session on screen offers nothing back: it was only looked at", () => {
+  openAgentSession(session("a"));
+  closeAgentSessionTabs(["a"]);
+  expect(tabs().openTabs).toHaveLength(0);
+  expect(useWorkbenchTabsStore.getState().recentlyClosed).toHaveLength(0);
 });
 
 test("the session on screen follows the focused split group", () => {
-  openAgentSession(session("a"));
-  openAgentSession(session("b"));
+  openKept(session("a"));
+  openKept(session("b"));
   const state = useWorkbenchTabsStore.getState();
   state.splitTab(tabs().openTabs[1].id);
   expect(activeAgentHubSessionId(useWorkbenchTabsStore.getState())).toBe("b");
@@ -61,7 +101,7 @@ test("the new-session tab is not a session tab, and closes on its own", () => {
   expect(tabs().openTabs.map((t) => t.params?.sessionId)).toEqual(["a"]);
 });
 
-test("a background tab joins the strip without taking the screen", () => {
+test("a background tab joins the open sessions without taking the screen", () => {
   openAgentSession(session("a"));
   useWorkbenchTabsStore.getState().focusModule("notes");
   addAgentSessionTabInBackground(session("b"));
@@ -85,8 +125,8 @@ test("titles follow the session; a rename keeps the tab's id and pin", () => {
 });
 
 test("tabs of deleted sessions are not offered back; a closed tab is", () => {
-  openAgentSession(session("a"));
-  openAgentSession(session("b"));
+  openKept(session("a"));
+  openKept(session("b"));
   closeAgentSessionTabs(["a"], { remember: false });
   expect(useWorkbenchTabsStore.getState().recentlyClosed).toHaveLength(0);
   closeAgentSessionTabs(["b"]);
@@ -101,8 +141,8 @@ test("the new-session tab a session replaced is not offered back", () => {
 });
 
 test("a session tab added in the background forgets its closed record", () => {
-  openAgentSession(session("a"));
-  openAgentSession(session("b"));
+  openKept(session("a"));
+  openKept(session("b"));
   closeAgentSessionTabs(["b"]);
   expect(useWorkbenchTabsStore.getState().recentlyClosed).toHaveLength(1);
   addAgentSessionTabInBackground(session("b"));
@@ -110,17 +150,17 @@ test("a session tab added in the background forgets its closed record", () => {
 });
 
 test("a closed session tab is offered back under the session's new title", () => {
-  openAgentSession(session("a"));
-  openAgentSession(session("b"));
+  openKept(session("a"));
+  openKept(session("b"));
   closeAgentSessionTabs(["b"]);
   syncAgentSessionTabTitles({ b: session("b", "Fix the login") });
   expect(useWorkbenchTabsStore.getState().recentlyClosed.map((e) => e.title)).toEqual(["Fix the login"]);
 });
 
 test("closing tabs leaves other sessions' tabs alone", () => {
-  openAgentSession(session("a"));
-  openAgentSession(session("b"));
-  openAgentSession(session("c"));
+  openKept(session("a"));
+  openKept(session("b"));
+  openKept(session("c"));
   closeAgentSessionTabs(["a", "c"]);
   expect(tabs().openTabs.map((t) => t.params?.sessionId)).toEqual(["b"]);
 });

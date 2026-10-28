@@ -513,8 +513,16 @@ describe("tabs, selection and resources", () => {
   });
 
   it("the highlighted card follows the focused group, not the module's last active tab", () => {
-    openAgentSession(session("a"));
-    openAgentSession(session("b"));
+    // Two groups need two tabs that stay: the preview slot Agent Hub opens sessions in holds one.
+    for (const id of ["a", "b"]) {
+      useWorkbenchTabsStore.getState().openTab({
+        moduleId: "agenthub",
+        viewId: "agenthub.sessions",
+        title: `Title ${id}`,
+        params: { sessionId: id },
+        preview: false,
+      });
+    }
     useWorkbenchTabsStore.getState().splitTab(tabs().openTabs[1].id);
     expect(activeAgentHubSessionId(useWorkbenchTabsStore.getState())).toBe("b");
     const first = useWorkbenchTabsStore.getState().groups.find((g) => g.activeTabId === tabs().openTabs[0].id)!;
