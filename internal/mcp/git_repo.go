@@ -327,6 +327,7 @@ func confineToScope(api GitAPI, scope gitScope) error {
 		return errOutsideScope
 	}
 	dotGit := filepath.Join(top, ".git")
+	linked := false
 	info, err := os.Lstat(dotGit)
 	if err != nil {
 		return errOutsideScope // a work tree with no .git at its top: configured from elsewhere
@@ -348,7 +349,11 @@ func confineToScope(api GitAPI, scope gitScope) error {
 			return errOutsideScope
 		}
 		real := realPath(target)
-		if !scope.inReach(real) || real != gitDir {
+		if real != gitDir {
+			return errOutsideScope
+		}
+		linked = linkedWorktreeOf(dotGit, gitDir, commonDir)
+		if !linked && !scope.inReach(real) {
 			return errOutsideScope
 		}
 	}
@@ -362,11 +367,35 @@ func confineToScope(api GitAPI, scope gitScope) error {
 		}
 		declared = realPath(declared)
 	}
-	if declared != commonDir || (commonDir != gitDir && !scope.inReach(commonDir)) {
+	if declared != commonDir || (commonDir != gitDir && !linked && !scope.inReach(commonDir)) {
 		return errOutsideScope
 	}
 	c.Confine(gitDir, top)
 	return nil
+}
+
+// linkedWorktreeOf reports whether dotGit, the .git file of a checkout, and gitDir,
+// the git directory it names, are the two halves of a linked worktree: gitDir is
+// <commonDir>/worktrees/<name>, and the file git wrote there to find its checkout
+// (`gitdir`) names this very .git file. A code-editing child is granted its checkout
+// alone, so the repository it was cut from is not one of its granted roots (and may
+// belong to no workspace); the two names pointing at each other is what a checkout
+// that was really added to that repository looks like, and what a folder redirected
+// to some other repository does not have: that repository's worktree entries name
+// other checkouts.
+func linkedWorktreeOf(dotGit, gitDir, commonDir string) bool {
+	if gitDir != filepath.Join(commonDir, "worktrees", filepath.Base(gitDir)) {
+		return false
+	}
+	raw, err := os.ReadFile(filepath.Join(gitDir, "gitdir"))
+	if err != nil {
+		return false
+	}
+	back := strings.TrimSpace(string(raw))
+	if !filepath.IsAbs(back) {
+		back = filepath.Join(gitDir, back)
+	}
+	return realPath(back) == realPath(dotGit)
 }
 
 var errOutsideScope = errors.New("repository outside the scope")

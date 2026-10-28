@@ -104,6 +104,51 @@ func TestAgentGitAcceptsALinkedWorktree(t *testing.T) {
 	}
 }
 
+// A child granted its checkout alone, cut from a repository that is in no workspace and
+// no grant, still works: the checkout and the worktree entry name each other. The same
+// session cannot be redirected to a repository (or to another checkout's entry in it)
+// that does not.
+func TestAgentGitAcceptsAWorktreeOfARepositoryOutsideEveryScopeOnlyByItsOwnEntry(t *testing.T) {
+	requireGit(t)
+	main := filepath.Join(realPath(t.TempDir()), "main")
+	probeRepo(t, main, "MAIN-OUTSIDE-EVERY-SCOPE")
+	root := realPath(t.TempDir())
+	wt := filepath.Join(root, "wt")
+	addWorktree(t, main, wt, "wt-branch", "IN-THE-WORKTREE")
+	other := filepath.Join(root, "elsewhere")
+	addWorktree(t, main, other, "other-branch", "THE-OTHER-CHECKOUT")
+	srv := scopedServer(t, root, wt)
+	for _, write := range []bool{false, true} {
+		api, _, err := srv.gitFor(agentCtx(), wt, write)
+		if err != nil {
+			t.Fatalf("write=%v: %v", write, err)
+		}
+		if got := subject(t, api); got != "IN-THE-WORKTREE" {
+			t.Fatalf("answered %q", got)
+		}
+	}
+	// Pointing the checkout at the repository's own .git, or at the entry of the other
+	// checkout, is not that checkout's own entry.
+	entryOfOther := filepath.Join(main, ".git", "worktrees", "elsewhere")
+	for name, target := range map[string]string{
+		"the repository's .git":        filepath.Join(main, ".git"),
+		"another checkout's entry":     entryOfOther,
+		"a path that does not resolve": filepath.Join(main, ".git", "worktrees", "nope"),
+	} {
+		if err := os.WriteFile(filepath.Join(wt, ".git"), []byte("gitdir: "+target+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		api, _, err := srv.gitFor(agentCtx(), wt, false)
+		if err == nil {
+			t.Errorf("%s: opened a handle that answers %q", name, subject(t, api))
+			continue
+		}
+		if code := appCode(err); code != "git.repoOutsideWorkspace" && code != "git.notARepository" {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+}
+
 // A submodule's .git is a file naming a directory under the superproject's .git/modules.
 func TestAgentGitAcceptsASubmodule(t *testing.T) {
 	requireGit(t)
