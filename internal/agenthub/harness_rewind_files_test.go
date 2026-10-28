@@ -113,12 +113,11 @@ func (a forkHookAdapter) Fork(ctx context.Context, spec agenthub.OpenSpec, src, 
 // the restore's safety row (the files are about to change) and the cut's transaction.
 type probeStore struct {
 	*agenthub.SQLStore
-	mu             sync.Mutex
-	onRestore      func(n int)
-	restores       int
-	cuts           int
-	failCutWith    error
-	restoreStarted func()
+	mu          sync.Mutex
+	onRestore   func(n int)
+	restores    int
+	cuts        int
+	failCutWith error
 }
 
 func (p *probeStore) InsertCheckpoint(ctx context.Context, rec agenthub.CheckpointRecord) error {
