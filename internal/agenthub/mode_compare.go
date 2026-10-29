@@ -2,25 +2,61 @@ package agenthub
 
 import "context"
 
-// PermissionModeOf is the permission mode id a session is in now: its live
+// ModeRead says what reading a session's permission mode came to. The three
+// answers are kept apart on purpose: a comparison may pass a session that has no
+// mode concept, but never one whose mode could not be read.
+type ModeRead int
+
+const (
+	// ModeUnreadable: the session or its recorded state could not be read, or
+	// nothing says what its mode is (no live runtime and nothing recorded yet).
+	// It is never evidence that the session has no mode.
+	ModeUnreadable ModeRead = iota
+	// ModeNone: the session's live runtime has no permission-mode concept.
+	ModeNone
+	// ModeKnown: the mode id is returned.
+	ModeKnown
+)
+
+// ReadPermissionMode is the permission mode id a session is in now: its live
 // runtime's, else the last one its transcript recorded (the same source a new
-// child inherits from). known is false for a session without a mode concept
-// (a vendor that has none), an unknown or empty id, or one whose state cannot be
-// read; the caller must treat that as "cannot say", never as the widest or the
-// strictest mode.
-func (s *Service) PermissionModeOf(ctx context.Context, sessionID string) (modeID string, known bool) {
+// child inherits from).
+func (s *Service) ReadPermissionMode(ctx context.Context, sessionID string) (modeID string, read ModeRead) {
 	if sessionID == "" {
-		return "", false
+		return "", ModeUnreadable
 	}
 	sess, err := s.store.GetSession(ctx, sessionID)
 	if err != nil {
-		return "", false
+		return "", ModeUnreadable
 	}
-	mode, ok := s.currentMode(ctx, sess)
-	if !ok || mode.ID == "" {
-		return "", false
+	if rt := s.liveRuntime(ctx, sess.ID); rt != nil {
+		withModes, ok := rt.(RuntimeModes)
+		if !ok {
+			return "", ModeNone
+		}
+		if modes := withModes.Modes(); modes != nil && modes.CurrentModeID != "" {
+			return modes.CurrentModeID, ModeKnown
+		}
 	}
-	return mode.ID, true
+	// The newest announcement may still be in the recorder's buffer.
+	if err = s.recorder.Flush(ctx, sess.ID); err != nil {
+		return "", ModeUnreadable
+	}
+	entry, found, err := s.store.FindTranscriptKind(ctx, sess.ID, UpdateCurrentMode)
+	if err != nil || !found {
+		return "", ModeUnreadable
+	}
+	if id := storedUpdate(entry).Mode; id != "" {
+		return id, ModeKnown
+	}
+	return "", ModeUnreadable
+}
+
+// PermissionModeOf is ReadPermissionMode folded to "known or not". Callers that
+// must tell "no mode concept" from "unreadable" use ReadPermissionMode.
+func (s *Service) PermissionModeOf(ctx context.Context, sessionID string) (modeID string, known bool) {
+	mode, read := s.ReadPermissionMode(ctx, sessionID)
+	return mode, read == ModeKnown
 }
 
 // ModeNotWiderThan reports whether child's permission mode lets the agent do no

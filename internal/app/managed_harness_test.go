@@ -55,22 +55,38 @@ func (s *overrideSpy) read() []string {
 // fakeOwnership stands in for the ownership check (tasks board, git worktree and
 // folder scope, which this rig does not build); the adapter must call it.
 type fakeOwnership struct {
-	err   error
-	calls atomic.Int32
-	last  atomic.Value // agentwork.Attempt
+	err error
+	// onCall runs inside the check, after it is counted.
+	onCall func()
+	calls  atomic.Int32
+	last   atomic.Value // agentwork.Attempt
 }
 
 func (f *fakeOwnership) ResolveManagedWriter(_ context.Context, a agentwork.Attempt) (agentwork.ManagedWriterBinding, error) {
 	f.calls.Add(1)
 	f.last.Store(a)
+	if f.onCall != nil {
+		f.onCall()
+	}
 	return agentwork.ManagedWriterBinding{}, f.err
 }
 
 // modeHub overlays the live hub with scripted permission modes and served tools.
 type modeHub struct {
 	managedHarnessHub
-	modes  map[string]string // absent: unknown
-	served func(id string) ([]string, bool)
+	modes      map[string]string // absent: the session has no mode concept
+	unreadable map[string]bool   // the session's mode cannot be read
+	served     func(id string) ([]string, bool)
+}
+
+func (h modeHub) ReadPermissionMode(_ context.Context, id string) (string, agenthub.ModeRead) {
+	if h.unreadable[id] {
+		return "", agenthub.ModeUnreadable
+	}
+	if m, ok := h.modes[id]; ok {
+		return m, agenthub.ModeKnown
+	}
+	return "", agenthub.ModeNone
 }
 
 func (h modeHub) PermissionModeOf(_ context.Context, id string) (string, bool) {
@@ -452,8 +468,16 @@ func TestStaleEndpointIsNotLive(t *testing.T) {
 		}
 		disturb(m, child.ID)
 		_, err := m.host.ResolveActual(ctx, m.attempt(child.ID))
-		if r := refusalOf(t, err); r.Code != agentwork.HarnessEndpointNotLive || agentwork.ConfigurationNeeded(err) {
-			t.Fatalf("%s: code = %s", name, r.Code)
+		r := refusalOf(t, err)
+		want := agentwork.HarnessEndpointNotLive
+		if name == "closed" {
+			// A closed session has no live runtime and nothing recorded by a scripted
+			// vendor, so its mode is unreadable and the mode rule (which runs first)
+			// refuses it: fail closed, still not a configuration to fix.
+			want = agentwork.HarnessChildMode
+		}
+		if r.Code != want || agentwork.ConfigurationNeeded(err) {
+			t.Fatalf("%s: code = %s, want %s", name, r.Code, want)
 		}
 	}
 }
@@ -602,7 +626,7 @@ func TestChildModeWiderThanCoordinatorIsRefused(t *testing.T) {
 	use(map[string]string{m.coord.ID: "default", child.ID: "bypassPermissions"})
 	_, err := m.host.ResolveActual(ctx, attempt)
 	wantCode(t, err, agentwork.HarnessChildMode)
-	use(map[string]string{m.coord.ID: "default"}) // the child's mode cannot be read
+	use(map[string]string{m.coord.ID: "default"}) // the child has no mode concept while its coordinator has one
 	_, err = m.host.ResolveActual(ctx, attempt)
 	wantCode(t, err, agentwork.HarnessChildMode)
 	use(map[string]string{m.coord.ID: "auto", child.ID: "default"})

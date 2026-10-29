@@ -81,3 +81,44 @@ func TestPermissionModeOfIsUnknownForAVendorWithoutModes(t *testing.T) {
 		t.Fatalf("a session with no mode concept reads as unknown: %q %v", mode, known)
 	}
 }
+
+// "No mode concept" passes a comparison; an unreadable mode must not. The three
+// answers stay apart so a transient read failure never reads as "nothing limits it".
+func TestReadPermissionModeSeparatesNoConceptFromUnreadable(t *testing.T) {
+	ctx := context.Background()
+
+	reg := NewRegistry()
+	reg.Register(NewMockAdapter())
+	svc := NewService(reg, newInternalStore(t), nil)
+	t.Cleanup(func() { _ = svc.Shutdown(context.Background()) })
+	mock, err := svc.CreateSession(ctx, CreateInput{AgentType: AgentTypeMock, Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode, read := svc.ReadPermissionMode(ctx, mock.ID); read != ModeNone || mode != "" {
+		t.Fatalf("a live runtime with no mode concept = %q %v, want ModeNone", mode, read)
+	}
+	// The session row cannot be read: unreadable, not "no concept".
+	if mode, read := svc.ReadPermissionMode(ctx, "no-such-session"); read != ModeUnreadable || mode != "" {
+		t.Fatalf("unknown session = %q %v, want ModeUnreadable", mode, read)
+	}
+	if _, read := svc.ReadPermissionMode(ctx, ""); read != ModeUnreadable {
+		t.Fatalf("empty id = %v, want ModeUnreadable", read)
+	}
+	// No live runtime and nothing recorded: the mode cannot be told, and is not
+	// assumed to be absent.
+	svc.mu.Lock()
+	old := svc.runtimes[mock.ID]
+	delete(svc.runtimes, mock.ID)
+	svc.mu.Unlock()
+	_ = old.Close(ctx)
+	if mode, read := svc.ReadPermissionMode(ctx, mock.ID); read != ModeUnreadable || mode != "" {
+		t.Fatalf("no runtime and no record = %q %v, want ModeUnreadable", mode, read)
+	}
+
+	f := newModeFixture(t)
+	parent, _ := f.parent(t, AgentTypeClaude, "bypassPermissions")
+	if mode, read := f.svc.ReadPermissionMode(ctx, parent.ID); read != ModeKnown || mode != "bypassPermissions" {
+		t.Fatalf("a readable mode = %q %v", mode, read)
+	}
+}

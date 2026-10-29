@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"reflect"
 	"sort"
 
 	"github.com/google/uuid"
@@ -46,6 +47,7 @@ type managedHarnessHub interface {
 	HarnessStatus(ctx context.Context, sessionID string) (agenthub.HarnessStatus, error)
 	ServedTools(sessionID string) ([]string, bool)
 	PermissionModeOf(ctx context.Context, sessionID string) (string, bool)
+	ReadPermissionMode(ctx context.Context, sessionID string) (string, agenthub.ModeRead)
 }
 
 type managedHarnessHost struct {
@@ -166,7 +168,8 @@ func (h *managedHarnessHost) ResolveIntended(ctx context.Context, scope agentwor
 
 // ResolveActual describes the child that exists: after the ownership checks
 // (identity, scope, grants) and the mode rule, what its runtime was opened with
-// (Applied, never the saved Desired) and what its endpoint serves now.
+// (Applied; the saved Desired only once it has drifted, so the service sees the
+// difference) and what its endpoint serves now.
 func (h *managedHarnessHost) ResolveActual(ctx context.Context, attempt agentwork.Attempt) (agentwork.HarnessResolution, error) {
 	if h.hub == nil || h.ownership == nil || attempt.SessionID == "" {
 		return agentwork.HarnessResolution{}, managedHarnessRefusal(agentwork.HarnessUnavailable)
@@ -188,15 +191,25 @@ func (h *managedHarnessHost) ResolveActual(ctx context.Context, attempt agentwor
 	// 2. The child's mode must not be wider than its coordinator's now.
 	internal := identity.WithCaller(ctx, identity.UI())
 	child, err := hub.GetStatus(internal, attempt.SessionID)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return agentwork.HarnessResolution{}, ctxErr
+	}
 	if err != nil || child.ParentSessionID == nil || *child.ParentSessionID == "" {
 		return agentwork.HarnessResolution{}, managedHarnessRefusal(agentwork.HarnessChildScope)
 	}
-	parentMode, parentKnown := hub.PermissionModeOf(ctx, *child.ParentSessionID)
-	childMode, childKnown := hub.PermissionModeOf(ctx, attempt.SessionID)
+	parentMode, parentRead := hub.ReadPermissionMode(ctx, *child.ParentSessionID)
+	childMode, childRead := hub.ReadPermissionMode(ctx, attempt.SessionID)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return agentwork.HarnessResolution{}, ctxErr
+	}
 	switch {
-	case !parentKnown:
-		// Neither has a mode concept, or only the child does: nothing limits it.
-	case !childKnown:
+	case parentRead == agenthub.ModeUnreadable || childRead == agenthub.ModeUnreadable:
+		// A mode that cannot be read is not "no mode concept": fail closed.
+		return agentwork.HarnessResolution{}, managedHarnessRefusal(agentwork.HarnessChildMode)
+	case parentRead == agenthub.ModeNone:
+		// The coordinator has no permission-mode concept: nothing limits the child.
+	case childRead == agenthub.ModeNone:
+		// The coordinator has a mode and the child has none to compare with.
 		return agentwork.HarnessResolution{}, managedHarnessRefusal(agentwork.HarnessChildMode)
 	default:
 		if ok, _ := agenthub.ModeNotWiderThan(parentMode, childMode); !ok {
@@ -226,21 +239,32 @@ func (h *managedHarnessHost) ResolveActual(ctx context.Context, attempt agentwor
 	if !st.Serving.Active || !st.Serving.Acknowledged || st.Serving.Paused || st.Serving.Pending {
 		return agentwork.HarnessResolution{}, managedHarnessRefusal(agentwork.HarnessEndpointNotLive)
 	}
-	facts := managedHarnessFacts(*applied)
-	// A session override committed after launch is not in the launch reference but
-	// is on the endpoint; the child has an S of its own either way.
+	// The facts the service judges. Nothing has drifted: what the runtime was
+	// opened with (Applied). After a saved W, V or S change (reload or new session
+	// required) the saved configuration no longer is that, so the facts are what
+	// it resolves to now (Desired): the service then finds the difference from
+	// the bound facts and names it in its fixed order (an override, then a group
+	// that is off, then a changed configuration) instead of this adapter picking
+	// the verdict first.
+	source := *applied
+	drifted := st.State == agenthub.HarnessReloadRequired || st.State == agenthub.HarnessNewSessionRequired
+	if drifted {
+		if st.Desired == nil || st.Desired.Fingerprint == "" || st.Desired.ExecutableDigest == "" {
+			return agentwork.HarnessResolution{}, managedHarnessRefusal(agentwork.HarnessUnavailable)
+		}
+		source = *st.Desired
+	}
+	facts := managedHarnessFacts(source)
+	// A session override committed live after launch is on the endpoint though not
+	// in the launch reference; the child has an S of its own either way.
 	if live := st.Serving.Applied.Session; live.Present && facts.SessionRevision == nil && live.Revision > 0 {
 		r := live.Revision
 		facts.SessionRevision = &r
 	}
-	if facts.SessionRevision == nil {
-		switch st.State {
-		case agenthub.HarnessReloadRequired, agenthub.HarnessNewSessionRequired:
-			// A saved W or V change since the child opened. (A child with an S of its
-			// own also reads as reload-required, because the saved configuration now
-			// includes it; that case goes on, so the service names it as an override.)
-			return agentwork.HarnessResolution{}, managedHarnessRefusal(agentwork.HarnessConfigChanged)
-		}
+	if drifted && facts.SessionRevision == nil && reflect.DeepEqual(facts, managedHarnessFacts(*applied)) {
+		// Reported as changed but the compared facts look alike: refuse here rather
+		// than let a change the comparison cannot see pass.
+		return agentwork.HarnessResolution{}, managedHarnessRefusal(agentwork.HarnessConfigChanged)
 	}
 	// 4. What the endpoint serves now, so a group revoked after launch is seen.
 	tools, live := hub.ServedTools(attempt.SessionID)
