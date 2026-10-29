@@ -45,8 +45,11 @@ Output (small, fixed):
   "effective": { "git": "now", "newSessions": "now", "shellAndFiles": "after_this_turn" } }
 ```
 
-`shellAndFiles` is `now` when the folder was already writable, `after_this_turn` when DevKit will reopen the
-process, and `after_reopen` when it will not (see section 6). The text for the model says what each means and
+`shellAndFiles` is `now` when the folder is inside the session's own working directory (its process always had it),
+`after_this_turn` when DevKit will reopen the
+process, and `after_reopen` when it will not (see section 6). A folder that was already granted but is not under the
+working directory (an earlier request whose reopen was blocked) answers like a new grant and marks the session again:
+the live process may predate the grant. The text for the model says what each means and
 does not promise more.
 
 ## 4. Where the checks live
@@ -114,13 +117,18 @@ row.
   found on 2026-10-29: tasks are visible only to the window, from `async_task_*` transcript rows). This design
   adds the smallest piece it needs: a per-session, in-memory set of task ids built in `handleUpdate` from
   `async_task_spawned` and `async_task_state_update` (spawned adds; `completed`, `failed`, `stopped` remove;
-  dropped with the runtime). It is in memory on purpose: a task dies with its process, so a record that survives a
+  dropped with the runtime, and ignored 12 hours after its spawn so that a lost end update cannot pin a process for
+  good). It is in memory on purpose: a task dies with its process, so a record that survives a
   restart would only be wrong. An agent-initiated turn (`taskType: "turn"`, id `autonomous-turn-*`) counts as work
   for the same reason.
 - A session that fails any guard is not reopened. The tool's answer already told the agent that the shell and
   file tools get the folder "after this turn, or after the session is reopened if DevKit cannot do it now". Idle
   release or a restart then applies it. Nothing is retried in a loop. A window notice for this state is left to
   the UI plan (it needs a new session field).
+- **The release itself refuses a session that has taken a new turn.** The turn's claim is dropped before the
+  end-of-turn step runs, so a prompt can claim the session in between. The locked check in `releaseRuntimeSince`
+  therefore refuses a session whose turn claim is held and a runtime handed to a caller after the instant the turn
+  ended. The other guards are first screens; this one is the guard. Idle release shares the claim check.
 - A failed release does not undo the stored grant. The stored row is the truth; the process is only late.
 - The same background-work set must be consulted by idle release (`ReleaseIdle`), which closes the gap that
   started this section. That change is small and shared, so it ships in the same plan, in its own commit, and is
@@ -138,8 +146,8 @@ path and no other folder:
 | `workspace.grantUnavailable` | no one can answer the card |
 
 Audit goes through the capability call (`builtin.workspace`, `ws:grant`, scope `workspace:requestWrite`) with
-metadata `origin`, `action: request_workspace_write` and the service name; the gateway records the outcome. No
-path, no summary text, no prompt. A storage error after approval returns `internal_error`; it is never reported as
+metadata `origin` and `action: request_workspace_write`; the folder name is not recorded (it is the agent's own
+string), and the gateway records the outcome. No path, no summary text, no prompt. A storage error after approval returns `internal_error`; it is never reported as
 declined.
 
 ## 8. Window

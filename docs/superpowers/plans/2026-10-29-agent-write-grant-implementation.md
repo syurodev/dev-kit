@@ -1741,12 +1741,8 @@ Its own commit: it fixes a bug that exists on `main` (a long build killed 10 or 
   	if s.deps.WorkspaceWrite == nil {
   		return nil, nil, apperrors.New("internal_error", "Folder access requests are not available.", true)
   	}
-  	folder := []rune(in.Folder)
-  	if len(folder) > 80 {
-  		folder = folder[:80]
-  	}
   	v, err := s.deps.Caller.Call(ctx, "builtin.workspace", "ws:grant", "workspace:requestWrite",
-  		meta("request_workspace_write", map[string]any{"folder": string(folder)}),
+  		meta("request_workspace_write", nil), // the folder is the agent's string: not recorded
   		func(callCtx context.Context) (any, error) {
   			plan, err := s.deps.WorkspaceWrite.PrepareWorkspaceWrite(callCtx, in.Folder)
   			if err != nil {
@@ -1970,3 +1966,13 @@ Its own commit: it fixes a bug that exists on `main` (a long build killed 10 or 
 Known differences from the spec, already written into it: the confirmation sits in the MCP layer between
 `PrepareWorkspaceWrite` and `CommitWorkspaceWrite`; the store retries the compare-and-set up to ten times; the audit
 record is the gateway's.
+
+## Changes after the independent review
+
+The code in this plan was corrected in follow-up commits; where the text above and the code differ, the code wins.
+In short: `releaseRuntime` refuses a session whose turn claim is held and takes a `since` floor
+(`releaseRuntimeSince`) that the end-of-turn reopen sets to the instant its turn ended; `CommitWorkspaceWrite` answers
+`shellAndFiles: now` only for a folder under the session's working directory, refuses a plan that claims
+`alreadyGranted` when the folder is not, and reports a lost compare-and-set race as `alreadyGranted`; the folder name
+is clipped to 80 runes where a refusal repeats it and is not put in audit metadata; background-work records expire
+12 hours after their spawn, `releaseRuntime` forgets them, and closing a session drops its reopen mark.

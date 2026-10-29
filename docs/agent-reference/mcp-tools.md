@@ -34,6 +34,7 @@ as production-verified against a real Claude Code session in cloud CI.
   `workspace.grantDeclined` and `workspace.grantUnavailable` (nobody can answer), all in `bridge.keptCodes`; they are named
   through constants, so `TestWorkspaceGrantCodesReachTheAgent` covers them (the source scan does not). The answer says when
   git, new sub-sessions and the session's shell and file tools see the folder (`now`, `after_this_turn`, `after_reopen`).
+  The audit metadata has `origin` and `action` only: the folder name is the agent's string and is not recorded.
   `git.repoNotGranted` now says to ask with this tool. Its definition lifted the `workspace` group ceiling in
   `tool_budget_test.go` (5300 to 5900).
 - **Git tools act on the caller's repository, not only the one open in the app**
