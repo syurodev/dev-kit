@@ -242,13 +242,16 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
   and no close. A pane opened without `header` is drawn as before (other modules unchanged). The header is the opener's
   state: a new `header` under the same `key` updates the row and keeps the body mounted, so `status` and `actions` are
   elements that read the store themselves (`useSubagentHeader` in `subagentHeader.tsx`, `useActivityHeader` in `follow.tsx`)
-  and the header changes only with the title and hint. Subagent: name (`"Subagent"` unnamed), task as tooltip, Bot,
-  `AgentState`, Stop. Follow feed: session title, the sidebar card's state (`agentStatusOf`), and "Stop following" as its
-  action (the shell's close does the same).
+  and the header changes only with the title and hint. The shell's Move and Close keep naming the module ("Close Agent Hub"),
+  never the header's title. A header stays through the close animation only while its pane goes with it. Subagent: name
+  (`"Subagent"` unnamed), tooltip = the whole name then the task, Bot, `AgentState`, Stop. Follow feed: `Following <session title>`,
+  tooltip = the whole title, the sidebar card's state (`agentStatusOf`), and "Stop following" as its action (the shell's close
+  does the same).
   - **Stop on a subagent is "Stop turn", not Stop.** DevKit has no per-subagent or per-task cancel: `Service.Cancel` ends
     the session's whole runtime, subagents and background tasks with it. So the control shows only while the subagent runs
-    and the session `isWorking`; its tooltip says "Stops the whole session's turn, including this subagent and background
-    tasks"; it asks first (`AlertDialog`, as the sidebar's delete does) and then calls `cancelSessionTurn`
-    (`session/cancelTurn.ts`), the one function behind the sidebar's "Cancel turn" and the composer's stop. Never a bare "Stop".
+    and the session `isWorking`; it is icon-only (a pane can be 320 px wide), `aria-label` "Stop turn", tooltip "Stops the whole session's turn, including this
+    subagent and background tasks"; it asks first (`AlertDialog`, as the sidebar's delete does) and then calls `cancelSessionTurn`
+    (`session/cancelTurn.ts`), the one function behind the sidebar's "Cancel turn" and the composer's stop. Never a bare "Stop". The question is withdrawn when there is no turn left to stop and is not carried to another subagent or
+    session; a double confirm cancels once.
     A stop for one subagent or task needs a backend and vendor capability and is not built. See
     `docs/superpowers/specs/2026-10-30-panel-single-header-design.md`.

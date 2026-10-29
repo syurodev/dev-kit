@@ -21,7 +21,7 @@ already in, while the useful words (which subagent, its state) sit one row lower
 ```ts
 type PanelHeader = {
   title: string;               // replaces the module label
-  titleHint?: string;          // tooltip (a subagent's task)
+  titleHint?: string;          // tooltip: the whole title (the row may cut it), then what it adds (a subagent's task)
   icon?: React.ReactNode;      // replaces the module icon; omitted: the module's own
   status?: React.ReactNode;    // drawn right after the title
   actions?: React.ReactNode;   // drawn before the shell's own buttons
@@ -37,9 +37,9 @@ keeps the content mounted (same component type, no remount); check the store's `
 
 Both stop drawing their own header and pass a `header`:
 
-- `SubagentPanel`: title = the subagent's name (`"Subagent"` when it has none), `titleHint` = its task, icon = Bot, status = `AgentState` for its state,
+- `SubagentPanel`: title = the subagent's name (`"Subagent"` when it has none), `titleHint` = its whole name, then its task, icon = Bot, status = `AgentState` for its state,
   actions = **Stop** (2.3) while it runs.
-- `AgentActivityPanel` (the follow feed): title = the session's title, status = the session's state (`isWorking`-aware, as the sidebar card reads it), actions =
+- `AgentActivityPanel` (the follow feed): title = `Following <session title>` (so the pane says what it is), `titleHint` = the whole title and a line on what the pane shows, status = the session's state (`isWorking`-aware, as the sidebar card reads it), actions =
   its existing stop-following control. Same single-header rule.
 
 ### 2.3 Stop on a subagent
@@ -48,8 +48,8 @@ There is no per-subagent cancel in DevKit and no per-task stop (`canStop` is typ
 runtime and, with it, every background task. So the control says what it does:
 
 - Shown only while the subagent runs (`isSubagentRunning`) and the session is working (`isWorking`).
-- Label "Stop turn" (icon-only on a narrow pane, with the label as `aria-label` and tooltip: "Stops the whole session's turn, including this subagent and
-  background tasks").
+- Icon-only (`Square`; a pane can be 320 px wide and the title is what the row is for), label "Stop turn" as `aria-label`, and the tooltip: "Stops the whole
+  session's turn, including this subagent and background tasks". The question that follows states the whole-turn effect in words.
 - A click asks first, with the repo's existing confirm pattern (find the confirm dialog or popover other destructive controls in agenthub use; no new
   pattern), then calls the same function as the sidebar's "Cancel turn" (`cancelTurn(session)` in `session/useAgentSessionActions.ts`; reuse, do not
   duplicate). After it, the panel's state follows the store like everywhere else.
