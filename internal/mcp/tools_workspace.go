@@ -2,9 +2,13 @@ package mcp
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
+	"devkit/internal/agenthub"
 	"devkit/internal/apperrors"
 	"devkit/internal/identity"
+	"devkit/internal/interaction"
 	"devkit/internal/workspace"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -15,6 +19,23 @@ type WorkspaceAPI interface {
 	ListWorkspaces() ([]workspace.Workspace, error)
 	// ListServices lists a workspace's services, the primary first.
 	ListServices(workspaceID string) ([]workspace.WorkspaceService, error)
+}
+
+// WorkspaceWriteAPI is the owner of folder grants, Agent Hub.
+type WorkspaceWriteAPI interface {
+	PrepareWorkspaceWrite(ctx context.Context, folder string) (agenthub.WriteGrantPlan, error)
+	CommitWorkspaceWrite(ctx context.Context, plan agenthub.WriteGrantPlan) (agenthub.WriteGrantResult, error)
+}
+
+// Public codes of workspace.requestWrite. Each is published in bridge keptCodes.
+const (
+	codeGrantRefused     = "workspace.grantRefused"
+	codeGrantDeclined    = "workspace.grantDeclined"
+	codeGrantUnavailable = "workspace.grantUnavailable"
+)
+
+type workspaceRequestWriteInput struct {
+	Folder string `json:"folder" jsonschema:"the folder's name, exactly as workspace.list shows it"`
 }
 
 // WorkspaceFolder is one folder (service) of a workspace.
@@ -57,6 +78,13 @@ func (s *Server) registerWorkspace(ms *sdk.Server) {
 			"its working directory (cwd), and which folders the session may write (granted).",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolWorkspaceList)
+	sdk.AddTool(ms, s.gateOwnedTool(&sdk.Tool{
+		Name: "workspace.requestWrite",
+		Description: "Ask the person for write access to a folder of your workspace that workspace.list shows with granted:false; pass its name. " +
+			"The person is asked every time. Once approved, git tools and sub-sessions you create later get the folder; your own shell and " +
+			"file tools get it when DevKit reopens this session after this turn (the answer says when). Top-level sessions only: a sub-session asks its parent.",
+		Annotations: &sdk.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(false)},
+	}), s.toolWorkspaceRequestWrite)
 }
 
 func (s *Server) toolWorkspaceList(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
@@ -130,4 +158,56 @@ func (s *Server) workspaceList(ctx context.Context) (WorkspaceListResult, error)
 		out.Workspaces = []WorkspaceInfo{}
 	}
 	return out, nil
+}
+
+func (s *Server) toolWorkspaceRequestWrite(ctx context.Context, _ *sdk.CallToolRequest, in workspaceRequestWriteInput) (*sdk.CallToolResult, any, error) {
+	if s.deps.WorkspaceWrite == nil {
+		return nil, nil, apperrors.New("internal_error", "Folder access requests are not available.", true)
+	}
+	// The folder name is the agent's own string: it is not recorded.
+	v, err := s.deps.Caller.Call(ctx, "builtin.workspace", "ws:grant", "workspace:requestWrite",
+		meta("request_workspace_write", nil),
+		func(callCtx context.Context) (any, error) {
+			plan, err := s.deps.WorkspaceWrite.PrepareWorkspaceWrite(callCtx, in.Folder)
+			if err != nil {
+				return nil, mapGrantError(err)
+			}
+			if !plan.AlreadyGranted {
+				if err := s.grantConfirm(callCtx, plan); err != nil {
+					return nil, mapGrantError(err)
+				}
+			}
+			res, err := s.deps.WorkspaceWrite.CommitWorkspaceWrite(callCtx, plan)
+			if err != nil {
+				return nil, mapGrantError(err)
+			}
+			return res, nil
+		})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+// grantConfirm asks every time: no allow-always (EnvBlocks), the same rule as peerConfirm.
+func (s *Server) grantConfirm(ctx context.Context, plan agenthub.WriteGrantPlan) error {
+	return effectiveHub(s.deps.Hub).Confirm(ctx, interaction.ConfirmRequest{
+		Tool: "workspace.requestWrite", Kind: interaction.KindAgent, EnvBlocks: true,
+		Summary: fmt.Sprintf("Let this session write in %q (workspace %q)? Path: %s. This lasts for as long as the session does.",
+			plan.Folder, plan.WorkspaceName, plan.Path),
+	})
+}
+
+func mapGrantError(err error) error {
+	var refused *agenthub.GrantRefusedError
+	switch {
+	case errors.As(err, &refused):
+		return apperrors.New(codeGrantRefused, refused.Reason, false)
+	case errors.Is(err, interaction.ErrConfirmationDenied):
+		return apperrors.New(codeGrantDeclined, "The person declined to give this session write access to that folder.", false)
+	case errors.Is(err, interaction.ErrConfirmationRequired):
+		return apperrors.New(codeGrantUnavailable, "No one can approve this right now: there is no window to ask in.", false)
+	default:
+		return mapInteractErr(err)
+	}
 }

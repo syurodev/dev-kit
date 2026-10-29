@@ -280,6 +280,9 @@ func NewContainerWithStores(
 		// and every MCP operation resolves the persisted session workspace.
 		{SubjectID: "builtin.workspace", Capability: "ws:read", Scope: "workspace:list"},
 		{SubjectID: "builtin.workspace", Capability: "ws:read", Scope: "service:*"},
+		// workspace.requestWrite: the service refuses every caller but an agent
+		// session, and the person confirms each request.
+		{SubjectID: "builtin.workspace", Capability: "ws:grant", Scope: "workspace:requestWrite"},
 		{SubjectID: "builtin.workspace", Capability: "ws:write", Scope: "workspace:new"},
 		{SubjectID: "builtin.workspace", Capability: "ws:write", Scope: "workspace:*"},
 		{SubjectID: "builtin.workspace", Capability: "ws:write", Scope: "folder:choose"},

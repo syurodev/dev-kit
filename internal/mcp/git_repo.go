@@ -238,8 +238,8 @@ func (s *Server) gitFor(ctx context.Context, repo string, write bool) (GitAPI, s
 		switch {
 		case write && !scope.coversReal(real):
 			return nil, "", apperrors.New("git.repoNotGranted",
-				target+" is not a folder your session may write. Ask the person to add it to the session, "+
-					"or work in "+scope.cwd+".", false)
+				target+" is not a folder your session may write. Ask for it with workspace.requestWrite "+
+					"(a sub-session asks its parent), or work in "+scope.cwd+".", false)
 		case !write && folder == "" && !scope.coversReal(real):
 			return nil, "", scope.unknown(repo)
 		}

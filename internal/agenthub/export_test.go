@@ -279,3 +279,52 @@ func (s *Service) SetLastUsedForTest(id string, at time.Time) {
 	defer s.mu.Unlock()
 	s.lastUsed[id] = at
 }
+
+// HasBackgroundWorkForTest reports whether the session's process still has a tracked vendor task.
+func (s *Service) HasBackgroundWorkForTest(sessionID string) bool { return s.bgwork.running(sessionID) }
+
+// ReleaseRuntimeForTest runs the final, locked half of an idle release on one session.
+func (s *Service) ReleaseRuntimeForTest(ctx context.Context, id string, now time.Time, after time.Duration) bool {
+	sess, err := s.store.GetSession(ctx, id)
+	if err != nil {
+		return false
+	}
+	return s.releaseRuntime(ctx, sess, now, after)
+}
+
+// MarkReopenForGrantForTest marks a session as the grant tool does.
+func (s *Service) MarkReopenForGrantForTest(sessionID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.reopenForGrant == nil {
+		s.reopenForGrant = make(map[string]bool)
+	}
+	s.reopenForGrant[sessionID] = true
+}
+
+// ReopenMarkedForTest reports whether the session is still marked.
+func (s *Service) ReopenMarkedForTest(sessionID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.reopenForGrant[sessionID]
+}
+
+// ReopenAfterGrantForTest runs the end-of-turn step on its own. turnEnded is when
+// the turn it stands for ended; the zero time means "no floor".
+func (s *Service) ReopenAfterGrantForTest(ctx context.Context, sessionID string, turnEnded time.Time) {
+	s.reopenAfterGrant(ctx, sessionID, turnEnded)
+}
+
+// SetBackgroundWorkClockForTest replaces the clock the background-work age limit reads.
+func (s *Service) SetBackgroundWorkClockForTest(now func() time.Time) {
+	s.bgwork.mu.Lock()
+	defer s.bgwork.mu.Unlock()
+	s.bgwork.now = now
+}
+
+// BackgroundWorkRecordedForTest counts a session's task records whatever their age.
+func (s *Service) BackgroundWorkRecordedForTest(sessionID string) int {
+	s.bgwork.mu.Lock()
+	defer s.bgwork.mu.Unlock()
+	return len(s.bgwork.tasks[sessionID])
+}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -154,6 +155,57 @@ func decodePathList(raw string) ([]string, error) {
 		return nil, fmt.Errorf("agenthub: decode extra_rw_paths: %w", err)
 	}
 	return paths, nil
+}
+
+// ErrExtraPathsContended is AddExtraReadWritePath giving up: the row kept changing
+// under it. Each failed try means another writer succeeded, so this takes more
+// writers than tries.
+var ErrExtraPathsContended = errors.New("agenthub: the session's folder grants kept changing")
+
+// ExtraPathStore adds one folder to a session's write grant. It is optional so a
+// test Store need not implement it; SQLStore does.
+type ExtraPathStore interface {
+	// AddExtraReadWritePath appends path to the session's extra_rw_paths and reports
+	// whether it did (false: the folder was already listed). The write is a
+	// compare-and-set on the stored text, so two callers each add their own folder.
+	AddExtraReadWritePath(ctx context.Context, id, path string) (added bool, err error)
+}
+
+const addExtraPathTries = 10
+
+// AddExtraReadWritePath is the SQL form of ExtraPathStore. The row's updated_at is
+// deliberately not touched: a grant is not session activity, and idle release
+// reads updated_at.
+func (st *SQLStore) AddExtraReadWritePath(ctx context.Context, id, path string) (bool, error) {
+	for range addExtraPathTries {
+		var raw string
+		err := st.db.QueryRowContext(ctx, `SELECT extra_rw_paths FROM `+tableAgentSessions+` WHERE id = ?`, id).Scan(&raw)
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, ErrSessionNotFound
+		}
+		if err != nil {
+			return false, err
+		}
+		paths, err := decodePathList(raw)
+		if err != nil {
+			return false, err
+		}
+		if slices.Contains(paths, path) {
+			return false, nil
+		}
+		res, err := st.db.ExecContext(ctx,
+			`UPDATE `+tableAgentSessions+` SET extra_rw_paths = ? WHERE id = ? AND extra_rw_paths = ?`,
+			encodePathList(append(paths, path)), id, raw)
+		if err != nil {
+			return false, err
+		}
+		if n, err := res.RowsAffected(); err != nil {
+			return false, err
+		} else if n == 1 {
+			return true, nil
+		}
+	}
+	return false, ErrExtraPathsContended
 }
 
 func (st *SQLStore) UpdateSession(ctx context.Context, s AgentSession) error {

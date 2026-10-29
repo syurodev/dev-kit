@@ -236,7 +236,7 @@ func (snap environmentSnapshot) report(ctx context.Context, scope string) (Envir
 		addEnvironmentEntry(&report, EnvironmentEntry{Name: "Working directory", Kind: "access", Status: "configured", Source: snap.Spec.Cwd, Detail: "The session may write here and in its additional granted folders."})
 	}
 	for _, path := range snap.Spec.ExtraReadWritePaths {
-		addEnvironmentEntry(&report, EnvironmentEntry{Name: "Additional writable folder", Kind: "access", Status: "configured", Source: path, Detail: "Granted when this session was created."})
+		addEnvironmentEntry(&report, EnvironmentEntry{Name: "Additional writable folder", Kind: "access", Status: "configured", Source: path, Detail: "Granted to this session."})
 	}
 	for _, tool := range []string{"git", "rg", "gh", "glab", "docker", "node", "bun", "go", "python3"} {
 		if err := ctx.Err(); err != nil {

@@ -223,7 +223,10 @@ type Deps struct {
 	AgentHub     AgentHubAPI // optional nil until wired from main
 	// Workspace answers workspace.list. Optional nil: the tool then says
 	// workspaces are not available.
-	Workspace       WorkspaceAPI
+	Workspace WorkspaceAPI
+	// WorkspaceWrite answers workspace.requestWrite. Optional nil: the tool then
+	// says folder access requests are not available.
+	WorkspaceWrite  WorkspaceWriteAPI
 	WorkspaceMemory WorkspaceMemoryAPI
 	// PDFDocuments backs the pdf.* tools: the PDFs attached to Agent Hub
 	// sessions. Nil leaves them unregistered, so an agent is never offered a

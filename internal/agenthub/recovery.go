@@ -96,6 +96,7 @@ func (s *Service) resumeSession(ctx context.Context, id string, reload bool) err
 		rt = s.runtimes[id]
 		closeEndpoint = s.endpoints[id]
 		delete(s.runtimes, id)
+		s.bgwork.forget(id)
 		delete(s.endpoints, id)
 		s.forgetWorkspaceContextLocked(id)
 	}

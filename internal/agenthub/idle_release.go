@@ -85,7 +85,8 @@ type idleCandidate struct {
 
 // ReleaseIdle is one sweep: it releases the runtime of every session that is
 // idle past its threshold and safe to reopen, and returns how many it released.
-// now is a parameter so a test does not have to wait.
+// now is a parameter so a test does not have to wait. A session whose process
+// still has a vendor task (bgwork.go) is kept: releasing the process would kill it.
 func (s *Service) ReleaseIdle(ctx context.Context, now time.Time, p IdlePolicy) int {
 	if !p.Enabled || p.ChildAfter <= 0 || p.TopAfter <= 0 {
 		return 0
@@ -110,7 +111,9 @@ func (s *Service) ReleaseIdle(ctx context.Context, now time.Time, p IdlePolicy) 
 		if sess.Status != SessionStatusIdle && sess.Status != SessionStatusError {
 			continue
 		}
-		if s.runtimes[sess.ID] == nil || s.resuming[sess.ID] != nil || activeChild[sess.ID] {
+		// The bgwork check here is an optimisation: releaseRuntime repeats it under
+		// the lock, and that one is the guard.
+		if s.runtimes[sess.ID] == nil || s.resuming[sess.ID] != nil || activeChild[sess.ID] || s.bgwork.running(sess.ID) {
 			continue
 		}
 		after := p.TopAfter
@@ -204,12 +207,27 @@ func (s *Service) idleBlockedSessions(ctx context.Context) (map[string]bool, boo
 // processes holding one vendor thread is an error for Codex). A caller that
 // arrived first stamped lastUsed under the same lock and the check refuses.
 func (s *Service) releaseRuntime(ctx context.Context, sess AgentSession, now time.Time, after time.Duration) bool {
+	return s.releaseRuntimeSince(ctx, sess, now, after, time.Time{})
+}
+
+// releaseRuntimeSince is releaseRuntime with a floor on use: a runtime handed to a
+// caller after since is not released. The zero time means no floor. The end-of-turn
+// reopen after a folder grant passes the instant its turn ended, because it has no
+// idle threshold to protect a process that the next turn has just taken.
+//
+// A session whose turn claim is held (s.invoking) is never released: its turn is
+// running on this process, or about to. This check, under the lock, is the guard;
+// the checks callers make before it (the sweep's candidate loop, releasableNow) are
+// optimisations that save work, not the guard.
+func (s *Service) releaseRuntimeSince(ctx context.Context, sess AgentSession, now time.Time, after time.Duration, since time.Time) bool {
 	id := sess.ID
 	call := &resumeCall{done: make(chan struct{})}
 
 	s.mu.Lock()
 	rt := s.runtimes[id]
-	if rt == nil || s.resuming[id] != nil || now.Sub(s.lastUsed[id]) < after {
+	_, claimed := s.invoking[id]
+	if rt == nil || s.resuming[id] != nil || claimed || now.Sub(s.lastUsed[id]) < after ||
+		(!since.IsZero() && s.lastUsed[id].After(since)) || s.bgwork.running(id) {
 		s.mu.Unlock()
 		return false
 	}
@@ -218,6 +236,9 @@ func (s *Service) releaseRuntime(ctx context.Context, sess AgentSession, now tim
 	used := s.lastUsed[id]
 	closeEndpoint := s.endpoints[id]
 	delete(s.runtimes, id)
+	// Nothing that was running can outlive this process; a task record only an old
+	// one is left with (bgwork.go) goes with it.
+	s.bgwork.forget(id)
 	delete(s.runtimeUsage, id)
 	delete(s.lastUsed, id)
 	delete(s.endpoints, id)

@@ -310,6 +310,11 @@ type Service struct {
 	// or replaced. The idle release reads it under mu so a caller that just
 	// took the runtime always wins over a sweep (idle_release.go).
 	lastUsed map[string]time.Time
+	// bgwork is the vendor tasks each live process is still running (bgwork.go).
+	bgwork backgroundWork
+	// reopenForGrant marks sessions whose process should be reopened when the
+	// current turn ends because a folder was just added to their grant (mu).
+	reopenForGrant map[string]bool
 	// stops remembers, per session, every runtime this process opened and how
 	// its process was seen to end (see WriterStopProof).
 	stops *runtimeTracker
@@ -377,6 +382,10 @@ type Service struct {
 	// MatchingWorkspaces resolves cwd when creating a root session. Ambiguous
 	// folders require an explicit choice; UI switching never moves a session.
 	MatchingWorkspaces func(cwd string) ([]string, error)
+	// WorkspaceFolders names a workspace and lists its folders (services). It is
+	// what a request for write access is checked against. nil: such a request
+	// is refused.
+	WorkspaceFolders func(workspaceID string) (name string, folders []WorkspaceFolder, err error)
 	// ProtectedPaths lists what is hidden from every session whatever
 	// SandboxExtras shares — DevKit's data directory (ProtectDataDir). A
 	// function, read on every spawn, because the directory's contents are
@@ -1611,10 +1620,13 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	s.mu.Lock()
 	rt := s.runtimes[id]
 	delete(s.runtimes, id)
+	s.bgwork.forget(id)
 	delete(s.lastUsed, id)
 	delete(s.runtimeUsage, id)
 	s.forgetWorkspaceContextLocked(id)
 	s.forgetSessionAccountLocked(id)
+	// A grant's pending reopen means nothing for a session that is closed.
+	delete(s.reopenForGrant, id)
 	closeEndpoint := s.endpoints[id]
 	delete(s.endpoints, id)
 	s.mu.Unlock()
@@ -2037,6 +2049,9 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 
 	turnOutcome := "error"
 	defer func() {
+		// Before the claim is dropped: a runtime that a later caller takes after this
+		// instant belongs to that caller's turn, not to this one (reopenAfterGrant).
+		turnEnded := time.Now()
 		release()
 		// Whatever waited for this turn to end can go now.
 		defer s.kickPeers(in.SessionID)
@@ -2061,6 +2076,9 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 				s.OnTurnFinished(in.SessionID, session.Status, turnOutcome)
 			}
 		}
+		// The turn is over and its result recorded: a folder granted during it can
+		// now reach the session's own shell, if the process can be swapped safely.
+		s.reopenAfterGrant(context.WithoutCancel(ctx), in.SessionID, turnEnded)
 	}()
 
 	adapter, ok := s.reg.Get(sess.AgentType)
@@ -2391,6 +2409,9 @@ func (s *Service) handleUpdate(ctx context.Context, sessionID string, update jso
 	logAgentUpdate(sessionID, update)
 	s.emit(sessionID, update)
 	parsed := ParseSessionUpdate(update)
+	if parsed.AsyncTask != nil {
+		s.bgwork.apply(sessionID, parsed.Kind, parsed.AsyncTask)
+	}
 	if parsed.Kind == UpdateSessionInfo && parsed.Title != "" {
 		if err := s.adoptSessionTitle(ctx, sessionID, parsed.Title); err != nil && s.OnRecordError != nil {
 			s.OnRecordError(sessionID, err)
@@ -2625,6 +2646,7 @@ func (s *Service) liveRuntime(ctx context.Context, id string) SessionRuntime {
 		return rt
 	}
 	delete(s.runtimes, id)
+	s.bgwork.forget(id)
 	delete(s.lastUsed, id)
 	delete(s.runtimeUsage, id)
 	s.forgetWorkspaceContextLocked(id)

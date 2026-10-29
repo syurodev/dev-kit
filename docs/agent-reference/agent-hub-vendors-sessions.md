@@ -71,6 +71,33 @@
   opened in a subfolder stays in it). Before this a child had no extras, so a Codex child refused work in folders its
   parent could write. A person-created session is unchanged. Not run against the real vendors' sandboxes: the tests read
   the `OpenSpec` a fake adapter received.
+- **An agent can ask for more folders of its own workspace** (`workspace.requestWrite`, `agenthub.Service.PrepareWorkspaceWrite`
+  / `CommitWorkspaceWrite`, `ExtraPathStore.AddExtraReadWritePath`; spec
+  `docs/superpowers/specs/2026-10-29-agent-write-grant-design.md`). One folder, by the name `workspace.list` shows, of the
+  session's own workspace; only a top-level session (a child is refused: it already holds what its parent held); the
+  person confirms every request (`EnvBlocks`, never remembered) and every check runs again after the answer. The folder
+  is appended to the session's stored `extra_rw_paths` with a compare-and-set, so `workspace.list`, `git.*` and children
+  created later see it at once and existing children never change. The session's own shell and file tools are bound to
+  the jail built when the process started, so the session is marked and `reopenAfterGrant` releases its process at the
+  end of the turn (the half of `CloseSession` that tears it down; the next prompt reopens it from the stored row) when
+  `releasableNow` allows: idle or error, no running child, no waiting question or permission or queued peer message, the
+  vendor can reload it, and **no vendor task running** (`bgwork.go`). Those are first screens; the guard is the locked
+  check in `releaseRuntimeSince`, which also refuses a session whose turn claim (`s.invoking`) is held and a runtime
+  handed to a caller after the instant the turn ended (the claim is dropped before the reopen runs, so the next prompt
+  can already be on this process). A session that fails a guard keeps its process, the mark is spent and the folder
+  applies at the next reopen. Idle release uses the same locked guard: a session whose vendor still runs a task (a
+  build, an agent-started turn) or whose claim is held is not released. A task record is ignored 12 hours after its
+  spawn (`backgroundWorkMaxAge`, so a lost end update cannot pin a process) and is dropped with the process; closing a
+  session drops its pending mark. A repeated request for an already-granted folder answers `shellAndFiles: now` only
+  for a folder under the session's working directory; any other already-granted folder answers `after_this_turn` (or
+  `after_reopen`) and marks the session again, since an earlier reopen may have been blocked. The audit record of the
+  request carries `origin` and `action` only, not the folder name. The set is fed from
+  `async_task_*` updates, which only Claude sends today; for Codex and opencode the guard protects nothing. The Environment
+  view of a live session reports the process's own grants, so it shows a new folder only after the reopen. Known limits:
+  a service path that is a symlink is compared lexically, so an already-granted answer can be reported while `git.*`,
+  which resolves links, still refuses; and a mark set during a vendor-started turn (no `Invoke`) is spent by the end
+  of the next turn that runs. Not run
+  against the real vendors: the tests use the mock adapter (a loadable variant for the reopen).
 - **An agent chooses a child's model and effort, and the person's profiles guide it**
   (`agenthub/model_catalog.go`, `model_choice.go`, `mcp/tools_agenthub.go`, `preferences/modelprofiles.go`,
   `bridge/agenthub_modelprofiles.go`, Settings → Agents → "Models by job" in `settings/ModelProfilesEditor.tsx`).

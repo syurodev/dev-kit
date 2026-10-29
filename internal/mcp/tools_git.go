@@ -154,7 +154,7 @@ func (s *Server) requireGitWritePaths(ctx context.Context, paths ...string) erro
 	}
 	for _, path := range paths {
 		if !scope.covers(path) {
-			return apperrors.New("git.repoNotGranted", path+" is not a folder your session may write. Ask the person to add it to the session, or work in "+scope.cwd+".", false)
+			return apperrors.New("git.repoNotGranted", path+" is not a folder your session may write. Ask for it with workspace.requestWrite (a sub-session asks its parent), or work in "+scope.cwd+".", false)
 		}
 	}
 	return nil

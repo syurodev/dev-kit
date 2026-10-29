@@ -214,3 +214,28 @@ func TestReleaseIdleRacingWithInvokeNeverLosesACall(t *testing.T) {
 	close(stop)
 	wg.Wait()
 }
+
+func TestReleaseIdleKeepsASessionWithBackgroundWork(t *testing.T) {
+	f := newIdleFixture(t)
+	ctx := context.Background()
+	now := time.Now().Add(11 * time.Minute) // past the child's 10 minutes, short of the parent's 30
+	f.svc.HandleUpdateForTest(ctx, f.kid.ID, []byte(spawnShellJSON))
+	if n := f.svc.ReleaseIdle(ctx, now, testIdlePolicy); n != 0 || !f.hasRuntime(f.kid.ID) {
+		t.Fatalf("released %d: a session whose build is still running must keep its process", n)
+	}
+	f.svc.HandleUpdateForTest(ctx, f.kid.ID, []byte(doneShellJSON))
+	if n := f.svc.ReleaseIdle(ctx, now, testIdlePolicy); n != 1 || f.hasRuntime(f.kid.ID) {
+		t.Fatalf("released %d: once the build ended the idle session should go", n)
+	}
+}
+
+func TestReleaseRuntimeRechecksBackgroundWorkUnderTheLock(t *testing.T) {
+	f := newIdleFixture(t)
+	ctx := context.Background()
+	now := time.Now().Add(11 * time.Minute)
+	// The work starts after the sweep chose its candidates and before the release.
+	f.svc.HandleUpdateForTest(ctx, f.kid.ID, []byte(spawnShellJSON))
+	if released := f.svc.ReleaseRuntimeForTest(ctx, f.kid.ID, now, 10*time.Minute); released {
+		t.Fatal("releaseRuntime released a session that has a task")
+	}
+}

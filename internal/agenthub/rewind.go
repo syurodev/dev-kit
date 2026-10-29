@@ -362,6 +362,7 @@ func (r *rewindRun) run(ctx context.Context) (RewindResult, error) {
 	s.mu.Lock()
 	r.oldRuntime = s.runtimes[r.session.ID]
 	delete(s.runtimes, r.session.ID)
+	s.bgwork.forget(r.session.ID)
 	delete(s.runtimeUsage, r.session.ID)
 	// The conversation is about to be cut back: the block may be in the part
 	// that goes.
