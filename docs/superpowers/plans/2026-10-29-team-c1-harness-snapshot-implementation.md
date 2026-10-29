@@ -259,9 +259,11 @@ C1 adds **no MCP tool, no AppService method and no bridge mapping**, so it intro
 
 Dispatcher, saga, persisted operation IDs, task assignment, session-to-attempt binding, enqueue, recovery or reconciliation; a supersede/new-attempt/release API (so no actual rebuild); result ingestion, acceptance or review; Team/Timeline dashboard; any public `team.*` tool or AppService method; a `team` tool group; writer stop proof or Linux/bwrap work; artifact transport and retention; model-profile binding (C1 only guarantees the harness binding contains and depends on no model/effort/account); changing `harnessconfig`, `harness`, `CreateSession`, prompt delivery or the attribution collectors; enabling or auto-enabling any group, saving a profile, or choosing a model or account for the child; production activation or any change to `main.go`; native/real-vendor evidence (everything runs with the mock runtime and fakes).
 
-## Open questions (defaults stated; only the first needs the owner)
+## Decisions (made by the coordinator on the owner's explicit delegation, 2026-10-29)
 
-1. **Role-required groups.** Default table in D7 (`tasks` + `agenthub` for all roles, plus `git` for implementer and integrator). Owner to confirm or edit before merge, since a wrong table blocks a role or lets one run without a tool it needs.
-2. **`FactsComplete=false`.** Production always reports false today. Default: accept and record it (the binding says it describes DevKit's configuration, not the vendor's), compare it for equality, and never claim vendor-verified executables. Alternative (refuse) would block every real child until vendor-file facts exist.
-3. **A child that already has its own S.** Default: refuse as `harness_override_present`, because the intended contract is W+V only and S would make the intended facts unverifiable. If the owner wants a person-created S on a not-yet-dispatched child to be allowed, that is a separate decision.
-4. **Who clears an unsent attempt for rebuild.** Default: slice E designs the supersede/new-attempt API (it depends on the quiescence proof). C1 only reports `RebuildRequired`.
+The owner delegated these choices ("decide and finish the plan"). Each takes the stated default:
+
+1. **Role-required groups:** the D7 table as written (`tasks` + `agenthub` for every role, plus `git` for implementer and integrator). It lives in one table in the app adapter so a later change is one edit with its tests.
+2. **`FactsComplete=false`:** accepted and recorded; compared for equality; the binding never claims vendor-verified executables.
+3. **A child that already has its own S:** refused as `harness_override_present`.
+4. **Clearing an unsent attempt for rebuild:** slice E. C1 only reports `RebuildRequired` and never rebuilds or overwrites.
