@@ -6,10 +6,12 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
+import { isSessionQuiet } from "./sessionActivity";
 import { runningSubagents, type LiveSubagent } from "./turns";
 import type { Subagent, TranscriptItem } from "./types";
 import { AgentState, type AgentStatus } from "./surfaces/AgentState";
 import { SubagentActivity } from "./surfaces/AgentTurn";
+import { EarlierTurnProvider } from "./transcript/toolSettle";
 
 /** A subagent with no end state yet is still working (the spawn carries none). */
 export function isSubagentRunning(state: string | undefined): boolean {
@@ -96,6 +98,10 @@ export function SubagentPanel({ sessionId, subagentId, onClose }: { sessionId: s
   const subagent: Subagent = { id: subagentId, ...fromTranscript, ...tracked };
   const activity = activityById[subagentId] ?? EMPTY_ARRAY;
   const running = isSubagentRunning(subagent.state);
+  // Outside a turn, so the pane says what the transcript's scope would: nothing
+  // works on the session, so a call its subagent is not tracked as running for
+  // cannot finish (transcript/toolSettle.tsx).
+  const quiet = useAgentSessionsStore((s) => isSessionQuiet(s.sessionsById[sessionId], Boolean(s.turnInFlightBySession[sessionId])));
 
   return (
     <section data-testid="subagent-panel" aria-label="Subagent" className="flex h-full min-h-0 w-full min-w-0 flex-col">
@@ -117,8 +123,10 @@ export function SubagentPanel({ sessionId, subagentId, onClose }: { sessionId: s
           body={running ? "Its steps show here as it takes them." : "Its work is in an older part of the conversation that has not loaded."}
         />
       ) : (
-        <div data-testid="subagent-panel-activity" className="min-h-0 flex-1 overflow-y-auto p-3">
-          <SubagentActivity subagent={subagent} activity={activity} subagents={activityById} live={running} />
+        <div data-testid="subagent-panel-activity" className="min-h-0 flex-1 overflow-y-auto p-2">
+          <EarlierTurnProvider earlier={false} quiet={quiet} sessionId={sessionId}>
+            <SubagentActivity subagent={subagent} activity={activity} subagents={activityById} live={running} flat />
+          </EarlierTurnProvider>
         </div>
       )}
     </section>

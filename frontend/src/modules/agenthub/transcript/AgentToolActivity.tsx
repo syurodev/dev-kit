@@ -74,7 +74,7 @@ export const AgentToolActivity = React.memo(function AgentToolActivity({
   const state = toolActivityState(call.status);
   // Still pending or in progress in the stored transcript, but its turn is
   // over, or its session is quiet (toolSettle.tsx): the card says so instead of spinning.
-  const stopped = state === "running" && cannotFinish(useSettleFacts(origin));
+  const stopped = state === "running" && cannotFinish(useSettleFacts(origin, sessionId));
   // Fixed at mount: whether this card is news or history.
   const bornLive = React.useRef(state === "running" && !stopped).current;
 

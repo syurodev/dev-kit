@@ -35,3 +35,49 @@ test("the follow panel settles a card of an earlier turn and keeps the latest tu
   const states = [...container.querySelectorAll("[data-testid=tool-activity]")].map((el) => `${el.textContent?.includes("old") ? "old" : "new"}:${el.getAttribute("data-state")}`);
   expect(states.sort()).toEqual(["new:running", "old:unfinished"]);
 });
+
+test("the follow panel keeps a subagent's card spinning only while that subagent is tracked as running", async () => {
+  const sub = { ...commit("sub-commit"), origin: "sub-1" } as TranscriptItem;
+  const session = { id: "s1", agentType: "claude", projectPath: "/p", status: "idle", parentSessionId: null, depth: 0, title: "t", acpSessionId: "" };
+  const state = async (tracked: boolean) => {
+    useAgentSessionsStore.setState({
+      transcriptsById: { s1: { items: [user("u1"), sub] } } as never,
+      sessionsById: { s1: session } as never,
+      subagents: { s1: tracked ? [{ id: "sub-1", name: "Look", state: "running" }] : [] } as never,
+    });
+    await act(async () => root.render(<AgentActivityPanel sessionId="s1" title="t" onStop={() => {}} />));
+    return container.querySelector("[data-testid=tool-activity]")?.getAttribute("data-state");
+  };
+  try {
+    expect(await state(false)).toBe("unfinished");
+    expect(await state(true)).toBe("running");
+  } finally {
+    useAgentSessionsStore.setState({ sessionsById: {}, subagents: {} } as never);
+  }
+});
+
+test("the follow panel draws a subagent's running command clock only while that subagent is tracked as running", async () => {
+  const cmd = {
+    id: "i1",
+    kind: "tool_call",
+    origin: "sub-1",
+    createdAt: new Date(Date.now() - 60_000).toISOString(),
+    toolCall: { id: "x", kind: "execute", title: "bun test --isolate", status: "in_progress" },
+  } as TranscriptItem;
+  const session = { id: "s1", agentType: "claude", projectPath: "/p", status: "idle", parentSessionId: null, depth: 0, title: "t", acpSessionId: "" };
+  const text = async (tracked: boolean) => {
+    useAgentSessionsStore.setState({
+      transcriptsById: { s1: { items: [user("u1"), cmd] } } as never,
+      sessionsById: { s1: session } as never,
+      subagents: { s1: tracked ? [{ id: "sub-1", name: "Look", state: "running" }] : [] } as never,
+    });
+    await act(async () => root.render(<AgentActivityPanel sessionId="s1" title="t" onStop={() => {}} />));
+    return container.textContent ?? "";
+  };
+  try {
+    expect(await text(false)).not.toContain("bun test --isolate");
+    expect(await text(true)).toContain("bun test --isolate");
+  } finally {
+    useAgentSessionsStore.setState({ sessionsById: {}, subagents: {} } as never);
+  }
+});

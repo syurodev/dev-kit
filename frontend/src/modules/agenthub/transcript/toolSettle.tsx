@@ -1,6 +1,7 @@
 import * as React from "react";
 
-import type { ToolCall, TranscriptItem } from "../types";
+import { useAgentSessionsStore } from "@/stores/agentSessions";
+import type { Subagent, ToolCall, TranscriptItem } from "../types";
 
 /**
  * A tool call that is still "pending" or "in_progress" in the stored transcript
@@ -20,8 +21,11 @@ import type { ToolCall, TranscriptItem } from "../types";
  *   indistinguishable from a cancelled one, which is what session activity now tells
  *   apart.
  *
- * A call with a subagent `origin` is settled only by the first rule: a background
- * subagent can keep running with the session quiet, and the session has no signal for it.
+ * A call with a subagent `origin` may still finish in a quiet session, but only while
+ * that subagent is tracked as running (the store's `subagents`, fed by every spawn and
+ * state update, ended ones dropped): a background subagent can keep working after the
+ * lead's turn ended, and the session has no signal for it. A subagent that is not
+ * tracked as running, in a quiet session, left its call unfinished for good.
  */
 
 /** The states a tool call draws (AgentToolCall); `unfinished` is one that never got to end. */
@@ -35,11 +39,13 @@ export type SettleFacts = {
   sessionQuiet?: boolean;
   /** The call belongs to a subagent (its row has an `origin`). */
   subagent?: boolean;
+  /** That subagent is tracked as running (subagentTrackedRunning). Absent: not tracked. */
+  subagentRunning?: boolean;
 };
 
 /** Whether a call that has not ended can never end. */
 export function cannotFinish(facts: SettleFacts): boolean {
-  return facts.earlierTurn || (Boolean(facts.sessionQuiet) && !facts.subagent);
+  return facts.earlierTurn || (Boolean(facts.sessionQuiet) && !(facts.subagent && facts.subagentRunning));
 }
 
 export function settleToolState<S extends SettledToolState>(state: S, facts: SettleFacts): S | "unfinished" {
@@ -47,7 +53,7 @@ export function settleToolState<S extends SettledToolState>(state: S, facts: Set
   return state === "pending" || state === "running" || state === "awaiting" ? "unfinished" : state;
 }
 
-type SettleScope = { earlier: boolean; quiet: boolean };
+type SettleScope = { earlier: boolean; quiet: boolean; sessionId?: string };
 
 /** Outside a turn (a panel, a fixture): neither an earlier turn nor a quiet session. */
 const SettleContext = React.createContext<SettleScope>({ earlier: false, quiet: false });
@@ -59,24 +65,51 @@ const SettleContext = React.createContext<SettleScope>({ earlier: false, quiet: 
 export function EarlierTurnProvider({
   earlier,
   quiet = false,
+  sessionId,
   children,
 }: {
   earlier: boolean;
   quiet?: boolean;
+  /** The session drawn: where a subagent's call looks up whether its subagent still runs. */
+  sessionId?: string;
   children: React.ReactNode;
 }) {
-  const value = React.useMemo(() => ({ earlier, quiet }), [earlier, quiet]);
+  const value = React.useMemo(() => ({ earlier, quiet, sessionId }), [earlier, quiet, sessionId]);
   return <SettleContext.Provider value={value}>{children}</SettleContext.Provider>;
+}
+
+/** The session the scope is for; a row's own `sessionId` (loaded pages) wins over it (live rows carry none). */
+export function useSettleSessionId(): string | undefined {
+  return React.useContext(SettleContext).sessionId;
 }
 
 export function useInEarlierTurn(): boolean {
   return React.useContext(SettleContext).earlier;
 }
 
-/** The facts for one call: the scope it is drawn in, and whether it is a subagent's (`origin`). */
-export function useSettleFacts(origin?: string): SettleFacts {
-  const { earlier, quiet } = React.useContext(SettleContext);
-  return { earlierTurn: earlier, sessionQuiet: quiet, subagent: Boolean(origin) };
+/**
+ * Whether the subagent an `origin` names is tracked as running in a session's
+ * list. Same rule as subagents.tsx isSubagentRunning (no state yet is running),
+ * kept here because that module imports the transcript surfaces.
+ */
+export function subagentTrackedRunning(tracked: readonly Subagent[] | undefined, origin?: string): boolean {
+  if (!origin) return false;
+  const found = tracked?.find((subagent) => subagent.id === origin);
+  return Boolean(found) && (!found!.state || found!.state === "running");
+}
+
+/**
+ * The facts for one call: the scope it is drawn in, whether it is a subagent's
+ * (`origin`) and, with the session it lives in, whether that subagent is still
+ * tracked as running.
+ */
+export function useSettleFacts(origin?: string, sessionId?: string): SettleFacts {
+  const { earlier, quiet, sessionId: scopeSession } = React.useContext(SettleContext);
+  const session = sessionId ?? scopeSession;
+  const subagentRunning = useAgentSessionsStore((s) =>
+    origin && session ? subagentTrackedRunning(s.subagents[session], origin) : false,
+  );
+  return { earlierTurn: earlier, sessionQuiet: quiet, subagent: Boolean(origin), subagentRunning };
 }
 
 /**

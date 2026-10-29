@@ -228,7 +228,7 @@ export function AgentToolCall({
   const KindIcon = kindIcon(call);
   // A call the stored transcript still has pending or in progress, in a turn
   // that is over or in a session nothing works on, will never finish (toolSettle.tsx).
-  const state = settleToolState(toToolState(call.status), useSettleFacts(origin));
+  const state = settleToolState(toToolState(call.status), useSettleFacts(origin, sessionId));
   const title = call.title || call.kind || call.id || "Tool execution";
   const [expanded, setExpanded] = React.useState(defaultExpanded);
   // The whole call behind a truncated preview, fetched on ask; once loaded it

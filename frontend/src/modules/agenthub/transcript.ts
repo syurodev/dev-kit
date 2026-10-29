@@ -121,11 +121,18 @@ export function isSameMessage(prevMessageId?: string, nextMessageId?: string): b
   return prevMessageId === nextMessageId;
 }
 
-function livePlanIndex(items: TranscriptItem[]): number {
+/**
+ * The plan this turn's agent is already keeping, which an update replaces in
+ * place. A subagent's plan is its own: matched by origin, and only the person's
+ * prompt ends the search (a subagent's brief does not), so a subagent's plan
+ * never replaces the lead agent's.
+ */
+function livePlanIndex(items: TranscriptItem[], origin?: string): number {
   for (let index = items.length - 1; index >= 0; index -= 1) {
-    const kind = String(items[index].kind);
-    if (kind === "user_message_chunk") return -1;
-    if (kind === "plan") return index;
+    const item = items[index];
+    const kind = String(item.kind);
+    if (kind === "user_message_chunk" && !item.origin) return -1;
+    if (kind === "plan" && (item.origin || undefined) === (origin || undefined)) return index;
   }
   return -1;
 }
@@ -475,13 +482,14 @@ export function applySessionUpdates(
 
     if (kind === UpdateKind.UpdatePlan || kind === "plan") {
       copyItems();
-      const existingIndex = livePlanIndex(items);
+      const existingIndex = livePlanIndex(items, update.origin);
       const timestamp = now();
       const existing = existingIndex >= 0 ? items[existingIndex] : undefined;
       const next = {
         id: existing?.id ?? generateId(),
         kind,
         plan: update.plan ? [...update.plan] : [],
+        ...(update.origin ? { origin: update.origin } : {}),
         raw: update.raw,
         createdAt: existing?.createdAt ?? timestamp,
         updatedAt: timestamp,
@@ -566,6 +574,7 @@ export function applySessionUpdates(
             id: generateId(),
             kind: UpdateKind.UpdateAsyncTaskSpawned,
             asyncTask: { ...incoming },
+            ...(update.origin ? { origin: update.origin } : {}),
             raw: update.raw,
             createdAt: now(),
             updatedAt: now(),
@@ -771,7 +780,7 @@ export function initTranscript(
     }
 
     if (kind === UpdateKind.UpdatePlan || kind === "plan") {
-      const existingIndex = livePlanIndex(model.items);
+      const existingIndex = livePlanIndex(model.items, payload.origin);
       const existing = existingIndex >= 0 ? model.items[existingIndex] : undefined;
       const next = {
         id: existing?.id ?? id,
@@ -779,6 +788,7 @@ export function initTranscript(
         seq,
         sessionId,
         plan: payload.plan ?? [],
+        ...(payload.origin ? { origin: payload.origin } : {}),
         raw: payload.raw,
         createdAt: existing?.createdAt ?? createdAt,
         updatedAt,
@@ -850,6 +860,7 @@ export function initTranscript(
             seq,
             sessionId,
             asyncTask: { ...incoming },
+            ...(payload.origin ? { origin: payload.origin } : {}),
             raw: payload.raw,
             createdAt,
             updatedAt,

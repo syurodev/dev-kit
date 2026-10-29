@@ -19,14 +19,36 @@ describe("settleToolState", () => {
     expect(settleToolState("failed", quiet)).toBe("failed");
   });
 
-  it("leaves a background subagent's call of the latest turn alone: the session has no signal for it", () => {
-    const quietSubagent = { earlierTurn: false, sessionQuiet: true, subagent: true };
-    for (const state of states) expect(settleToolState(state, quietSubagent)).toBe(state);
+  // A subagent's call may finish while the lead's turn is over: only if that
+  // subagent is still tracked as running, or something works on the session.
+  it("leaves a call of a subagent still tracked as running alone in a quiet session", () => {
+    const running = { earlierTurn: false, sessionQuiet: true, subagent: true, subagentRunning: true };
+    for (const state of states) expect(settleToolState(state, running)).toBe(state);
   });
 
-  it("still settles a subagent's call once its turn is an earlier one", () => {
-    expect(settleToolState("running", { earlierTurn: true, sessionQuiet: false, subagent: true })).toBe("unfinished");
-    expect(settleToolState("running", { earlierTurn: true, sessionQuiet: true, subagent: true })).toBe("unfinished");
+  it("settles a subagent's call in a quiet session when the subagent is not tracked as running", () => {
+    const gone = { earlierTurn: false, sessionQuiet: true, subagent: true, subagentRunning: false };
+    expect(settleToolState("pending", gone)).toBe("unfinished");
+    expect(settleToolState("running", gone)).toBe("unfinished");
+    expect(settleToolState("awaiting", gone)).toBe("unfinished");
+    expect(settleToolState("done", gone)).toBe("done");
+    expect(settleToolState("failed", gone)).toBe("failed");
+    // Absent means not tracked.
+    expect(settleToolState("running", { earlierTurn: false, sessionQuiet: true, subagent: true })).toBe("unfinished");
+  });
+
+  it("leaves a subagent's call alone while the session is working, tracked or not", () => {
+    const working = { earlierTurn: false, sessionQuiet: false, subagent: true, subagentRunning: false };
+    for (const state of states) expect(settleToolState(state, working)).toBe(state);
+  });
+
+  it("still settles a subagent's call once its turn is an earlier one, running or not", () => {
+    expect(settleToolState("running", { earlierTurn: true, sessionQuiet: false, subagent: true, subagentRunning: true })).toBe("unfinished");
+    expect(settleToolState("running", { earlierTurn: true, sessionQuiet: true, subagent: true, subagentRunning: true })).toBe("unfinished");
+  });
+
+  it("does not let a running subagent keep a call of the lead agent alive", () => {
+    expect(settleToolState("running", { earlierTurn: false, sessionQuiet: true, subagentRunning: true })).toBe("unfinished");
   });
 
   it("settles a call of an earlier turn that can no longer finish, and only those", () => {
