@@ -15,6 +15,7 @@ import type {
   Subagent,
   AsyncTask,
 } from "./types";
+import { mergeUsage } from "./usageLimits";
 
 export type {
   AvailableCommand,
@@ -303,7 +304,7 @@ export function applySessionUpdates(
 
     if (kind === UpdateKind.UpdateUsage || kind === "usage_update") {
       if (update.usage) {
-        usage = { ...update.usage };
+        usage = mergeUsage(usage, update.usage);
         changed = true;
       }
       continue;
@@ -643,7 +644,7 @@ export function initTranscript(
 
     if (kind === UpdateKind.UpdateUsage || kind === "usage_update") {
       if (payload.usage) {
-        model.usage = payload.usage;
+        model.usage = mergeUsage(model.usage, payload.usage);
       }
       continue;
     }
