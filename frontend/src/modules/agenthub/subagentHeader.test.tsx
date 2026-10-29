@@ -114,6 +114,16 @@ describe("Stop turn on a subagent", () => {
     expect(stop()?.getAttribute("aria-label")).toBe("Stop turn");
   });
 
+  test("tells, in its tooltip, that it stops more than this subagent", async () => {
+    await seed({ id: "a1", name: "R" }, session("running"));
+    await draw();
+    await act(async () => {
+      stop()!.focus();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+    expect(document.body.textContent).toContain("Stops the whole session's turn, including this subagent and background tasks");
+  });
+
   test("is offered through a turn the agent started itself", async () => {
     await seed({ id: "a1", name: "R", state: "running" }, session("idle", true));
     await draw();
