@@ -141,9 +141,12 @@
   when **(1)** its turn is an earlier one, whatever the session is doing now, or **(2)** it is in the newest turn and the
   session is quiet (`isSessionQuiet`): `isWorking` is false (neither our turn nor an agent-started one, session activity),
   no turn of ours is in flight (`turnInFlightBySession`), the stored status is not `awaiting_permission`, and the caller does not say
-  a turn streams. That is the cancelled-newest-turn case. A call with a subagent `origin` (including the row a result card falls back to) is settled only by (1): a background
-  subagent can run with the session quiet and the session has no signal for it. A session the window has not loaded is never
-  quiet. `settleToolState(state, {earlierTurn, sessionQuiet, subagent})`; the follow panel derives `quiet` the same way. Stored
+  a turn streams. That is the cancelled-newest-turn case. A call with a subagent `origin` (including the row a result card falls back to) escapes (2) only while that subagent is
+  tracked as running (`subagentTrackedRunning` over the store's `subagents`): a background subagent can run with the session quiet
+  and the session has no other signal for it; one not tracked as running, in a quiet session, left the call unfinished. A session
+  the window has not loaded is never quiet. `settleToolState(state, {earlierTurn, sessionQuiet, subagent, subagentRunning})`;
+  `useSettleFacts(origin, sessionId)` looks the subagent up in the row's session or the scope's (`EarlierTurnProvider sessionId`; live
+  rows carry no `sessionId`). The follow panel and the subagent pane derive `quiet` the same way. Stored
   rows are not rewritten. A failed row with no error line of its own shows the first line of what it said (`failureLine`).
 - **The subagent pane is flat** (`SubagentActivity flat`, `SubagentPanel`). The nesting rule and indent (`ml-1.5 border-l pl-4`) belong to a
   fold inside the transcript and stay there (and in the composer tray); the 420px pane draws the same content with no rule, no indent and an
