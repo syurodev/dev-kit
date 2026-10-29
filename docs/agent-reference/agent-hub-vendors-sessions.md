@@ -71,6 +71,22 @@
   opened in a subfolder stays in it). Before this a child had no extras, so a Codex child refused work in folders its
   parent could write. A person-created session is unchanged. Not run against the real vendors' sandboxes: the tests read
   the `OpenSpec` a fake adapter received.
+- **An agent can ask for more folders of its own workspace** (`workspace.requestWrite`, `agenthub.Service.PrepareWorkspaceWrite`
+  / `CommitWorkspaceWrite`, `ExtraPathStore.AddExtraReadWritePath`; spec
+  `docs/superpowers/specs/2026-10-29-agent-write-grant-design.md`). One folder, by the name `workspace.list` shows, of the
+  session's own workspace; only a top-level session (a child is refused: it already holds what its parent held); the
+  person confirms every request (`EnvBlocks`, never remembered) and every check runs again after the answer. The folder
+  is appended to the session's stored `extra_rw_paths` with a compare-and-set, so `workspace.list`, `git.*` and children
+  created later see it at once and existing children never change. The session's own shell and file tools are bound to
+  the jail built when the process started, so the session is marked and `reopenAfterGrant` releases its process at the
+  end of the turn (the half of `CloseSession` that tears it down; the next prompt reopens it from the stored row) when
+  `releasableNow` allows: idle or error, no running child, no waiting question or permission or queued peer message, the
+  vendor can reload it, and **no vendor task running** (`bgwork.go`). A session that fails a guard keeps its process,
+  the mark is spent and the folder applies at the next reopen. Idle release uses the same background-work guard: a
+  session whose vendor still runs a task (a build, an agent-started turn) is not released. The set is fed from
+  `async_task_*` updates, which only Claude sends today; for Codex and opencode the guard protects nothing. The Environment
+  view of a live session reports the process's own grants, so it shows a new folder only after the reopen. Not run
+  against the real vendors: the tests use the mock adapter (a loadable variant for the reopen).
 - **An agent chooses a child's model and effort, and the person's profiles guide it**
   (`agenthub/model_catalog.go`, `model_choice.go`, `mcp/tools_agenthub.go`, `preferences/modelprofiles.go`,
   `bridge/agenthub_modelprofiles.go`, Settings → Agents → "Models by job" in `settings/ModelProfilesEditor.tsx`).

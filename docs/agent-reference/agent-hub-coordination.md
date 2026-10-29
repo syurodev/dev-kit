@@ -34,6 +34,8 @@
   each, `beforeSeq` pages back, every answer says the text is data). Same `session:<id>` scopes and descendant rule as the rest
   (`TestNewContainerGrantsTheChildControlTools`); only `readSession` is pre-approved. The UI's Resume on the "interrupted" notice
   now dismisses the notice and toasts, because it used to succeed silently (the row's `updated_at` moved, nothing on screen did).
+- **A sub-session cannot request more folders** (`workspace.requestWrite` answers `workspace.grantRefused`); its parent
+  asks, and children created afterwards inherit. A child already holds a copy of what its parent had when it was created.
 - **A parent knows why a child stopped, and is not left to resume it blindly** (`internal/agenthub/stop.go`, `stop_service.go`,
   migration 43 `agent_sessions.stop`). Evidence: a child whose provider returned 503 eleven times read as `status: error`;
   the parent called `agenthub.resumeSession` over and over into the same failure.

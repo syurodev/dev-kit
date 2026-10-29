@@ -25,6 +25,17 @@ as production-verified against a real Claude Code session in cloud CI.
   workspaces its folders belong to; a terminal CLI on the shared socket sees them all.
   The primary-first order comes from `workspace.Service.ListServices` — the SQL
   repository alone sorts by name.
+- `workspace.requestWrite` (gate-owned, `workspace` harness group) asks the person for write access to one folder of
+  the caller's own workspace: input `{folder}` (a service name as `workspace.list` shows it; no path, no session id).
+  The owner is `agenthub.Service` (`PrepareWorkspaceWrite`, then the confirmation here with `EnvBlocks`, so it is asked
+  every time and never remembered, then `CommitWorkspaceWrite`, which checks again). Capability `ws:grant` on
+  `workspace:requestWrite` (`internal/app/container.go`); the service refuses any caller but an agent session. Codes
+  `workspace.grantRefused` (not an agent, a sub-session, no workspace, an unknown name, a closed session, moved grants),
+  `workspace.grantDeclined` and `workspace.grantUnavailable` (nobody can answer), all in `bridge.keptCodes`; they are named
+  through constants, so `TestWorkspaceGrantCodesReachTheAgent` covers them (the source scan does not). The answer says when
+  git, new sub-sessions and the session's shell and file tools see the folder (`now`, `after_this_turn`, `after_reopen`).
+  `git.repoNotGranted` now says to ask with this tool. Its definition lifted the `workspace` group ceiling in
+  `tool_budget_test.go` (5300 to 5900).
 - **Git tools act on the caller's repository, not only the one open in the app**
   (`internal/mcp/git_repo.go`). Every `git.*` tool takes an optional `repo`: a folder name
   from `workspace.list` / `git.repos`, an absolute path, or `./…`/`../…` from the cwd. With
