@@ -89,6 +89,39 @@ describe("a module's context pane: kept when closed, unless asked", () => {
   });
 });
 
+describe("a pane's header: the opener's description, kept with the entry", () => {
+  const header = { title: "Review whitelist", titleHint: "Check the list", status: "running", actions: "stop" };
+
+  test("a header opened with the pane is stored on it; a pane without one has none", () => {
+    const store = createSplitPanelStore<string>();
+    const doc = store.bound("agenthub", "tab-1");
+    doc.openPanel("subagent", { onClose: noop, key: "subagent:s:a1", header });
+    expect(store.getState().panels.agenthub.header).toEqual(header);
+    store.bound("kafka", "doc-1").openPanel("message", { onClose: noop });
+    // Not even an undefined property: a headerless pane is the entry it always was.
+    expect("header" in store.getState().panels.kafka).toBe(false);
+  });
+
+  test("a new header with the same key keeps the tree: same generation, new header", () => {
+    const store = createSplitPanelStore<string>();
+    const doc = store.bound("agenthub", "tab-1");
+    doc.openPanel("subagent", { onClose: noop, key: "subagent:s:a1", header });
+    doc.openPanel("subagent", { onClose: noop, key: "subagent:s:a1", header: { ...header, status: "closed", actions: undefined } });
+    expect(store.getState().panels.agenthub).toMatchObject({ generation: 0, header: { title: "Review whitelist", status: "closed" } });
+    // A different key is still a new tree.
+    doc.openPanel("subagent", { onClose: noop, key: "subagent:s:a2", header });
+    expect(store.getState().panels.agenthub.generation).toBe(1);
+  });
+
+  test("reopening without a header takes the old one away", () => {
+    const store = createSplitPanelStore<string>();
+    const doc = store.bound("agenthub", "tab-1");
+    doc.openPanel("subagent", { onClose: noop, key: "a", header });
+    doc.openPanel("feed", { onClose: noop, key: "a" });
+    expect("header" in store.getState().panels.agenthub).toBe(false);
+  });
+});
+
 describe("the split-panel store", () => {
   const deferred = () => {
     const queue: (() => void)[] = [];

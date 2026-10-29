@@ -8,7 +8,7 @@ import {
   useSplitPanelState,
   useSplitPanelStoreActions,
 } from "@/components/ui/split-panel";
-import { shownPanels } from "@/components/ui/splitPanelModel";
+import { shownPanels, type PanelHeader } from "@/components/ui/splitPanelModel";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { ShellResizeHandle } from "@/components/ui/resize-handle";
@@ -74,9 +74,11 @@ const MAX_COLUMN_WIDTH = 720;
 const MIN_BOTTOM_HEIGHT = 120;
 const MAX_BOTTOM_HEIGHT = 600;
 
-type SlotsCtx = {
+export type SlotsCtx = {
   hostFor: (pane: PaneId) => HTMLDivElement;
   titles: Record<PaneId, string>;
+  /** What a context pane's opener says its header shows (PanelHeader), in place of its module's label and icon. */
+  headers: Record<PaneId, PanelHeader>;
   /** The context pane of the focused module, when several are on screen. */
   focusedPane: PaneId | null;
   /** What gives way while the window is too narrow (panelLayout.layoutPressure). */
@@ -94,6 +96,8 @@ type SlotsCtx = {
   beginDrag: (pane: PaneId, e: PointerEvent, card: HTMLElement, origin: HTMLElement) => void;
 };
 const Ctx = React.createContext<SlotsCtx | null>(null);
+/** For the header's own test: it draws from this and nothing else of the row. */
+export const SlotsContext = Ctx;
 const useSlots = () => React.useContext(Ctx)!;
 
 /**
@@ -230,6 +234,18 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
   // instead of sliding out as an empty card (workbench/slots/retain.ts).
   const reduceMotion = useReducedMotion() ?? false;
   const bodies = useRetainedRecord(liveBodies, panelCloseMs(reduceMotion));
+  // The header each pane's opener described. Like the bodies, one that goes
+  // is kept while its slot closes around it, instead of the module's label
+  // flashing in for the length of the close.
+  const liveHeaders = React.useMemo(() => {
+    const out: Record<PaneId, PanelHeader> = {};
+    for (const m of visibleModules) {
+      const header = allPanels[m]?.header;
+      if (header) out[contextPane(m)] = header;
+    }
+    return out;
+  }, [visibleModules, allPanels]);
+  const headers = useRetainedRecord(liveHeaders, panelCloseMs(reduceMotion));
 
   // A hidden pane of a module that left the screen has no body anywhere, and
   // its reopen would mount a fresh one: the entry is dropped (splitPanelModel.forgetHiddenStep).
@@ -376,6 +392,7 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
       hostFor,
       pressure,
       titles,
+      headers,
       resting,
       focusedPane,
       terminalHasModule: moduleContent != null,
@@ -386,7 +403,7 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
       targets,
       beginDrag,
     }),
-    [hostFor, pressure, titles, resting, focusedPane, moduleContent, resolved, close, release, moveTo, targets, beginDrag],
+    [hostFor, pressure, titles, headers, resting, focusedPane, moduleContent, resolved, close, release, moveTo, targets, beginDrag],
   );
 
   return (
@@ -814,7 +831,7 @@ const headerButton =
  * Grip, title, Move to… and close. The whole header is the drag handle; the
  * buttons are not.
  */
-function PaneHeader({
+export function PaneHeader({
   pane,
   cardRef,
   originRef,
@@ -823,11 +840,13 @@ function PaneHeader({
   cardRef: React.RefObject<HTMLDivElement | null>;
   originRef: React.RefObject<HTMLDivElement | null>;
 }) {
-  const { titles, focusedPane, terminalHasModule, close, moveTo, targets, beginDrag } = useSlots();
+  const { titles, headers, focusedPane, terminalHasModule, close, moveTo, targets, beginDrag } = useSlots();
   const ref = React.useRef<HTMLDivElement>(null);
   const Icon = iconFor(pane);
   const idle = focusedPane !== null && moduleOfPane(pane) !== null && pane !== focusedPane;
-  const title = titles[pane];
+  // What the pane's opener says it shows, else its module's label.
+  const header = headers[pane];
+  const title = header?.title ?? titles[pane];
 
   // Native, not onPointerDown: the drag needs the raw event's button and a
   // preventDefault that stops a text selection starting before the threshold.
@@ -872,7 +891,13 @@ function PaneHeader({
         </TooltipTrigger>
         <TooltipContent side="bottom">Move</TooltipContent>
       </Tooltip>
-      <Icon className="size-3.5 shrink-0" aria-hidden />
+      {header?.icon ? (
+        <span className="flex shrink-0 items-center [&>svg]:size-3.5" aria-hidden>
+          {header.icon}
+        </span>
+      ) : (
+        <Icon className="size-3.5 shrink-0" aria-hidden />
+      )}
       {/* The terminal's tabs are its title: one header, not a header over a
           strip. The empty stretch of the strip still drags the pane. */}
       {pane === "terminal" ? (
@@ -880,8 +905,12 @@ function PaneHeader({
       ) : pane === "agent" ? (
         <AgentPaneTabs />
       ) : (
-        <span className="min-w-0 flex-1 truncate text-label-12">{title}</span>
+        <span className="min-w-0 flex-1 truncate text-label-12" title={header?.titleHint}>
+          {title}
+        </span>
       )}
+      {header?.status ? <span className="flex shrink-0 items-center">{header.status}</span> : null}
+      {header?.actions ? <span className="flex shrink-0 items-center gap-1">{header.actions}</span> : null}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button type="button" aria-label={`Move ${title} to…`} title="Move to…" className={headerButton}>

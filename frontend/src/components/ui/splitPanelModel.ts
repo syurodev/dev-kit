@@ -1,3 +1,25 @@
+import type { ReactNode } from "react";
+
+/**
+ * What a pane's header says, in place of the module's label: the opener names
+ * what the pane shows, the shell draws it in its single header row beside its
+ * own layout and close buttons (pane-slots.tsx), so a body needs no header of
+ * its own. Part of the opener's state, not of the body: a new `header` under
+ * the same `key` updates the row and keeps the body mounted.
+ */
+export type PanelHeader<C = ReactNode> = {
+  /** Replaces the module's label; truncates. */
+  title: string;
+  /** Its tooltip: the longer thing the title abbreviates. */
+  titleHint?: string;
+  /** Replaces the module's icon. */
+  icon?: C;
+  /** Drawn right after the title. */
+  status?: C;
+  /** Drawn before the shell's own buttons. */
+  actions?: C;
+};
+
 /**
  * The module context panes' state, as pure steps (split-panel.tsx holds it).
  *
@@ -18,6 +40,8 @@
  */
 export type PanelEntry<C> = {
   content: C;
+  /** What the shell's one header draws for it (PanelHeader); omitted, the module's own label and icon. */
+  header?: PanelHeader<C>;
   width: number;
   onClose: () => void;
   /** What the body is; a different key is a new tree. */
@@ -40,7 +64,7 @@ export const EMPTY_PANELS: PanelsState<never> = { panels: {}, gens: {} };
 export function openStep<C>(
   prev: PanelsState<C>,
   owner: string,
-  next: { content: C; width: number; onClose: () => void; key?: string },
+  next: { content: C; width: number; onClose: () => void; key?: string; header?: PanelHeader<C> },
   opener: string,
 ): PanelsState<C> {
   const was = prev.panels[owner];
@@ -92,9 +116,11 @@ export type CompanionEntry<C> = { content: C; width: number; onClose: () => void
 
 export type SplitPanelState<C> = PanelsState<C> & { companion: CompanionEntry<C> | null };
 
-export type PanelOpenOptions = {
+export type PanelOpenOptions<C = ReactNode> = {
   width?: number;
   onClose: () => void;
+  /** The shell's header for this pane, in place of the module's label (PanelHeader). Optional. */
+  header?: PanelHeader<C>;
   /** What the body shows (see PanelEntry.key). Omitted, every open is the same tree. */
   key?: string;
 };
@@ -108,7 +134,7 @@ export type PanelCloseOptions = {
 };
 
 export type SplitPanelActions<C> = {
-  openPanelFor: (owner: string, content: C, opts: PanelOpenOptions, opener: string) => void;
+  openPanelFor: (owner: string, content: C, opts: PanelOpenOptions<C>, opener: string) => void;
   closePanelFor: (owner: string, opener: string, opts?: PanelCloseOptions) => void;
   /** `opener` unmounted: drop the pane if it was the one that opened it. */
   releasePanelFor: (owner: string, opener: string) => void;
@@ -120,7 +146,7 @@ export type SplitPanelActions<C> = {
 
 /** What a caller (a document) uses: its own module's pane and the companion. */
 export type BoundPanelActions<C> = {
-  openPanel: (content: C, opts: PanelOpenOptions) => void;
+  openPanel: (content: C, opts: PanelOpenOptions<C>) => void;
   closePanel: (opts?: PanelCloseOptions) => void;
   openCompanion: SplitPanelActions<C>["openCompanion"];
   closeCompanion: SplitPanelActions<C>["closeCompanion"];
@@ -152,7 +178,17 @@ export function createSplitPanelStore<C>(opts: { defer?: (fn: () => void) => voi
   const panelsOf = (next: PanelsState<C>) => (next === state ? state : { ...next, companion: state.companion });
   const actions: SplitPanelActions<C> = {
     openPanelFor: (owner, content, o, opener) =>
-      set(panelsOf(openStep(state, owner, { content, width: o.width ?? DEFAULT_WIDTH, onClose: o.onClose, key: o.key }, opener))),
+      set(
+        panelsOf(
+          openStep(
+            state,
+            owner,
+            // No `header` property at all for a headerless pane: it is the entry it always was.
+            { content, width: o.width ?? DEFAULT_WIDTH, onClose: o.onClose, key: o.key, ...(o.header ? { header: o.header } : {}) },
+            opener,
+          ),
+        ),
+      ),
     closePanelFor: (owner, opener, o) => set(panelsOf(closeStep(state, owner, o?.discard ?? false, opener))),
     releasePanelFor: (owner, opener) => set(panelsOf(releaseStep(state, owner, opener))),
     forgetHiddenPanels: (onScreen) => set(panelsOf(forgetHiddenStep(state, onScreen))),
