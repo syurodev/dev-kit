@@ -282,3 +282,12 @@ func (s *Service) SetLastUsedForTest(id string, at time.Time) {
 
 // HasBackgroundWorkForTest reports whether the session's process still has a tracked vendor task.
 func (s *Service) HasBackgroundWorkForTest(sessionID string) bool { return s.bgwork.running(sessionID) }
+
+// ReleaseRuntimeForTest runs the final, locked half of an idle release on one session.
+func (s *Service) ReleaseRuntimeForTest(ctx context.Context, id string, now time.Time, after time.Duration) bool {
+	sess, err := s.store.GetSession(ctx, id)
+	if err != nil {
+		return false
+	}
+	return s.releaseRuntime(ctx, sess, now, after)
+}

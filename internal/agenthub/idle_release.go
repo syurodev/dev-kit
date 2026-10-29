@@ -85,7 +85,8 @@ type idleCandidate struct {
 
 // ReleaseIdle is one sweep: it releases the runtime of every session that is
 // idle past its threshold and safe to reopen, and returns how many it released.
-// now is a parameter so a test does not have to wait.
+// now is a parameter so a test does not have to wait. A session whose process
+// still has a vendor task (bgwork.go) is kept: releasing the process would kill it.
 func (s *Service) ReleaseIdle(ctx context.Context, now time.Time, p IdlePolicy) int {
 	if !p.Enabled || p.ChildAfter <= 0 || p.TopAfter <= 0 {
 		return 0
@@ -110,7 +111,7 @@ func (s *Service) ReleaseIdle(ctx context.Context, now time.Time, p IdlePolicy) 
 		if sess.Status != SessionStatusIdle && sess.Status != SessionStatusError {
 			continue
 		}
-		if s.runtimes[sess.ID] == nil || s.resuming[sess.ID] != nil || activeChild[sess.ID] {
+		if s.runtimes[sess.ID] == nil || s.resuming[sess.ID] != nil || activeChild[sess.ID] || s.bgwork.running(sess.ID) {
 			continue
 		}
 		after := p.TopAfter
@@ -209,7 +210,7 @@ func (s *Service) releaseRuntime(ctx context.Context, sess AgentSession, now tim
 
 	s.mu.Lock()
 	rt := s.runtimes[id]
-	if rt == nil || s.resuming[id] != nil || now.Sub(s.lastUsed[id]) < after {
+	if rt == nil || s.resuming[id] != nil || now.Sub(s.lastUsed[id]) < after || s.bgwork.running(id) {
 		s.mu.Unlock()
 		return false
 	}
