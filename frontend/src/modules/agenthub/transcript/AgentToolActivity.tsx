@@ -14,6 +14,7 @@ import { toolActivityOf, type ToolActivity, type ToolActivityState, type ToolAct
 import type { ToolCall } from "../types";
 import { toolActivityState } from "./AgentToolCall";
 import { resultCallOf, useFullToolCall } from "./toolCallDetail";
+import { useToolCallCanFinish } from "./toolSettle";
 
 /** Whether a call is one of the DevKit tools that change something. */
 export function isToolActivity(call: ToolCall | undefined): boolean {
@@ -68,8 +69,12 @@ export const AgentToolActivity = React.memo(function AgentToolActivity({
   const name = toolNameOf(call);
   const activity = toolActivityOf(name);
   const state = toolActivityState(call.status);
+  // Still pending or in progress in the stored transcript, but nothing can
+  // finish it any more (toolSettle.ts): the card says so instead of spinning.
+  const canFinish = useToolCallCanFinish(sessionId);
+  const stopped = state === "running" && !canFinish;
   // Fixed at mount: whether this card is news or history.
-  const bornLive = React.useRef(state === "running").current;
+  const bornLive = React.useRef(state === "running" && !stopped).current;
 
   // A done call's answer on the page may be a cut preview: the full row is
   // read then, shared with the call's row and any result card.
@@ -87,8 +92,8 @@ export const AgentToolActivity = React.memo(function AgentToolActivity({
 
   // The result card's code, fetched while the call is still running.
   React.useEffect(() => {
-    if (state === "running") void activity?.preload?.().catch(() => undefined);
-  }, [activity, state]);
+    if (state === "running" && !stopped) void activity?.preload?.().catch(() => undefined);
+  }, [activity, state, stopped]);
 
   const result = React.useMemo(() => {
     // Only a tool with a view is worth reading the answer for.
@@ -100,11 +105,11 @@ export const AgentToolActivity = React.memo(function AgentToolActivity({
   }, [activity, state, name, resultCall]);
 
   if (!activity) return null;
-  const card = <ActivityCard activity={activity} state={state} target={target} />;
+  const card = <ActivityCard activity={activity} state={state} stopped={stopped} target={target} />;
   return (
     <div
       data-testid="tool-activity"
-      data-state={state}
+      data-state={stopped ? "unfinished" : state}
       data-tool={name}
       className={cn("w-full min-w-0", bornLive && "activity-enter")}
     >
@@ -130,29 +135,35 @@ export const AgentToolActivity = React.memo(function AgentToolActivity({
 function ActivityCard({
   activity,
   state,
+  stopped = false,
   target,
 }: {
   activity: ToolActivity;
   state: ToolActivityState;
+  /** Running in the transcript, but nothing is left to finish it. */
+  stopped?: boolean;
   target: ToolActivityTarget | null;
 }) {
   const Icon = getModule(activity.module)?.icon ?? Wrench;
   const ref = state === "done" ? target?.ref : undefined;
   const verb = state === "running" ? activity.running : state === "failed" ? activity.failed : activity.done;
+  const live = state === "running" && !stopped;
   return (
     <FramedCard data-testid="tool-activity-card">
       <FramedCardHeader
         icon={Icon}
         title={
-          state === "running" ? (
+          live ? (
             <Shimmer active className="text-label-12">{`${verb}…`}</Shimmer>
           ) : (
-            <span className={cn(state === "failed" && "text-status-danger")}>{verb}</span>
+            <span className={cn(state === "failed" && "text-status-danger", stopped && "text-text-secondary")}>{verb}</span>
           )
         }
         meta={
-          state === "running" ? (
+          live ? (
             <Spinner className="size-3 text-text-tertiary" aria-label={verb} />
+          ) : stopped ? (
+            <span className="text-caption-11 text-text-tertiary">didn't finish</span>
           ) : state === "failed" ? (
             <X className="size-3 text-status-danger" aria-hidden="true" />
           ) : (
