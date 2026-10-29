@@ -1344,7 +1344,7 @@ func main() {
 		},
 	}); err != nil {
 		stopIdleRelease()
-		log.Fatalf("harness startup failed, nothing was started: %v", err)
+		log.Fatalf("harness startup failed; no listener or session was started: %v", err)
 	}
 
 	// Telegram runs only in the authenticated desktop host; server-mode bridge

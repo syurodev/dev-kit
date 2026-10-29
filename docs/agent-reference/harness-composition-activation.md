@@ -519,20 +519,26 @@ This is engineering evidence by agents, not a human sign-off.
 4. Only then Telegram, the windows and `Run`. Anything that can create or prompt a session comes after the graph is attached.
 
 Any compose, attach or bind failure undoes the composition (Agent Hub provider/lifecycle nil, port unbound), closes the session
-host, cancels the MCP context and aborts startup with `log.Fatalf` (a safe fixed message; no cause text from the store). Nothing keeps
-listening. `OnShutdown` is unchanged: endpoint close and admission invalidation, MCP cancellation, a 5 s bounded metric drain, then
-the transcript shutdown; shutdown never issues a session Close and never erases S or the reference.
+host, cancels the MCP context and aborts startup with `log.Fatalf("harness startup failed; no listener or session was started: ...")`. No
+listener and no session exists at that point, but earlier steps' background goroutines may already be running. The composition errors are fixed
+sentences with no store text; the listen error is Go's and includes the socket path. Nothing keeps listening. `OnShutdown` is unchanged:
+endpoint close and admission invalidation, MCP cancellation, a 5 s bounded metric drain, then the transcript shutdown; shutdown never issues a
+session Close and never erases S or the reference. `log.Fatalf` skips deferred functions, so on a startup failure the audit queue and the analyzer
+child processes may not flush; nothing has been audited or analysed yet at that point, and this is left as is.
 
 Behaviour changes versus the previous main, all decided: a shared-socket bind failure is fatal (it used to be logged and ignored); Telegram
-starts after the harness is attached; `StartHarness` follows `application.New`. `HarnessAssemblyConfig.Audit` is now wired (below).
+starts after the harness is attached; `StartHarness` follows `application.New`. One consequence to know: a config path longer than about 107 bytes
+exceeds the unix-socket limit, so startup now fails with `listen unix ...: invalid argument`; previously it logged the error and ran with dead agent
+tools. `HarnessAssemblyConfig.Audit` is now wired (below).
 
 ### Owner decisions (the coordinator, on the owner's explicit delegation, 2026-10-29)
 
 1. **O-2b: a build without the harness no longer deletes an applied reference.** `recordHarnessApplied` with no snapshot and a rewind
    commit with no `HarnessRef` leave an existing row untouched when `Service.Harness == nil`. The one deletion left is where the harness
    IS attached and the fork has no snapshot (a session with no workspace, to which no reference belongs); the rewind spec carries it as
-   an explicit `HarnessClear`, so the zero value keeps the row. The attached no-workspace rewind path (`HarnessClear = true`) has no test
-   of its own; the equivalent resume path does. Rationale: rollback must preserve data, and a deleted reference would recreate O-2 on the next
+   an explicit `HarnessClear`, so the zero value keeps the row. The attached no-workspace paths are tested for resume
+   (`TestAnAttachedHarnessStillRemovesTheReferenceOfASessionWithNoWorkspace`) and for rewind
+   (`TestAnAttachedRewindOfASessionWithNoWorkspaceRemovesItsReferenceInTheCutTransaction`, including a failing DELETE rolling the cut back). Rationale: rollback must preserve data, and a deleted reference would recreate O-2 on the next
    activation. Tests: `harness_o2b_test.go` (`TestARollbackReopenLeavesTheStoredReferenceByteForByte`,
    `TestAfterARollbackReactivationStillRefusesANewWorkspaceExecutable` for a session with and without a reference,
    `TestARollbackRewindLeavesTheStoredReferenceAlone`, `TestAnAttachedHarnessStillRemovesTheReferenceOfASessionWithNoWorkspace`),
@@ -541,8 +547,10 @@ starts after the harness is attached; `StartHarness` follows `application.New`. 
 2. **Kept from the candidate:** fatal shared-socket bind failure, Telegram after the attach, `StartHarness` after `application.New`, `OnShutdown` unchanged.
 3. **Audit.** `app.HarnessAuditSink` maps a `harnessconfig.Event` to one row in the same sink the other services use (`audit.NewTee(container.Audit, auditSQL)`):
    subject `builtin.harness`, capability `harness:configure`, scope `session:<id>` or `workspace:<id>`, outcome allowed for `applied` and denied for a refusal
-   code, caller as stamped (`unknown` if empty), and metadata of exactly `action`, `result` (the code), `tier`, `target`, `workspace_id`, `session_id`,
-   `profile_revision`, `override_revision`, `publication`. No group, definition, path, rationale or diff text can reach it (the event type has no such field).
+   code, caller as stamped (`unknown` if empty), and metadata of exactly `action` (`proposal`, or `stale_repair` for the two repair targets), `result`
+   (the code), `commit` (`committed`, `unknown` or `none`), `tier`, `target`, `workspace_id`, `session_id`, `profile_revision`, `override_revision`,
+   `publication`. A repair whose commit result is unknown (the write may have landed) is recorded as allowed (the person approved it) with `result` and
+   `commit` both `unknown`, never as denied; the audit package has only the two authorization outcomes and no third was added. No group, definition, path, rationale or diff text can reach it (the event type has no such field).
    Tests: `harness_audit_test.go`.
 4. **Git-scope residual risk (#375, #388)** is accepted as a documented known limitation, not an R4 blocker: the Git scope must not be described as a boundary
    against a hostile agent. See the R1 ledger above and `docs/superpowers/specs/2026-10-28-git-descriptor-bound-execution.md`.
@@ -568,10 +576,16 @@ starts after the harness is attached; `StartHarness` follows `application.New`. 
 
 ### Rollback
 
-Rollback is a **code/deployment revert** of this change (revert the `main.go` wiring and `StartHarness`), nothing else. It preserves every record: workspace
-profiles (W), session overrides (S), the policy, usage metrics, the schema and, with O-2b, the applied references. The reverted build is inert again
-(`Harness == nil`): sessions open with today's default launch, the two public tools are not registered, and none of the stored rows is read or
-deleted. Re-activating later is judged against the preserved references, so a session cannot adopt a new workspace executable because an inert build
+Rollback is a **code/deployment revert**, nothing else, and the safe form is to **revert only the `main.go` wiring** (the `Harness:` field, the
+`StartHarness` call and the listener move), keeping the rest of this change. That keeps O-2b: the reverted build is inert (`Harness == nil`) and
+leaves every stored applied reference untouched. Reverting this whole change, or deploying a release older than it, **loses O-2b**: that older build
+deletes applied references when a session reopens and on rewind, which recreates O-2 for sessions that had one. Do not do that unless the
+references are expendable.
+
+What a reverted (inert) build does: tool-group restrictions stop applying and sessions open with the default full launch; the two public tools
+are not registered and no window entry point appears. What it preserves: workspace profiles (W), session overrides (S), the policy, usage metrics,
+the schema and the applied references, none of which is read or deleted; audit rows and S/W rows written while the harness was active stay in the
+database. Re-activating later is judged against the preserved references, so a session cannot adopt a new workspace executable because an inert build
 ran in between (`TestAfterARollbackReactivationStillRefusesANewWorkspaceExecutable`). Never roll back by deleting records, resetting settings,
 force-pushing, or adding a runtime fallback to `Harness=nil` on error; none exists.
 

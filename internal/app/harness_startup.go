@@ -7,8 +7,10 @@ import (
 )
 
 // ErrHarnessStartup is the fixed refusal of a startup step that has no safe
-// continuation: nothing is attached, bound or listening afterwards.
-var ErrHarnessStartup = errors.New("harness startup: a required step is missing; nothing was started")
+// continuation: nothing is attached to Agent Hub, no port is bound, and no listener
+// or session exists afterwards. (Background goroutines of the caller's earlier
+// steps may already be running; the caller's Cleanup stops what it staged.)
+var ErrHarnessStartup = errors.New("harness startup: a required step is missing; no listener or session was started")
 
 // HarnessStartup is the ordered tail of the composition root, extracted so the
 // order and its failure paths are testable without main. The caller has already
