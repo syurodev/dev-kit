@@ -380,6 +380,50 @@ describe("stepLabel", () => {
   });
 });
 
+describe("stepLabel for the built-in tools without a title shape", () => {
+  // Claude's own tools arrive by name with their input; the keys are Claude Code's tool schemas
+  // (Skill {skill, args}, Monitor {description, command}, SendMessage {to, message}), no recorded fixture.
+  const call = (name: string, rawInput?: unknown, extra: Record<string, unknown> = {}) => ({
+    id: "x",
+    kind: "other",
+    title: name,
+    name,
+    rawInput,
+    ...extra,
+  });
+
+  it.each([
+    [call("Skill", { skill: "superpowers:brainstorming", args: "x" }), "Used skill", "superpowers:brainstorming"],
+    [call("Skill", { name: "simplify" }), "Used skill", "simplify"],
+    [call("Skill", { command: "review" }), "Used skill", "review"],
+    [call("Skill", {}), "Used a skill", ""],
+    [call("Monitor", { description: "Wait for the build", command: "tail -f log" }), "Watched", "Wait for the build"],
+    [call("Monitor", { command: "tail -f log" }), "Watched a process", ""],
+    [call("TaskStop", { task_id: "b1" }), "Stopped a task", ""],
+    [call("SendMessage", { to: "reviewer", message: "hi" }), "Sent a message to", "reviewer"],
+    [call("SendMessage", { message: "hi" }), "Sent a message", ""],
+    [call("EnterPlanMode"), "Entered plan mode", ""],
+    [call("ExitPlanMode", { plan: "..." }), "Left plan mode", ""],
+    [call("ListAgents"), "Listed agents", ""],
+    [call("SubagentHandback", { message: "done" }), "Handed back", ""],
+  ])("%o reads as a verb and its object", (c, verb, object) => {
+    expect(stepLabel(c)).toEqual({ verb, object });
+  });
+
+  it("reads the tool from the title when the call carries no name", () => {
+    expect(stepLabel({ id: "x", kind: "other", title: "ListAgents" })).toEqual({ verb: "Listed agents", object: "" });
+  });
+
+  it("does not take a shell command that starts with a tool's name for the tool", () => {
+    expect(stepLabel({ id: "x", kind: "execute", title: "Monitor --all" })).toEqual({ verb: "Ran", object: "Monitor --all" });
+  });
+
+  it("leaves a tool it does not know as its own title", () => {
+    expect(stepLabel(call("Teleport"))).toEqual({ verb: "Teleport", object: "" });
+    expect(stepLabel({ id: "x" })).toEqual({ verb: "Used a tool", object: "" });
+  });
+});
+
 describe("newestPlanTurnIndex", () => {
   const turnsOf = (planIn: number[]) =>
     groupTurns(

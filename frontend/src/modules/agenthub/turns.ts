@@ -566,12 +566,60 @@ export function stepLabel(call: ToolCall): { verb: string; object: string } {
     case "grep":
       return { verb: "Searched for", object: rest };
   }
+  const builtin = builtinLabel(call, head || title);
+  if (builtin) return builtin;
   if (call.kind?.toLowerCase() === "execute") {
     const description = commandDescription(call);
     if (description) return { verb: description, object: "" };
     if (title) return { verb: "Ran", object: title.replace(LEADING_CD, "") || title };
   }
   return { verb: title || "Used a tool", object: "" };
+}
+
+/**
+ * Claude's own tools that carry no path or command for a title to be built
+ * from, by name: the title is the bare tool name, and the input says what it
+ * acted on. The keys are Claude Code's tool schemas — Skill `{skill, args}`,
+ * Monitor `{description, command}`, SendMessage `{to, message}` — read
+ * defensively, since no recorded transcript holds one of each.
+ */
+function builtinLabel(call: ToolCall, titleHead: string): { verb: string; object: string } | null {
+  // A Bash command is titled with the command itself, so a title's first word
+  // names a tool only for a call that is not a shell command and has no name.
+  const tool = call.name?.trim() || (call.kind?.toLowerCase() === "execute" ? "" : titleHead);
+  const input = (call.rawInput && typeof call.rawInput === "object" ? call.rawInput : {}) as Record<string, unknown>;
+  const text = (...keys: string[]) => {
+    for (const key of keys) {
+      const value = input[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    return "";
+  };
+  switch (tool) {
+    case "Skill": {
+      const skill = text("skill", "name", "command");
+      return skill ? { verb: "Used skill", object: skill } : { verb: "Used a skill", object: "" };
+    }
+    case "Monitor": {
+      const what = text("description");
+      return what ? { verb: "Watched", object: what } : { verb: "Watched a process", object: "" };
+    }
+    case "TaskStop":
+      return { verb: "Stopped a task", object: "" };
+    case "SendMessage": {
+      const to = text("to");
+      return to ? { verb: "Sent a message to", object: to } : { verb: "Sent a message", object: "" };
+    }
+    case "EnterPlanMode":
+      return { verb: "Entered plan mode", object: "" };
+    case "ExitPlanMode":
+      return { verb: "Left plan mode", object: "" };
+    case "ListAgents":
+      return { verb: "Listed agents", object: "" };
+    case "SubagentHandback":
+      return { verb: "Handed back", object: "" };
+  }
+  return null;
 }
 
 /** `cd <dir> &&`, `cd <dir>;` or `cd <dir>` on a line of its own, at the start. */
