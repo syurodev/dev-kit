@@ -1,4 +1,5 @@
 import type { AgentSession } from "@/bridge/agenthub";
+import { isWorking } from "../sessionActivity";
 import { failureDismissed, type DismissedFailures } from "./dismissed";
 import { attentionKind, compareRecent, partitionGroup, type Attention, type GroupView, type PartitionOptions } from "./model";
 
@@ -179,7 +180,7 @@ export function visibleChildren(
   options: { activeId?: string; pinned?: ReadonlySet<string> } = {},
 ): { shown: SessionNode[]; hidden: SessionNode[] } {
   const { activeId, pinned } = options;
-  const running = (node: SessionNode) => node.session.status === "running";
+  const running = (node: SessionNode) => isWorking(node.session);
   const limit = Math.max(MIN_VISIBLE_CHILDREN, children.filter(running).length);
   if (children.length <= limit) return { shown: [...children], hidden: [] };
 
@@ -232,7 +233,7 @@ export function branchSignals(
     if (s.status === "closed") return NO_SIGNALS;
     const waiting = attentionKind(s, attention[s.id]) !== null;
     return {
-      running: s.status === "running" && !waiting ? 1 : 0,
+      running: isWorking(s) && !waiting ? 1 : 0,
       waiting: waiting ? 1 : 0,
       // A failure the person dismissed no longer marks the parent.
       failed: s.status === "error" && !failureDismissed(s, dismissed) ? 1 : 0,

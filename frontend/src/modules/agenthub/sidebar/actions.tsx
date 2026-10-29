@@ -3,6 +3,7 @@ import * as React from "react";
 import { Ban, BellOff, Bot, Copy, FileText, FolderOpen, Pencil, Pin, PinOff, Plus, Square, Trash2, Wrench } from "lucide-react";
 
 import type { AgentSession } from "@/bridge/agenthub";
+import { isWorking } from "../sessionActivity";
 import type { Subagent } from "../types";
 import { orderSubagents, subagentName, subagentStateWord } from "./model";
 
@@ -159,7 +160,7 @@ export function SessionMenuItems({
       ) : null}
       {/* Cancel stops the turn and leaves the agent running; close ends the process. */}
       {a.cancelTurn ? (
-        <Item icon={<Ban />} disabled={session.status !== "running"} onSelect={() => a.cancelTurn?.(session)}>
+        <Item icon={<Ban />} disabled={!isWorking(session)} onSelect={() => a.cancelTurn?.(session)}>
           Cancel turn
         </Item>
       ) : null}

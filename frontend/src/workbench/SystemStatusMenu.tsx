@@ -11,6 +11,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { vaultStatus, type VaultState } from "../bridge/vault";
 import { syncConflicts } from "../bridge/sync";
 import { useAgentSessionList } from "../stores/agentSessions";
+import { isWorking } from "../modules/agenthub/sessionActivity";
 import { requestVaultUnlock } from "./vaultUnlockRequest";
 
 export type SystemStatus = {
@@ -82,7 +83,7 @@ export function SystemStatusMenu({
   }, [refresh]);
 
   const agentsRunning = sessions.filter(
-    (s) => s.status === "running" || s.status === "awaiting_permission",
+    (s) => isWorking(s) || s.status === "awaiting_permission",
   ).length;
   const status: SystemStatus = { vault, conflicts, agentsRunning };
   const severity = severityOf(status);

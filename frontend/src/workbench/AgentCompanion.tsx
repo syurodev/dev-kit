@@ -24,6 +24,7 @@ import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import { queuedPrompt, resumeQueuedPrompts, sendAgentTurn } from "./agentPromptQueue";
 import { agentPaneSessionId, useAgentPaneSessionIds } from "./AgentPaneTabs";
 import { useFollowToasts, useFollowing } from "@/modules/agenthub/follow";
+import { isWorking } from "@/modules/agenthub/sessionActivity";
 import { openFileRef, refContextOf } from "@/modules/agenthub/transcript/openReference";
 
 /**
@@ -235,7 +236,7 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
       onPromptChange={(val) => session && setPrompt(session.id, val)}
       onSend={() => void handleSend()}
       onCancel={() => void handleCancel()}
-      streaming={busy || session?.status === "running"}
+      streaming={busy || isWorking(session)}
       pendingPermission={pending}
       onResolvePermission={resolvePermission}
       onApproveScopedPermission={approveScopedPermission}

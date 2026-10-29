@@ -10,6 +10,7 @@ import { errorMessage } from "@/bridge/errors";
 import { vendorInfo } from "../vendors";
 import { AgentCustomizationManager } from "./AgentCustomization";
 import { agentEnvironmentKey } from "./environmentKey";
+import { isWorking } from "../sessionActivity";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
 
 const GROUPS = [
@@ -95,7 +96,7 @@ function EnvironmentCheck({ vendor, sessionId = "", enabled }: { vendor: string;
           {query.isFetching ? <Loader2 className="animate-spin" /> : <RefreshCw />} Refresh
         </Button>
       </div>
-      {sessionId ? <div className="flex flex-col gap-2"><Button type="button" size="sm" variant="outline" disabled={reloading || session?.status === "running" || session?.status === "awaiting_permission"} onClick={() => void reload()}>{reloading ? <Loader2 className="animate-spin" /> : <RefreshCw />} Reload session</Button><p className="text-body-12 text-text-secondary">Reopens this conversation with current settings without sending a prompt. Finish or stop the current turn first.</p></div> : null}
+      {sessionId ? <div className="flex flex-col gap-2"><Button type="button" size="sm" variant="outline" disabled={reloading || isWorking(session) || session?.status === "awaiting_permission"} onClick={() => void reload()}>{reloading ? <Loader2 className="animate-spin" /> : <RefreshCw />} Reload session</Button><p className="text-body-12 text-text-secondary">Reopens this conversation with current settings without sending a prompt. Finish or stop the current turn first.</p></div> : null}
       {reloadError ? <p role="alert" className="text-body-12 text-status-danger">{reloadError}</p> : null}
       {query.error ? <p role="alert" className="text-body-12 text-status-danger">{errorMessage(query.error)}</p> : null}
       {query.data ? <><EnvironmentReportView report={query.data} />{vendorInfo(vendor).customization ? <AgentCustomizationManager vendor={vendor} report={query.data} refresh={() => { void query.refetch(); }} /> : null}</> : query.isPending ? <p role="status" className="text-body-12 text-text-secondary">Checking tools, skills and MCP configuration…</p> : null}

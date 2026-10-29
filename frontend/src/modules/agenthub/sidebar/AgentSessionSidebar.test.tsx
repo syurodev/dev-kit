@@ -1237,3 +1237,70 @@ describe("a branch with many children", () => {
     expect(html).toContain("+3 more");
   });
 });
+
+describe("work the agent runs on its own", () => {
+  const agentTurn = { agentTurn: true, tasks: 0 };
+  const lineOf = (html: string) => html.match(/data-testid="agent-card-line"[^>]*>([^<]*)</)?.[1] ?? "";
+
+  it("an agent-started turn has the running look, though the stored status is idle", () => {
+    const html = cardHtml(render({ sessions: [session("a", { activity: agentTurn })] }), "a");
+    expect(html).toContain('data-state="running"');
+    expect(html).toContain("agent-avatar-spin");
+    expect(html).toContain("text-text-primary");
+  });
+
+  it("background tasks alone do not: a quiet line, no spinner, no strong title", () => {
+    const html = cardHtml(
+      render({ sessions: [session("a", { preview: "Build chạy nền.", activity: { agentTurn: false, tasks: 1 } })] }),
+      "a",
+    );
+    expect(html).not.toContain('data-state="running"');
+    expect(html).not.toContain("agent-avatar-spin");
+    expect(lineOf(html)).toBe("1 background task");
+    expect(html).not.toContain('data-testid="agent-card-title" class="block truncate text-body-13 text-text-primary"');
+  });
+
+  it("a session with no activity draws as before", () => {
+    const html = cardHtml(render({ sessions: [session("a", { preview: "Done." })] }), "a");
+    expect(html).not.toContain('data-state="running"');
+    expect(lineOf(html)).toBe("Done.");
+  });
+
+  it("a folded group counts the sessions in an agent-started turn as running, and not those with tasks only", () => {
+    const html = render({
+      sessions: [
+        inWs("a", "2", { activity: agentTurn }),
+        inWs("b", "2", { activity: { agentTurn: false, tasks: 2 } }),
+        inWs("c", "2"),
+        inWs("cur", "1"),
+      ],
+      workspaces: [ws("1"), ws("2")],
+      currentWorkspaceId: "1",
+    });
+    expect(tagOf(html, "agent-group-running")).not.toBe("");
+    expect(html).toMatch(/data-testid="agent-group-running"[^>]*>(<span[^>]*><\/span>)?1 running/);
+  });
+
+  const stopItem = (s: AgentSession) => {
+    const kit: MenuKit = {
+      Item: ({ children, disabled }) => <button type="button" disabled={disabled}>{children}</button>,
+      Separator: () => <hr />,
+      Label: ({ children }) => <p>{children}</p>,
+    };
+    const html = renderToString(
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionActionsContext.Provider value={{ ...NO_ACTIONS, cancelTurn: noop }}>
+          <SessionMenuItems kit={kit} session={s} pinned={false} subagents={[]} />
+        </SessionActionsContext.Provider>
+      </QueryClientProvider>,
+    );
+    return html.match(/<button[^>]*>Cancel turn<\/button>/)?.[0] ?? "";
+  };
+
+  it("Cancel turn is enabled during an agent-started turn, and not for an idle session", () => {
+    expect(stopItem(session("a", { activity: agentTurn }))).not.toContain("disabled");
+    expect(stopItem(session("a", { status: "running" }))).not.toContain("disabled");
+    expect(stopItem(session("a"))).toContain("disabled");
+    expect(stopItem(session("a", { activity: { agentTurn: false, tasks: 2 } }))).toContain("disabled");
+  });
+});
