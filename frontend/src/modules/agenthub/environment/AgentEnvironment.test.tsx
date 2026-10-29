@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { renderToString } from "react-dom/server";
-import { EnvironmentReportView } from "./AgentEnvironment";
+import { EnvironmentReportView, ReloadSessionControl, reloadBlockedReason } from "./AgentEnvironment";
+import type { AgentSession } from "@/bridge/agenthub";
 import { ENVIRONMENT_PREVIEW } from "@/dev/AgentEnvironmentPreview";
 
 test("inventory distinguishes discovery, runtime loading and authentication", () => {
@@ -57,4 +58,27 @@ test("enabling removes only the selected override; disabling deduplicates it", (
   expect(toggleDisabled(["a", "b"], "a", true)).toEqual(["b"]);
   expect(toggleDisabled(["a", "b"], "b", false)).toEqual(["a", "b"]);
   expect(normalizeCustomization({ revision: 1 } as never)).toEqual({ revision: 1, skillFolders: [], disabledSkills: [], disabledMCP: [], servers: [] });
+});
+
+const reloadWith = (session: Pick<AgentSession, "status" | "activity"> | undefined) =>
+  renderToString(<ReloadSessionControl session={session} reloading={false} onReload={() => {}} />);
+const disabled = (html: string) => /<button[^>]*\sdisabled=""/.test(html);
+
+test("Reload session waits for a turn, ours or the agent's, and for a permission", () => {
+  expect(disabled(reloadWith({ status: "idle" }))).toBe(false);
+  expect(disabled(reloadWith({ status: "running" }))).toBe(true);
+  expect(disabled(reloadWith({ status: "idle", activity: { agentTurn: true, tasks: 0 } }))).toBe(true);
+  expect(disabled(reloadWith({ status: "awaiting_permission" }))).toBe(true);
+  expect(reloadBlockedReason({ status: "idle" })).toBe("");
+});
+
+test("Reload session does not silently end background tasks, and says why", () => {
+  const html = reloadWith({ status: "idle", activity: { agentTurn: false, tasks: 2 } });
+  expect(disabled(html)).toBe(true);
+  expect(html).toContain("2 background tasks are still running, and reloading would end them.");
+  expect(html).toContain('title="2 background tasks are still running');
+  const one = reloadBlockedReason({ status: "idle", activity: { agentTurn: false, tasks: 1 } });
+  expect(one).toContain("1 background task is still running, and reloading would end it.");
+  // A session that only has a revision left has nothing to wait for.
+  expect(disabled(reloadWith({ status: "idle", activity: { agentTurn: false, tasks: 0, rev: 3 } }))).toBe(false);
 });

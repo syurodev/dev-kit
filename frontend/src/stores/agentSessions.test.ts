@@ -162,3 +162,63 @@ describe("a session's own activity in the store", () => {
     expect(useAgentSessionsStore.getState().sessionsById).toBe(quiet);
   });
 });
+
+describe("a read and an event of one session, in either order", () => {
+  beforeEach(() => {
+    useAgentSessionsStore.setState({ sessionsById: {}, sessionIds: [], sessionsLoaded: false });
+  });
+  const idle = (id: string, over: Partial<AgentSession> = {}): AgentSession => ({ ...session(id), status: "idle", ...over });
+  const row = () => useAgentSessionsStore.getState().sessionsById.a;
+  const ON = { agentTurn: true, tasks: 0 };
+
+  it("a read that was in flight keeps the event that landed first", () => {
+    const store = useAgentSessionsStore.getState();
+    store.upsertSession(idle("a", { activity: { agentTurn: false, tasks: 0, rev: 2 } }));
+    expect(store.setActivity("a", { ...ON, rev: 3 })).toBe(true);
+    // The answer to a read made at rev 2 lands after the event of rev 3: no activity change at all.
+    store.upsertSession(idle("a", { activity: { agentTurn: false, tasks: 0, rev: 2 } }));
+    expect(row().activity).toEqual({ ...ON, rev: 3 });
+    store.setSessions([idle("a", { activity: undefined })]);
+    expect(row().activity).toEqual({ ...ON, rev: 3 });
+    // Whatever else the read carries is taken.
+    store.upsertSession(idle("a", { title: "renamed", activity: { agentTurn: false, tasks: 0, rev: 2 } }));
+    expect(row().title).toBe("renamed");
+    expect(row().activity).toEqual({ ...ON, rev: 3 });
+  });
+
+  it("a newer read replaces an older event, and a read of the same revision does too", () => {
+    const store = useAgentSessionsStore.getState();
+    store.upsertSession(idle("a"));
+    store.setActivity("a", { ...ON, rev: 3 });
+    store.upsertSession(idle("a", { activity: { agentTurn: false, tasks: 2, rev: 5 } }));
+    expect(row().activity).toEqual({ agentTurn: false, tasks: 2, rev: 5 });
+    store.setSessions([idle("a", { activity: { agentTurn: false, tasks: 1, rev: 5 } })]);
+    expect(row().activity).toEqual({ agentTurn: false, tasks: 1, rev: 5 });
+  });
+
+  it("an event older than the row is dropped and says so", () => {
+    const store = useAgentSessionsStore.getState();
+    store.upsertSession(idle("a", { activity: { agentTurn: false, tasks: 2, rev: 5 } }));
+    expect(store.setActivity("a", { ...ON, rev: 4 })).toBe(false);
+    expect(row().activity).toEqual({ agentTurn: false, tasks: 2, rev: 5 });
+    expect(store.setActivity("nobody", { ...ON, rev: 9 })).toBe(false);
+  });
+
+  it("keeps a revision with nothing running, so it can still order a read", () => {
+    const store = useAgentSessionsStore.getState();
+    store.upsertSession(idle("a"));
+    store.setActivity("a", { ...ON, rev: 3 });
+    store.setActivity("a", { agentTurn: false, tasks: 0, rev: 4, ended: true });
+    expect(row().activity).toEqual({ agentTurn: false, tasks: 0, rev: 4, ended: true });
+    store.upsertSession(idle("a", { activity: { ...ON, rev: 3 } }));
+    expect(row().activity?.agentTurn).toBe(false);
+  });
+
+  it("a read with no activity at all cannot erase what an event set", () => {
+    const store = useAgentSessionsStore.getState();
+    store.upsertSession(idle("a"));
+    store.setActivity("a", { ...ON, rev: 1 });
+    store.upsertSession(idle("a"));
+    expect(row().activity).toEqual({ ...ON, rev: 1 });
+  });
+});

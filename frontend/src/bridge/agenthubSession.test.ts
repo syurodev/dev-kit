@@ -22,6 +22,11 @@ describe("a session's own activity from the row", () => {
     expect(toSession(raw({ activity: { agentTurn: true } })).activity).toEqual({ agentTurn: true, tasks: 0 });
   });
 
+  test("keeps its revision when nothing runs, and what it ordered", () => {
+    expect(toSession(raw({ activity: { rev: 4 } })).activity).toEqual({ agentTurn: false, tasks: 0, rev: 4 });
+    expect(toSession(raw({ activity: { agentTurn: true, tasks: 1, rev: 7 } })).activity).toEqual({ agentTurn: true, tasks: 1, rev: 7 });
+  });
+
   test("is absent, not an empty object, when it does nothing of its own", () => {
     expect(toSession(raw()).activity).toBeUndefined();
     expect(toSession(raw({ activity: null })).activity).toBeUndefined();
@@ -37,5 +42,11 @@ describe("the activity event's payload", () => {
     expect(toActivity({ agentTurn: false, tasks: 0 })).toEqual({ agentTurn: false, tasks: 0 });
     expect(toActivity({})).toEqual({ agentTurn: false, tasks: 0 });
     expect(toActivity({ agentTurn: "yes", tasks: -4 })).toEqual({ agentTurn: false, tasks: 0 });
+  });
+
+  test("carries the revision, and says explicitly whether the turn ended", () => {
+    expect(toActivity({ agentTurn: false, tasks: 0, rev: 6, ended: true })).toEqual({ agentTurn: false, tasks: 0, rev: 6, ended: true });
+    expect(toActivity({ agentTurn: false, tasks: 0, rev: 6, ended: false })).toEqual({ agentTurn: false, tasks: 0, rev: 6, ended: false });
+    expect(toActivity({ agentTurn: true, tasks: 0, rev: 0 })).toEqual({ agentTurn: true, tasks: 0 });
   });
 });

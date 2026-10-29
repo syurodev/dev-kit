@@ -77,6 +77,24 @@ const KILLED_STATES = new Set(["cancelled", "disconnected"]);
  */
 const CANNOT_TAKE_PROMPT = new Set(["running", "awaiting_permission", "closed"]);
 
+/**
+ * Of two activities of one session, the one Go counted later wins; a tie goes to the incoming one.
+ * A read of the row that was in flight when an `agenthub:activity` event landed has the lower
+ * revision and must not undo it (an absent activity is revision 0).
+ */
+export function newerActivity(current: SessionActivity | undefined, incoming: SessionActivity | undefined): SessionActivity | undefined {
+  return (incoming?.rev ?? 0) >= (current?.rev ?? 0) ? incoming : current;
+}
+
+/** The incoming row, with the activity of whichever of it and the row it replaces is newer. */
+function withNewerActivity(current: AgentSession | undefined, incoming: AgentSession): AgentSession {
+  if (!current) return incoming;
+  const activity = newerActivity(current.activity, incoming.activity);
+  if (activity === incoming.activity) return incoming;
+  const { activity: _stale, ...rest } = incoming;
+  return activity ? { ...rest, activity } : rest;
+}
+
 type AgentSessionsState = {
   sessionsById: Record<string, AgentSession>;
   sessionIds: string[];
@@ -154,9 +172,10 @@ type AgentSessionsState = {
    * What the session's process does on its own changed (`agenthub:activity`). Kept on
    * the session row, which every read of the backend also fills, so the two cannot
    * disagree. An event for a session not loaded yet is dropped: the read that loads it
-   * carries the activity.
+   * carries the activity. A read or event older than what the row holds (a lower `rev`) is
+   * dropped too, whichever way round they arrive. Answers whether the event was taken.
    */
-  setActivity: (sessionId: string, activity: SessionActivity) => void;
+  setActivity: (sessionId: string, activity: SessionActivity) => boolean;
   setActiveSessionId: (id: string) => void;
   setPrompt: (sessionId: string, prompt: string) => void;
   setTranscript: (sessionId: string, model: TranscriptModel) => void;
@@ -238,11 +257,13 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
   queuePausedBySession: {},
   queuePauseReasonBySession: {},
   setSessions: (sessions) =>
-    set({
-      sessionsById: Object.fromEntries(sessions.map((session) => [session.id, session])),
+    set((state) => ({
+      sessionsById: Object.fromEntries(
+        sessions.map((session) => [session.id, withNewerActivity(state.sessionsById[session.id], session)]),
+      ),
       sessionIds: sessions.map((session) => session.id),
       sessionsLoaded: true,
-    }),
+    })),
   upsertSession: (session) =>
     set((state) => {
       if (!state.sessionsById[session.id]) {
@@ -251,18 +272,35 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
           sessionIds: [...state.sessionIds, session.id],
         };
       }
-      return { sessionsById: { ...state.sessionsById, [session.id]: session } };
+      return {
+        sessionsById: {
+          ...state.sessionsById,
+          [session.id]: withNewerActivity(state.sessionsById[session.id], session),
+        },
+      };
     }),
-  setActivity: (sessionId, activity) =>
+  setActivity: (sessionId, activity) => {
+    const session = get().sessionsById[sessionId];
+    if (!session) return false;
+    if ((activity.rev ?? 0) < (session.activity?.rev ?? 0)) return false;
     set((state) => {
-      const session = state.sessionsById[sessionId];
-      if (!session) return state;
-      const quiet = !activity.agentTurn && activity.tasks <= 0;
-      const current = session.activity;
-      if (quiet ? !current : current?.agentTurn === activity.agentTurn && current.tasks === activity.tasks) return state;
-      const { activity: _before, ...rest } = session;
+      const row = state.sessionsById[sessionId];
+      if (!row) return state;
+      const quiet = !activity.agentTurn && activity.tasks <= 0 && !activity.rev;
+      const current = row.activity;
+      const same =
+        quiet
+          ? !current
+          : current?.agentTurn === activity.agentTurn &&
+            current.tasks === activity.tasks &&
+            (current.rev ?? 0) === (activity.rev ?? 0) &&
+            current.ended === activity.ended;
+      if (same) return state;
+      const { activity: _before, ...rest } = row;
       return { sessionsById: { ...state.sessionsById, [sessionId]: quiet ? rest : { ...rest, activity } } };
-    }),
+    });
+    return true;
+  },
   removeSession: (id) =>
     set((state) => {
       // The session's subagents go with it. Nothing reads them once the session

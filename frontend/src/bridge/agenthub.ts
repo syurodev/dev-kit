@@ -90,6 +90,18 @@ export type SessionActivity = {
   agentTurn: boolean;
   /** Running background tasks other than that turn. */
   tasks: number;
+  /**
+   * Orders two reads or events of one session: the higher is newer (Go counts every change and
+   * keeps counting across a process going away). A read that was in flight when an event landed
+   * has the lower one. Absent: 0.
+   */
+  rev?: number;
+  /**
+   * With no agent turn: true when it ended by the vendor's own update, false when the process
+   * went away (closed, reloaded, cancelled, crashed) so the turn did not finish. Absent: unknown,
+   * read as ended.
+   */
+  ended?: boolean;
 };
 
 export type InvokeResult = {
@@ -279,19 +291,31 @@ export function toSession(raw: RawSession): AgentSession {
 }
 
 /** The activity of a row as a spread: nothing when the process does nothing of its own. */
-function activityField(raw: { agentTurn?: boolean; tasks?: number } | null | undefined): { activity?: SessionActivity } {
+function activityField(
+  raw: { agentTurn?: boolean; tasks?: number; rev?: number; ended?: boolean } | null | undefined,
+): { activity?: SessionActivity } {
   const agentTurn = raw?.agentTurn === true;
   const tasks = typeof raw?.tasks === "number" && raw.tasks > 0 ? Math.floor(raw.tasks) : 0;
-  return agentTurn || tasks > 0 ? { activity: { agentTurn, tasks } } : {};
+  const rev = typeof raw?.rev === "number" && raw.rev > 0 ? Math.floor(raw.rev) : 0;
+  // A row that once had activity keeps its revision with nothing running: it orders the read.
+  if (!agentTurn && tasks === 0 && rev === 0) return {};
+  return { activity: { agentTurn, tasks, ...(rev > 0 ? { rev } : {}), ...(raw?.ended === true ? { ended: true } : {}) } };
 }
 
-/** `agenthub:activity`'s payload, as a session activity. Zero when nothing runs. */
-export function toActivity(raw: { agentTurn?: unknown; tasks?: unknown } | null | undefined): SessionActivity {
-  const { activity } = activityField({
+/**
+ * `agenthub:activity`'s payload, as a session activity: the whole state, zero when nothing runs.
+ * `ended` is explicit: only an event that says the turn did not finish (false) is read as such.
+ */
+export function toActivity(
+  raw: { agentTurn?: unknown; tasks?: unknown; rev?: unknown; ended?: unknown } | null | undefined,
+): SessionActivity {
+  const rev = typeof raw?.rev === "number" && raw.rev > 0 ? Math.floor(raw.rev) : 0;
+  return {
     agentTurn: raw?.agentTurn === true,
-    tasks: typeof raw?.tasks === "number" ? raw.tasks : 0,
-  });
-  return activity ?? { agentTurn: false, tasks: 0 };
+    tasks: typeof raw?.tasks === "number" && raw.tasks > 0 ? Math.floor(raw.tasks) : 0,
+    ...(rev > 0 ? { rev } : {}),
+    ...(typeof raw?.ended === "boolean" ? { ended: raw.ended } : {}),
+  };
 }
 
 /** A Go time.Time over the bridge; the zero time and anything unparsable are "unknown". */

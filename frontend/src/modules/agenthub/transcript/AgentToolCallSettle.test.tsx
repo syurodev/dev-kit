@@ -6,6 +6,7 @@ import { renderToString } from "react-dom/server";
 
 import type { ToolCall, TranscriptItem } from "../types";
 import { AgentToolCall } from "./AgentToolCall";
+import { ToolResultCard } from "./ToolResultCard";
 import { AgentToolActivity } from "./AgentToolActivity";
 import { AgentRunningCommand } from "./AgentRunningCommand";
 import { StepGroup } from "../surfaces/AgentTurn";
@@ -233,6 +234,13 @@ describe("a call of the latest turn in a quiet session", () => {
     expect(container.textContent).toBe("");
     await draw(<AgentRunningCommand item={item("sub-1")} />, true);
     expect(container.textContent).toContain("bun test");
+  });
+
+  test("a result card that falls back to its row passes the origin on too", async () => {
+    await draw(<ToolResultCard call={call("in_progress")} asRow />, true);
+    expect(state()).toBe("unfinished");
+    await draw(<ToolResultCard call={call("in_progress")} asRow origin="sub-1" />, true);
+    expect(state()).toBe("running");
   });
 
   test("a step run passes a row's origin on: its subagent's call stays live, the lead's settles", async () => {

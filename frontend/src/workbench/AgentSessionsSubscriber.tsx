@@ -298,7 +298,8 @@ export function handleAgentActivity(
   const session = state.sessionsById[sessionId];
   if (!session) return;
   const wasAgentTurn = session.activity?.agentTurn === true;
-  state.setActivity(sessionId, activity);
+  // An event older than what the row holds (a lower revision) changes nothing.
+  if (!state.setActivity(sessionId, activity)) return;
   const ours = state.turnInFlightBySession[sessionId];
   if (activity.agentTurn && !wasAgentTurn) {
     if (!ours) setAgentHubTabsStatus(sessionId, "running");
@@ -306,11 +307,16 @@ export function handleAgentActivity(
   }
   if (!wasAgentTurn || activity.agentTurn) return;
 
-  readSessionPreview(sessionId, getStatus.getStatus);
   const stored = useAgentSessionsStore.getState().sessionsById[sessionId]?.status;
-  if (!ours && stored !== "running" && stored !== "awaiting_permission") {
-    setAgentHubTabsStatus(sessionId, stored === "error" ? "error" : "success");
+  const holdsTab = ours || stored === "running" || stored === "awaiting_permission";
+  // The process went away under the turn (closed, reloaded, rewound, cancelled, crashed): it
+  // did not finish. No answer is ready, so no finished mark and no unread; the tab just rests.
+  if (activity.ended === false || stored === "closed") {
+    if (!holdsTab) setAgentHubTabsStatus(sessionId, "idle");
+    return;
   }
+  readSessionPreview(sessionId, getStatus.getStatus);
+  if (!holdsTab) setAgentHubTabsStatus(sessionId, stored === "error" ? "error" : "success");
   if (sessionVisible(sessionId)) state.markCompletedRead(sessionId);
   else state.markCompletedUnread(sessionId);
 }

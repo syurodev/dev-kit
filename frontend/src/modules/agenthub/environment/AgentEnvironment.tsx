@@ -4,13 +4,13 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useModuleVisibility } from "@/components/ui/module-visibility";
-import { agentHubEnvironment, agentHubResumeSession, agentHubGetStatus, type EnvironmentReport } from "@/bridge/agenthub";
+import { agentHubEnvironment, agentHubResumeSession, agentHubGetStatus, type AgentSession, type EnvironmentReport } from "@/bridge/agenthub";
 import { errorMessage } from "@/bridge/errors";
 
 import { vendorInfo } from "../vendors";
 import { AgentCustomizationManager } from "./AgentCustomization";
 import { agentEnvironmentKey } from "./environmentKey";
-import { isWorking } from "../sessionActivity";
+import { backgroundTasksLabel, isWorking } from "../sessionActivity";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
 
 const GROUPS = [
@@ -65,6 +65,42 @@ export function EnvironmentReportView({ report }: { report: EnvironmentReport })
   );
 }
 
+/**
+ * Why "Reload session" cannot run now, or "". A reopen ends the agent's process, so it waits for
+ * a turn (ours or one the agent started) and for a permission, and it must not silently end
+ * background tasks the person did not ask to stop.
+ */
+export function reloadBlockedReason(session: Pick<AgentSession, "status" | "activity"> | undefined): string {
+  if (isWorking(session) || session?.status === "awaiting_permission") return "Finish or stop the current turn first.";
+  const tasks = session?.activity?.tasks ?? 0;
+  if (tasks > 0) {
+    return `${backgroundTasksLabel(tasks)} ${tasks === 1 ? "is" : "are"} still running, and reloading would end ${tasks === 1 ? "it" : "them"}. Wait for ${tasks === 1 ? "it" : "them"} to finish.`;
+  }
+  return "";
+}
+
+export function ReloadSessionControl({
+  session,
+  reloading,
+  onReload,
+}: {
+  session: Pick<AgentSession, "status" | "activity"> | undefined;
+  reloading: boolean;
+  onReload: () => void;
+}) {
+  const blocked = reloadBlockedReason(session);
+  return (
+    <div className="flex flex-col gap-2">
+      <Button type="button" size="sm" variant="outline" disabled={reloading || blocked !== ""} title={blocked || undefined} onClick={onReload}>
+        {reloading ? <Loader2 className="animate-spin" /> : <RefreshCw />} Reload session
+      </Button>
+      <p data-testid="reload-session-note" className="text-body-12 text-text-secondary">
+        Reopens this conversation with current settings without sending a prompt. {blocked || "Finish or stop the current turn first."}
+      </p>
+    </div>
+  );
+}
+
 function EnvironmentCheck({ vendor, sessionId = "", enabled }: { vendor: string; sessionId?: string; enabled: boolean }) {
   const client = useQueryClient();
   const [reloading, setReloading] = useState(false);
@@ -96,7 +132,7 @@ function EnvironmentCheck({ vendor, sessionId = "", enabled }: { vendor: string;
           {query.isFetching ? <Loader2 className="animate-spin" /> : <RefreshCw />} Refresh
         </Button>
       </div>
-      {sessionId ? <div className="flex flex-col gap-2"><Button type="button" size="sm" variant="outline" disabled={reloading || isWorking(session) || session?.status === "awaiting_permission"} onClick={() => void reload()}>{reloading ? <Loader2 className="animate-spin" /> : <RefreshCw />} Reload session</Button><p className="text-body-12 text-text-secondary">Reopens this conversation with current settings without sending a prompt. Finish or stop the current turn first.</p></div> : null}
+      {sessionId ? <ReloadSessionControl session={session} reloading={reloading} onReload={() => void reload()} /> : null}
       {reloadError ? <p role="alert" className="text-body-12 text-status-danger">{reloadError}</p> : null}
       {query.error ? <p role="alert" className="text-body-12 text-status-danger">{errorMessage(query.error)}</p> : null}
       {query.data ? <><EnvironmentReportView report={query.data} />{vendorInfo(vendor).customization ? <AgentCustomizationManager vendor={vendor} report={query.data} refresh={() => { void query.refetch(); }} /> : null}</> : query.isPending ? <p role="status" className="text-body-12 text-text-secondary">Checking tools, skills and MCP configuration…</p> : null}

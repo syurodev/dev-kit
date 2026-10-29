@@ -485,6 +485,7 @@ export function StepGroup({
               key={item.id}
               call={item.toolCall!}
               sessionId={item.sessionId}
+              origin={item.origin}
               asRow={loneCard}
               onOpenFile={onOpenFile}
             />

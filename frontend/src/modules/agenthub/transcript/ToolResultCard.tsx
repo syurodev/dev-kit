@@ -106,11 +106,14 @@ export function surfaceResults(
 export const ToolResultCard = React.memo(function ToolResultCard({
   call,
   sessionId,
+  origin,
   asRow = false,
   onOpenFile,
 }: {
   call: ToolCall;
   sessionId?: string;
+  /** The subagent the call belongs to, when it is a subagent's: its row settles only with its turn (toolSettle.tsx). */
+  origin?: string;
   asRow?: boolean;
   onOpenFile?: (path: string, line?: number) => void;
 }) {
@@ -124,7 +127,7 @@ export const ToolResultCard = React.memo(function ToolResultCard({
   }, [pending, call, fullCall]);
 
   const declined = candidate === null || (pending && (failed || (fullCall !== null && loaded === null)));
-  const row = asRow ? <AgentToolCall variant="row" call={call} sessionId={sessionId} onOpenFile={onOpenFile} /> : null;
+  const row = asRow ? <AgentToolCall variant="row" call={call} sessionId={sessionId} origin={origin} onOpenFile={onOpenFile} /> : null;
   if (declined) return row;
   const skeleton = <ResultSkeleton call={call} />;
   const node = candidate.kind === "ready" ? candidate.node : loaded;
