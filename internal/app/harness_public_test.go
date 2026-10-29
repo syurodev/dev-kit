@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -150,7 +149,7 @@ func TestWithoutTheControlsTheToolsAreNotRegisteredAndNothingIsReachable(t *test
 		t.Fatal(err)
 	}
 	if inv.Has("harness.profile.get") || inv.Has(harness.ProposeTool) {
-		t.Fatalf("production wiring must stay inert: %v", inv.Tools)
+		t.Fatalf("a server built without the port must not register the harness tools: %v", inv.Tools)
 	}
 	var unbound HarnessPort
 	if unbound.Bound() {
@@ -734,22 +733,5 @@ func TestTheToolsNeedTheirOwnGrants(t *testing.T) {
 	}
 	if len(kinds(r.prompter)) != 0 {
 		t.Fatal("a refused grant must not reach the person")
-	}
-}
-
-// Production wiring stays inert: main.go builds no harness assembly, binds no
-// port and hands the MCP server no controls. This is a tripwire for the activation
-// change, which must update it together with the evidence it depends on
-// (docs/agent-reference/harness-composition-activation.md).
-func TestProductionDoesNotWireTheHarnessYet(t *testing.T) {
-	raw, err := os.ReadFile("../../main.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	src := string(raw)
-	for _, forbidden := range []string{"NewHarnessAssembly", "ComposeHarness", "NewHarnessPort", "Harness:", ".Harness.Bind"} {
-		if strings.Contains(src, forbidden) {
-			t.Errorf("main.go mentions %q: production activation has not been accepted", forbidden)
-		}
 	}
 }

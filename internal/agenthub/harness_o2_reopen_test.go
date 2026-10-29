@@ -409,9 +409,8 @@ func TestO2JProbeLegacySessionDoesNotAdoptAWorkspaceExecutableOnFirstReopen(t *t
 	}
 }
 
-// R1a probe 2, inverted: a rolled-back (inert) build deletes the reference; the
-// guard still holds on re-activation. What an inert build deletes is the owner's
-// open question and is not asserted here.
+// R1a probe 2, inverted: a rolled-back (inert) build leaves the reference alone
+// (O-2b, decided 2026-10-29), so the guard still holds on re-activation.
 func TestO2KProbeRollbackBuildDoesNotLeaveAnOpeningForAWorkspaceExecutable(t *testing.T) {
 	ctx := context.Background()
 	e := newLaunchEnv(t, policy)
@@ -427,13 +426,14 @@ func TestO2KProbeRollbackBuildDoesNotLeaveAnOpeningForAWorkspaceExecutable(t *te
 	if _, err := rb.Invoke(ctx, agenthub.InvokeInput{SessionID: s.ID, Prompt: "rolled back"}); err != nil {
 		t.Fatalf("rolled-back reopen: %v", err)
 	}
-	_, _, found := e.durable(s.ID)
-	t.Logf("reference after an inert reopen: found=%v (unchanged behaviour; the owner has not decided)", found)
+	if _, _, found := e.durable(s.ID); !found {
+		t.Fatal("an inert reopen erased the stored reference")
+	}
 
 	e.harness.set(workspaceServer(t, true))
 	specs := len(e.adapter.specs)
 	if _, err := e.restart().Invoke(ctx, agenthub.InvokeInput{SessionID: s.ID, Prompt: "reactivated"}); !errors.Is(err, agenthub.ErrHarnessNewSessionRequired) {
-		t.Fatalf("after rollback and re-activation the session adopted a workspace executable: %v (reference found after rollback: %v)", err, found)
+		t.Fatalf("after rollback and re-activation the session adopted a workspace executable: %v", err)
 	}
 	if len(e.adapter.specs) != specs {
 		t.Fatal("the vendor was launched on the refused reopen")

@@ -25,6 +25,7 @@ import (
 	"devkit/internal/codegraph"
 	"devkit/internal/database"
 	"devkit/internal/environments"
+	"devkit/internal/harness"
 	"devkit/internal/identity"
 	"devkit/internal/interaction"
 	"devkit/internal/mcp"
@@ -1127,36 +1128,6 @@ func main() {
 	// one that diverged moves it back. Chains the existing listener rather
 	// than replacing it, so the frontend still hears about re-indexes.
 	app.WirePlanReconcile(container)
-	// Telegram runs only in the authenticated desktop host; server-mode bridge
-	// access must never configure a remote approval channel.
-	if !application.System.IsServer() {
-		telegram, err := telegramcontrol.New(telegramcontrol.NewSQLStore(db), telegramcontrol.Deps{
-			Agents: agentSvc, Permissions: agentWaiter, Questions: agentElicitations,
-			Interaction: hub, Workspaces: container.Workspace, Locked: container.Vault.IsLocked,
-			Audit: audit.NewTee(container.Audit, auditSQL),
-			Token: func(id string) (string, error) {
-				account, err := container.Accounts.Get(id)
-				if err != nil || account.Kind != accounts.KindToken || !strings.HasPrefix(account.ScopeOwner, accounts.LocalOwnerPrefix) {
-					return "", errors.New("Local token required")
-				}
-				credential, err := container.Accounts.Resolve(accounts.ResolveInput{AccountID: id, By: "telegram"})
-				if err != nil {
-					return "", err
-				}
-				return credential.Secret, nil
-			},
-		})
-		if err != nil {
-			log.Printf("telegram: local settings unavailable")
-		} else {
-			container.Telegram = telegram
-			container.Accounts.RegisterUsage(telegram)
-			telegramCtx, stopTelegram := context.WithCancel(context.Background())
-			telegramDone := make(chan struct{})
-			go func() { defer close(telegramDone); telegram.Run(telegramCtx) }()
-			defer func() { stopTelegram(); <-telegramDone }()
-		}
-	}
 	appService := bridge.NewAppServiceWithMode(container, func(theme preferences.Theme) error {
 		return applyNativeTheme(mainWindow, theme)
 	}, func() bool { return application.System.IsServer() })
@@ -1223,6 +1194,10 @@ func main() {
 		// that must not import each other, so it arrives as its own adapter.
 		PlanBacklog: app.NewPlanBacklog(container),
 		Hub:         hub,
+		// The startup-only port, passed before the registry freezes so
+		// harness.profile.get and harness.profile.propose are in the inventory
+		// the assembly resolves against. app.StartHarness binds it below.
+		Harness: container.Harness,
 	})
 	mcpCtx, mcpCancel := context.WithCancel(context.Background())
 	defer mcpCancel()
@@ -1230,11 +1205,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	go func() {
-		if err := mcp.ServeUnix(mcpCtx, sockPath, mcpServer); err != nil {
-			log.Printf("mcp host: %v", err)
-		}
-	}()
+	// The shared listener is NOT started here: app.StartHarness binds it after
+	// the harness graph is attached (see below), so no connection can reach a
+	// handler or a session before the graph exists.
 
 	// Per-session identity-bound sockets for Agent Hub. A missing proxy is
 	// logged here and surfaces as ErrProxyNotFound on CreateSession.
@@ -1324,6 +1297,86 @@ func main() {
 		ShouldQuit: quitAfterFlush(),
 	})
 	openBrowser = wailsApp.Browser.OpenURL
+
+	// Harness activation. Startup order, no other:
+	//   1. mcp.Deps.Harness was set before NewServerFromContainer (above), so the
+	//      two public tools are in the registry that Inventory freezes;
+	//   2. the session host is built and agentSvc.MCPEndpoints assigned (above);
+	//   3. app.StartHarness composes the graph from that inventory, attaches Agent
+	//      Hub and binds the port, and only then binds the shared listener;
+	//   4. only after that do Telegram, the windows and Run admit any work.
+	// This is after application.New on purpose: a second launch exits inside New
+	// (SingleInstance) before it binds anything. Any failure aborts startup; there
+	// is no Harness=nil fallback and nothing keeps listening.
+	if _, err := app.StartHarness(app.HarnessStartup{
+		Port: container.Harness,
+		Config: app.HarnessAssemblyConfig{
+			Store:       storage.NewHarnessStore(db),
+			Preferences: container.Preferences,
+			Hub:         hub,
+			Workspaces:  container.Workspace,
+			Agents:      agentSvc,
+			Audit:       app.HarnessAuditSink(audit.NewTee(container.Audit, auditSQL)),
+			Vendors:     []agenthub.AgentType{agenthub.AgentTypeClaude, agenthub.AgentTypeCodex, agenthub.AgentTypeOpenCode},
+			Inventory: func() (harness.Registry, error) {
+				inv, err := mcpServer.Inventory()
+				if err != nil {
+					return harness.Registry{}, err
+				}
+				return inv.Registry(), nil
+			},
+		},
+		Listen: func() error {
+			ln, err := mcp.ListenUnix(sockPath)
+			if err != nil {
+				return err
+			}
+			go func() {
+				if err := mcp.ServeListener(mcpCtx, ln, mcpServer); err != nil {
+					log.Printf("mcp host: %v", err)
+				}
+			}()
+			return nil
+		},
+		Cleanup: func() {
+			sessionHost.Close()
+			mcpCancel()
+		},
+	}); err != nil {
+		stopIdleRelease()
+		log.Fatalf("harness startup failed; no listener or session was started: %v", err)
+	}
+
+	// Telegram runs only in the authenticated desktop host; server-mode bridge
+	// access must never configure a remote approval channel.
+	if !application.System.IsServer() {
+		telegram, err := telegramcontrol.New(telegramcontrol.NewSQLStore(db), telegramcontrol.Deps{
+			Agents: agentSvc, Permissions: agentWaiter, Questions: agentElicitations,
+			Interaction: hub, Workspaces: container.Workspace, Locked: container.Vault.IsLocked,
+			Audit: audit.NewTee(container.Audit, auditSQL),
+			Token: func(id string) (string, error) {
+				account, err := container.Accounts.Get(id)
+				if err != nil || account.Kind != accounts.KindToken || !strings.HasPrefix(account.ScopeOwner, accounts.LocalOwnerPrefix) {
+					return "", errors.New("Local token required")
+				}
+				credential, err := container.Accounts.Resolve(accounts.ResolveInput{AccountID: id, By: "telegram"})
+				if err != nil {
+					return "", err
+				}
+				return credential.Secret, nil
+			},
+		})
+		if err != nil {
+			log.Printf("telegram: local settings unavailable")
+		} else {
+			container.Telegram = telegram
+			container.Accounts.RegisterUsage(telegram)
+			telegramCtx, stopTelegram := context.WithCancel(context.Background())
+			telegramDone := make(chan struct{})
+			go func() { defer close(telegramDone); telegram.Run(telegramCtx) }()
+			defer func() { stopTelegram(); <-telegramDone }()
+		}
+	}
 
 	// The platform's default menus, plus DevKit's own — where the platform has
 	// a bar to put them in. See app_menu.go for both halves of that.

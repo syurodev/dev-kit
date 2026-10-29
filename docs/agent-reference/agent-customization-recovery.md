@@ -192,8 +192,10 @@ Nothing is published until the runtime opened.
 - **Unchanged.** Admission seals still run first (a sealed start resolves and opens nothing),
   concurrent resumes share one barrier and one preparation, accounts, mode, model and leases are
   untouched.
-- No production code sets `Service.Harness` or an enforcing endpoint yet, so nothing changes at
-  runtime.
+- Since R4, `main.go` sets `Service.Harness` (through `app.StartHarness`) and the session host
+  serves an enforcing endpoint, so these rules run for every session with a workspace. An
+  inert build (`Harness == nil`) opens the default launch and, from O-2b, leaves a stored applied
+  reference untouched.
 
 ### Durable applied reference and session-override lifecycle (H3c)
 
@@ -283,23 +285,24 @@ per-call observer reading the live serving snapshot is H4's.
 
 Composition adapters live in `internal/app/harness_config.go` (vendors from preferences with
 `FactsComplete=false`, hub confirmer, boundary, directory, validator, default policy) and
-`agenthub.Service.HarnessScope` is the trusted session → workspace/vendor read. No production
-code builds the service yet: it needs a registry source and a public transport (H4/H5).
+`agenthub.Service.HarnessScope` is the trusted session → workspace/vendor read. Since R4 production
+builds the service: `main.go` passes the registry source (the MCP server's inventory) and the public
+transport (`harness.profile.get` / `harness.profile.propose`) through `app.StartHarness`.
 `EventAudit`-style records (`Event`) hold outcome, tier, target, ids and revisions only.
 
-### Composition and activation (H4d, internal and inert)
+### Composition and activation (H4d; activated by R4)
 
 `app.NewHarnessAssembly` / `Attach` compose the graph below and are tested through the real stack; `main.go` does not
-call them, so production Harness stays inert. The vendor adapter now reads V for every registered vendor (opencode
+call them at H4d; R4 now calls `app.StartHarness` from `main.go`, so production runs the harness. The vendor adapter now reads V for every registered vendor (opencode
 included) and refuses others. Gate table, decision, blockers and the H5 handoff:
 [Harness composition and activation](harness-composition-activation.md).
 
-### Live publication of S (H4c, internal and inert)
+### Live publication of S (H4c; active since R4)
 
 Plan: `docs/superpowers/plans/2026-10-27-harness-h4c-live-publication-implementation.md`. A committed
 change to S either installs its exact serving policy on the session's **current** endpoint or leaves that
-endpoint unable to admit calls. No production `Harness` is constructed yet (H4d), and there is no public
-transport, editor or policy setting (H5); everything below is reachable only through the internal service.
+endpoint unable to admit calls. At H4c no production `Harness` was constructed; since R4 `main.go`
+constructs it (`app.StartHarness`), and the public transport, editor and policy setting (H5) are live.
 
 - **Three values, never one.** *Launch-applied* is the durable reference and executable baseline of the
   launch (`harnessApplied`, `SetHarnessApplied`); a live S change never writes it, so Close/restart/rewind
