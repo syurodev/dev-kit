@@ -227,6 +227,12 @@ done by then; the half of `CloseSession` that tears it down; the next prompt reo
     `_NODE`, `_CODEX` are set — see its header): a new Claude and a new Codex session each show the subagent, the child
     runs on the profile's model/effort/instructions, and a Claude subagent's shell `git commit` is refused by DevKit's hook.
     The harness gateway allows everything, so a gated tool's confirm card is not exercised through a subagent.
+- **A subagent's settings and mode never replace the session's** (`Recorder.Record`/`isOwnState`, `applySessionUpdates` and
+  `initTranscript` in `transcript.ts`). claude-agent-acp streams a subagent's `config_option_update` and `current_mode_update`
+  on the parent's connection, tagged `_devkit.origin` (parsed as `SessionUpdate.origin`); an update with an origin is emitted but
+  neither stored over the session's one row nor applied by the window, so the model picker keeps showing the session's own model.
+  A row already holding a subagent's options heals when the main agent next announces its own (`PrepareSession` →
+  `RefreshConfigOptions`, or `SetHandlers`); no migration. The other singleton kinds (usage, commands, connectors, retry) are not guarded: no subagent case has been measured for them.
 - **Codex subagent limits: one cap on how many, no depth** (`internal/preferences/subagentlimits.go`, preference
   `agent_subagent_limits`, `internal/agenthub/codex_subagent_limits.go`, bridge `AgentHubGet|SetSubagentLimits`
   (UI-only, revision/CAS, grants `preferences:* agent_subagent_limits`), Settings → Agents → Models & subagents →

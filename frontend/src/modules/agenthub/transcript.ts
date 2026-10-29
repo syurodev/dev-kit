@@ -370,7 +370,10 @@ export function applySessionUpdates(
       continue;
     }
 
+    // A subagent announces its own mode and settings on the parent's
+    // connection, tagged with its origin. The picker is the session's.
     if (kind === UpdateKind.UpdateCurrentMode || kind === "current_mode_update") {
+      if (update.origin) continue;
       if (update.mode !== undefined) {
         mode = update.mode;
         changed = true;
@@ -383,7 +386,7 @@ export function applySessionUpdates(
     }
 
     if (kind === UpdateKind.UpdateConfigOptions || kind === "config_option_update") {
-      if (update.configOptions) {
+      if (update.configOptions && !update.origin) {
         configOptions = update.configOptions.map((option) => ({ ...option, options: option.options ? [...option.options] : [] }));
         changed = true;
       }
@@ -680,7 +683,9 @@ export function initTranscript(
       continue;
     }
 
+    // Rows stored before the backend stopped recording a subagent's: skip them.
     if (kind === UpdateKind.UpdateCurrentMode || kind === "current_mode_update") {
+      if (payload.origin) continue;
       if (payload.mode) {
         model.mode = payload.mode;
       }
@@ -689,7 +694,7 @@ export function initTranscript(
     }
 
     if (kind === UpdateKind.UpdateConfigOptions || kind === "config_option_update") {
-      if (payload.configOptions) model.configOptions = payload.configOptions;
+      if (payload.configOptions && !payload.origin) model.configOptions = payload.configOptions;
       continue;
     }
 
