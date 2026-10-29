@@ -134,3 +134,78 @@ func TestManagedRuntimePATHKeepsDeveloperToolBins(t *testing.T) {
 		}
 	}
 }
+
+// liveReporter is a live runtime that reports the environment it was opened with.
+type liveReporter struct {
+	SessionRuntime
+	report EnvironmentReport
+}
+
+func (r liveReporter) reportEnvironment(context.Context) (EnvironmentReport, error) {
+	return r.report, nil
+}
+
+func writableFolderEntry(path string) EnvironmentEntry {
+	return EnvironmentEntry{Name: "Additional writable folder", Kind: "access", Status: "configured", Source: path, Detail: "Granted to this session."}
+}
+
+func TestLiveEnvironmentListsFoldersGrantedSinceTheProcessOpened(t *testing.T) {
+	const grantedDetail = "Granted. Applies after this session reopens."
+	cases := []struct {
+		name    string
+		opened  []string // what the running process was opened with (its own report)
+		stored  []string // the row's folders now
+		pending []string // the entries expected to be added, in order
+	}{
+		{name: "no grants anywhere", opened: nil, stored: nil, pending: nil},
+		{name: "the row matches the process", opened: []string{"/work/api"}, stored: []string{"/work/api"}, pending: nil},
+		{name: "a folder granted mid-session", opened: nil, stored: []string{"/work/api"}, pending: []string{"/work/api"}},
+		{name: "one old, one new", opened: []string{"/work/web"}, stored: []string{"/work/web", "/work/api"}, pending: []string{"/work/api"}},
+		{name: "two new, in the row's order", opened: []string{"/work/web"}, stored: []string{"/work/web", "/work/b", "/work/a"}, pending: []string{"/work/b", "/work/a"}},
+		{name: "an unclean stored path matches its clean twin", opened: []string{"/work/api"}, stored: []string{"/work/api/"}, pending: nil},
+		{name: "the process's own entry is unclean", opened: []string{"/work/api/"}, stored: []string{"/work/api"}, pending: nil},
+		{name: "a stored path that is not absolute is not advertised", opened: nil, stored: []string{"relative/dir"}, pending: nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, _, id := elicitationService(t)
+			ctx := context.Background()
+			for _, path := range tc.stored {
+				// Only absolute paths can reach the row through the grant tool;
+				// the store itself keeps whatever it is given.
+				if _, err := svc.store.(ExtraPathStore).AddExtraReadWritePath(ctx, id, path); err != nil {
+					t.Fatal(err)
+				}
+			}
+			report := EnvironmentReport{Agent: "mock", Scope: "session", Entries: []EnvironmentEntry{
+				{Name: "Working directory", Kind: "access", Status: "configured", Source: "/work/cwd", Detail: "x"},
+			}}
+			for _, path := range tc.opened {
+				report.Entries = append(report.Entries, writableFolderEntry(path))
+			}
+			before := append([]EnvironmentEntry(nil), report.Entries...)
+			svc.mu.Lock()
+			svc.runtimes[id] = liveReporter{report: report}
+			svc.mu.Unlock()
+
+			got, err := svc.Environment(identity.WithCaller(ctx, identity.UI()), AgentTypeMock, id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got.Entries) != len(before)+len(tc.pending) {
+				t.Fatalf("entries = %+v, want %d more than the process's own", got.Entries, len(tc.pending))
+			}
+			for i, entry := range before {
+				if got.Entries[i] != entry {
+					t.Fatalf("the process's own entry %d changed: %+v", i, got.Entries[i])
+				}
+			}
+			for i, path := range tc.pending {
+				want := EnvironmentEntry{Name: "Additional writable folder", Kind: "access", Status: "pending", Source: path, Detail: grantedDetail}
+				if entry := got.Entries[len(before)+i]; entry != want {
+					t.Fatalf("pending entry %d = %+v, want %+v", i, entry, want)
+				}
+			}
+		})
+	}
+}
