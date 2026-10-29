@@ -57,11 +57,9 @@ type AgentSession struct {
 	// workspace's other services — see CreateInput). Stored with the session
 	// because the jail is rebuilt from scratch on every resume and rewind,
 	// and a grant that lived only in the first OpenSpec would silently narrow
-	// back to Cwd the first time the process was respawned. Sent to the UI (a
-	// folder granted mid-turn by workspace.requestWrite reaches the window
-	// with the row); never to agents: it is a list of paths, and the MCP
-	// tools blank it (mcp forAgent).
-	ExtraReadWritePaths []string `json:"ExtraReadWritePaths,omitempty"`
+	// back to Cwd the first time the process was respawned. Not sent to the
+	// UI or to agents: nothing there reads it, and it is a list of paths.
+	ExtraReadWritePaths []string `json:"-"`
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }

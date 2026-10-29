@@ -13,10 +13,4 @@ describe("toSession", () => {
     expect(toSession(raw()).accountId).toBe("");
     expect(toSession(raw({ AccountID: "" })).accountId).toBe("");
   });
-
-  test("reads the folders the session may write from the bound ExtraReadWritePaths", () => {
-    expect(toSession(raw({ ExtraReadWritePaths: ["/work/api"] })).extraReadWritePaths).toEqual(["/work/api"]);
-    expect(toSession(raw()).extraReadWritePaths).toEqual([]);
-    expect(toSession(raw({ ExtraReadWritePaths: null })).extraReadWritePaths).toEqual([]);
-  });
 });

@@ -152,12 +152,10 @@ func (s *Server) registerAgentHub(ms *sdk.Server) {
 // retry is worth it, when), with the vendor's sentence marked as third-party.
 // AccountID is blanked: it is a slug of the person's own account label, and which
 // vendor account a session runs as is for the window alone (agents read nothing about
-// vendor accounts). ExtraReadWritePaths is blanked too: the folders a session was
-// granted are paths from the person's disk, for the window's Environment view.
+// vendor accounts).
 func forAgent(s agenthub.AgentSession) agenthub.AgentSession {
 	s.Preview = ""
 	s.AccountID = ""
-	s.ExtraReadWritePaths = nil
 	return s
 }
 

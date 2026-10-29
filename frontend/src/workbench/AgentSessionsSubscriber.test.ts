@@ -20,7 +20,6 @@ import { useAgentSessionsStore } from "../stores/agentSessions";
 import { useWorkbenchTabsStore } from "../stores/workbenchTabs";
 import { sendAgentTurn, setAgentHubTabsStatus, type TurnBridge } from "./agentPromptQueue";
 import type { AgentSession, InvokeResult } from "../bridge/agenthub";
-import { queryClient } from "../lib/query";
 
 // No ui_state writes: the debounced bridge call would reject after this file ends.
 useWorkbenchTabsStore.persist.setOptions({
@@ -177,39 +176,13 @@ describe("an Agent Hub tab when a turn finishes", () => {
     expect(row.updatedAt).toBe(2000);
   });
 
-  it("takes the folders the agent was granted, without moving the status back", async () => {
-    const bridge: TurnBridge = {
-      invoke: () => new Promise(() => {}),
-      getStatus: async (id) => ({
-        ...useAgentSessionsStore.getState().sessionsById[id],
-        status: "idle",
-        extraReadWritePaths: ["/work/api"],
-      }),
-    };
-
-    handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" }, bridge);
-    useAgentSessionsStore.getState().upsertSession({ ...useAgentSessionsStore.getState().sessionsById.s1, status: "running" });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    const row = useAgentSessionsStore.getState().sessionsById.s1;
-    expect(row.extraReadWritePaths).toEqual(["/work/api"]);
-    expect(row.status).toBe("running");
-  });
-
-  it("takes the granted folders after a turn of its own too, and nothing else from the row", async () => {
+  it("does not read the row for a turn of its own", async () => {
     let reads = 0;
     const bridge: TurnBridge = {
       invoke: () => new Promise(() => {}),
       getStatus: async (id) => {
         reads += 1;
-        // The next queued turn already runs here; the row Go answers is about the one that ended.
-        return {
-          ...useAgentSessionsStore.getState().sessionsById[id],
-          status: "idle",
-          preview: "Done.",
-          title: "Renamed by Go",
-          extraReadWritePaths: ["/work/api"],
-        };
+        return useAgentSessionsStore.getState().sessionsById[id];
       },
     };
     useAgentSessionsStore.setState({ turnInFlightBySession: { s1: true } });
@@ -217,44 +190,7 @@ describe("an Agent Hub tab when a turn finishes", () => {
     handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" }, bridge);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const row = useAgentSessionsStore.getState().sessionsById.s1;
-    expect(reads).toBe(1);
-    expect(row.extraReadWritePaths).toEqual(["/work/api"]);
-    expect(row.status).toBe("running");
-    expect(row.preview).toBeUndefined();
-    expect(row.title).toBe("s1");
-  });
-
-  it("leaves the granted folders alone when the row cannot be read", async () => {
-    useAgentSessionsStore.getState().upsertSession({
-      ...useAgentSessionsStore.getState().sessionsById.s1,
-      extraReadWritePaths: ["/work/api"],
-    });
-    const bridge: TurnBridge = {
-      invoke: () => new Promise(() => {}),
-      getStatus: async () => {
-        throw new Error("hub unavailable");
-      },
-    };
-
-    handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" }, bridge);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(useAgentSessionsStore.getState().sessionsById.s1.extraReadWritePaths).toEqual(["/work/api"]);
-  });
-
-  it("marks the finished session's Environment stale, and no other session's", () => {
-    const key = (vendor: string, sessionId: string) => ["agenthub", "environment", vendor, sessionId];
-    queryClient.setQueryData(key("claude", "s1"), { entries: [] });
-    queryClient.setQueryData(key("claude", "s2"), { entries: [] });
-    queryClient.setQueryData(key("claude", ""), { entries: [] });
-    const stale = (k: string[]) => queryClient.getQueryState(k)?.isInvalidated;
-
-    handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" });
-
-    expect(stale(key("claude", "s1"))).toBe(true);
-    expect(stale(key("claude", "s2"))).toBe(false);
-    expect(stale(key("claude", ""))).toBe(false);
+    expect(reads).toBe(0);
   });
 
   it("marks our turn finished when its reply comes after its turnFinished", async () => {
