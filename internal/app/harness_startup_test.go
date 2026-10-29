@@ -38,12 +38,17 @@ type startupRig struct {
 
 func newStartupRig(t *testing.T) *startupRig {
 	t.Helper()
+	return newStartupRigWithVault(t, vaultOK{})
+}
+
+func newStartupRigWithVault(t *testing.T, v mcp.VaultAPI) *startupRig {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	r := &startupRig{t: t, ctx: ctx, parts: newAssemblyParts(t), port: NewHarnessPort()}
 	// The port is passed to the server before it is built: the tools are in the
 	// registry that Inventory freezes.
-	r.server = mcp.NewServer(mcp.Deps{Hub: r.parts.hub, Vault: vaultOK{}, Harness: r.port})
+	r.server = mcp.NewServer(mcp.Deps{Hub: r.parts.hub, Vault: v, Harness: r.port})
 	dir, err := os.MkdirTemp("/tmp", "h3s")
 	if err != nil {
 		t.Fatal(err)
