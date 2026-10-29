@@ -688,6 +688,7 @@ func main() {
 		agentSvc.WorkspaceInstructions = container.Workspace.GetInstructions
 		agentSvc.WorkspaceMemory = container.WorkspaceMemory.Context
 		agentSvc.MatchingWorkspaces = container.Workspace.MatchingWorkspaceIDs
+		agentSvc.WorkspaceFolders = app.AgentWorkspaceFolders(container.Workspace)
 	}
 	// A crash mid-turn leaves rows saying running/awaiting_permission, and
 	// no ACP process survives the restart that could finish those turns —
