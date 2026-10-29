@@ -1625,6 +1625,8 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	delete(s.runtimeUsage, id)
 	s.forgetWorkspaceContextLocked(id)
 	s.forgetSessionAccountLocked(id)
+	// A grant's pending reopen means nothing for a session that is closed.
+	delete(s.reopenForGrant, id)
 	closeEndpoint := s.endpoints[id]
 	delete(s.endpoints, id)
 	s.mu.Unlock()

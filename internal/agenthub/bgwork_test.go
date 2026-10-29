@@ -1,6 +1,9 @@
 package agenthub
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func shellTask(id string) *AsyncTask    { return &AsyncTask{ID: id, TaskType: "shell"} }
 func taskState(id, s string) *AsyncTask { return &AsyncTask{ID: id, State: s} }
@@ -77,5 +80,35 @@ func TestBackgroundWorkIgnoresATaskWithoutAnID(t *testing.T) {
 	b.apply("s1", UpdateAsyncTaskSpawned, nil)
 	if b.running("s1") {
 		t.Fatal("an anonymous task started tracking")
+	}
+}
+
+func TestBackgroundWorkIgnoresATaskOlderThanTheLimit(t *testing.T) {
+	clock := time.Date(2026, 10, 29, 9, 0, 0, 0, time.UTC)
+	b := backgroundWork{now: func() time.Time { return clock }}
+	b.apply("s1", UpdateAsyncTaskSpawned, shellTask("t1"))
+
+	clock = clock.Add(backgroundWorkMaxAge - time.Minute)
+	if !b.running("s1") {
+		t.Fatal("a task younger than the limit stopped counting")
+	}
+	clock = clock.Add(2 * time.Minute)
+	if b.running("s1") {
+		t.Fatal("a task older than the limit still blocks a release: a lost end update would pin the process for good")
+	}
+}
+
+func TestBackgroundWorkAYoungTaskKeepsCountingBesideAnOldOne(t *testing.T) {
+	clock := time.Date(2026, 10, 29, 9, 0, 0, 0, time.UTC)
+	b := backgroundWork{now: func() time.Time { return clock }}
+	b.apply("s1", UpdateAsyncTaskSpawned, shellTask("old"))
+	clock = clock.Add(backgroundWorkMaxAge + time.Hour)
+	b.apply("s1", UpdateAsyncTaskSpawned, shellTask("young"))
+	if !b.running("s1") {
+		t.Fatal("the young task does not count")
+	}
+	b.apply("s1", UpdateAsyncTaskState, taskState("young", "completed"))
+	if b.running("s1") {
+		t.Fatal("only the stale task is left and it must not count")
 	}
 }

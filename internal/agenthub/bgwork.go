@@ -1,6 +1,9 @@
 package agenthub
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 // backgroundWork is what each session's vendor process is running that dies
 // with the process: a shell task the agent started, or a turn the agent began
@@ -12,9 +15,26 @@ import "sync"
 // that survived a restart or a release would only be wrong. It is built from
 // the vendor's async_task_* updates, so a vendor that sends none (Codex,
 // opencode) is never protected by it.
+//
+// A vendor can lose the update that ends a task, and a record that never ends
+// would pin the process (no idle release) for good. So a task counts as running
+// for backgroundWorkMaxAge after it was spawned and not after: a shell task or an
+// agent-started turn outliving half a day is far less likely than a lost update.
 type backgroundWork struct {
 	mu    sync.Mutex
-	tasks map[string]map[string]struct{} // session id -> task ids
+	tasks map[string]map[string]time.Time // session id -> task id -> when it spawned
+	now   func() time.Time                // nil: time.Now
+}
+
+// backgroundWorkMaxAge is how long after its spawn a task still blocks a release.
+const backgroundWorkMaxAge = 12 * time.Hour
+
+// clock is the current time; the caller holds mu or has no other use of now.
+func (b *backgroundWork) clock() time.Time {
+	if b.now != nil {
+		return b.now()
+	}
+	return time.Now()
 }
 
 // taskStillRunning reads a vendor task state the way the window does
@@ -42,12 +62,12 @@ func (b *backgroundWork) apply(sessionID string, kind UpdateKind, task *AsyncTas
 			return
 		}
 		if b.tasks == nil {
-			b.tasks = make(map[string]map[string]struct{})
+			b.tasks = make(map[string]map[string]time.Time)
 		}
 		if b.tasks[sessionID] == nil {
-			b.tasks[sessionID] = make(map[string]struct{})
+			b.tasks[sessionID] = make(map[string]time.Time)
 		}
-		b.tasks[sessionID][task.ID] = struct{}{}
+		b.tasks[sessionID][task.ID] = b.clock()
 	case UpdateAsyncTaskState:
 		if taskStillRunning(task.State) {
 			return
@@ -61,11 +81,18 @@ func (b *backgroundWork) apply(sessionID string, kind UpdateKind, task *AsyncTas
 	}
 }
 
-// running reports whether the session's process still has a task.
+// running reports whether the session's process still has a task that is younger
+// than backgroundWorkMaxAge.
 func (b *backgroundWork) running(sessionID string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return len(b.tasks[sessionID]) > 0
+	now := b.clock()
+	for _, spawned := range b.tasks[sessionID] {
+		if now.Sub(spawned) < backgroundWorkMaxAge {
+			return true
+		}
+	}
+	return false
 }
 
 // forget drops a session's tasks: its process is gone.

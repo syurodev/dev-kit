@@ -314,3 +314,17 @@ func (s *Service) ReopenMarkedForTest(sessionID string) bool {
 func (s *Service) ReopenAfterGrantForTest(ctx context.Context, sessionID string, turnEnded time.Time) {
 	s.reopenAfterGrant(ctx, sessionID, turnEnded)
 }
+
+// SetBackgroundWorkClockForTest replaces the clock the background-work age limit reads.
+func (s *Service) SetBackgroundWorkClockForTest(now func() time.Time) {
+	s.bgwork.mu.Lock()
+	defer s.bgwork.mu.Unlock()
+	s.bgwork.now = now
+}
+
+// BackgroundWorkRecordedForTest counts a session's task records whatever their age.
+func (s *Service) BackgroundWorkRecordedForTest(sessionID string) int {
+	s.bgwork.mu.Lock()
+	defer s.bgwork.mu.Unlock()
+	return len(s.bgwork.tasks[sessionID])
+}
