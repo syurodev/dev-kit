@@ -9,6 +9,7 @@ import { errorMessage } from "@/bridge/errors";
 
 import { vendorInfo } from "../vendors";
 import { AgentCustomizationManager } from "./AgentCustomization";
+import { agentEnvironmentKey } from "./environmentKey";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
 
 const GROUPS = [
@@ -78,7 +79,7 @@ function EnvironmentCheck({ vendor, sessionId = "", enabled }: { vendor: string;
     finally { setReloading(false); }
   }
   const query = useQuery({
-    queryKey: ["agenthub", "environment", vendor, sessionId],
+    queryKey: agentEnvironmentKey(vendor, sessionId),
     queryFn: () => agentHubEnvironment(vendor, sessionId),
     enabled,
     staleTime: 0,
