@@ -14,7 +14,7 @@ import { AgentComposer } from "./AgentComposer";
 import { composerPlaceholder } from "./AgentHubContent";
 import { AgentSessionFailure } from "./AgentSessionFailure";
 import { useAgentTray } from "./composer/agentTray";
-import { AgentState, type AgentStatus } from "./AgentState";
+import { AgentState, agentStatusOf, type AgentStatus } from "./AgentState";
 import { VendorIcon } from "./VendorIcon";
 
 export type AgentRailState = "Conversation" | "Empty";
@@ -226,7 +226,7 @@ export function AgentRail({
           className="flex w-full shrink-0 items-center gap-2 py-2 pr-4 pl-5"
         >
           <VendorIcon vendor={activeSession.agentType} className="size-3.5 shrink-0 text-icon-secondary" />
-          <AgentState status={toAgentStatus(activeSession.status)} />
+          <AgentState status={agentStatusOf(activeSession, toAgentStatus(activeSession.status))} />
           <p className="min-w-0 flex-1 truncate text-caption-11 text-text-tertiary" title={activeSession.projectPath || "."}>
             {`depth ${activeSession.depth ?? 0} · ${activeSession.projectPath || "."}`}
           </p>

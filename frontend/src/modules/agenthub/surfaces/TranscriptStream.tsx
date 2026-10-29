@@ -14,6 +14,8 @@ import { AgentJumpToLatest } from "./AgentJumpToLatest";
 import { AgentMetaInspector } from "./AgentMetaInspector";
 import { AgentTurn } from "./AgentTurn";
 import { EarlierTurnProvider } from "../transcript/toolSettle";
+import { isSessionQuiet } from "../sessionActivity";
+import { useAgentSessionsStore } from "@/stores/agentSessions";
 import { EMPTY_CHECKPOINTS, type CheckpointIndex } from "../checkpoints";
 import type { FileDiff } from "../../../../bindings/devkit/internal/agenthub/models";
 import { TranscriptTicks, ticksOf } from "./TranscriptTicks";
@@ -285,6 +287,14 @@ export function TranscriptStream({
   // By value, not identity: a caller's fresh object per render must not
   // re-render every turn's prose through the context below.
   const sessionId = refContext?.sessionId;
+  // Nothing works on the session and nothing waits: the newest turn's unfinished
+  // calls can no longer finish (transcript/toolSettle.tsx). Not for a stream that
+  // names no loaded session, and not while the caller says a turn streams.
+  const sessionQuiet = useAgentSessionsStore(
+    (state) =>
+      sessionId !== undefined && isSessionQuiet(state.sessionsById[sessionId], Boolean(state.turnInFlightBySession[sessionId])),
+  );
+  const quiet = sessionQuiet && !streaming;
   const workspaceId = refContext?.workspaceId;
   const projectPath = refContext?.projectPath;
   const stableRefContext = useMemo<RefContext | null>(
@@ -616,9 +626,10 @@ export function TranscriptStream({
   function renderTurn(turn: Turn, index: number) {
     const latest = index === turns.length - 1;
     return (
-      // A later user message exists: a call this turn left pending or in progress
-      // will never finish, and is not drawn as live (transcript/toolSettle.tsx).
-      <EarlierTurnProvider key={turn.id} earlier={!latest}>
+      // A later user message exists, or the session is quiet: a call this turn left
+      // pending or in progress will never finish, and is not drawn as live
+      // (transcript/toolSettle.tsx).
+      <EarlierTurnProvider key={turn.id} earlier={!latest} quiet={latest && quiet}>
         <AgentTurn
           turn={turn}
           latest={latest}

@@ -1,5 +1,7 @@
 import { Shimmer } from "@/components/ui/shimmer";
 import { cn } from "@/lib/utils";
+import type { AgentSession } from "@/bridge/agenthub";
+import { isWorking } from "../sessionActivity";
 
 export type AgentStatus =
   | "idle"
@@ -7,6 +9,15 @@ export type AgentStatus =
   | "awaiting"
   | "error"
   | "closed";
+
+/**
+ * The status to draw for a session: its stored one, except that an idle session
+ * whose agent runs a turn of its own is running. Waiting, failed and closed are not
+ * overridden.
+ */
+export function agentStatusOf(session: Pick<AgentSession, "status" | "activity">, stored: AgentStatus): AgentStatus {
+  return stored === "idle" && isWorking(session) ? "running" : stored;
+}
 
 /**
  * Agent / State — Figma `904:23`, five statuses.

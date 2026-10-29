@@ -10,6 +10,7 @@ import {
   onAgentHubElicitationClosed,
   onAgentHubPermissionClosed,
   onAgentHubPermission,
+  onAgentHubActivity,
   onAgentHubSessionCreated,
   onAgentHubSessionUpdate,
   onAgentHubNotificationAction,
@@ -18,6 +19,7 @@ import {
   onAgentHubTurnStarted,
   type AgentSession,
   type AgentTurnFinishedEvent,
+  type SessionActivity,
   type PermissionClosedEvent,
   type SessionUpdateEvent,
 } from "../bridge/agenthub";
@@ -31,6 +33,7 @@ import { reloadTranscript, startAgentTranscriptStream } from "../modules/agenthu
 import { agentSessionOnScreen, showAgentSession, syncAgentSessionTabTitles } from "../modules/agenthub/documents";
 import { groupTurns, workedFor } from "../modules/agenthub/turns";
 import type { TranscriptItem } from "../modules/agenthub/types";
+import { isWorking } from "../modules/agenthub/sessionActivity";
 import { UpdateKind } from "../../bindings/devkit/internal/agenthub/models";
 import {
   drainQueuedPrompt,
@@ -159,6 +162,30 @@ export function isPeerMessage(event: Pick<SessionUpdateEvent, "parsed">): boolea
 const previewReads = new Map<string, number>();
 
 /**
+ * Reads a session's row to take what a turn this window did not send changed on it: the
+ * preview and its time, and a title only when the row has none (Go names a session after
+ * its first turn, agenthub/session_title.go, and a rename made here since is the
+ * person's). Nothing else is taken: the next queued turn may already be running here by
+ * the time the read answers, and its status must not go back.
+ */
+function readSessionPreview(sessionId: string, getStatus: (id: string) => Promise<AgentSession>): void {
+  const read = (previewReads.get(sessionId) ?? 0) + 1;
+  previewReads.set(sessionId, read);
+  void getStatus(sessionId)
+    .then((fresh) => {
+      if (previewReads.get(sessionId) !== read) return;
+      const current = useAgentSessionsStore.getState().sessionsById[sessionId];
+      const title = current && !current.title?.trim() && fresh?.title ? fresh.title : current?.title;
+      if (fresh && current && (current.preview !== fresh.preview || current.updatedAt !== fresh.updatedAt || title !== current.title)) {
+        useAgentSessionsStore
+          .getState()
+          .upsertSession({ ...current, title, preview: fresh.preview, updatedAt: fresh.updatedAt });
+      }
+    })
+    .catch(() => {});
+}
+
+/**
  * What a finished turn changes outside the turn itself: the session row, the
  * tab dot, the unread badge and the queue. Go emits the event from Invoke's
  * defer, so for a turn this window sent it can arrive before or after the
@@ -170,8 +197,23 @@ const previewReads = new Map<string, number>();
  * Whatever the update — a tool call that failed is routine, the agent reads
  * the failure and goes on; whether the turn failed is for its end to say
  * (handleAgentTurnFinished).
+ *
+ * Only while the session is working (isWorking), a turn of ours is in flight or
+ * a permission is awaited. An update from a background task of an idle session —
+ * a shell's progress, a late line — is not a turn, and nothing would ever put the
+ * tab back: the end of an agent-started turn is handleAgentActivity's.
  */
 export function handleSessionUpdateTabs(event: Pick<SessionUpdateEvent, "sessionId">): void {
+  const state = useAgentSessionsStore.getState();
+  const session = state.sessionsById[event.sessionId];
+  if (
+    session &&
+    !isWorking(session) &&
+    session.status !== "awaiting_permission" &&
+    !state.turnInFlightBySession[event.sessionId]
+  ) {
+    return;
+  }
   setAgentHubTabsStatus(event.sessionId, "running");
 }
 
@@ -197,27 +239,8 @@ export function handleAgentTurnFinished(
   });
   if (session && !ours) {
     // The preview is written with the status; a turn from elsewhere (MCP,
-    // another agent) only told us the status, so read the row once. Only the
-    // preview and its time are taken from it: the next queued turn may already be running
-    // here by the time the read answers, and its status must not go back.
-    const getStatus = bridge?.getStatus ?? agentHubGetStatus;
-    const read = (previewReads.get(sessionId) ?? 0) + 1;
-    previewReads.set(sessionId, read);
-    void getStatus(sessionId)
-      .then((fresh) => {
-        if (previewReads.get(sessionId) !== read) return;
-        const current = useAgentSessionsStore.getState().sessionsById[sessionId];
-        // A title only when the row has none: Go names a session after its
-        // first turn (agenthub/session_title.go), and a rename made here since
-        // is the person's.
-        const title = current && !current.title?.trim() && fresh?.title ? fresh.title : current?.title;
-        if (fresh && current && (current.preview !== fresh.preview || current.updatedAt !== fresh.updatedAt || title !== current.title)) {
-          useAgentSessionsStore
-            .getState()
-            .upsertSession({ ...current, title, preview: fresh.preview, updatedAt: fresh.updatedAt });
-        }
-      })
-      .catch(() => {});
+    // another agent) only told us the status, so read the row once.
+    readSessionPreview(sessionId, bridge?.getStatus ?? agentHubGetStatus);
   }
 
   // The turn is over: a completed one marks its tabs finished, which the
@@ -255,6 +278,47 @@ export function handleAgentTurnStarted(sessionId: string): void {
   if (session.status === "running" || session.status === "awaiting_permission") return;
   state.upsertSession({ ...session, status: "running" });
   setAgentHubTabsStatus(sessionId, "running");
+}
+
+/**
+ * The vendor's own work on a session changed (`agenthub:activity`): a background task
+ * started or ended, or a turn the agent began by itself did. The row keeps the activity;
+ * the stored status is Invoke's and stays as it is.
+ *
+ * An agent-started turn is a turn to the person, so its tab runs while it does, and when it
+ * ends the tab is marked finished and the result unread, as a turn of ours is — unless a turn
+ * of ours holds the session, which settles the tab itself. The row is read once when it ends:
+ * Go wrote the turn's last message as the preview before saying so.
+ */
+export function handleAgentActivity(
+  { sessionId, activity }: { sessionId: string; activity: SessionActivity },
+  getStatus: Pick<TurnBridge, "getStatus"> = { getStatus: agentHubGetStatus },
+): void {
+  const state = useAgentSessionsStore.getState();
+  const session = state.sessionsById[sessionId];
+  if (!session) return;
+  const wasAgentTurn = session.activity?.agentTurn === true;
+  // An event older than what the row holds (a lower revision) changes nothing.
+  if (!state.setActivity(sessionId, activity)) return;
+  const ours = state.turnInFlightBySession[sessionId];
+  if (activity.agentTurn && !wasAgentTurn) {
+    if (!ours) setAgentHubTabsStatus(sessionId, "running");
+    return;
+  }
+  if (!wasAgentTurn || activity.agentTurn) return;
+
+  const stored = useAgentSessionsStore.getState().sessionsById[sessionId]?.status;
+  const holdsTab = ours || stored === "running" || stored === "awaiting_permission";
+  // The process went away under the turn (closed, reloaded, rewound, cancelled, crashed): it
+  // did not finish. No answer is ready, so no finished mark and no unread; the tab just rests.
+  if (activity.ended === false || stored === "closed") {
+    if (!holdsTab) setAgentHubTabsStatus(sessionId, "idle");
+    return;
+  }
+  readSessionPreview(sessionId, getStatus.getStatus);
+  if (!holdsTab) setAgentHubTabsStatus(sessionId, stored === "error" ? "error" : "success");
+  if (sessionVisible(sessionId)) state.markCompletedRead(sessionId);
+  else state.markCompletedUnread(sessionId);
 }
 
 /**
@@ -462,6 +526,8 @@ export function AgentSessionsSubscriber() {
   }, [trackSubagent]);
 
   useEffect(() => onAgentHubTurnStarted(handleAgentTurnStarted), []);
+
+  useEffect(() => onAgentHubActivity((event) => handleAgentActivity(event)), []);
 
   useEffect(() => onAgentHubSessionCreated((sessionId) => void adoptCreatedSession(sessionId)), []);
 

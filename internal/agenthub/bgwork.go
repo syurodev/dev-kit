@@ -22,9 +22,32 @@ import (
 // agent-started turn outliving half a day is far less likely than a lost update.
 type backgroundWork struct {
 	mu    sync.Mutex
-	tasks map[string]map[string]time.Time // session id -> task id -> when it spawned
-	now   func() time.Time                // nil: time.Now
+	tasks map[string]map[string]bgTask // session id -> task id -> what it is and when it spawned
+	now   func() time.Time             // nil: time.Now
+	// seen, rev and ended are the revision (SessionActivity.Rev) of each session's
+	// snapshot. They are NOT dropped by forget: a window that read the row just before
+	// a process went away must still be able to tell its answer is older than the event
+	// that cleared it. One small entry per session that ever had activity.
+	seen  map[string]SessionActivity // the content last observed
+	rev   map[string]uint64          // how many times it changed
+	ended map[string]bool            // the agent's turn last ended by the vendor's own update
 }
+
+// bgTask is one tracked task: when it spawned (the age limit counts from it) and
+// whether it is a turn the agent began (taskType "turn") or other work.
+type bgTask struct {
+	spawned time.Time
+	turn    bool
+}
+
+// taskTypeTurn is the taskType of a turn the agent started by itself.
+const taskTypeTurn = "turn"
+
+// activityChange is what one apply or forget did to a session's snapshot.
+type activityChange struct{ Before, After SessionActivity }
+
+// Changed reports whether the window would see something different.
+func (c activityChange) Changed() bool { return c.Before != c.After }
 
 // backgroundWorkMaxAge is how long after its spawn a task still blocks a release.
 const backgroundWorkMaxAge = 12 * time.Hour
@@ -50,27 +73,31 @@ func taskStillRunning(state string) bool {
 
 // apply folds one async_task_* update into the set. Only a spawn adds a task, so
 // a late update of a task that was already dropped cannot bring it back.
-func (b *backgroundWork) apply(sessionID string, kind UpdateKind, task *AsyncTask) {
+//
+// It reports what the update did to the session's snapshot (see activityChange).
+func (b *backgroundWork) apply(sessionID string, kind UpdateKind, task *AsyncTask) activityChange {
 	if task == nil || task.ID == "" {
-		return
+		return activityChange{}
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.observeLocked(sessionID, false) // an expiry since the last look
+	before := b.snapshotLocked(sessionID)
 	switch kind {
 	case UpdateAsyncTaskSpawned:
 		if !taskStillRunning(task.State) {
-			return
+			break
 		}
 		if b.tasks == nil {
-			b.tasks = make(map[string]map[string]time.Time)
+			b.tasks = make(map[string]map[string]bgTask)
 		}
 		if b.tasks[sessionID] == nil {
-			b.tasks[sessionID] = make(map[string]time.Time)
+			b.tasks[sessionID] = make(map[string]bgTask)
 		}
-		b.tasks[sessionID][task.ID] = b.clock()
+		b.tasks[sessionID][task.ID] = bgTask{spawned: b.clock(), turn: task.TaskType == taskTypeTurn}
 	case UpdateAsyncTaskState:
 		if taskStillRunning(task.State) {
-			return
+			break
 		}
 		if set := b.tasks[sessionID]; set != nil {
 			delete(set, task.ID)
@@ -79,6 +106,42 @@ func (b *backgroundWork) apply(sessionID string, kind UpdateKind, task *AsyncTas
 			}
 		}
 	}
+	b.observeLocked(sessionID, true)
+	return activityChange{Before: before, After: b.snapshotLocked(sessionID)}
+}
+
+// observeLocked records a change of the session's snapshot since it was last looked at:
+// the revision goes up, and when the agent's turn went off it notes whether the vendor's
+// own update ended it (byUpdate) or the process went away or the valve expired it. A
+// change nobody looked at between (an expiry) is counted the next time anyone does.
+func (b *backgroundWork) observeLocked(sessionID string, byUpdate bool) {
+	cur := b.snapshotLocked(sessionID)
+	last := b.seen[sessionID]
+	if cur == last {
+		return
+	}
+	if b.seen == nil {
+		b.seen = make(map[string]SessionActivity)
+		b.rev = make(map[string]uint64)
+		b.ended = make(map[string]bool)
+	}
+	if last.AgentTurn && !cur.AgentTurn {
+		b.ended[sessionID] = byUpdate
+	}
+	b.seen[sessionID] = cur
+	b.rev[sessionID]++
+}
+
+// snapshotRev is snapshot with the revision and cause (Rev, Ended) a reader needs to
+// order it against another read or event of the same session. What the window gets.
+func (b *backgroundWork) snapshotRev(sessionID string) SessionActivity {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.observeLocked(sessionID, false)
+	a := b.snapshotLocked(sessionID)
+	a.Rev = b.rev[sessionID]
+	a.Ended = !a.AgentTurn && b.ended[sessionID]
+	return a
 }
 
 // running reports whether the session's process still has a task that is younger
@@ -87,17 +150,47 @@ func (b *backgroundWork) running(sessionID string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	now := b.clock()
-	for _, spawned := range b.tasks[sessionID] {
-		if now.Sub(spawned) < backgroundWorkMaxAge {
+	for _, task := range b.tasks[sessionID] {
+		if now.Sub(task.spawned) < backgroundWorkMaxAge {
 			return true
 		}
 	}
 	return false
 }
 
-// forget drops a session's tasks: its process is gone.
-func (b *backgroundWork) forget(sessionID string) {
+// snapshot is what the session's process is doing that no DevKit turn started.
+// A task past backgroundWorkMaxAge does not count, so an indicator cannot outlive
+// the valve that frees the process.
+func (b *backgroundWork) snapshot(sessionID string) SessionActivity {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	return b.snapshotLocked(sessionID)
+}
+
+func (b *backgroundWork) snapshotLocked(sessionID string) SessionActivity {
+	var a SessionActivity
+	now := b.clock()
+	for _, task := range b.tasks[sessionID] {
+		if now.Sub(task.spawned) >= backgroundWorkMaxAge {
+			continue
+		}
+		if task.turn {
+			a.AgentTurn = true
+		} else {
+			a.Tasks++
+		}
+	}
+	return a
+}
+
+// forget drops a session's tasks: its process is gone. It reports what that did
+// to the snapshot; a session whose tasks had all gone stale changed nothing.
+func (b *backgroundWork) forget(sessionID string) activityChange {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.observeLocked(sessionID, false)
+	before := b.snapshotLocked(sessionID)
 	delete(b.tasks, sessionID)
+	b.observeLocked(sessionID, false)
+	return activityChange{Before: before}
 }

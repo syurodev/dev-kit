@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import type { Subagent } from "../types";
 import { vendorInfo } from "../vendors";
 import { sessionTitle } from "../documents";
+import { isWorking } from "../sessionActivity";
 import { SessionMenuItems, useSessionActions, type MenuKit } from "./actions";
 import { shortAge } from "@/lib/time";
 import { attentionKind, cardSummary, peerUnreadLabel, secondLine, type Attention } from "./model";
@@ -177,12 +178,12 @@ function AgentSessionCardView({
     ? "waiting"
     : session.status === "error" && !dismissed
       ? "error"
-      : session.status === "running"
+      : isWorking(session)
         ? "running"
         : null;
 
   const closed = session.status === "closed";
-  const strong = selected || waiting || session.status === "running";
+  const strong = selected || waiting || isWorking(session);
   const summaryId = React.useId();
   const [menuOpen, setMenuOpen] = React.useState(false);
 

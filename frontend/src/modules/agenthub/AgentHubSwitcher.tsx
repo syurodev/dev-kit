@@ -4,6 +4,7 @@ import type { ModulePeekProps } from "../registry";
 import type { AgentSession } from "../../bridge/agenthub";
 import { useAgentSessionList, useAgentSessionsStore } from "../../stores/agentSessions";
 import { openAgentSession } from "./documents";
+import { isWorking } from "./sessionActivity";
 import { AgentDockBadge } from "./surfaces/AgentDockBadge";
 
 /**
@@ -66,7 +67,7 @@ export function AgentHubBadge() {
   );
   const waiting = pendingCount || sessions.filter((s) => s.status === "awaiting_permission").length;
   const running = useAgentSessionsStore((state) =>
-    state.sessionIds.some((id) => state.sessionsById[id].status === "running"),
+    state.sessionIds.some((id) => isWorking(state.sessionsById[id])),
   );
   if (waiting > 0) return <AgentDockBadge state="waiting" count={waiting} />;
   if (unreadCompleted > 0) return <AgentDockBadge state="success" count={unreadCompleted} />;

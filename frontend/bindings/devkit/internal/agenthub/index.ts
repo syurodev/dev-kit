@@ -48,6 +48,7 @@ export type {
     RewindPreview,
     RewindRequest,
     RewindResult,
+    SessionActivity,
     SessionStop,
     SignInFlow,
     SignInStatus,

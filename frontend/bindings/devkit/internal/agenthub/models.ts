@@ -76,6 +76,15 @@ export interface AgentSession {
     "ACPSessionID": string;
     "CreatedAt": string;
     "UpdatedAt": string;
+
+    /**
+     * Activity is what the session's live process is doing that no DevKit turn
+     * started (bgwork.go). Derived from the process, never stored: Service.ListSessions
+     * and GetStatus fill it, the store does not, and MCP results blank it. Nil for a
+     * session that never had any; once it did, it stays (with nothing running) so its
+     * Rev can order a read against an event.
+     */
+    "activity"?: SessionActivity | null;
 }
 
 /**
@@ -884,6 +893,36 @@ export interface RewindResult {
      * Files is the file half's outcome, when there was one.
      */
     "files"?: RestoreResult | null;
+}
+
+/**
+ * SessionActivity is what a session's live process is doing that no DevKit turn started.
+ */
+export interface SessionActivity {
+    /**
+     * the vendor runs a turn of its own (taskType "turn")
+     */
+    "agentTurn"?: boolean;
+
+    /**
+     * running background tasks other than that turn (taskType "shell", others)
+     */
+    "tasks"?: number;
+
+    /**
+     * Rev counts the changes of this session's activity since DevKit started, and is not
+     * reset when the process goes away: of two reads or events of one session, the higher
+     * Rev is the newer, so a read that was in flight when an event landed cannot undo it.
+     * The DTO carries the activity whenever Rev > 0, even with nothing running.
+     */
+    "rev"?: number;
+
+    /**
+     * Ended is true on a state with no agent turn when that turn ended by the vendor's own
+     * update (its work is done), false when the activity was cleared because the process
+     * went away (closed, reloaded, rewound, cancelled, crashed): the turn did not finish.
+     */
+    "ended"?: boolean;
 }
 
 /**

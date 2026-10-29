@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/context-menu";
 import { TreeRowAction, TreeView, type TreeNodeData } from "@/components/tree-view";
 import { Shimmer } from "@/components/ui/shimmer";
-import { AgentState, type AgentStatus } from "./AgentState";
+import { AgentState, agentStatusOf, type AgentStatus } from "./AgentState";
 import { heldChoice } from "./AgentComposer";
 import { VendorIcon } from "./VendorIcon";
 import type { AgentSession } from "@/bridge/agenthub";
@@ -23,6 +23,7 @@ import type { Subagent } from "../types";
 
 import { countDescendants, projectLabel, sessionGroup, type SidebarWorkspace } from "../sidebar/grouping";
 import { nextWaiting } from "../sidebar/model";
+import { isWorking } from "../sessionActivity";
 
 // Grouping lives in sidebar/grouping so the card list and this tree file a
 // session in the same place; these stay exported from here for their callers.
@@ -389,7 +390,7 @@ export function AgentSidebarTree({
           {onCancelTurn ? (
             <ContextMenuItem
               icon={<Ban />}
-              disabled={session.status !== "running"}
+              disabled={!isWorking(session)}
               onSelect={() => onCancelTurn(session)}
             >
               Cancel turn
@@ -439,7 +440,7 @@ export function AgentSidebarTree({
 
     const sessionNode = (session: AgentSession): TreeNodeData => {
       const key = `session:${session.id}`;
-      const status = toAgentStatus(session.status);
+      const status = agentStatusOf(session, toAgentStatus(session.status));
       // Waiting is the one status with a deadline behind it, so it is the one
       // the row says twice: the dot beats, and the name takes the warning
       // colour. Running shimmers instead — the same sweep the transcript uses
@@ -462,7 +463,7 @@ export function AgentSidebarTree({
         ),
         title: session.title || undefined,
         icon: (
-          <VendorIcon vendor={session.agentType} working={session.status === "running"} />
+          <VendorIcon vendor={session.agentType} working={isWorking(session)} />
         ),
         count: turnCounts[session.id],
         trailing: (

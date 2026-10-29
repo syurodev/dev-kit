@@ -18,6 +18,7 @@ import { EASE_OUT_CSS, MOTION_BASE } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import type { Subagent } from "../types";
 import { sessionTitle } from "../documents";
+import { isWorking } from "../sessionActivity";
 import { useSessionActions } from "./actions";
 import type { DismissedFailures } from "./dismissed";
 import { sessionCount, type SidebarGroup } from "./model";
@@ -118,7 +119,7 @@ function AgentSessionGroupView({
   const held = React.useMemo(() => heldBranches(forest, activeId, pinnedIds), [forest, activeId, pinnedIds]);
   const pinnedSet = React.useMemo(() => new Set(pinnedIds), [pinnedIds]);
 
-  const running = React.useMemo(() => group.sessions.filter((s) => s.status === "running").length, [group.sessions]);
+  const running = React.useMemo(() => group.sessions.filter(isWorking).length, [group.sessions]);
   const titles = React.useMemo(() => new Map(group.sessions.map((s) => [s.id, sessionTitle(s)])), [group.sessions]);
 
   // Rows that come and go — pulled out of the stack, a new session, one that

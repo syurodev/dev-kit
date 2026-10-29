@@ -312,6 +312,11 @@ type Service struct {
 	lastUsed map[string]time.Time
 	// bgwork is the vendor tasks each live process is still running (bgwork.go).
 	bgwork backgroundWork
+	// agentTurnMsgs is what an agent-started turn has said so far (activity_preview.go).
+	agentTurnMsgs agentTurnMessages
+	// activity delivers a change of a session's SessionActivity to OnActivityChanged
+	// off every lock (activity_notify.go). Stopped by Shutdown.
+	activity *activityNotifier
 	// reopenForGrant marks sessions whose process should be reopened when the
 	// current turn ends because a folder was just added to their grant (mu).
 	reopenForGrant map[string]bool
@@ -412,6 +417,12 @@ type Service struct {
 	// OnTurnFinished fires after the turn's final transcript flush, including
 	// cancellation and errors, so shell consumers can clear running state once.
 	OnTurnFinished func(sessionID string, status SessionStatus, outcome string)
+	// OnActivityChanged fires after a session's SessionActivity changed: the vendor
+	// started or ended a task or a turn of its own, or its process went away. It runs
+	// on the service's one notifier goroutine, never with s.mu held, in order per
+	// session; a burst of changes is delivered as the last state. The window learns
+	// of activity it did not start by it, as it does of a turn through OnTurnStarted.
+	OnActivityChanged func(sessionID string, a SessionActivity)
 	// OnTurnTiming receives each turn's phase timings once, under the same
 	// numbers the "agenthub: turn timing" log line carries (see TurnTiming).
 	// It fires at the first row the transcript can draw — when "Starting"
@@ -616,6 +627,11 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 		// who turned the feature off, runs the same Invoke as everyone else.
 		checkpoints: noCheckpoints{},
 	}
+	s.activity = newActivityNotifier(s.bgwork.snapshotRev, func(id string, a SessionActivity) {
+		if s.OnActivityChanged != nil {
+			s.OnActivityChanged(id, a)
+		}
+	})
 	// A cadence flush has no caller to return its error to; route it to the
 	// same hook Record errors take, read at call time because callers set
 	// OnRecordError after NewService.
@@ -702,6 +718,7 @@ func interruptedPendingRequestMessage(summary PendingRequestSummary) string {
 // its writes, so without it a quit mid-stream lost the last cadence of text
 // and left buffered tool calls "in progress" on reload.
 func (s *Service) Shutdown(ctx context.Context) error {
+	s.activity.stop()
 	return s.recorder.FlushAll(ctx)
 }
 
@@ -1160,6 +1177,9 @@ func (s *Service) ListSessions(ctx context.Context) ([]AgentSession, error) {
 	if err != nil {
 		return nil, err
 	}
+	for i := range list {
+		s.attachActivity(&list[i])
+	}
 	caller, _ := identity.FromContext(ctx)
 	if !caller.IsAgent() {
 		return list, nil
@@ -1390,12 +1410,25 @@ func (s *Service) ListVendorTypes() []AgentType {
 	return s.reg.Types()
 }
 
-// GetStatus returns the persisted session record by id.
+// GetStatus returns the persisted session record by id, with its live Activity.
 func (s *Service) GetStatus(ctx context.Context, id string) (AgentSession, error) {
 	if err := s.authorizeTarget(ctx, id); err != nil {
 		return AgentSession{}, err
 	}
-	return s.store.GetSession(ctx, id)
+	sess, err := s.store.GetSession(ctx, id)
+	if err != nil {
+		return sess, err
+	}
+	s.attachActivity(&sess)
+	return sess, nil
+}
+
+// attachActivity fills what the session's live process is doing that no DevKit turn
+// started (bgwork.go). The window's reads carry it; the store never holds it.
+func (s *Service) attachActivity(sess *AgentSession) {
+	if a := s.bgwork.snapshotRev(sess.ID); !a.Zero() || a.Rev > 0 {
+		sess.Activity = &a
+	}
 }
 
 // ToolRawPreviewLimit is how much of a tool call's raw fields a transcript
@@ -1620,7 +1653,7 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	s.mu.Lock()
 	rt := s.runtimes[id]
 	delete(s.runtimes, id)
-	s.bgwork.forget(id)
+	s.forgetBackgroundWork(id)
 	delete(s.lastUsed, id)
 	delete(s.runtimeUsage, id)
 	s.forgetWorkspaceContextLocked(id)
@@ -2412,9 +2445,14 @@ func (s *Service) handleUpdate(ctx context.Context, sessionID string, update jso
 	logAgentUpdate(sessionID, update)
 	s.emit(sessionID, update)
 	parsed := ParseSessionUpdate(update)
+	var change activityChange
 	if parsed.AsyncTask != nil {
-		s.bgwork.apply(sessionID, parsed.Kind, parsed.AsyncTask)
+		change = s.bgwork.apply(sessionID, parsed.Kind, parsed.AsyncTask)
 	}
+	// Before the change is notified: the window reads the row when it hears the
+	// agent's turn ended, and the preview must already be the turn's message.
+	s.trackAgentTurnMessage(ctx, sessionID, parsed, change)
+	s.noteActivityChange(sessionID, change)
 	if parsed.Kind == UpdateSessionInfo && parsed.Title != "" {
 		if err := s.adoptSessionTitle(ctx, sessionID, parsed.Title); err != nil && s.OnRecordError != nil {
 			s.OnRecordError(sessionID, err)
@@ -2649,7 +2687,7 @@ func (s *Service) liveRuntime(ctx context.Context, id string) SessionRuntime {
 		return rt
 	}
 	delete(s.runtimes, id)
-	s.bgwork.forget(id)
+	s.forgetBackgroundWork(id)
 	delete(s.lastUsed, id)
 	delete(s.runtimeUsage, id)
 	s.forgetWorkspaceContextLocked(id)
@@ -2915,7 +2953,15 @@ func (s *Service) Cancel(ctx context.Context, id string) error {
 		// press kills the process and the runtime is evicted with it.
 		return nil
 	}
-	return rt.Cancel(ctx)
+	err := rt.Cancel(ctx)
+	// The shutdown ladder can end the whole process, and a killed process sends no
+	// `completed` for the turn or the tasks it was running: they would stay on the
+	// session's activity (the window spins, Stop stays on, idle release is blocked)
+	// until a second press found the corpse. Evict a dead runtime now, the way
+	// liveRuntime does, which also forgets its background work. One that survived the
+	// cancel keeps its activity: the vendor's own updates end it.
+	s.liveRuntime(ctx, id)
+	return err
 }
 
 // runtimeForTurn is runtimeFor plus whether the process had to be opened. It is

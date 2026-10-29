@@ -152,10 +152,12 @@ func (s *Server) registerAgentHub(ms *sdk.Server) {
 // retry is worth it, when), with the vendor's sentence marked as third-party.
 // AccountID is blanked: it is a slug of the person's own account label, and which
 // vendor account a session runs as is for the window alone (agents read nothing about
-// vendor accounts).
+// vendor accounts). Activity is blanked too: what a process runs on its own is what
+// the window draws, and the agent-facing surface does not change with it.
 func forAgent(s agenthub.AgentSession) agenthub.AgentSession {
 	s.Preview = ""
 	s.AccountID = ""
+	s.Activity = nil
 	return s
 }
 

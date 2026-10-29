@@ -760,6 +760,19 @@ func main() {
 	agentSvc.OnTurnStarted = func(sessionID string) {
 		emitAppEvent("agenthub:turnStarted", map[string]any{"sessionId": sessionID, "status": "running"})
 	}
+	agentSvc.OnActivityChanged = func(sessionID string, a agenthub.SessionActivity) {
+		// Work the agent runs on its own (a background task, a turn it started):
+		// the window reads the row for everything else.
+		emitAppEvent("agenthub:activity", map[string]any{
+			"sessionId": sessionID,
+			"agentTurn": a.AgentTurn,
+			"tasks":     a.Tasks,
+			// Orders this against a read of the row; ended says the agent's turn finished
+			// rather than its process going away.
+			"rev":   a.Rev,
+			"ended": a.Ended,
+		})
+	}
 	agentSvc.OnTurnFinished = func(sessionID string, status agenthub.SessionStatus, outcome string) {
 		emitAppEvent("agenthub:turnFinished", map[string]any{
 			"sessionId": sessionID,

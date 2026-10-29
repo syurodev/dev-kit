@@ -293,6 +293,12 @@ describe("what needs the person", () => {
 
   it("shows one glyph for running, waiting or failed, and none for idle or closed", () => {
     expect(cardIndicator(session("a", { status: "running" }))).toBe("running");
+    // A turn the agent started itself looks like any turn; background tasks alone do not.
+    expect(cardIndicator(session("a", { activity: { agentTurn: true, tasks: 0 } }))).toBe("running");
+    expect(cardIndicator(session("a", { activity: { agentTurn: false, tasks: 2 } }))).toBeNull();
+    // Waiting on the person still outranks it, and a failure is still a failure.
+    expect(cardIndicator(session("a", { activity: { agentTurn: true, tasks: 0 } }), { permissions: 1, questions: 0 })).toBe("permission");
+    expect(cardIndicator(session("a", { status: "error", activity: { agentTurn: true, tasks: 0 } }))).toBe("error");
     expect(cardIndicator(session("a", { status: "error" }))).toBe("error");
     expect(cardIndicator(session("a", { status: "idle" }))).toBeNull();
     expect(cardIndicator(session("a", { status: "closed" }))).toBeNull();
@@ -371,6 +377,15 @@ describe("the card's sentence", () => {
     ]);
   });
 
+  it("says the agent is running through a turn it started, and counts background tasks apart", () => {
+    const base = { vendorName: "Claude", subagents: [], pinned: false, age: "" };
+    expect(cardSummary({ ...base, session: session("a", { activity: { agentTurn: true, tasks: 0 } }) })).toEqual(["Claude", "Running"]);
+    expect(cardSummary({ ...base, session: session("a", { activity: { agentTurn: false, tasks: 2 } }) })).toEqual([
+      "Claude",
+      "2 background tasks",
+    ]);
+  });
+
   it("is quiet for an idle session with nothing attached", () => {
     expect(
       cardSummary({ vendorName: "Codex", session: session("a"), subagents: [], pinned: false, age: "" }),
@@ -422,6 +437,20 @@ describe("secondLine", () => {
 
   it("nothing to say", () => {
     expect(secondLine({ session: session("a"), ask: null })).toEqual({ text: "", tone: "plain" });
+  });
+
+  it("background tasks alone are a quiet line, plural-aware, in place of the old preview", () => {
+    const tasks = (n: number) => session("a", { preview: "Build chạy nền.", activity: { agentTurn: false, tasks: n } });
+    expect(secondLine({ session: tasks(1), ask: null })).toEqual({ text: "1 background task", tone: "plain" });
+    expect(secondLine({ session: tasks(3), ask: null })).toEqual({ text: "3 background tasks", tone: "plain" });
+  });
+
+  it("keeps the preview when the agent is working, asking or has failed, whatever tasks run", () => {
+    const over = (o: Partial<AgentSession>) => session("a", { preview: "Words.", activity: { agentTurn: false, tasks: 2 }, ...o });
+    expect(secondLine({ session: over({ activity: { agentTurn: true, tasks: 2 } }), ask: null }).text).toBe("Words.");
+    expect(secondLine({ session: over({ status: "running" }), ask: null }).text).toBe("Words.");
+    expect(secondLine({ session: over({ status: "error" }), ask: null })).toEqual({ text: "Words.", tone: "danger" });
+    expect(secondLine({ session: over({}), ask: "Allow it?" }).text).toBe("Allow it?");
   });
 });
 

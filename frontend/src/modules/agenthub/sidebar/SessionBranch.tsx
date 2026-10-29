@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { TREE_ELBOW_RADIUS, TREE_GUIDE } from "@/components/tree-guides";
 import type { Subagent } from "../types";
+import { isWorking } from "../sessionActivity";
 import { AgentSessionCard } from "./AgentSessionCard";
 import { BranchMore } from "./BranchMore";
 import { failureDismissed, type DismissedFailures } from "./dismissed";
@@ -91,7 +92,7 @@ function BranchChildren({
   const drawn = folds && !all ? shown : node.children;
   const foldedAway = hidden.flatMap(flattenNode);
   // A folded idle child can hold a running one: the parent's dot speaks for it only while the branch is folded.
-  const running = foldedAway.filter((n) => n.session.status === "running").length;
+  const running = foldedAway.filter((n) => isWorking(n.session)).length;
   const unread = foldedAway.filter((n) => (ctx.peerUnread[n.session.id] ?? 0) > 0).length;
 
   return (

@@ -134,11 +134,14 @@
   not the `paste` event, so a browser check of it has to dispatch that (`?gallery#agenthub-composer-layout`,
   scenario "attachments").
 
-- **A tool call its turn left pending or in progress is not drawn as live** (`transcript/toolSettle.tsx`). `TranscriptStream`
-  gives each turn an `EarlierTurnProvider` (`earlier` is every turn but the newest, so a later user message exists); in an
-  earlier turn a `pending`, `in_progress` or `awaiting_permission` call draws as "didn't finish" (hollow dot, no spinner;
-  the activity card says "Didn't finish" instead of its present-participle verb; no command clock), whatever the session
-  is doing now. The newest turn is left as its status says: a vendor-started turn or a background subagent produces updates
-  with no turn event while the stored status stays idle, so the status cannot settle it. A cancelled newest turn whose call
-  stays `in_progress` therefore keeps spinning until the roadmap's U1 (session Activity) can settle it. Stored rows are not
-  rewritten. A failed row with no error line of its own shows the first line of what it said (`failureLine`).
+- **A tool call that can no longer finish is not drawn as live** (`transcript/toolSettle.tsx`). `TranscriptStream`
+  gives each turn an `EarlierTurnProvider` (`earlier` is every turn but the newest, so a later user message exists;
+  `quiet` is for the newest only). A `pending`, `in_progress` or `awaiting_permission` call draws as "didn't finish"
+  (hollow dot, no spinner; the activity card says "Didn't finish" instead of its present-participle verb; no command clock)
+  when **(1)** its turn is an earlier one, whatever the session is doing now, or **(2)** it is in the newest turn and the
+  session is quiet (`isSessionQuiet`): `isWorking` is false (neither our turn nor an agent-started one, session activity),
+  no turn of ours is in flight (`turnInFlightBySession`), the stored status is not `awaiting_permission`, and the caller does not say
+  a turn streams. That is the cancelled-newest-turn case. A call with a subagent `origin` (including the row a result card falls back to) is settled only by (1): a background
+  subagent can run with the session quiet and the session has no signal for it. A session the window has not loaded is never
+  quiet. `settleToolState(state, {earlierTurn, sessionQuiet, subagent})`; the follow panel derives `quiet` the same way. Stored
+  rows are not rewritten. A failed row with no error line of its own shows the first line of what it said (`failureLine`).

@@ -76,6 +76,32 @@ export type AgentSession = {
    * the "<vendor>-default" id. The bound JSON calls this field AccountID.
    */
   accountId?: string;
+  /**
+   * What the session's live process is doing that no DevKit turn started: a turn
+   * the vendor began itself, and background tasks. Absent when it does neither.
+   * Read from the row and kept current by `agenthub:activity`; never sent back.
+   */
+  activity?: SessionActivity;
+};
+
+/** The vendor's own work on a session (internal/agenthub/bgwork.go). */
+export type SessionActivity = {
+  /** The vendor runs a turn of its own (taskType "turn"). */
+  agentTurn: boolean;
+  /** Running background tasks other than that turn. */
+  tasks: number;
+  /**
+   * Orders two reads or events of one session: the higher is newer (Go counts every change and
+   * keeps counting across a process going away). A read that was in flight when an event landed
+   * has the lower one. Absent: 0.
+   */
+  rev?: number;
+  /**
+   * With no agent turn: true when it ended by the vendor's own update, false when the process
+   * went away (closed, reloaded, cancelled, crashed) so the turn did not finish. Absent: unknown,
+   * read as ended.
+   */
+  ended?: boolean;
 };
 
 export type InvokeResult = {
@@ -223,6 +249,7 @@ const ELICITATION_CLOSED_EVENT = "agenthub:elicitationClosed";
 const TURN_FINISHED_EVENT = "agenthub:turnFinished";
 const TURN_STARTED_EVENT = "agenthub:turnStarted";
 const SESSION_CREATED_EVENT = "agenthub:sessionCreated";
+const ACTIVITY_EVENT = "agenthub:activity";
 const NOTIFICATION_ACTION_EVENT = "agenthub:notificationAction";
 const CHECKPOINT_EVENT = "agenthub:checkpoint";
 const FILES_RESTORED_EVENT = "agenthub:filesRestored";
@@ -259,6 +286,35 @@ export function toSession(raw: RawSession): AgentSession {
     preview: raw.Preview ?? "",
     updatedAt: toEpoch(raw.UpdatedAt),
     accountId: raw.AccountID ?? "",
+    ...activityField(raw.activity),
+  };
+}
+
+/** The activity of a row as a spread: nothing when the process does nothing of its own. */
+function activityField(
+  raw: { agentTurn?: boolean; tasks?: number; rev?: number; ended?: boolean } | null | undefined,
+): { activity?: SessionActivity } {
+  const agentTurn = raw?.agentTurn === true;
+  const tasks = typeof raw?.tasks === "number" && raw.tasks > 0 ? Math.floor(raw.tasks) : 0;
+  const rev = typeof raw?.rev === "number" && raw.rev > 0 ? Math.floor(raw.rev) : 0;
+  // A row that once had activity keeps its revision with nothing running: it orders the read.
+  if (!agentTurn && tasks === 0 && rev === 0) return {};
+  return { activity: { agentTurn, tasks, ...(rev > 0 ? { rev } : {}), ...(raw?.ended === true ? { ended: true } : {}) } };
+}
+
+/**
+ * `agenthub:activity`'s payload, as a session activity: the whole state, zero when nothing runs.
+ * `ended` is explicit: only an event that says the turn did not finish (false) is read as such.
+ */
+export function toActivity(
+  raw: { agentTurn?: unknown; tasks?: unknown; rev?: unknown; ended?: unknown } | null | undefined,
+): SessionActivity {
+  const rev = typeof raw?.rev === "number" && raw.rev > 0 ? Math.floor(raw.rev) : 0;
+  return {
+    agentTurn: raw?.agentTurn === true,
+    tasks: typeof raw?.tasks === "number" && raw.tasks > 0 ? Math.floor(raw.tasks) : 0,
+    ...(rev > 0 ? { rev } : {}),
+    ...(typeof raw?.ended === "boolean" ? { ended: raw.ended } : {}),
   };
 }
 
@@ -879,6 +935,23 @@ export function onAgentHubTurnStarted(handler: (sessionId: string) => void): () 
   return Events.On(TURN_STARTED_EVENT, (ev) => {
     const parsed = parseSessionEvent(ev?.data);
     if (parsed) handler(parsed.sessionId);
+  });
+}
+
+/**
+ * A session's own work changed: the vendor started or ended a turn or a task
+ * without DevKit's help, or its process went away. The payload is the whole
+ * current state, not a delta.
+ */
+export function onAgentHubActivity(
+  handler: (event: { sessionId: string; activity: SessionActivity }) => void,
+): () => void {
+  return Events.On(ACTIVITY_EVENT, (ev) => {
+    const data = Array.isArray(ev?.data) ? ev.data[0] : ev?.data;
+    if (!data || typeof data !== "object") return;
+    const value = data as Record<string, unknown>;
+    if (typeof value.sessionId !== "string" || value.sessionId.length === 0) return;
+    handler({ sessionId: value.sessionId, activity: toActivity(value) });
   });
 }
 

@@ -5,6 +5,7 @@ import { renderToString } from "react-dom/server";
 import {
   adoptCreatedSession,
   AgentSessionsSubscriber,
+  handleAgentActivity,
   handleAgentTurnFinished,
   handleAgentTurnStarted,
   handleSessionUpdateTabs,
@@ -418,5 +419,153 @@ describe("a turn another caller started", () => {
     expect(row().status).toBe("awaiting_permission");
     handleAgentTurnStarted("nobody");
     expect(useAgentSessionsStore.getState().sessionsById.nobody).toBeUndefined();
+  });
+});
+
+describe("a session's own work (agenthub:activity)", () => {
+  const row = () => useAgentSessionsStore.getState().sessionsById.s1;
+  const ON = { agentTurn: true, tasks: 0 };
+  const OFF = { agentTurn: false, tasks: 0 };
+
+  beforeEach(() => {
+    useWorkbenchTabsStore.setState({
+      activeModuleId: "notes",
+      modules: {
+        agenthub: {
+          openTabs: [
+            { id: "agenthub:agenthub.sessions:sessionId=s1", moduleId: "agenthub", viewId: "agenthub.sessions", title: "s1", params: { sessionId: "s1" }, status: "idle" },
+            { id: "agenthub:agenthub.sessions", moduleId: "agenthub", viewId: "agenthub.sessions", title: "New session", status: "idle" },
+          ],
+          activeTabId: "agenthub:agenthub.sessions:sessionId=s1",
+          tabMru: ["agenthub:agenthub.sessions:sessionId=s1"],
+        },
+      },
+    });
+    useAgentSessionsStore.setState({
+      sessionsById: {
+        s1: { id: "s1", agentType: "claude", projectPath: "/p", status: "idle", parentSessionId: null, depth: 0, title: "s1", acpSessionId: "", preview: "Build chạy nền." },
+      },
+      sessionIds: ["s1"],
+      activeSessionId: "s1",
+      unreadCompletedBySession: {},
+      turnInFlightBySession: {},
+    });
+  });
+
+  const fresh = (preview: string): TurnBridge => ({
+    invoke: () => new Promise(() => {}),
+    getStatus: async (id) => ({ ...useAgentSessionsStore.getState().sessionsById[id], preview, updatedAt: 5000 }),
+  });
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("keeps the activity on the row and the stored status where it was", () => {
+    handleAgentActivity({ sessionId: "s1", activity: ON }, fresh("x"));
+    expect(row().activity).toEqual(ON);
+    expect(row().status).toBe("idle");
+  });
+
+  it("shows the tab running while the agent's turn runs", () => {
+    handleAgentActivity({ sessionId: "s1", activity: ON }, fresh("x"));
+    expect(tabStatus()).toBe("running");
+    expect(homeStatus()).toBe("idle");
+  });
+
+  it("reads the row again when the agent's turn ends: the preview moved with it", async () => {
+    handleAgentActivity({ sessionId: "s1", activity: ON }, fresh("x"));
+    handleAgentActivity({ sessionId: "s1", activity: OFF }, fresh("Build xanh rồi."));
+    await settle();
+    expect(row().preview).toBe("Build xanh rồi.");
+    expect(row().activity).toBeUndefined();
+    expect(row().status).toBe("idle");
+  });
+
+  it("marks the tab finished and the result unread when the agent's turn ends out of sight", () => {
+    handleAgentActivity({ sessionId: "s1", activity: ON }, fresh("x"));
+    handleAgentActivity({ sessionId: "s1", activity: OFF }, fresh("y"));
+    expect(tabStatus()).toBe("success");
+    expect(useAgentSessionsStore.getState().unreadCompletedBySession.s1).toBe(true);
+  });
+
+  it("does not read the row again for activity that is not an agent turn ending", async () => {
+    let reads = 0;
+    const bridge: TurnBridge = { invoke: () => new Promise(() => {}), getStatus: async (id) => { reads += 1; return row() ?? ({ id } as never); } };
+    handleAgentActivity({ sessionId: "s1", activity: { agentTurn: false, tasks: 1 } }, bridge);
+    handleAgentActivity({ sessionId: "s1", activity: OFF }, bridge);
+    await settle();
+    expect(reads).toBe(0);
+    expect(tabStatus()).toBe("idle");
+  });
+
+  it("leaves the tab to a turn of ours that is running when the agent's turn ends", () => {
+    handleAgentActivity({ sessionId: "s1", activity: ON }, fresh("x"));
+    useAgentSessionsStore.setState({ turnInFlightBySession: { s1: true } });
+    useAgentSessionsStore.getState().upsertSession({ ...row(), status: "running" });
+    setAgentHubTabsStatus("s1", "running");
+    handleAgentActivity({ sessionId: "s1", activity: OFF }, fresh("y"));
+    expect(tabStatus()).toBe("running");
+  });
+
+  it("ignores a session it has not loaded", async () => {
+    handleAgentActivity({ sessionId: "nobody", activity: ON }, fresh("x"));
+    await settle();
+    expect(useAgentSessionsStore.getState().sessionsById.nobody).toBeUndefined();
+  });
+
+  it("does not let an update of background work paint an idle session's tab running", () => {
+    // A shell task's progress or a late message arrives while nothing is working.
+    handleSessionUpdateTabs({ sessionId: "s1" });
+    expect(tabStatus()).toBe("idle");
+    handleAgentActivity({ sessionId: "s1", activity: ON }, fresh("x"));
+    handleSessionUpdateTabs({ sessionId: "s1" });
+    expect(tabStatus()).toBe("running");
+  });
+
+  it("still marks a session it does not know running: its turn may be the first thing it hears of", () => {
+    handleSessionUpdateTabs({ sessionId: "nobody" });
+    expect(tabStatus()).toBe("idle"); // no tab of its own either; nothing to paint, nothing thrown
+  });
+
+  it("a stale read landing between the events does not cost the end its finish", async () => {
+    // The read was made before the turn began (revision 1) and answers after the start event (2).
+    handleAgentActivity({ sessionId: "s1", activity: { ...ON, rev: 2 } }, fresh("x"));
+    useAgentSessionsStore.getState().upsertSession({ ...row(), activity: { agentTurn: false, tasks: 0, rev: 1 } });
+    expect(row().activity?.agentTurn).toBe(true);
+    handleAgentActivity({ sessionId: "s1", activity: { agentTurn: false, tasks: 0, rev: 3, ended: true } }, fresh("Build xanh rồi."));
+    await settle();
+    expect(row().preview).toBe("Build xanh rồi.");
+    expect(tabStatus()).toBe("success");
+    expect(useAgentSessionsStore.getState().unreadCompletedBySession.s1).toBe(true);
+  });
+
+  it("an event older than the row is ignored whole: no tab, no read, no mark", async () => {
+    let reads = 0;
+    const bridge: TurnBridge = { invoke: () => new Promise(() => {}), getStatus: async () => { reads += 1; return row(); } };
+    handleAgentActivity({ sessionId: "s1", activity: { ...ON, rev: 5 } }, bridge);
+    handleAgentActivity({ sessionId: "s1", activity: { agentTurn: false, tasks: 0, rev: 4, ended: true } }, bridge);
+    await settle();
+    expect(row().activity?.agentTurn).toBe(true);
+    expect(reads).toBe(0);
+    expect(tabStatus()).toBe("running");
+  });
+
+  it("a process that went away under the turn is not a finished turn", async () => {
+    let reads = 0;
+    const bridge: TurnBridge = { invoke: () => new Promise(() => {}), getStatus: async () => { reads += 1; return row(); } };
+    handleAgentActivity({ sessionId: "s1", activity: { ...ON, rev: 1 } }, bridge);
+    expect(tabStatus()).toBe("running");
+    handleAgentActivity({ sessionId: "s1", activity: { agentTurn: false, tasks: 0, rev: 2, ended: false } }, bridge);
+    await settle();
+    expect(tabStatus()).toBe("idle");
+    expect(useAgentSessionsStore.getState().unreadCompletedBySession.s1).toBeUndefined();
+    expect(reads).toBe(0);
+    expect(row().activity?.agentTurn).toBe(false);
+  });
+
+  it("a closed session gets no finished mark either", async () => {
+    handleAgentActivity({ sessionId: "s1", activity: { ...ON, rev: 1 } }, fresh("x"));
+    useAgentSessionsStore.getState().upsertSession({ ...row(), status: "closed" });
+    handleAgentActivity({ sessionId: "s1", activity: { agentTurn: false, tasks: 0, rev: 2, ended: true } }, fresh("y"));
+    expect(tabStatus()).toBe("idle");
+    expect(useAgentSessionsStore.getState().unreadCompletedBySession.s1).toBeUndefined();
   });
 });

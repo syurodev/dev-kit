@@ -193,6 +193,19 @@ describe("branchSignals and branchHint", () => {
     expect(signals.loner).toBeUndefined();
   });
 
+  it("a child in a turn of its own making counts as running; background tasks alone do not", () => {
+    const signals = branchSignals(
+      [
+        session("p"),
+        kid("agent", "p", { activity: { agentTurn: true, tasks: 0 } }),
+        kid("tasks", "p", { activity: { agentTurn: false, tasks: 4 } }),
+      ],
+      {},
+      {},
+    );
+    expect(signals.p.running).toBe(1);
+  });
+
   it("a dismissed failure no longer marks the parent; a new one does", () => {
     const failed = (updatedAt: number) => [session("p"), kid("err", "p", { status: "error", updatedAt })];
     expect(branchSignals(failed(10), {}, {}).p.failed).toBe(1);
@@ -248,6 +261,12 @@ describe("visibleChildren", () => {
     expect(MIN_VISIBLE_CHILDREN).toBe(3);
     expect(ids(shown)).toEqual(["k0", "k1", "k2"]);
     expect(ids(hidden)).toEqual(["k3", "k4", "k5", "k6", "k7", "k8", "k9", "k10"]);
+  });
+
+  it("counts a child in an agent-started turn as running: it stays drawn", () => {
+    const { hidden } = visibleChildren(kids(11, (i) => (i >= 5 && i < 10 ? { activity: { agentTurn: true, tasks: 0 } } : {})));
+    expect(hidden.length).toBe(11 - 5);
+    expect(hidden.map((n) => n.session.id)).not.toContain("k5");
   });
 
   it("shows every running child when more than three run", () => {

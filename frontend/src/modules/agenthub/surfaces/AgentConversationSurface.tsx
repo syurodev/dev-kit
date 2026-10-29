@@ -15,6 +15,7 @@ import { useAgentSessionsStore } from "../../../stores/agentSessions";
 import { resumeQueuedPrompts } from "../../../workbench/agentPromptQueue";
 import { copyText } from "../../../bridge/clipboard";
 import { errorMessage } from "../../../bridge/errors";
+import { isWorking } from "../sessionActivity";
 import type { AgentHubController } from "../session/useAgentHubController";
 
 /**
@@ -182,7 +183,7 @@ export function AgentConversationSurface({ hub }: { hub: AgentHubController }) {
               void actions.handleSend({ sessionId: activeSession.id, text: "/compact", attachments: [], images: [], refs: [] });
             }
           }}
-          streaming={status.busy || activeSession?.status === "running"}
+          streaming={status.busy || isWorking(activeSession)}
           errorMessage={status.errorReason || status.error || status.sandboxHint}
           errorCause={status.errorCause}
           onDismissError={reads.canDismissError && activeSession ? actions.dismissError : undefined}

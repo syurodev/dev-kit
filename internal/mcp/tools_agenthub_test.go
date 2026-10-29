@@ -458,6 +458,40 @@ func TestAgentHubToolsDoNotLeakPreview(t *testing.T) {
 	}
 }
 
+// Activity is what the window shows about work a session's process runs on its own;
+// it is derived from the live process and no MCP tool that returns a session carries it.
+func TestAgentHubToolsDoNotCarryTheSessionsActivity(t *testing.T) {
+	id := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	busy := agenthub.AgentSession{ID: id, AgentType: agenthub.AgentTypeMock, Status: agenthub.SessionStatusIdle,
+		Activity: &agenthub.SessionActivity{AgentTurn: true, Tasks: 3}}
+	hub := &fakeAgentHub{list: []agenthub.AgentSession{busy}, created: busy, status: busy}
+	srv := NewServer(agentHubTestDeps(&fakeCaller{}, hub))
+	ctx := context.Background()
+	req := &sdk.CallToolRequest{}
+
+	_, listed, err := srv.toolAgentHubListAgents(ctx, req, struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, created, err := srv.toolAgentHubCreateAgentSession(ctx, req, agentHubCreateInput{AgentType: "mock", Cwd: "/tmp/proj"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, status, err := srv.toolAgentHubGetSessionStatus(ctx, req, agentHubSessionIDInput{SessionID: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, v := range map[string]any{"listAgents": listed, "createAgentSession": created, "getSessionStatus": status} {
+		raw, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(raw), "activity") || strings.Contains(string(raw), "agentTurn") {
+			t.Fatalf("%s carried the activity: %s", name, raw)
+		}
+	}
+}
+
 // Agents read nothing about vendor accounts: the account id is a slug of the person's
 // own label, and which account a session runs as is the window's business.
 func TestAgentHubToolsDoNotLeakTheSessionsAccount(t *testing.T) {

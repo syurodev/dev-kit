@@ -1,6 +1,7 @@
 import type { AgentSession } from "@/bridge/agenthub";
 import type { PendingElicitation, PendingPermission } from "@/bridge/agenthub";
 import { providerRetryLine } from "../providerRetry";
+import { backgroundTasksLabel, backgroundTasksOnly, isWorking } from "../sessionActivity";
 import type { ProviderRetry, Subagent } from "../types";
 import { failureDismissed, type DismissedFailures } from "./dismissed";
 import { projectLabel, sessionGroup, type SidebarWorkspace } from "./grouping";
@@ -61,7 +62,7 @@ export type CardIndicator = "permission" | "question" | "error" | "running" | nu
  * card is decoration, and the glyphs that remain have to stand out.
  */
 export function cardIndicator(
-  session: Pick<AgentSession, "id" | "status" | "updatedAt">,
+  session: Pick<AgentSession, "id" | "status" | "updatedAt" | "activity">,
   attention?: Attention,
   dismissed?: DismissedFailures,
 ): CardIndicator {
@@ -71,7 +72,7 @@ export function cardIndicator(
   // nothing from them, and a red dot on a row that asks for nothing is the
   // alarm they just turned off. The tooltip still says it stopped.
   if (session.status === "error") return failureDismissed(session, dismissed) ? null : "error";
-  if (session.status === "running") return "running";
+  if (isWorking(session)) return "running";
   return null;
 }
 
@@ -269,7 +270,7 @@ export type SecondLine = { text: string; tone: "plain" | "warning" | "danger" };
 
 /** What a row says under its title: a pending ask, else the preview (danger on error). */
 export function secondLine(input: {
-  session: Pick<AgentSession, "status" | "preview">;
+  session: Pick<AgentSession, "status" | "preview" | "activity">;
   ask: string | null;
   /** The failure was dismissed: its words stay, its alarm colour goes. */
   dismissed?: boolean;
@@ -278,6 +279,10 @@ export function secondLine(input: {
   if (ask) return { text: ask, tone: "warning" };
   const text = session.preview ?? "";
   if (session.status === "error" && !input.dismissed) return { text, tone: "danger" };
+  // Background tasks and nothing else: said quietly, in place of words that are about
+  // an earlier turn. Nothing is running that anyone asked for, so nothing shouts.
+  const tasks = backgroundTasksOnly(session);
+  if (tasks > 0 && session.status !== "error") return { text: backgroundTasksLabel(tasks), tone: "plain" };
   return { text, tone: "plain" };
 }
 
@@ -459,6 +464,7 @@ export function cardSummary(input: {
   if (state) parts.push(state);
   else if (quiet) parts.push("Stopped with an error, dismissed");
   else if (session.status === "closed") parts.push("Closed");
+  else if (backgroundTasksOnly(session) > 0) parts.push(backgroundTasksLabel(backgroundTasksOnly(session)));
   // A question waits behind a permission in the indicator; say both.
   if (attention && attention.permissions > 0 && attention.questions > 0) parts.push(indicatorLabel("question", attention));
   if (input.subagents.length) parts.push(subagentsLabel(input.subagents));

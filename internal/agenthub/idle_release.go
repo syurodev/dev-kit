@@ -238,7 +238,7 @@ func (s *Service) releaseRuntimeSince(ctx context.Context, sess AgentSession, no
 	delete(s.runtimes, id)
 	// Nothing that was running can outlive this process; a task record only an old
 	// one is left with (bgwork.go) goes with it.
-	s.bgwork.forget(id)
+	s.forgetBackgroundWork(id)
 	delete(s.runtimeUsage, id)
 	delete(s.lastUsed, id)
 	delete(s.endpoints, id)

@@ -328,3 +328,43 @@ func (s *Service) BackgroundWorkRecordedForTest(sessionID string) int {
 	defer s.bgwork.mu.Unlock()
 	return len(s.bgwork.tasks[sessionID])
 }
+
+// WaitActivityIdleForTest blocks until every pending activity notification was delivered.
+func (s *Service) WaitActivityIdleForTest() { s.activity.waitIdle() }
+
+// WithLockForTest runs fn holding the service lock, as the paths that call forget do.
+func (s *Service) WithLockForTest(fn func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	fn()
+}
+
+// ForgetBackgroundWorkForTest drops a session's tracked tasks the way a released process does.
+func (s *Service) ForgetBackgroundWorkForTest(sessionID string) { s.forgetBackgroundWork(sessionID) }
+
+// ClaimInvokeForTest holds the session's turn claim the way Invoke does until the returned release is called.
+func (s *Service) ClaimInvokeForTest(sessionID string) (release func()) {
+	s.mu.Lock()
+	s.invoking[sessionID] = struct{}{}
+	s.mu.Unlock()
+	return func() {
+		s.mu.Lock()
+		delete(s.invoking, sessionID)
+		s.mu.Unlock()
+	}
+}
+
+// AgentTurnMessageHeldForTest reports whether an agent-started turn's message is being buffered.
+func (s *Service) AgentTurnMessageHeldForTest(sessionID string) bool {
+	return s.agentTurnMsgs.get(sessionID) != nil
+}
+
+// ActivityNotifierDoneForTest is closed once the activity notifier's goroutine has ended.
+func (s *Service) ActivityNotifierDoneForTest() <-chan struct{} { return s.activity.done }
+
+// ActivityNotifierStartedForTest reports whether the notifier's goroutine was ever started.
+func (s *Service) ActivityNotifierStartedForTest() bool {
+	s.activity.mu.Lock()
+	defer s.activity.mu.Unlock()
+	return s.activity.started
+}
