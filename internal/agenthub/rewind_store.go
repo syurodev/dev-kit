@@ -37,10 +37,16 @@ type RewindSpec struct {
 	SafetyCheckpointID string
 	At                 time.Time
 	// The fork's applied reference commits with the conversation cut, never in
-	// a later best-effort write. Nil removes the reference for an unconfigured
-	// launch; a failed write leaves the entire old conversation/reference intact.
+	// a later best-effort write. A failed write leaves the entire old
+	// conversation/reference intact.
 	HarnessRef      *harness.SnapshotRef
 	HarnessEnforced bool
+	// HarnessClear removes the stored reference when HarnessRef is nil. It is set
+	// only by an attached harness whose fork had no snapshot (a session with no
+	// workspace). The zero value leaves an existing reference untouched, so a
+	// build without the harness never erases what an activated build recorded
+	// (R4 owner decision O-2b).
+	HarnessClear bool
 }
 
 // RewindStore is the transactional half of a rewind.
@@ -134,8 +140,10 @@ func (st *SQLStore) RewindSession(ctx context.Context, spec RewindSpec) error {
 		if err := setHarnessApplied(ctx, tx, spec.SessionID, *spec.HarnessRef, spec.HarnessEnforced, spec.At); err != nil {
 			return err
 		}
-	} else if _, err := tx.ExecContext(ctx, `DELETE FROM agent_session_harness_applied WHERE session_id=?`, spec.SessionID); err != nil {
-		return err
+	} else if spec.HarnessClear {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM agent_session_harness_applied WHERE session_id=?`, spec.SessionID); err != nil {
+			return err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		// The driver's text stays out of the chain's public face; the sentinel is

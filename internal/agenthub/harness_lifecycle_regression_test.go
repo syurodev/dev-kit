@@ -159,7 +159,7 @@ func TestRewindCommitsAppliedReferenceWithConversation(t *testing.T) {
 }
 
 func TestRewindReferenceWriteFailureRollsBackConversation(t *testing.T) {
-	for _, operation := range []string{"UPDATE", "INSERT", "DELETE"} {
+	for _, operation := range []string{"UPDATE", "INSERT"} {
 		t.Run(operation, func(t *testing.T) {
 			e, session, promptID, _ := newHarnessRewindEnv(t)
 			ctx := context.Background()
@@ -174,9 +174,6 @@ func TestRewindReferenceWriteFailureRollsBackConversation(t *testing.T) {
 				if err = store.DeleteHarnessApplied(ctx, session.ID); err != nil {
 					t.Fatal(err)
 				}
-			}
-			if operation == "DELETE" {
-				e.svc.Harness = nil
 			}
 			preview, err := e.svc.PlanRewind(ctx, agenthub.RewindRequest{SessionID: session.ID, PromptMessageID: promptID, Mode: agenthub.RewindConversation})
 			if err != nil {

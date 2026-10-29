@@ -537,6 +537,12 @@ func (r *rewindRun) commitCut(ctx context.Context) error {
 	if r.launch.snapshot != nil {
 		ref := r.launch.snapshot.Ref.Clone()
 		spec.HarnessRef, spec.HarnessEnforced = &ref, r.launch.enforced
+	} else if s.Harness != nil {
+		// Attached, and this fork has no snapshot (no workspace): no reference
+		// belongs to it. Without a harness (a rolled-back build) the stored
+		// reference is left alone: deleting it would erase the baseline the
+		// reopen gate needs once the harness is back (O-2b).
+		spec.HarnessClear = true
 	}
 	// Keep the rewind transaction (including its applied reference) and runtime
 	// publication under the same epoch/Close boundary as create and resume.

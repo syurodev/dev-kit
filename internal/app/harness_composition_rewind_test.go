@@ -90,7 +90,7 @@ func TestBothRewindOpensServeTheDurableSAndKeepTheReference(t *testing.T) {
 // cut: a failing write rolls the cut back, and the staged fork's endpoint is
 // discarded without touching S.
 func TestARewindWhoseReferenceWriteFailsCutsNothingAndDiscardsTheStagedEndpoint(t *testing.T) {
-	for _, operation := range []string{"UPDATE", "INSERT", "DELETE"} {
+	for _, operation := range []string{"UPDATE", "INSERT"} {
 		t.Run(operation, func(t *testing.T) {
 			r := newCompRig(t, compOptions{})
 			sess, prompts := promptedSession(t, r)
@@ -102,9 +102,6 @@ func TestARewindWhoseReferenceWriteFailsCutsNothingAndDiscardsTheStagedEndpoint(
 			preview, err := r.agents.PlanRewind(r.ui(), agenthub.RewindRequest{SessionID: sess.ID, PromptMessageID: prompts[1], Mode: agenthub.RewindConversation})
 			if err != nil {
 				t.Fatal(err)
-			}
-			if operation == "DELETE" {
-				r.agents.Harness = nil
 			}
 			// Operation is a fixed test case, never untrusted SQL.
 			if _, err := r.db.Exec("CREATE TRIGGER fail_ref BEFORE " + operation + " ON agent_session_harness_applied BEGIN SELECT RAISE(ABORT,'injected'); END"); err != nil {
@@ -123,6 +120,40 @@ func TestARewindWhoseReferenceWriteFailsCutsNothingAndDiscardsTheStagedEndpoint(
 				t.Fatalf("a failed rewind must not touch S: %+v %+v", o, st)
 			}
 		})
+	}
+}
+
+// O-2b through the composed graph: a rolled-back build (no harness attached)
+// that rewinds a session must not write, update or delete its applied reference.
+// Every write to the table is made to fail, so any attempt would fail the rewind.
+func TestARollbackBuildRewindLeavesTheAppliedReferenceAlone(t *testing.T) {
+	r := newCompRig(t, compOptions{})
+	sess, prompts := promptedSession(t, r)
+	store := agenthub.NewSQLStore(r.db)
+	before, enforced, found, err := store.GetHarnessApplied(context.Background(), sess.ID)
+	if err != nil || !found {
+		t.Fatalf("setup: the activated build must have recorded a reference: found=%v %v", found, err)
+	}
+	preview, err := r.agents.PlanRewind(r.ui(), agenthub.RewindRequest{SessionID: sess.ID, PromptMessageID: prompts[1], Mode: agenthub.RewindConversation})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.agents.Harness, r.agents.HarnessLifecycle = nil, nil
+	for _, operation := range []string{"UPDATE", "INSERT", "DELETE"} {
+		// Operation is a fixed test case, never untrusted SQL.
+		if _, err := r.db.Exec("CREATE TRIGGER fail_" + operation + " BEFORE " + operation + " ON agent_session_harness_applied BEGIN SELECT RAISE(ABORT,'injected'); END"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := r.agents.ApplyRewind(r.ui(), preview.Token, nil); err != nil {
+		t.Fatalf("a rollback build's rewind must not touch the reference: %v", err)
+	}
+	if r.turns(sess.ID) != 1 {
+		t.Fatal("the rewind did not cut")
+	}
+	after, afterEnforced, found, err := store.GetHarnessApplied(context.Background(), sess.ID)
+	if err != nil || !found || !after.Equal(before) || afterEnforced != enforced {
+		t.Fatalf("the reference changed or was removed: found=%v %v", found, err)
 	}
 }
 

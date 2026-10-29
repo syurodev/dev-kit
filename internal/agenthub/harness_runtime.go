@@ -347,13 +347,19 @@ func (s *Service) previousHarness(ctx context.Context, sessionID string) (*appli
 // recordHarnessApplied writes the durable reference of a runtime that has just
 // opened, before the runtime is published. If it cannot be written the caller
 // closes the runtime: a launch the restart gate could not later recognise is not
-// accepted. With no snapshot the row is removed.
+// accepted. With no snapshot the row is removed only when the harness is attached
+// (the session has no workspace, so no reference belongs to it). Without a harness
+// (a rolled-back build) an existing row is left alone: it is data the activated
+// build recorded and the reopen gate needs again after a re-activation (O-2b).
 func (s *Service) recordHarnessApplied(ctx context.Context, sessionID string, l harnessLaunch) error {
 	durable, ok := s.store.(HarnessAppliedStore)
 	if !ok {
 		return nil
 	}
 	if l.snapshot == nil {
+		if s.Harness == nil {
+			return nil
+		}
 		return durable.DeleteHarnessApplied(ctx, sessionID)
 	}
 	return durable.SetHarnessApplied(ctx, sessionID, l.snapshot.Ref, l.enforced, time.Now().UTC())
