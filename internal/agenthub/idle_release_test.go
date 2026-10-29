@@ -239,3 +239,103 @@ func TestReleaseRuntimeRechecksBackgroundWorkUnderTheLock(t *testing.T) {
 		t.Fatal("releaseRuntime released a session that has a task")
 	}
 }
+
+// leakedClosed is a child whose row says closed while its process is still alive:
+// the state a runtime opened for a closed session leaves. CloseSession would have
+// removed the process, so the row is written directly.
+func leakedClosed(t *testing.T) *idleFixture {
+	t.Helper()
+	f := newIdleFixture(t)
+	if err := f.store.UpdateSessionStatus(context.Background(), f.kid.ID, agenthub.SessionStatusClosed, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if !f.hasRuntime(f.kid.ID) {
+		t.Fatal("fixture: the child has no runtime")
+	}
+	return f
+}
+
+// A closed session has no use for a process, so the sweep releases it at once: no
+// threshold (now is the present, far under the child's 10 minutes), the row stays
+// closed, and nothing that closing does is done again.
+func TestReleaseIdleReleasesAClosedSessionsProcessAtOnce(t *testing.T) {
+	f := leakedClosed(t)
+	ctx := context.Background()
+	// A task the vendor started would keep an idle session's process. Closing kills it.
+	f.svc.HandleUpdateForTest(ctx, f.kid.ID, []byte(spawnShellJSON))
+	if n := f.svc.ReleaseIdle(ctx, time.Now(), testIdlePolicy); n != 1 {
+		t.Fatalf("released %d, want 1 (the closed child)", n)
+	}
+	if f.hasRuntime(f.kid.ID) {
+		t.Fatal("the closed session's process is still open")
+	}
+	if !f.hasRuntime(f.parent.ID) {
+		t.Fatal("the idle parent, under its threshold, was released")
+	}
+	if got := f.status(t, f.kid.ID); got != agenthub.SessionStatusClosed {
+		t.Fatalf("status = %q, want closed: a release never changes the row", got)
+	}
+	if *f.closedEvents != 0 {
+		t.Fatal("a release fired OnSessionClosed")
+	}
+	if f.svc.HasBackgroundWorkForTest(f.kid.ID) {
+		t.Fatal("the released process's task is still recorded")
+	}
+	if n := f.svc.ReleaseIdle(ctx, time.Now(), testIdlePolicy); n != 0 {
+		t.Fatalf("a second sweep released %d", n)
+	}
+}
+
+// A turn claim, or a resume in flight, means someone is about to use the process:
+// even a closed session keeps it until they are done.
+func TestReleaseIdleKeepsAClosedSessionsProcessWhileATurnOrAResumeHoldsIt(t *testing.T) {
+	f := leakedClosed(t)
+	ctx := context.Background()
+
+	releaseClaim := f.svc.ClaimInvokeForTest(f.kid.ID)
+	if n := f.svc.ReleaseIdle(ctx, time.Now(), testIdlePolicy); n != 0 || !f.hasRuntime(f.kid.ID) {
+		t.Fatalf("released %d: a closed session whose turn claim is held keeps its process", n)
+	}
+	if f.svc.ReleaseRuntimeForTest(ctx, f.kid.ID, time.Now(), 0) {
+		t.Fatal("releaseRuntime released a process whose turn claim is held")
+	}
+	releaseClaim()
+
+	releaseResume := f.svc.SetResumingForTest(f.kid.ID)
+	if n := f.svc.ReleaseIdle(ctx, time.Now(), testIdlePolicy); n != 0 || !f.hasRuntime(f.kid.ID) {
+		t.Fatalf("released %d: a resume is in flight", n)
+	}
+	if f.svc.ReleaseRuntimeForTest(ctx, f.kid.ID, time.Now(), 0) {
+		t.Fatal("releaseRuntime released a process whose resume is in flight")
+	}
+	releaseResume()
+
+	if n := f.svc.ReleaseIdle(ctx, time.Now(), testIdlePolicy); n != 1 || f.hasRuntime(f.kid.ID) {
+		t.Fatalf("released %d: once nobody held it the closed session's process should go", n)
+	}
+}
+
+// What is waiting on a closed session's process (here a peer message on the way)
+// is not dropped by the sweep: the same screen an idle session gets.
+func TestReleaseIdleKeepsAClosedSessionWithAMessageOnTheWay(t *testing.T) {
+	f := leakedClosed(t)
+	rec := agenthub.PeerOutboxRecord{ID: "msg-closed", From: agenthub.MessageSource{Kind: "session", SessionID: f.parent.ID}, FromSession: f.parent.ID, To: f.kid.ID,
+		At: time.Now().UTC(), UpdatedAt: time.Now().UTC(), State: "queued"}
+	if err := f.store.SavePeerOutbox(context.Background(), rec); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.svc.ReleaseIdle(context.Background(), time.Now(), testIdlePolicy); n != 0 || !f.hasRuntime(f.kid.ID) {
+		t.Fatalf("released %d: a closed session with a peer message on the way was released", n)
+	}
+}
+
+// Reopenable is the idle screen against a release that would be permanent. A closed
+// session is not reopened by use but by a prompt, and the vendor that cannot load it
+// lost it when it was closed: its process is released all the same.
+func TestReleaseIdleReleasesAClosedSessionTheVendorCannotReopen(t *testing.T) {
+	f := leakedClosed(t)
+	markPrompted(t, f.store, f.kid.ID)
+	if n := f.svc.ReleaseIdle(context.Background(), time.Now(), testIdlePolicy); n != 1 || f.hasRuntime(f.kid.ID) {
+		t.Fatalf("released %d: a closed session's process was kept for a reopen that cannot happen", n)
+	}
+}

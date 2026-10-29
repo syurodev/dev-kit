@@ -20,6 +20,14 @@ import (
 // What it must never do, and CloseSession does: change the status, fire
 // OnSessionClosed, or call HarnessLifecycle.SessionClosed (which deletes the
 // session's override S). The session is parked, not closed.
+//
+// A session whose row says closed has no use for a process at all: only a prompt
+// reopens it, and that resumes one. The sweep releases such a runtime at once, with
+// no idle threshold and whatever a vendor task or a running child would have kept
+// an idle session's process for, and leaves the row closed. Nothing should open
+// one (PrepareSession refuses a closed session), but one that did, for a window
+// whose copy of the row was stale, stayed until DevKit quit: CloseSession had
+// already run and nothing else closes a closed session.
 
 // IdlePolicy is when an idle session's process is released. A zero duration or
 // Enabled == false releases nothing.
@@ -87,6 +95,7 @@ type idleCandidate struct {
 // idle past its threshold and safe to reopen, and returns how many it released.
 // now is a parameter so a test does not have to wait. A session whose process
 // still has a vendor task (bgwork.go) is kept: releasing the process would kill it.
+// A closed session's process is released whatever its age (see the top of this file).
 func (s *Service) ReleaseIdle(ctx context.Context, now time.Time, p IdlePolicy) int {
 	if !p.Enabled || p.ChildAfter <= 0 || p.TopAfter <= 0 {
 		return 0
@@ -108,7 +117,17 @@ func (s *Service) ReleaseIdle(ctx context.Context, now time.Time, p IdlePolicy) 
 	var candidates []idleCandidate
 	s.mu.Lock()
 	for _, sess := range sessions {
-		if sess.Status != SessionStatusIdle && sess.Status != SessionStatusError {
+		closed := sess.Status == SessionStatusClosed
+		if sess.Status != SessionStatusIdle && sess.Status != SessionStatusError && !closed {
+			continue
+		}
+		if closed {
+			// No threshold, no child or vendor task to wait for: only a runtime that
+			// is not being reopened. releaseRuntime repeats this and the turn claim
+			// under the lock, and that is the guard.
+			if s.runtimes[sess.ID] != nil && s.resuming[sess.ID] == nil {
+				candidates = append(candidates, idleCandidate{sess: sess})
+			}
 			continue
 		}
 		// The bgwork check here is an optimisation: releaseRuntime repeats it under
@@ -143,7 +162,9 @@ func (s *Service) ReleaseIdle(ctx context.Context, now time.Time, p IdlePolicy) 
 		if ctx.Err() != nil {
 			break
 		}
-		if blocked[c.sess.ID] || !s.reopenable(ctx, c.sess) {
+		// A closed session is not reopened by the next use but by a prompt that may
+		// never come, and a vendor that cannot load it lost it when it was closed.
+		if blocked[c.sess.ID] || (c.sess.Status != SessionStatusClosed && !s.reopenable(ctx, c.sess)) {
 			continue
 		}
 		if s.releaseRuntime(ctx, c.sess, now, c.after) {
@@ -216,7 +237,8 @@ func (s *Service) releaseRuntime(ctx context.Context, sess AgentSession, now tim
 // idle threshold to protect a process that the next turn has just taken.
 //
 // A session whose turn claim is held (s.invoking) is never released: its turn is
-// running on this process, or about to. This check, under the lock, is the guard;
+// running on this process, or about to. A closed session (sess.Status) is the one
+// whose vendor task does not keep its process: closing kills it as well. This check, under the lock, is the guard;
 // the checks callers make before it (the sweep's candidate loop, releasableNow) are
 // optimisations that save work, not the guard.
 func (s *Service) releaseRuntimeSince(ctx context.Context, sess AgentSession, now time.Time, after time.Duration, since time.Time) bool {
@@ -227,7 +249,7 @@ func (s *Service) releaseRuntimeSince(ctx context.Context, sess AgentSession, no
 	rt := s.runtimes[id]
 	_, claimed := s.invoking[id]
 	if rt == nil || s.resuming[id] != nil || claimed || now.Sub(s.lastUsed[id]) < after ||
-		(!since.IsZero() && s.lastUsed[id].After(since)) || s.bgwork.running(id) {
+		(!since.IsZero() && s.lastUsed[id].After(since)) || (sess.Status != SessionStatusClosed && s.bgwork.running(id)) {
 		s.mu.Unlock()
 		return false
 	}

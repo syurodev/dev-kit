@@ -3,10 +3,10 @@ import { useQuery } from "@tanstack/react-query";
 import {
   agentHubListContextFiles,
   agentHubListVendorTypes,
-  agentHubPrepareSession,
   agentHubScratchRoot,
   type AgentContextFile,
 } from "../../../bridge/agenthub";
+import { prepareSessionConfig } from "./prepareSessionConfig";
 import { useAgentSessionList, useAgentSessionsStore } from "../../../stores/agentSessions";
 import { useAgentPinsStore } from "../../../stores/agentPins";
 import { useCurrentWorkspaceServices } from "@/stores/workspaceSwitcher";
@@ -83,7 +83,7 @@ export function useAgentSessionReads(tabSessionId: string, draftOpen: boolean) {
 
   const sessionConfig = useQuery({
     queryKey: ["agenthub", "sessionConfig", activeSession?.id],
-    queryFn: async () => { await agentHubPrepareSession(activeSession!.id); return true; },
+    queryFn: () => prepareSessionConfig(activeSession!.id),
     enabled: visible && !draftOpen && Boolean(activeSession && activeSession.status !== "closed" && activeSession.status !== "running" && activeSession.status !== "awaiting_permission"),
     staleTime: 60_000,
     retry: false,
