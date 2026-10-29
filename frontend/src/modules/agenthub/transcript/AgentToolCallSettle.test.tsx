@@ -189,6 +189,7 @@ describe("a call of the latest turn in a quiet session", () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     container.remove();
+    useAgentSessionsStore.setState({ subagents: {} });
   });
 
   async function draw(node: React.ReactNode, quiet: boolean) {
@@ -208,25 +209,47 @@ describe("a call of the latest turn in a quiet session", () => {
     expect(state()).toBe("done");
   });
 
-  test("a subagent's call stays live: only an earlier turn settles it", async () => {
-    await draw(<AgentToolCall variant="row" call={call("in_progress")} origin="sub-1" />, true);
+  const trackSub = (state?: string) =>
+    useAgentSessionsStore.setState({ subagents: { s1: state === undefined ? [] : [{ id: "sub-1", name: "Look", state }] } as never });
+
+  test("a subagent's call stays live while that subagent is tracked as running", async () => {
+    trackSub("running");
+    await draw(<AgentToolCall variant="row" call={call("in_progress")} origin="sub-1" sessionId="s1" />, true);
     expect(state()).toBe("running");
   });
 
-  test("an activity card stops spinning too, unless it is a subagent's", async () => {
+  test("a subagent's call says it did not finish when the subagent is not tracked as running", async () => {
+    trackSub();
+    await draw(<AgentToolCall variant="row" call={call("in_progress")} origin="sub-1" sessionId="s1" />, true);
+    expect(state()).toBe("unfinished");
+    // Without a session to look it up in, it is not tracked either.
+    await draw(<AgentToolCall variant="row" call={call("in_progress")} origin="sub-1" />, true);
+    expect(state()).toBe("unfinished");
+  });
+
+  test("a subagent's call stays live while the session is working, tracked or not", async () => {
+    trackSub();
+    await draw(<AgentToolCall variant="row" call={call("in_progress")} origin="sub-1" sessionId="s1" />, false);
+    expect(state()).toBe("running");
+  });
+
+  test("an activity card stops spinning too, unless it is a running subagent's", async () => {
+    trackSub("running");
     const commit: ToolCall = { id: "g1", name: "git.commit", kind: "other", title: "git.commit", status: "in_progress", rawInput: { message: "Fix login" } };
     await draw(<AgentToolActivity call={commit} />, true);
     expect(container.querySelector("[data-testid=tool-activity]")!.getAttribute("data-state")).toBe("unfinished");
-    await draw(<AgentToolActivity call={commit} origin="sub-1" />, true);
+    await draw(<AgentToolActivity call={commit} origin="sub-1" sessionId="s1" />, true);
     expect(container.querySelector("[data-testid=tool-activity]")!.getAttribute("data-state")).toBe("running");
   });
 
-  test("a running command draws no clock, unless it is a subagent's", async () => {
+  test("a running command draws no clock, unless it is a running subagent's", async () => {
+    trackSub("running");
     const item = (origin?: string) =>
       ({
         id: "i1",
         kind: "tool_call",
         origin,
+        sessionId: "s1",
         createdAt: new Date(Date.now() - 60_000).toISOString(),
         toolCall: { id: "x", kind: "execute", title: "bun test", status: "in_progress" },
       }) as TranscriptItem;
@@ -237,23 +260,26 @@ describe("a call of the latest turn in a quiet session", () => {
   });
 
   test("a result card that falls back to its row passes the origin on too", async () => {
+    trackSub("running");
     await draw(<ToolResultCard call={call("in_progress")} asRow />, true);
     expect(state()).toBe("unfinished");
-    await draw(<ToolResultCard call={call("in_progress")} asRow origin="sub-1" />, true);
+    await draw(<ToolResultCard call={call("in_progress")} asRow origin="sub-1" sessionId="s1" />, true);
     expect(state()).toBe("running");
   });
 
   test("a step run passes a row's origin on: its subagent's call stays live, the lead's settles", async () => {
+    trackSub("running");
     const read = (id: string, origin?: string) =>
-      ({ id, kind: "tool_call", origin, toolCall: { id, kind: "read", title: `Read ${id}`, status: "in_progress" } }) as TranscriptItem;
+      ({ id, kind: "tool_call", origin, sessionId: "s1", toolCall: { id, kind: "read", title: `Read ${id}`, status: "in_progress" } }) as TranscriptItem;
     await draw(<StepGroup items={[read("lead"), read("sub", "sub-1")]} defaultOpen />, true);
     const states = [...container.querySelectorAll("[data-testid=agent-tool-call]")].map((el) => el.getAttribute("data-state"));
     expect(states).toEqual(["unfinished", "running"]);
   });
 
   test("a step run keeps the slot for a running command only while the session may still finish it", async () => {
+    trackSub("running");
     const items = [
-      { id: "i1", kind: "tool_call", toolCall: { id: "x", kind: "execute", title: "bun test", status: "in_progress" } },
+      { id: "i1", kind: "tool_call", sessionId: "s1", toolCall: { id: "x", kind: "execute", title: "bun test", status: "in_progress" } },
     ] as TranscriptItem[];
     await draw(<StepGroup items={items} />, false);
     expect(container.querySelector("[data-testid=step-activities]")).not.toBeNull();
@@ -308,6 +334,19 @@ describe("the transcript of a session the window knows", () => {
   test("a session with only background tasks is quiet too", async () => {
     await setSession(row({ activity: { agentTurn: false, tasks: 2 } }));
     expect(await states(latestTurn)).toEqual(["unfinished"]);
+  });
+
+  test("a subagent's call, on a live row with no sessionId, follows whether its subagent is tracked as running", async () => {
+    const sub = [
+      item("u1", "user_message_chunk", { text: "go" }),
+      // Its spawn is on an older page: the row stays in the flow, drawn.
+      item("t1", "tool_call", { origin: "sub-1", toolCall: { id: "c1", kind: "read", title: "Read sub.go", status: "in_progress" } }),
+    ];
+    await setSession(row());
+    expect(await states(sub)).toEqual(["unfinished"]);
+    useAgentSessionsStore.setState({ subagents: { s1: [{ id: "sub-1", name: "Look", state: "running" }] } as never });
+    expect(await states(sub)).toEqual(["running"]);
+    useAgentSessionsStore.setState({ subagents: {} });
   });
 
   test("an agent-started turn keeps its calls live", async () => {

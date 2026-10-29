@@ -77,7 +77,7 @@ export function AgentRunningCommand({ item }: { item: TranscriptItem }) {
   const call = item.toolCall!;
   // A command the transcript still has running, in a turn that is over or a session
   // nothing works on: no clock.
-  const running = isRunningCommand(item) && !cannotFinish(useSettleFacts(item.origin));
+  const running = isRunningCommand(item) && !cannotFinish(useSettleFacts(item.origin, item.sessionId));
   const elapsed = useElapsed(item.createdAt, running);
   if (!running || elapsed < SLOW_COMMAND_MS) return null;
   const command = commandText(call);

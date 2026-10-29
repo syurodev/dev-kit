@@ -135,7 +135,7 @@ export function AgentActivityPanel({ sessionId, title, onStop }: { sessionId: st
             className={preview ? "flex max-h-[45%] shrink-0 flex-col gap-2 overflow-y-auto p-3" : "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3"}
           >
             {drawn.map((item) => (
-              <EarlierTurnProvider key={item.id} earlier={earlier.has(item.id)} quiet={quiet}>
+              <EarlierTurnProvider key={item.id} earlier={earlier.has(item.id)} quiet={quiet} sessionId={sessionId}>
                 {isRunningCommand(item) ? (
                   <AgentRunningCommand item={item} />
                 ) : (

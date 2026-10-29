@@ -21,7 +21,8 @@ import {
 import { NO_RESULTS, surfaceResults, ToolResultCard, type StepResults } from "../transcript/ToolResultCard";
 import { AgentToolActivity, isToolActivity } from "../transcript/AgentToolActivity";
 import { AgentRunningCommand, isRunningCommand } from "../transcript/AgentRunningCommand";
-import { cannotFinish, useSettleFacts } from "../transcript/toolSettle";
+import { cannotFinish, subagentTrackedRunning, useSettleFacts, useSettleSessionId } from "../transcript/toolSettle";
+import { useAgentSessionsStore } from "@/stores/agentSessions";
 import { AgentProse } from "../transcript/AgentMessageRich";
 import { MessageActions } from "./MessageActions";
 import { PeerMessage } from "../transcript/PeerMessage";
@@ -405,9 +406,20 @@ export function StepGroup({
   // behind the fold.
   // Not one that was interrupted: no clock for a command nothing can finish.
   const settle = useSettleFacts();
+  const tracked = useAgentSessionsStore((state) => state.subagents);
+  const scopeSession = useSettleSessionId();
   const commands = React.useMemo(
-    () => items.filter((item) => isRunningCommand(item) && !cannotFinish({ ...settle, subagent: Boolean(item.origin) })),
-    [items, settle.earlierTurn, settle.sessionQuiet],
+    () =>
+      items.filter(
+        (item) =>
+          isRunningCommand(item) &&
+          !cannotFinish({
+            ...settle,
+            subagent: Boolean(item.origin),
+            subagentRunning: subagentTrackedRunning(tracked[item.sessionId ?? scopeSession ?? ""], item.origin),
+          }),
+      ),
+    [items, tracked, scopeSession, settle.earlierTurn, settle.sessionQuiet],
   );
   // A result the owning module draws (a query's rows, a plan, a message) is
   // what the person asked for, not the account of getting it: it stands after

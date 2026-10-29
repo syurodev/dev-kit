@@ -629,7 +629,7 @@ export function TranscriptStream({
       // A later user message exists, or the session is quiet: a call this turn left
       // pending or in progress will never finish, and is not drawn as live
       // (transcript/toolSettle.tsx).
-      <EarlierTurnProvider key={turn.id} earlier={!latest} quiet={latest && quiet}>
+      <EarlierTurnProvider key={turn.id} earlier={!latest} quiet={latest && quiet} sessionId={sessionId}>
         <AgentTurn
           turn={turn}
           latest={latest}
