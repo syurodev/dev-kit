@@ -2071,14 +2071,17 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 		if peer == nil {
 			s.nameFromPrompt(context.WithoutCancel(ctx), sess, in.Prompt)
 		}
+		// The turn is over and its result recorded: a folder granted during it can
+		// now reach the session's own shell, if the process can be swapped safely.
+		// Before the event: the window reads the Environment when it hears the turn
+		// ended, and a process still held would show the folder as waiting for a
+		// reopen that is about to happen, with nothing to ask again.
+		s.reopenAfterGrant(context.WithoutCancel(ctx), in.SessionID, turnEnded)
 		if s.OnTurnFinished != nil {
 			if session, err := s.store.GetSession(context.WithoutCancel(ctx), in.SessionID); err == nil {
 				s.OnTurnFinished(in.SessionID, session.Status, turnOutcome)
 			}
 		}
-		// The turn is over and its result recorded: a folder granted during it can
-		// now reach the session's own shell, if the process can be swapped safely.
-		s.reopenAfterGrant(context.WithoutCancel(ctx), in.SessionID, turnEnded)
 	}()
 
 	adapter, ok := s.reg.Get(sess.AgentType)
