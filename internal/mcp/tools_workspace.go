@@ -164,12 +164,9 @@ func (s *Server) toolWorkspaceRequestWrite(ctx context.Context, _ *sdk.CallToolR
 	if s.deps.WorkspaceWrite == nil {
 		return nil, nil, apperrors.New("internal_error", "Folder access requests are not available.", true)
 	}
-	folder := []rune(in.Folder)
-	if len(folder) > 80 {
-		folder = folder[:80]
-	}
+	// The folder name is the agent's own string: it is not recorded.
 	v, err := s.deps.Caller.Call(ctx, "builtin.workspace", "ws:grant", "workspace:requestWrite",
-		meta("request_workspace_write", map[string]any{"folder": string(folder)}),
+		meta("request_workspace_write", nil),
 		func(callCtx context.Context) (any, error) {
 			plan, err := s.deps.WorkspaceWrite.PrepareWorkspaceWrite(callCtx, in.Folder)
 			if err != nil {

@@ -72,6 +72,9 @@ func TestRequestWriteAsksThenStores(t *testing.T) {
 	if asked != 1 || w.committed != 1 {
 		t.Fatalf("asked %d times, committed %d times; want one each", asked, w.committed)
 	}
+	if _, recorded := caller.last.metadata["folder"]; recorded || caller.last.metadata["action"] != "request_workspace_write" {
+		t.Fatalf("audit metadata = %v: it carries the action and origin, never the agent's folder string", caller.last.metadata)
+	}
 	if caller.last.subject != "builtin.workspace" || caller.last.capability != "ws:grant" || caller.last.scope != "workspace:requestWrite" {
 		t.Fatalf("Call = %+v", caller.last)
 	}
