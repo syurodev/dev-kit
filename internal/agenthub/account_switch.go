@@ -323,7 +323,7 @@ func (s *Service) moveSession(ctx context.Context, sess *AgentSession, target st
 			rt = s.runtimes[sess.ID]
 			closeEndpoint = s.endpoints[sess.ID]
 			delete(s.runtimes, sess.ID)
-			s.bgwork.forget(sess.ID)
+			s.forgetBackgroundWork(sess.ID)
 			delete(s.runtimeUsage, sess.ID)
 			delete(s.endpoints, sess.ID)
 			s.forgetWorkspaceContextLocked(sess.ID)

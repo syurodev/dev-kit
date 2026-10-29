@@ -312,6 +312,9 @@ type Service struct {
 	lastUsed map[string]time.Time
 	// bgwork is the vendor tasks each live process is still running (bgwork.go).
 	bgwork backgroundWork
+	// activity delivers a change of a session's SessionActivity to OnActivityChanged
+	// off every lock (activity_notify.go). Stopped by Shutdown.
+	activity *activityNotifier
 	// reopenForGrant marks sessions whose process should be reopened when the
 	// current turn ends because a folder was just added to their grant (mu).
 	reopenForGrant map[string]bool
@@ -412,6 +415,12 @@ type Service struct {
 	// OnTurnFinished fires after the turn's final transcript flush, including
 	// cancellation and errors, so shell consumers can clear running state once.
 	OnTurnFinished func(sessionID string, status SessionStatus, outcome string)
+	// OnActivityChanged fires after a session's SessionActivity changed: the vendor
+	// started or ended a task or a turn of its own, or its process went away. It runs
+	// on the service's one notifier goroutine, never with s.mu held, in order per
+	// session; a burst of changes is delivered as the last state. The window learns
+	// of activity it did not start by it, as it does of a turn through OnTurnStarted.
+	OnActivityChanged func(sessionID string, a SessionActivity)
 	// OnTurnTiming receives each turn's phase timings once, under the same
 	// numbers the "agenthub: turn timing" log line carries (see TurnTiming).
 	// It fires at the first row the transcript can draw — when "Starting"
@@ -616,6 +625,11 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 		// who turned the feature off, runs the same Invoke as everyone else.
 		checkpoints: noCheckpoints{},
 	}
+	s.activity = newActivityNotifier(s.bgwork.snapshot, func(id string, a SessionActivity) {
+		if s.OnActivityChanged != nil {
+			s.OnActivityChanged(id, a)
+		}
+	})
 	// A cadence flush has no caller to return its error to; route it to the
 	// same hook Record errors take, read at call time because callers set
 	// OnRecordError after NewService.
@@ -702,6 +716,7 @@ func interruptedPendingRequestMessage(summary PendingRequestSummary) string {
 // its writes, so without it a quit mid-stream lost the last cadence of text
 // and left buffered tool calls "in progress" on reload.
 func (s *Service) Shutdown(ctx context.Context) error {
+	s.activity.stop()
 	return s.recorder.FlushAll(ctx)
 }
 
@@ -1620,7 +1635,7 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	s.mu.Lock()
 	rt := s.runtimes[id]
 	delete(s.runtimes, id)
-	s.bgwork.forget(id)
+	s.forgetBackgroundWork(id)
 	delete(s.lastUsed, id)
 	delete(s.runtimeUsage, id)
 	s.forgetWorkspaceContextLocked(id)
@@ -2413,7 +2428,7 @@ func (s *Service) handleUpdate(ctx context.Context, sessionID string, update jso
 	s.emit(sessionID, update)
 	parsed := ParseSessionUpdate(update)
 	if parsed.AsyncTask != nil {
-		s.bgwork.apply(sessionID, parsed.Kind, parsed.AsyncTask)
+		s.noteActivityChange(sessionID, s.bgwork.apply(sessionID, parsed.Kind, parsed.AsyncTask))
 	}
 	if parsed.Kind == UpdateSessionInfo && parsed.Title != "" {
 		if err := s.adoptSessionTitle(ctx, sessionID, parsed.Title); err != nil && s.OnRecordError != nil {
@@ -2649,7 +2664,7 @@ func (s *Service) liveRuntime(ctx context.Context, id string) SessionRuntime {
 		return rt
 	}
 	delete(s.runtimes, id)
-	s.bgwork.forget(id)
+	s.forgetBackgroundWork(id)
 	delete(s.lastUsed, id)
 	delete(s.runtimeUsage, id)
 	s.forgetWorkspaceContextLocked(id)

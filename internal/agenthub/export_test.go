@@ -328,3 +328,16 @@ func (s *Service) BackgroundWorkRecordedForTest(sessionID string) int {
 	defer s.bgwork.mu.Unlock()
 	return len(s.bgwork.tasks[sessionID])
 }
+
+// WaitActivityIdleForTest blocks until every pending activity notification was delivered.
+func (s *Service) WaitActivityIdleForTest() { s.activity.waitIdle() }
+
+// WithLockForTest runs fn holding the service lock, as the paths that call forget do.
+func (s *Service) WithLockForTest(fn func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	fn()
+}
+
+// ForgetBackgroundWorkForTest drops a session's tracked tasks the way a released process does.
+func (s *Service) ForgetBackgroundWorkForTest(sessionID string) { s.forgetBackgroundWork(sessionID) }
