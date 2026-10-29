@@ -312,6 +312,8 @@ type Service struct {
 	lastUsed map[string]time.Time
 	// bgwork is the vendor tasks each live process is still running (bgwork.go).
 	bgwork backgroundWork
+	// agentTurnMsgs is what an agent-started turn has said so far (activity_preview.go).
+	agentTurnMsgs agentTurnMessages
 	// activity delivers a change of a session's SessionActivity to OnActivityChanged
 	// off every lock (activity_notify.go). Stopped by Shutdown.
 	activity *activityNotifier
@@ -2443,9 +2445,14 @@ func (s *Service) handleUpdate(ctx context.Context, sessionID string, update jso
 	logAgentUpdate(sessionID, update)
 	s.emit(sessionID, update)
 	parsed := ParseSessionUpdate(update)
+	var change activityChange
 	if parsed.AsyncTask != nil {
-		s.noteActivityChange(sessionID, s.bgwork.apply(sessionID, parsed.Kind, parsed.AsyncTask))
+		change = s.bgwork.apply(sessionID, parsed.Kind, parsed.AsyncTask)
 	}
+	// Before the change is notified: the window reads the row when it hears the
+	// agent's turn ended, and the preview must already be the turn's message.
+	s.trackAgentTurnMessage(ctx, sessionID, parsed, change)
+	s.noteActivityChange(sessionID, change)
 	if parsed.Kind == UpdateSessionInfo && parsed.Title != "" {
 		if err := s.adoptSessionTitle(ctx, sessionID, parsed.Title); err != nil && s.OnRecordError != nil {
 			s.OnRecordError(sessionID, err)

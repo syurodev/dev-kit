@@ -2,6 +2,7 @@ package agenthub_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 )
@@ -51,10 +52,14 @@ func TestClosingASessionForgetsItsBackgroundWork(t *testing.T) {
 func TestReleasingARuntimeForgetsItsStaleBackgroundWork(t *testing.T) {
 	f := newIdleFixture(t)
 	ctx := context.Background()
+	// The activity notifier reads the clock from its own goroutine.
+	var clockMu sync.Mutex
 	clock := time.Now()
-	f.svc.SetBackgroundWorkClockForTest(func() time.Time { return clock })
+	f.svc.SetBackgroundWorkClockForTest(func() time.Time { clockMu.Lock(); defer clockMu.Unlock(); return clock })
 	f.svc.HandleUpdateForTest(ctx, f.kid.ID, []byte(spawnShellJSON))
+	clockMu.Lock()
 	clock = clock.Add(13 * time.Hour)
+	clockMu.Unlock()
 	if !f.svc.ReleaseRuntimeForTest(ctx, f.kid.ID, time.Now().Add(11*time.Minute), 10*time.Minute) {
 		t.Fatal("a stale task blocked the release")
 	}

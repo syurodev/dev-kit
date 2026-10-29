@@ -341,3 +341,20 @@ func (s *Service) WithLockForTest(fn func()) {
 
 // ForgetBackgroundWorkForTest drops a session's tracked tasks the way a released process does.
 func (s *Service) ForgetBackgroundWorkForTest(sessionID string) { s.forgetBackgroundWork(sessionID) }
+
+// ClaimInvokeForTest holds the session's turn claim the way Invoke does until the returned release is called.
+func (s *Service) ClaimInvokeForTest(sessionID string) (release func()) {
+	s.mu.Lock()
+	s.invoking[sessionID] = struct{}{}
+	s.mu.Unlock()
+	return func() {
+		s.mu.Lock()
+		delete(s.invoking, sessionID)
+		s.mu.Unlock()
+	}
+}
+
+// AgentTurnMessageHeldForTest reports whether an agent-started turn's message is being buffered.
+func (s *Service) AgentTurnMessageHeldForTest(sessionID string) bool {
+	return s.agentTurnMsgs.get(sessionID) != nil
+}

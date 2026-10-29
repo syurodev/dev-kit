@@ -141,5 +141,6 @@ func (s *Service) noteActivityChange(sessionID string, ch activityChange) {
 // forgetBackgroundWork drops a session's tasks because its process is gone and
 // tells the window, since those tasks died with it. Callable with s.mu held.
 func (s *Service) forgetBackgroundWork(sessionID string) {
+	s.agentTurnMsgs.take(sessionID)
 	s.noteActivityChange(sessionID, s.bgwork.forget(sessionID))
 }
