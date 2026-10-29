@@ -236,7 +236,7 @@ export function currentStep(activity: TranscriptItem[]): string {
   if (kind === "agent_thought_chunk") return "Thinking";
   if (last.subagent) return `Running ${last.subagent.name || "a subagent"}`;
   if (last.toolCall) {
-    if (isToolSearch(last.toolCall) && !isFailed(last.toolCall.status)) return "Loading tools";
+    if (isToolSearch(last.toolCall)) return toolSearchLine(last.toolCall);
     const { verb, object } = stepLabel(last.toolCall);
     return object ? `${verb} ${object}` : verb;
   }
@@ -420,8 +420,8 @@ export function activityOf(turn: Turn): { label: string; orb: OrbState } {
           : kind === "edit" || kind === "delete" || kind === "move"
             ? "shaping"
             : "working";
-      const loading = isToolSearch(call) && !isFailed(call?.status);
-      return { label: loading ? "Loading tools" : call?.title || "Using a tool", orb };
+      if (call && isToolSearch(call)) return { label: toolSearchLine(call), orb };
+      return { label: call?.title || "Using a tool", orb };
     }
   }
 }
@@ -510,8 +510,10 @@ export function stepSummary(items: TranscriptItem[]): string {
             ? "ran background tasks"
           : isCompaction(item.toolCall)
             ? "compacted the conversation"
-            : isToolSearch(item.toolCall) && !isFailed(item.toolCall?.status)
-              ? "loaded tools"
+            : isToolSearch(item.toolCall)
+              ? isFailed(item.toolCall?.status)
+                ? "couldn't load tools"
+                : "loaded tools"
             : (STEP_PHRASES[item.toolCall?.kind?.toLowerCase() ?? ""] ?? "used tools");
     if (!phrases.includes(phrase)) phrases.push(phrase);
   }
@@ -580,13 +582,6 @@ export function stepLabel(call: ToolCall): { verb: string; object: string } {
   return { verb: title || "Used a tool", object: "" };
 }
 
-/**
- * Claude's own tools that carry no path or command for a title to be built
- * from, by name: the title is the bare tool name, and the input says what it
- * acted on. The keys are Claude Code's tool schemas — Skill `{skill, args}`,
- * Monitor `{description, command}`, SendMessage `{to, message}` — read
- * defensively, since no recorded transcript holds one of each.
- */
 function builtinName(call: ToolCall, titleHead: string): string {
   // A Bash command is titled with the command itself, so a title's first word
   // names a tool only for a call that is not a shell command and has no name.
@@ -597,12 +592,29 @@ function isFailed(status?: string): boolean {
   return status?.toLowerCase() === "failed" || status?.toLowerCase() === "error";
 }
 
+/** Whether a call is still going (the states AgentToolCall draws as pending, running, awaiting). */
+function isUnderWay(status?: string): boolean {
+  const state = status?.toLowerCase();
+  return state === "pending" || state === "in_progress" || state === "running" || state === "awaiting_permission" || state === "awaiting";
+}
+
 /** Claude's ToolSearch: it loads deferred tools (`select:<Name>[,<Name>]`) or looks them up by keyword. */
 export function isToolSearch(call?: ToolCall | null): boolean {
   return Boolean(call) && builtinName(call!, call!.title?.trim().split(/\s+/)[0] ?? "") === "ToolSearch";
 }
 
 const TOOL_TERM_MAX = 80;
+// Typed by hand: the project's `lib` predates Intl.Segmenter, which every shipped webview has.
+type Segmenter = { segment(text: string): Iterable<{ segment: string }> };
+const SegmenterCtor = (Intl as unknown as { Segmenter?: new () => Segmenter }).Segmenter;
+const graphemes = SegmenterCtor ? new SegmenterCtor() : null;
+
+/** A term cut to `TOOL_TERM_MAX` characters as a person counts them, never inside a surrogate pair or a combined sequence. */
+function clipTerm(term: string): string {
+  if (term.length <= TOOL_TERM_MAX) return term;
+  const parts = graphemes ? Array.from(graphemes.segment(term), (part) => part.segment) : Array.from(term);
+  return parts.length > TOOL_TERM_MAX ? `${parts.slice(0, TOOL_TERM_MAX - 1).join("")}…` : term;
+}
 
 /**
  * What a ToolSearch asked for: the tool names of a `select:A,B` query, or the
@@ -612,12 +624,18 @@ export function toolSearchTerms(call: ToolCall): { select: boolean; terms: strin
   const input = call.rawInput as { query?: unknown } | null | undefined;
   const query = typeof input?.query === "string" ? input.query.trim() : "";
   const select = /^select:/i.test(query);
-  const clip = (term: string) => (term.length > TOOL_TERM_MAX ? `${term.slice(0, TOOL_TERM_MAX - 1)}…` : term);
   const terms = (select ? query.slice("select:".length).split(",") : query.split(/\s+/))
     .map((term) => term.trim())
     .filter(Boolean)
-    .map(clip);
+    .map(clipTerm);
   return { select, terms };
+}
+
+/** A ToolSearch as one line: "Loading tools" while it runs, else its row's words. */
+function toolSearchLine(call: ToolCall): string {
+  if (isUnderWay(call.status)) return "Loading tools";
+  const { verb, object } = stepLabel(call);
+  return object ? `${verb} ${object}` : verb;
 }
 
 /** One entry of a run once its ToolSearch calls are folded: a step as it is, or a stretch of searches. */
@@ -642,6 +660,17 @@ export function foldToolSearch(items: readonly TranscriptItem[]): FoldedStep[] {
   return out;
 }
 
+/**
+ * Claude's own tools that carry no path or command for a title to be built
+ * from, worded by name and what the input says. The keys are Claude Code's
+ * tool schemas — Skill `{skill, args}`, Monitor `{command, description}`,
+ * SendMessage `{to, message}` — read defensively, since no recorded transcript
+ * holds one of each.
+ *
+ * Past tense only once the call is done. While it is under way the vendor's
+ * own title stands when it has one (ExitPlanMode asks "Ready to code?" until
+ * answered), else a present form; a failed call says it could not.
+ */
 function builtinLabel(call: ToolCall, titleHead: string): { verb: string; object: string } | null {
   const tool = builtinName(call, titleHead);
   const input = (call.rawInput && typeof call.rawInput === "object" ? call.rawInput : {}) as Record<string, unknown>;
@@ -652,34 +681,55 @@ function builtinLabel(call: ToolCall, titleHead: string): { verb: string; object
     }
     return "";
   };
+  const title = call.title?.trim() ?? "";
+  // A vendor title is anything but the bare tool name.
+  const vendorTitle = title && title.toLowerCase() !== tool.toLowerCase() ? title : "";
+  const failed = isFailed(call.status);
+  const underWay = isUnderWay(call.status);
+  /** The three tenses of one sentence: done, under way, failed. */
+  const say = (done: string, now: string, couldnt: string, object = "") => {
+    if (underWay && vendorTitle) return { verb: vendorTitle, object: "" };
+    return { verb: failed ? couldnt : underWay ? now : done, object };
+  };
   switch (tool) {
     case "ToolSearch": {
       const { select, terms } = toolSearchTerms(call);
       const object = terms.join(select ? ", " : " ");
-      return isFailed(call.status) ? { verb: "Couldn't load", object } : { verb: "Loaded tools", object };
+      return failed ? { verb: "Couldn't load", object } : { verb: "Loaded tools", object };
     }
     case "Skill": {
       const skill = text("skill", "name", "command");
-      return skill ? { verb: "Used skill", object: skill } : { verb: "Used a skill", object: "" };
+      // Claude's title already names it ("Load skill: superpowers:brainstorming").
+      if (vendorTitle && (!skill || vendorTitle.includes(skill))) return { verb: vendorTitle, object: "" };
+      return skill
+        ? say("Used skill", "Using skill", "Couldn't use skill", skill)
+        : say("Used a skill", "Using a skill", "Couldn't use a skill");
     }
     case "Monitor": {
+      // Not a watch without something to watch: Monitor has been called with
+      // ToolSearch's {query, max_results}, and failed.
       const what = text("description");
-      return what ? { verb: "Watched", object: what } : { verb: "Watched a process", object: "" };
+      if (!what && !text("command")) return { verb: title || "Monitor", object: "" };
+      return what
+        ? say("Watched", "Monitoring", "Couldn't watch", what)
+        : say("Watched a process", "Monitoring a process", "Couldn't watch a process");
     }
     case "TaskStop":
-      return { verb: "Stopped a task", object: "" };
+      return say("Stopped a task", "Stopping a task", "Couldn't stop a task");
     case "SendMessage": {
       const to = text("to");
-      return to ? { verb: "Sent a message to", object: to } : { verb: "Sent a message", object: "" };
+      return to
+        ? say("Sent a message to", "Sending a message to", "Couldn't send a message to", to)
+        : say("Sent a message", "Sending a message", "Couldn't send a message");
     }
     case "EnterPlanMode":
-      return { verb: "Entered plan mode", object: "" };
+      return say("Entered plan mode", "Entering plan mode", "Couldn't enter plan mode");
     case "ExitPlanMode":
-      return { verb: "Left plan mode", object: "" };
+      return say("Left plan mode", "Exiting plan mode", "Couldn't exit plan mode");
     case "ListAgents":
-      return { verb: "Listed agents", object: "" };
+      return say("Listed agents", "Listing agents", "Couldn't list agents");
     case "SubagentHandback":
-      return { verb: "Handed back", object: "" };
+      return say("Handed back", "Handing back", "Couldn't hand back");
   }
   return null;
 }

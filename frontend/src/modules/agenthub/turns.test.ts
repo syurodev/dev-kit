@@ -427,6 +427,73 @@ describe("stepLabel for the built-in tools without a title shape", () => {
   });
 });
 
+describe("stepLabel for the built-in tools by how far the call got", () => {
+  const call = (name: string, status: string | undefined, rawInput?: unknown, title = name) => ({
+    id: "x",
+    kind: "other",
+    title,
+    name,
+    status,
+    rawInput,
+  });
+
+  // tool, input, then what it reads as done, under way (no vendor title), and failed.
+  it.each([
+    ["Skill", { skill: "simplify" }, ["Used skill", "simplify"], ["Using skill", "simplify"], ["Couldn't use skill", "simplify"]],
+    ["Skill", {}, ["Used a skill", ""], ["Using a skill", ""], ["Couldn't use a skill", ""]],
+    ["Monitor", { description: "Wait for CI", command: "gh run watch" }, ["Watched", "Wait for CI"], ["Monitoring", "Wait for CI"], ["Couldn't watch", "Wait for CI"]],
+    ["Monitor", { command: "gh run watch" }, ["Watched a process", ""], ["Monitoring a process", ""], ["Couldn't watch a process", ""]],
+    ["TaskStop", {}, ["Stopped a task", ""], ["Stopping a task", ""], ["Couldn't stop a task", ""]],
+    ["SendMessage", { to: "reviewer" }, ["Sent a message to", "reviewer"], ["Sending a message to", "reviewer"], ["Couldn't send a message to", "reviewer"]],
+    ["SendMessage", {}, ["Sent a message", ""], ["Sending a message", ""], ["Couldn't send a message", ""]],
+    ["EnterPlanMode", {}, ["Entered plan mode", ""], ["Entering plan mode", ""], ["Couldn't enter plan mode", ""]],
+    ["ExitPlanMode", {}, ["Left plan mode", ""], ["Exiting plan mode", ""], ["Couldn't exit plan mode", ""]],
+    ["ListAgents", {}, ["Listed agents", ""], ["Listing agents", ""], ["Couldn't list agents", ""]],
+    ["SubagentHandback", {}, ["Handed back", ""], ["Handing back", ""], ["Couldn't hand back", ""]],
+  ])("%s %o: done, under way, failed", (tool, input, done, underway, failed) => {
+    const read = (status: string | undefined) => {
+      const { verb, object } = stepLabel(call(tool, status, input));
+      return [verb, object];
+    };
+    expect(read("completed")).toEqual(done);
+    expect(read(undefined)).toEqual(done);
+    for (const status of ["pending", "in_progress", "running", "awaiting_permission", "awaiting"]) {
+      expect(read(status)).toEqual(underway);
+    }
+    for (const status of ["failed", "error"]) expect(read(status)).toEqual(failed);
+  });
+
+  it("uses the vendor's own title for a call that is still waiting, not a past tense", () => {
+    // ExitPlanMode asks the person first: "Ready to code?" until they answer.
+    const exit = (status: string) => call("ExitPlanMode", status, { plan: "..." }, "Ready to code?");
+    expect(stepLabel(exit("pending"))).toEqual({ verb: "Ready to code?", object: "" });
+    expect(stepLabel(exit("awaiting_permission"))).toEqual({ verb: "Ready to code?", object: "" });
+    expect(stepLabel(exit("completed"))).toEqual({ verb: "Left plan mode", object: "" });
+    expect(stepLabel(exit("failed"))).toEqual({ verb: "Couldn't exit plan mode", object: "" });
+  });
+
+  it("does not call a Monitor with no command or description a watch", () => {
+    // Seen in the owner's data: Monitor called with ToolSearch's {query, max_results}, and it failed.
+    const mistaken = { query: "select:X", max_results: 1 };
+    expect(stepLabel(call("Monitor", "failed", mistaken))).toEqual({ verb: "Monitor", object: "" });
+    expect(stepLabel(call("Monitor", "completed", mistaken))).toEqual({ verb: "Monitor", object: "" });
+    expect(stepLabel(call("Monitor", "failed", undefined, "Monitor: something"))).toEqual({ verb: "Monitor: something", object: "" });
+  });
+
+  it("keeps the vendor's title for a Skill when it already names the skill", () => {
+    const title = "Load skill: superpowers:brainstorming";
+    for (const status of ["completed", "pending", "failed"]) {
+      expect(stepLabel(call("Skill", status, { skill: "superpowers:brainstorming" }, title))).toEqual({ verb: title, object: "" });
+      expect(stepLabel(call("Skill", status, { name: "superpowers:brainstorming" }, title))).toEqual({ verb: title, object: "" });
+      // No name in the input: the title is all there is.
+      expect(stepLabel(call("Skill", status, {}, title))).toEqual({ verb: title, object: "" });
+    }
+    // A title that does not carry it gives way to the input; the bare name always does.
+    expect(stepLabel(call("Skill", "completed", { skill: "simplify" }, "Skill: other"))).toEqual({ verb: "Used skill", object: "simplify" });
+    expect(stepLabel(call("Skill", "completed", { skill: "simplify" }))).toEqual({ verb: "Used skill", object: "simplify" });
+  });
+});
+
 describe("ToolSearch", () => {
   const search = (query: unknown, extra: Partial<TranscriptItem> = {}, status = "completed") =>
     row("tool_call", {
@@ -460,6 +527,15 @@ describe("ToolSearch", () => {
       terms: ["+slack", "send", "message"],
     });
     expect(toolSearchTerms(search("select:" + "N".repeat(200)).toolCall!).terms[0]).toHaveLength(80);
+    // Clipped by what a person sees as one character, not by UTF-16 units.
+    const emoji = toolSearchTerms(search("select:" + "😀".repeat(200)).toolCall!).terms[0];
+    expect(emoji).toBe("😀".repeat(79) + "…");
+    expect(emoji).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+    const combining = toolSearchTerms(search("select:" + "e\u0301".repeat(200)).toolCall!).terms[0];
+    expect(combining).toBe("e\u0301".repeat(79) + "…");
+    const family = "👨\u200d👩\u200d👧";
+    expect(toolSearchTerms(search("select:" + family.repeat(100)).toolCall!).terms[0]).toBe(family.repeat(79) + "…");
+    expect(toolSearchTerms(search("select:" + "😀".repeat(80)).toolCall!).terms[0]).toBe("😀".repeat(80));
     expect(toolSearchTerms(search(undefined).toolCall!)).toEqual({ select: false, terms: [] });
     expect(toolSearchTerms({ id: "x", name: "ToolSearch" })).toEqual({ select: false, terms: [] });
   });
@@ -493,12 +569,17 @@ describe("ToolSearch", () => {
     expect(shape([a, b])).toEqual(["loaded:2"]);
   });
 
-  it("says it is loading tools while it is the newest step, in the turn and in a subagent", () => {
+  it("says it is loading tools only while the search is running, in the turn and in a subagent", () => {
     const live = (...rows: TranscriptItem[]) => activityOf(groupTurns([row("user_message_chunk"), ...rows])[0]);
-    expect(live(search("select:A", {}, "in_progress"))).toEqual({ label: "Loading tools", orb: "working" });
-    expect(currentStep([search("select:A", { origin: "a1" }, "in_progress")])).toBe("Loading tools");
-    // A search that failed is not "loading": it says what it was and how it ended.
-    expect(live(search("select:A", {}, "failed")).label).toBe("ToolSearch");
+    for (const status of ["pending", "in_progress", "awaiting_permission"]) {
+      expect(live(search("select:A", {}, status))).toEqual({ label: "Loading tools", orb: "working" });
+      expect(currentStep([search("select:A", { origin: "a1" }, status)])).toBe("Loading tools");
+    }
+    // Done: it has loaded them, whatever is newest.
+    expect(live(search("select:A,B")).label).toBe("Loaded tools A, B");
+    expect(currentStep([search("select:A,B")])).toBe("Loaded tools A, B");
+    // Failed: the same words as its row.
+    expect(live(search("select:Nope", {}, "failed")).label).toBe("Couldn't load Nope");
     expect(currentStep([search("select:Nope", {}, "failed")])).toBe("Couldn't load Nope");
     // Another step keeps its own label.
     expect(live(search("select:A"), other("Read go.mod")).label).toBe("Read go.mod");
@@ -510,6 +591,7 @@ describe("ToolSearch", () => {
     expect(stepLabel(search("select:A,B").toolCall!)).toEqual({ verb: "Loaded tools", object: "A, B" });
     expect(stepLabel(search("slack send").toolCall!)).toEqual({ verb: "Loaded tools", object: "slack send" });
     expect(stepSummary([search("select:A"), other()])).toBe("Loaded tools, read files");
+    expect(stepSummary([search("select:A"), search("select:Nope", {}, "failed")])).toBe("Loaded tools, couldn't load tools");
   });
 });
 
