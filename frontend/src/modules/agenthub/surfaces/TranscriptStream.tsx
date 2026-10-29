@@ -13,6 +13,7 @@ import { groupTurns, newestPlanTurnIndex, type Turn } from "../turns";
 import { AgentJumpToLatest } from "./AgentJumpToLatest";
 import { AgentMetaInspector } from "./AgentMetaInspector";
 import { AgentTurn } from "./AgentTurn";
+import { EarlierTurnProvider } from "../transcript/toolSettle";
 import { EMPTY_CHECKPOINTS, type CheckpointIndex } from "../checkpoints";
 import type { FileDiff } from "../../../../bindings/devkit/internal/agenthub/models";
 import { TranscriptTicks, ticksOf } from "./TranscriptTicks";
@@ -615,21 +616,24 @@ export function TranscriptStream({
   function renderTurn(turn: Turn, index: number) {
     const latest = index === turns.length - 1;
     return (
-      <AgentTurn
-        key={turn.id}
-        turn={turn}
-        latest={latest}
-        latestPlan={planDocked && index === planTurnIndex}
-        live={latest && streaming}
-        vendor={vendor}
-        checkpoint={turn.prompt?.messageId ? checkpoints.get(turn.prompt.messageId) : undefined}
-        loadFileDiff={loadFileDiff}
-        onRewind={stableOnRewind}
-        onInspect={setInspecting}
-        onCopy={stableOnCopy}
-        onEditPrompt={stableOnEditPrompt}
-        onOpenFile={stableOnOpenFile}
-      />
+      // A later user message exists: a call this turn left pending or in progress
+      // will never finish, and is not drawn as live (transcript/toolSettle.tsx).
+      <EarlierTurnProvider key={turn.id} earlier={!latest}>
+        <AgentTurn
+          turn={turn}
+          latest={latest}
+          latestPlan={planDocked && index === planTurnIndex}
+          live={latest && streaming}
+          vendor={vendor}
+          checkpoint={turn.prompt?.messageId ? checkpoints.get(turn.prompt.messageId) : undefined}
+          loadFileDiff={loadFileDiff}
+          onRewind={stableOnRewind}
+          onInspect={setInspecting}
+          onCopy={stableOnCopy}
+          onEditPrompt={stableOnEditPrompt}
+          onOpenFile={stableOnOpenFile}
+        />
+      </EarlierTurnProvider>
     );
   }
 

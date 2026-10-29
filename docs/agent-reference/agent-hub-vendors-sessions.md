@@ -79,7 +79,8 @@
   is appended to the session's stored `extra_rw_paths` with a compare-and-set, so `workspace.list`, `git.*` and children
   created later see it at once and existing children never change. The session's own shell and file tools are bound to
   the jail built when the process started, so the session is marked and `reopenAfterGrant` releases its process at the
-  end of the turn (the half of `CloseSession` that tears it down; the next prompt reopens it from the stored row) when
+  end of the turn, before `OnTurnFinished` fires (the window reads the Environment on that event, so the release must be
+done by then; the half of `CloseSession` that tears it down; the next prompt reopens it from the stored row) when
   `releasableNow` allows: idle or error, no running child, no waiting question or permission or queued peer message, the
   vendor can reload it, and **no vendor task running** (`bgwork.go`). Those are first screens; the guard is the locked
   check in `releaseRuntimeSince`, which also refuses a session whose turn claim (`s.invoking`) is held and a runtime
@@ -93,7 +94,11 @@
   `after_reopen`) and marks the session again, since an earlier reopen may have been blocked. The audit record of the
   request carries `origin` and `action` only, not the folder name. The set is fed from
   `async_task_*` updates, which only Claude sends today; for Codex and opencode the guard protects nothing. The Environment
-  view of a live session reports the process's own grants, so it shows a new folder only after the reopen. Known limits:
+  view of a live session reports the process's own grants and then lists each folder of the stored row the process was
+  not opened with as an "Additional writable folder" with status `pending` ("Granted. Applies after this session
+  reopens."; `addFoldersGrantedSinceOpen`); the window marks the session's Environment queries stale when a turn ends
+  (`environmentKey.ts`). `AgentSession.ExtraReadWritePaths` stays `json:"-"`: the list never reaches the UI JSON, only
+  Go reads it. Known limits:
   a service path that is a symlink is compared lexically, so an already-granted answer can be reported while `git.*`,
   which resolves links, still refuses; and a mark set during a vendor-started turn (no `Invoke`) is spent by the end
   of the next turn that runs. Not run

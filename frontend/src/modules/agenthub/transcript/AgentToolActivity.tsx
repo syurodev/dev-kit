@@ -14,7 +14,7 @@ import { toolActivityOf, type ToolActivity, type ToolActivityState, type ToolAct
 import type { ToolCall } from "../types";
 import { toolActivityState } from "./AgentToolCall";
 import { resultCallOf, useFullToolCall } from "./toolCallDetail";
-import { useToolCallCanFinish } from "./toolSettle";
+import { useInEarlierTurn } from "./toolSettle";
 
 /** Whether a call is one of the DevKit tools that change something. */
 export function isToolActivity(call: ToolCall | undefined): boolean {
@@ -69,10 +69,10 @@ export const AgentToolActivity = React.memo(function AgentToolActivity({
   const name = toolNameOf(call);
   const activity = toolActivityOf(name);
   const state = toolActivityState(call.status);
-  // Still pending or in progress in the stored transcript, but nothing can
-  // finish it any more (toolSettle.ts): the card says so instead of spinning.
-  const canFinish = useToolCallCanFinish(sessionId);
-  const stopped = state === "running" && !canFinish;
+  // Still pending or in progress in the stored transcript, but its turn is
+  // over (toolSettle.ts): the card says so instead of spinning.
+  const earlierTurn = useInEarlierTurn();
+  const stopped = state === "running" && earlierTurn;
   // Fixed at mount: whether this card is news or history.
   const bornLive = React.useRef(state === "running" && !stopped).current;
 
@@ -155,15 +155,16 @@ function ActivityCard({
         title={
           live ? (
             <Shimmer active className="text-label-12">{`${verb}…`}</Shimmer>
+          ) : stopped ? (
+            // Not "Committing" beside "didn't finish": the verb would claim it is under way.
+            <span className="text-text-secondary">Didn't finish</span>
           ) : (
-            <span className={cn(state === "failed" && "text-status-danger", stopped && "text-text-secondary")}>{verb}</span>
+            <span className={cn(state === "failed" && "text-status-danger")}>{verb}</span>
           )
         }
         meta={
           live ? (
             <Spinner className="size-3 text-text-tertiary" aria-label={verb} />
-          ) : stopped ? (
-            <span className="text-caption-11 text-text-tertiary">didn't finish</span>
           ) : state === "failed" ? (
             <X className="size-3 text-status-danger" aria-hidden="true" />
           ) : (

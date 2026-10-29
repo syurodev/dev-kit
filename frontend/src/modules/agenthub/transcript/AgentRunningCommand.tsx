@@ -7,7 +7,7 @@ import { FramedCard, FramedCardHeader, FramedCardPreview } from "@/components/ui
 import type { ToolCall, TranscriptItem } from "../types";
 import { commandDescription, toolCommand } from "../turns";
 import { toolActivityState } from "./AgentToolCall";
-import { useToolCallCanFinish } from "./toolSettle";
+import { useInEarlierTurn } from "./toolSettle";
 
 /** A command shows its card once it has run this long: a quick one never flashes. */
 export const SLOW_COMMAND_MS = 2000;
@@ -75,9 +75,9 @@ export function useElapsed(since: string | undefined, running: boolean): number 
  */
 export function AgentRunningCommand({ item }: { item: TranscriptItem }) {
   const call = item.toolCall!;
-  // A command the transcript still has running, in a session nothing can finish it in: no clock.
-  const canFinish = useToolCallCanFinish(item.sessionId);
-  const running = isRunningCommand(item) && canFinish;
+  // A command the transcript still has running, in a turn that is over: no clock.
+  const earlierTurn = useInEarlierTurn();
+  const running = isRunningCommand(item) && !earlierTurn;
   const elapsed = useElapsed(item.createdAt, running);
   if (!running || elapsed < SLOW_COMMAND_MS) return null;
   const command = commandText(call);

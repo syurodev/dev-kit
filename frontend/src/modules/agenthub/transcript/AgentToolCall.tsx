@@ -14,7 +14,7 @@ import { AgentToolTerminal } from "./AgentToolTerminal";
 import { AgentCodeBlock } from "./AgentCodeBlock";
 import { languageForPath, normalizeLanguage } from "@/components/code/languages";
 import { parseListing } from "./syntax";
-import { failureLine, settleToolState, useToolCallCanFinish, type SettledToolState } from "./toolSettle";
+import { failureLine, settleToolState, useInEarlierTurn, type SettledToolState } from "./toolSettle";
 import { hasToolResultView, renderToolResult } from "@/workbench/toolResultViews";
 import { isDevkitTool, toolNameOf, toolPayloadOf, toolResultInputOf } from "@/workbench/toolPayload";
 
@@ -120,7 +120,7 @@ export function toolActivityState(status?: string): "running" | "done" | "failed
 
 const DOT: Record<ToolState, string> = {
   pending: "border border-text-tertiary",
-  unfinished: "border border-border-subtle",
+  unfinished: "border border-border",
   running: "bg-(--status-running)",
   awaiting: "bg-status-warning",
   done: "bg-text-tertiary",
@@ -223,10 +223,10 @@ export function AgentToolCall({
   className,
 }: AgentToolCallProps) {
   const KindIcon = kindIcon(call);
-  // A call the stored transcript still has pending or in progress is live only
-  // while the session can finish it (toolSettle.ts).
-  const canFinish = useToolCallCanFinish(sessionId);
-  const state = settleToolState(toToolState(call.status), { sessionRunning: canFinish });
+  // A call the stored transcript still has pending or in progress, in a turn
+  // that is over, will never finish (toolSettle.ts).
+  const earlierTurn = useInEarlierTurn();
+  const state = settleToolState(toToolState(call.status), { earlierTurn });
   const title = call.title || call.kind || call.id || "Tool execution";
   const [expanded, setExpanded] = React.useState(defaultExpanded);
   // The whole call behind a truncated preview, fetched on ask; once loaded it

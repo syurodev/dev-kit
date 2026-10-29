@@ -14,6 +14,7 @@ import { AgentToolActivity, activityTargetOf, isToolActivity } from "./transcrip
 import { toolNameOf } from "@/workbench/toolPayload";
 import { cachedFullToolCall, resultCallOf } from "./transcript/toolCallDetail";
 import { AgentRunningCommand, isRunningCommand } from "./transcript/AgentRunningCommand";
+import { EarlierTurnProvider, earlierTurnItemIds } from "./transcript/toolSettle";
 import { toolActivityState } from "./transcript/AgentToolCall";
 
 /** Whether the person follows this session (stores/agentPins). */
@@ -90,6 +91,8 @@ export function feedWindow<T>(feed: readonly T[], limit: number): { drawn: reado
 export function AgentActivityPanel({ sessionId, title, onStop }: { sessionId: string; title: string; onStop: () => void }) {
   const items = useAgentSessionsStore((s) => s.transcriptsById[sessionId]?.items ?? EMPTY_ARRAY);
   const feed = React.useMemo(() => activityFeed(items), [items]);
+  // The cards stand outside any turn here: which of them belong to one that is over.
+  const earlier = React.useMemo(() => earlierTurnItemIds(items), [items]);
   // Keyed to the session so following another one starts from its newest again.
   const [extra, setExtra] = React.useState({ sessionId, count: 0 });
   const limit = FOLLOW_FEED_PAGE + (extra.sessionId === sessionId ? extra.count : 0);
@@ -128,13 +131,15 @@ export function AgentActivityPanel({ sessionId, title, onStop }: { sessionId: st
             data-testid="agent-activity-feed"
             className={preview ? "flex max-h-[45%] shrink-0 flex-col gap-2 overflow-y-auto p-3" : "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3"}
           >
-            {drawn.map((item) =>
-              isRunningCommand(item) ? (
-                <AgentRunningCommand key={item.id} item={item} />
-              ) : (
-                <AgentToolActivity key={item.id} call={item.toolCall!} sessionId={item.sessionId ?? sessionId} />
-              ),
-            )}
+            {drawn.map((item) => (
+              <EarlierTurnProvider key={item.id} earlier={earlier.has(item.id)}>
+                {isRunningCommand(item) ? (
+                  <AgentRunningCommand item={item} />
+                ) : (
+                  <AgentToolActivity call={item.toolCall!} sessionId={item.sessionId ?? sessionId} />
+                )}
+              </EarlierTurnProvider>
+            ))}
             {hidden > 0 ? (
               <Button
                 variant="ghost"

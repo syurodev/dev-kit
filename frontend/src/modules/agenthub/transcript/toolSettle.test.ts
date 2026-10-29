@@ -1,39 +1,37 @@
 import { describe, expect, it } from "bun:test";
-import { callCanStillFinish, failureLine, settleToolState } from "./toolSettle";
+import type { TranscriptItem } from "../types";
+import { earlierTurnItemIds, failureLine, settleToolState } from "./toolSettle";
 
 describe("settleToolState", () => {
   const states = ["pending", "running", "awaiting", "done", "failed"] as const;
 
-  it("lets a call of a running session carry on as it is", () => {
-    for (const state of states) expect(settleToolState(state, { sessionRunning: true })).toBe(state);
+  it("lets a call of the latest turn carry on as it is, whatever the session says", () => {
+    for (const state of states) expect(settleToolState(state, { earlierTurn: false })).toBe(state);
   });
 
-  it("settles a call that can no longer finish, and only those", () => {
-    expect(settleToolState("pending", { sessionRunning: false })).toBe("unfinished");
-    expect(settleToolState("running", { sessionRunning: false })).toBe("unfinished");
-    expect(settleToolState("awaiting", { sessionRunning: false })).toBe("unfinished");
+  it("settles a call of an earlier turn that can no longer finish, and only those", () => {
+    expect(settleToolState("pending", { earlierTurn: true })).toBe("unfinished");
+    expect(settleToolState("running", { earlierTurn: true })).toBe("unfinished");
+    expect(settleToolState("awaiting", { earlierTurn: true })).toBe("unfinished");
     // What ended stays what it was.
-    expect(settleToolState("done", { sessionRunning: false })).toBe("done");
-    expect(settleToolState("failed", { sessionRunning: false })).toBe("failed");
-    expect(settleToolState("unfinished", { sessionRunning: false })).toBe("unfinished");
+    expect(settleToolState("done", { earlierTurn: true })).toBe("done");
+    expect(settleToolState("failed", { earlierTurn: true })).toBe("failed");
+    expect(settleToolState("unfinished", { earlierTurn: true })).toBe("unfinished");
   });
 });
 
-describe("callCanStillFinish", () => {
-  it.each([
-    ["running", false, true],
-    ["awaiting_permission", false, true],
-    // A turn of ours is in flight before the row says running.
-    ["idle", true, true],
-    ["error", true, true],
-    ["idle", false, false],
-    ["error", false, false],
-    ["closed", false, false],
-    // A status nobody knows is not a reason to say a call is over.
-    ["", false, true],
-    [undefined, false, true],
-  ] as const)("status %p, our turn in flight %p -> %p", (status, inFlight, expected) => {
-    expect(callCanStillFinish(status, inFlight)).toBe(expected);
+const item = (id: string, kind: string): TranscriptItem => ({ id, kind }) as TranscriptItem;
+
+describe("earlierTurnItemIds", () => {
+  it("is every item before the newest user message", () => {
+    const items = [item("u1", "user_message_chunk"), item("t1", "tool_call"), item("u2", "user_message_chunk"), item("t2", "tool_call")];
+    expect([...earlierTurnItemIds(items)]).toEqual(["u1", "t1"]);
+  });
+
+  it("is empty for a transcript of one turn, or none", () => {
+    expect(earlierTurnItemIds([item("u1", "user_message_chunk"), item("t1", "tool_call")]).size).toBe(0);
+    expect(earlierTurnItemIds([item("t1", "tool_call")]).size).toBe(0);
+    expect(earlierTurnItemIds([]).size).toBe(0);
   });
 });
 
