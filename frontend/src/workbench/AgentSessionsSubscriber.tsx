@@ -21,6 +21,7 @@ import {
   type PermissionClosedEvent,
   type SessionUpdateEvent,
 } from "../bridge/agenthub";
+import { queryClient } from "../lib/query";
 import { useAgentPinsStore } from "../stores/agentPins";
 import { useAgentSessionsStore } from "../stores/agentSessions";
 import { refreshSessionAfterPermission } from "../modules/agenthub/permissions";
@@ -153,6 +154,10 @@ export function isPeerMessage(event: Pick<SessionUpdateEvent, "parsed">): boolea
   return parsed?.kind === UpdateKind.UpdateUserMessageChunk && Boolean(parsed.source);
 }
 
+function sameList(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
 /** The latest preview read per session; an older read that answers late is ignored. */
 const previewReads = new Map<string, number>();
 
@@ -186,11 +191,20 @@ export function handleAgentTurnFinished(
   if (session && !ours && session.status !== nextStatus) {
     state.upsertSession({ ...session, status: nextStatus });
   }
-  if (session && !ours) {
+  // A grant the agent asked for during the turn (workspace.requestWrite) lives
+  // in the stored row, and a live session's Environment is the running
+  // process's own report plus it: an open view reads again.
+  void queryClient.invalidateQueries({
+    queryKey: ["agenthub", "environment"],
+    predicate: (query) => query.queryKey[3] === sessionId,
+  });
+  if (session) {
     // The preview is written with the status; a turn from elsewhere (MCP,
-    // another agent) only told us the status, so read the row once. Only the
-    // preview and its time are taken from it: the next queued turn may already be running
-    // here by the time the read answers, and its status must not go back.
+    // another agent) only told us the status, so read the row once. For a turn
+    // of ours, sendAgentTurn settles the status and the preview comes with the
+    // next read, so only the granted folders are taken from the row: the next
+    // queued turn may already be running here by the time the read answers,
+    // and its status must not go back.
     const getStatus = bridge?.getStatus ?? agentHubGetStatus;
     const read = (previewReads.get(sessionId) ?? 0) + 1;
     previewReads.set(sessionId, read);
@@ -198,14 +212,21 @@ export function handleAgentTurnFinished(
       .then((fresh) => {
         if (previewReads.get(sessionId) !== read) return;
         const current = useAgentSessionsStore.getState().sessionsById[sessionId];
+        if (!fresh || !current) return;
+        const extras = fresh.extraReadWritePaths ?? [];
+        const sameExtras = sameList(current.extraReadWritePaths ?? [], extras);
+        if (ours) {
+          if (!sameExtras) useAgentSessionsStore.getState().upsertSession({ ...current, extraReadWritePaths: extras });
+          return;
+        }
         // A title only when the row has none: Go names a session after its
         // first turn (agenthub/session_title.go), and a rename made here since
         // is the person's.
-        const title = current && !current.title?.trim() && fresh?.title ? fresh.title : current?.title;
-        if (fresh && current && (current.preview !== fresh.preview || current.updatedAt !== fresh.updatedAt || title !== current.title)) {
+        const title = !current.title?.trim() && fresh.title ? fresh.title : current.title;
+        if (current.preview !== fresh.preview || current.updatedAt !== fresh.updatedAt || title !== current.title || !sameExtras) {
           useAgentSessionsStore
             .getState()
-            .upsertSession({ ...current, title, preview: fresh.preview, updatedAt: fresh.updatedAt });
+            .upsertSession({ ...current, title, preview: fresh.preview, updatedAt: fresh.updatedAt, extraReadWritePaths: extras });
         }
       })
       .catch(() => {});

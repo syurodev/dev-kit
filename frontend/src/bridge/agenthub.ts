@@ -76,6 +76,12 @@ export type AgentSession = {
    * the "<vendor>-default" id. The bound JSON calls this field AccountID.
    */
   accountId?: string;
+  /**
+   * The folders besides projectPath the session may write: the ones it was
+   * created with and the ones the agent was granted since (workspace.requestWrite).
+   * A turn can add to it, so the window reads it again when one ends.
+   */
+  extraReadWritePaths?: string[];
 };
 
 export type InvokeResult = {
@@ -259,6 +265,7 @@ export function toSession(raw: RawSession): AgentSession {
     preview: raw.Preview ?? "",
     updatedAt: toEpoch(raw.UpdatedAt),
     accountId: raw.AccountID ?? "",
+    extraReadWritePaths: raw.ExtraReadWritePaths ?? [],
   };
 }
 
