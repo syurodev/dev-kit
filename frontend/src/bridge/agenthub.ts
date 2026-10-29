@@ -76,6 +76,20 @@ export type AgentSession = {
    * the "<vendor>-default" id. The bound JSON calls this field AccountID.
    */
   accountId?: string;
+  /**
+   * What the session's live process is doing that no DevKit turn started: a turn
+   * the vendor began itself, and background tasks. Absent when it does neither.
+   * Read from the row and kept current by `agenthub:activity`; never sent back.
+   */
+  activity?: SessionActivity;
+};
+
+/** The vendor's own work on a session (internal/agenthub/bgwork.go). */
+export type SessionActivity = {
+  /** The vendor runs a turn of its own (taskType "turn"). */
+  agentTurn: boolean;
+  /** Running background tasks other than that turn. */
+  tasks: number;
 };
 
 export type InvokeResult = {
@@ -223,6 +237,7 @@ const ELICITATION_CLOSED_EVENT = "agenthub:elicitationClosed";
 const TURN_FINISHED_EVENT = "agenthub:turnFinished";
 const TURN_STARTED_EVENT = "agenthub:turnStarted";
 const SESSION_CREATED_EVENT = "agenthub:sessionCreated";
+const ACTIVITY_EVENT = "agenthub:activity";
 const NOTIFICATION_ACTION_EVENT = "agenthub:notificationAction";
 const CHECKPOINT_EVENT = "agenthub:checkpoint";
 const FILES_RESTORED_EVENT = "agenthub:filesRestored";
@@ -259,7 +274,24 @@ export function toSession(raw: RawSession): AgentSession {
     preview: raw.Preview ?? "",
     updatedAt: toEpoch(raw.UpdatedAt),
     accountId: raw.AccountID ?? "",
+    ...activityField(raw.activity),
   };
+}
+
+/** The activity of a row as a spread: nothing when the process does nothing of its own. */
+function activityField(raw: { agentTurn?: boolean; tasks?: number } | null | undefined): { activity?: SessionActivity } {
+  const agentTurn = raw?.agentTurn === true;
+  const tasks = typeof raw?.tasks === "number" && raw.tasks > 0 ? Math.floor(raw.tasks) : 0;
+  return agentTurn || tasks > 0 ? { activity: { agentTurn, tasks } } : {};
+}
+
+/** `agenthub:activity`'s payload, as a session activity. Zero when nothing runs. */
+export function toActivity(raw: { agentTurn?: unknown; tasks?: unknown } | null | undefined): SessionActivity {
+  const { activity } = activityField({
+    agentTurn: raw?.agentTurn === true,
+    tasks: typeof raw?.tasks === "number" ? raw.tasks : 0,
+  });
+  return activity ?? { agentTurn: false, tasks: 0 };
 }
 
 /** A Go time.Time over the bridge; the zero time and anything unparsable are "unknown". */
@@ -879,6 +911,23 @@ export function onAgentHubTurnStarted(handler: (sessionId: string) => void): () 
   return Events.On(TURN_STARTED_EVENT, (ev) => {
     const parsed = parseSessionEvent(ev?.data);
     if (parsed) handler(parsed.sessionId);
+  });
+}
+
+/**
+ * A session's own work changed: the vendor started or ended a turn or a task
+ * without DevKit's help, or its process went away. The payload is the whole
+ * current state, not a delta.
+ */
+export function onAgentHubActivity(
+  handler: (event: { sessionId: string; activity: SessionActivity }) => void,
+): () => void {
+  return Events.On(ACTIVITY_EVENT, (ev) => {
+    const data = Array.isArray(ev?.data) ? ev.data[0] : ev?.data;
+    if (!data || typeof data !== "object") return;
+    const value = data as Record<string, unknown>;
+    if (typeof value.sessionId !== "string" || value.sessionId.length === 0) return;
+    handler({ sessionId: value.sessionId, activity: toActivity(value) });
   });
 }
 

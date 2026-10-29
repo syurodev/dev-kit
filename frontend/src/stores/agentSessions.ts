@@ -1,5 +1,11 @@
 import { create } from "zustand";
-import type { AgentImageAttachment, AgentSession, PendingElicitation, PendingPermission } from "../bridge/agenthub";
+import type {
+  AgentImageAttachment,
+  AgentSession,
+  PendingElicitation,
+  PendingPermission,
+  SessionActivity,
+} from "../bridge/agenthub";
 import type {
   ProviderRetry,
   Subagent,
@@ -144,6 +150,13 @@ type AgentSessionsState = {
   setSessions: (sessions: AgentSession[]) => void;
   upsertSession: (session: AgentSession) => void;
   removeSession: (id: string) => void;
+  /**
+   * What the session's process does on its own changed (`agenthub:activity`). Kept on
+   * the session row, which every read of the backend also fills, so the two cannot
+   * disagree. An event for a session not loaded yet is dropped: the read that loads it
+   * carries the activity.
+   */
+  setActivity: (sessionId: string, activity: SessionActivity) => void;
   setActiveSessionId: (id: string) => void;
   setPrompt: (sessionId: string, prompt: string) => void;
   setTranscript: (sessionId: string, model: TranscriptModel) => void;
@@ -239,6 +252,16 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
         };
       }
       return { sessionsById: { ...state.sessionsById, [session.id]: session } };
+    }),
+  setActivity: (sessionId, activity) =>
+    set((state) => {
+      const session = state.sessionsById[sessionId];
+      if (!session) return state;
+      const quiet = !activity.agentTurn && activity.tasks <= 0;
+      const current = session.activity;
+      if (quiet ? !current : current?.agentTurn === activity.agentTurn && current.tasks === activity.tasks) return state;
+      const { activity: _before, ...rest } = session;
+      return { sessionsById: { ...state.sessionsById, [sessionId]: quiet ? rest : { ...rest, activity } } };
     }),
   removeSession: (id) =>
     set((state) => {

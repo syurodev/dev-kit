@@ -110,3 +110,55 @@ describe("permission control-plane state", () => {
     expect(useAgentSessionsStore.getState().pendingQueue).toEqual([pending]);
   });
 });
+
+describe("a session's own activity in the store", () => {
+  beforeEach(() => {
+    useAgentSessionsStore.setState({ sessionsById: {}, sessionIds: [], sessionsLoaded: false });
+  });
+
+  const idle = (id: string, over: Partial<AgentSession> = {}): AgentSession => ({ ...session(id), status: "idle", ...over });
+  const row = (id: string) => useAgentSessionsStore.getState().sessionsById[id];
+
+  it("takes it from the session list the backend returned", () => {
+    useAgentSessionsStore.getState().setSessions([idle("a", { activity: { agentTurn: true, tasks: 1 } }), idle("b")]);
+    expect(row("a").activity).toEqual({ agentTurn: true, tasks: 1 });
+    expect(row("b").activity).toBeUndefined();
+  });
+
+  it("takes it from a single read that is upserted", () => {
+    useAgentSessionsStore.getState().upsertSession(idle("a", { activity: { agentTurn: false, tasks: 2 } }));
+    expect(row("a").activity).toEqual({ agentTurn: false, tasks: 2 });
+  });
+
+  it("is set by an event for a session it knows, replacing what was there", () => {
+    const store = useAgentSessionsStore.getState();
+    store.upsertSession(idle("a", { activity: { agentTurn: false, tasks: 2 } }));
+    store.setActivity("a", { agentTurn: true, tasks: 1 });
+    expect(row("a").activity).toEqual({ agentTurn: true, tasks: 1 });
+  });
+
+  it("is cleared by an event that says nothing runs", () => {
+    const store = useAgentSessionsStore.getState();
+    store.upsertSession(idle("a", { activity: { agentTurn: true, tasks: 0 } }));
+    store.setActivity("a", { agentTurn: false, tasks: 0 });
+    expect(row("a").activity).toBeUndefined();
+  });
+
+  it("ignores an event for a session it has not loaded", () => {
+    useAgentSessionsStore.getState().setActivity("nobody", { agentTurn: true, tasks: 0 });
+    expect(row("nobody")).toBeUndefined();
+    expect(useAgentSessionsStore.getState().sessionIds).toEqual([]);
+  });
+
+  it("leaves the session object alone when the event changes nothing", () => {
+    const store = useAgentSessionsStore.getState();
+    store.upsertSession(idle("a", { activity: { agentTurn: true, tasks: 1 } }));
+    const before = useAgentSessionsStore.getState().sessionsById;
+    store.setActivity("a", { agentTurn: true, tasks: 1 });
+    expect(useAgentSessionsStore.getState().sessionsById).toBe(before);
+    store.upsertSession(idle("q"));
+    const quiet = useAgentSessionsStore.getState().sessionsById;
+    store.setActivity("q", { agentTurn: false, tasks: 0 });
+    expect(useAgentSessionsStore.getState().sessionsById).toBe(quiet);
+  });
+});
