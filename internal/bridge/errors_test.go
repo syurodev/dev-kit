@@ -238,6 +238,24 @@ func TestManagedWriterRefusalIsPublishedWithoutHostDetails(t *testing.T) {
 	}
 }
 
+// The window tells a call that reached a closed session apart by its code, not by a
+// sentence: it corrects its stale row and says nothing (frontend sessionConfig).
+func TestAClosedSessionIsPublishedUnderItsOwnCode(t *testing.T) {
+	err := publicError("builtin.agenthub", fmt.Errorf("%w: /home/me/secret-path", agenthub.ErrSessionClosed))
+	var got *apperrors.AppError
+	if !errors.As(err, &got) || got.Code != "agenthub.sessionClosed" || !keptCodes[got.Code] {
+		t.Fatalf("public error = %v", err)
+	}
+	if strings.Contains(got.Error(), "secret-path") || !got.Recoverable || !strings.Contains(got.Message, "closed") {
+		t.Fatalf("unsafe or unhelpful: %+v", got)
+	}
+	// A second pass through the funnel keeps it rather than redacting it.
+	again := publicErrorForCode("builtin.agenthub", got, got)
+	if again.Code != codeSessionClosed || again.Message != got.Message {
+		t.Fatalf("second pass = %+v", again)
+	}
+}
+
 func TestHarnessServingRefusalsAreKeptAsWritten(t *testing.T) {
 	for _, code := range []string{harness.CodeGroupOff, harness.CodeSnapshotUnavailable} {
 		got := publicErrorForCode("builtin.git", errors.New(code), &apperrors.AppError{Code: code, Message: "The git tools are turned off for this session.", Recoverable: true})

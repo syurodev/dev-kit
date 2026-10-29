@@ -86,6 +86,9 @@ const (
 	codeTaskStatusChanged       = "task_status_changed"
 	codeManagedTerminalNotReady = "tasks.managedTerminalNotReady"
 	codeManagedWriterBlocked    = "agenthub.managedWriterBlocked"
+	// A call that needs a running process reached a session that is closed. Its own
+	// code so the window answers with a refresh of its stale row, not an error.
+	codeSessionClosed = "agenthub.sessionClosed"
 	// A rewind put the files back and the conversation was proven not rewound
 	// (codeRewindFilesRestored), or it put the files back and what happened to
 	// the conversation could not be proven (codeRewindOutcomeUnknown). Neither is
@@ -424,7 +427,7 @@ func publicError(subject string, err error) *apperrors.AppError {
 		case errors.Is(err, errAgentHubUnavailable), errors.Is(err, agenthub.ErrUnavailable):
 			return apperrors.New(codeInternalError, "Agent Hub is not available.", true)
 		case errors.Is(err, agenthub.ErrSessionClosed):
-			return apperrors.New(codeValidationFailed, "This session is closed. Send a message to reopen it.", true)
+			return apperrors.New(codeSessionClosed, "This session is closed. Send a message to reopen it.", true)
 		case errors.Is(err, agenthub.ErrSessionNotFound):
 			return apperrors.New(codeValidationFailed, "Agent session not found.", true)
 		case errors.Is(err, agenthub.ErrSessionBusy):
@@ -876,6 +879,7 @@ func logPDFCause(subject string, existing *apperrors.AppError) {
 var keptCodes = map[string]bool{
 	codeManagedTerminalNotReady: true,
 	codeManagedWriterBlocked:    true,
+	codeSessionClosed:           true, // the fixed sentence mapped in publicError
 	"pdf.notFound":              true,
 	"pdf.sessionDenied":         true,
 	"pdf.pageRange":             true,
