@@ -174,3 +174,61 @@ immutable; no public transport or MCP tool exposes them yet.
   `OPT-9324dc`/`OPT-f3831a`), so `PackageSource.Decisions` stays empty; inventing one from comments or transcripts would break the
   isolation rule. Also not done: explicit artifact selection, document references, budget-aware read transport, retention cleanup.
   `ErrManagedNotFound` in storage is now an alias of `agentwork.ErrManagedRecordNotFound` so hosts can classify absence.
+
+## Managed harness binding (C1)
+
+`TEAM C1` (plan `docs/superpowers/plans/2026-10-29-team-c1-harness-snapshot-implementation.md`). Internal only: no
+dispatcher, AppService method, MCP tool, `team.*` group or public error code uses it, `main.go` is unchanged, and production
+Agent Hub still has no harness attached (`TestProductionDoesNotWireTheHarnessYet`), so every preflight answers
+`harness_not_configured` today. The goal is that a managed child's preflight and package are tied to the harness
+configuration it was meant to run with and the one it actually runs with, and that a mismatch is reported, never papered over.
+
+- **Sidecar, not a package change.** `agent_work_harness_bindings` (migration 56) is update-blocked and insert-only through the service (no DELETE trigger by design, so a later manual retention cleanup is not blocked) and keyed by
+  `(attempt_id, phase)`, phase `intended` (before the child exists, attempt `reserved`) or `actual` (after, `session_created` or
+  `task_assigned`, session bound). It references the sealed package by composite FK; `ManagedPackageSchemaVersion` stays 1, the
+  package row, lease row and admission barrier are never touched, and an UPDATE aborts (`harness binding is immutable`). Only ids,
+  revisions, digests, fingerprints and group names are stored; a test pins the exact column list (no model, effort, account, path,
+  command, URL or environment). A second row for the same attempt and phase is `ErrHarnessBindingExists` and never replaces the
+  first. Unknown binding or source schema fails closed on write and read. The binding is separate from the model profile and from
+  the v2 requirements digest: neither feeds the other, and neither changes the digest algorithm.
+- **Pieces.** `internal/agentwork` (`harness_binding.go`, `managed_harness.go`): stdlib-only types, the fixed check order and
+  `ManagedHarnessService` (`PreflightIntended`, `BindIntended`, `BindActual`, `VerifyForEnqueue`, `CheckBinding`).
+  `internal/storage/managed_harness.go`: `ManagedLedger.InsertHarnessBinding` (one transaction fenced on attempt revision, current
+  attempt pointer, phase state, enabled unpaused group, live item, package ownership and, for `actual`, the intended row and the
+  attempt's own session id) and `GetHarnessBinding`. `internal/agenthub`: `ServedTools` (the endpoint's last acknowledged surface,
+  `live=false` without an enforcing endpoint), `PermissionModeOf`, pure `ModeNotWiderThan`. `internal/app/managed_harness.go`: the
+  only importer of both `agentwork` and `harness`, the role-to-groups table (`managedRoleGroups`; one edit point) and the
+  `HarnessHost` adapter; `WireManagedOwnership` builds `Container.ManagedHarness` (the store union gained
+  `agentwork.ManagedHarnessStore`, which the ledger already satisfies).
+- **Intended** resolves W and V through a throwaway session id that no session owns, so S is absent by construction and the
+  coordinator's S is never read. **Actual** reuses `ResolveManagedWriter` (identity, workspace, parent equals the coordinator,
+  folder scope, worktree, grants), requires the child's mode not wider than its coordinator's now, reads the *applied* reference
+  (never Desired) and the served surface from the endpoint. A child with an S of its own (even one committed live) is
+  `harness_override_present`; there is no parent-S inheritance, auto-enable, account or model change, or shell fallback.
+- **Refusals** are fixed `HarnessRefusal` codes (`harness_not_configured`, `_unavailable`, `_schema_unsupported`,
+  `_override_present`, `_required_group_off` + group names, `_config_changed`, `_endpoint_not_live`, `_child_scope`, `_child_mode`,
+  `_child_unbound`, `_binding_stale`, `_binding_missing`) checked in a fixed order. `ConfigurationNeeded` is true only for the
+  four the person can fix by configuration. The cause of a host failure is never carried. They are not public error codes; the
+  later dispatcher must map them (recommended single `team.configurationNeeded`) or list them in `redactedOnPurpose`.
+- **Staleness without rebuild.** `CheckBinding` reports `current|stale|missing` plus `RebuildRequired` and a code without
+  mutating anything. A rebuild is a new attempt, package and binding; nothing here supersedes or overwrites, because the release
+  path waits for the writer stop proof. A refused preflight writes nothing; persisting the reason is slice E's operation checkpoint.
+- **Session binding is not here.** `BeginAttempt` is the only writer of `agent_work_attempts.session_id`, and the child's id is
+  minted inside `CreateSession`, so `BindActual` requires the session to be bound already (`harness_child_unbound` otherwise).
+  Binding it, task assignment, enqueue, recovery and the dispatcher are slice E. `VerifyForEnqueue` is read only and is meant to
+  run at the side-effect boundary together with the dispatcher's own admission barrier.
+- **Limits.** Production vendor facts are `FactsComplete=false`, so a binding never claims vendor-verified executables (compared
+  for equality, recorded as is). Tests use the mock runtime and fakes for the ledger store; not run against real vendors or a
+  production graph.
+- **Check order is the service's.** The adapter only hands the service the facts: once a saved W, V or S has drifted from what the
+  child was opened with (reload or new session required) it reports what the saved configuration resolves to now, so an
+  override (including an S saved but not yet live), then a group that is off, then a changed configuration are named in the
+  fixed order. Endpoint-not-live (paused, pending, closed) comes before them, mode and scope before that.
+- **Mode.** "No mode concept" (a live runtime without modes) passes; a mode that cannot be read (store error, or no live runtime and
+  nothing recorded) is `harness_child_mode`, never a pass (`Service.ReadPermissionMode`). A closed child of a vendor that records
+  no mode therefore reads as `harness_child_mode`, not `harness_endpoint_not_live`. A cancelled context is returned as itself, never
+  as a scope or mode refusal.
+- **Known limits.** The binding's workspace id is checked against the group/item/attempt rows by their composite keys, but the
+  storage layer does not separately tie `harness_workspace_id` (the facts' workspace) to the attempt's workspace; the host's
+  intended resolve takes the workspace from the group. A typed-nil store or host handed to `NewManagedHarnessService` is not
+  detected (only an untyped nil host reads as not configured); the app wiring never passes one.
