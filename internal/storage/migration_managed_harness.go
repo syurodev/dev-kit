@@ -6,11 +6,13 @@ import (
 	"fmt"
 )
 
-// ManagedHarnessMigration adds the append-only sidecar that binds a managed
+// ManagedHarnessMigration adds the update-blocked, insert-only sidecar that binds a managed
 // attempt to the harness configuration it was meant to run with (intended)
 // and the one its child ran with (actual). It holds ids, revisions, digests and
 // group names only: no model, effort, account, command, path, URL, argument or
-// environment column exists, and the immutable package row is not touched.
+// environment column exists, and the immutable package row is not touched. An
+// UPDATE aborts (trigger); there is deliberately no DELETE trigger, so a later
+// manual retention cleanup is not blocked, and the service only ever inserts.
 func ManagedHarnessMigration(db *sql.DB) Migration {
 	return Migration{
 		Version: 56,

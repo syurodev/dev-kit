@@ -183,7 +183,7 @@ Agent Hub still has no harness attached (`TestProductionDoesNotWireTheHarnessYet
 `harness_not_configured` today. The goal is that a managed child's preflight and package are tied to the harness
 configuration it was meant to run with and the one it actually runs with, and that a mismatch is reported, never papered over.
 
-- **Sidecar, not a package change.** `agent_work_harness_bindings` (migration 56) is append-only and keyed by
+- **Sidecar, not a package change.** `agent_work_harness_bindings` (migration 56) is update-blocked and insert-only through the service (no DELETE trigger by design, so a later manual retention cleanup is not blocked) and keyed by
   `(attempt_id, phase)`, phase `intended` (before the child exists, attempt `reserved`) or `actual` (after, `session_created` or
   `task_assigned`, session bound). It references the sealed package by composite FK; `ManagedPackageSchemaVersion` stays 1, the
   package row, lease row and admission barrier are never touched, and an UPDATE aborts (`harness binding is immutable`). Only ids,
@@ -218,5 +218,17 @@ configuration it was meant to run with and the one it actually runs with, and th
   Binding it, task assignment, enqueue, recovery and the dispatcher are slice E. `VerifyForEnqueue` is read only and is meant to
   run at the side-effect boundary together with the dispatcher's own admission barrier.
 - **Limits.** Production vendor facts are `FactsComplete=false`, so a binding never claims vendor-verified executables (compared
-  for equality, recorded as is). A W/V change after the child opened reads as `harness_config_changed` ahead of a simultaneous
-  revoked group. Tests use the mock runtime and fakes for the ledger store; not run against real vendors or a production graph.
+  for equality, recorded as is). Tests use the mock runtime and fakes for the ledger store; not run against real vendors or a
+  production graph.
+- **Check order is the service's.** The adapter only hands the service the facts: once a saved W, V or S has drifted from what the
+  child was opened with (reload or new session required) it reports what the saved configuration resolves to now, so an
+  override (including an S saved but not yet live), then a group that is off, then a changed configuration are named in the
+  fixed order. Endpoint-not-live (paused, pending, closed) comes before them, mode and scope before that.
+- **Mode.** "No mode concept" (a live runtime without modes) passes; a mode that cannot be read (store error, or no live runtime and
+  nothing recorded) is `harness_child_mode`, never a pass (`Service.ReadPermissionMode`). A closed child of a vendor that records
+  no mode therefore reads as `harness_child_mode`, not `harness_endpoint_not_live`. A cancelled context is returned as itself, never
+  as a scope or mode refusal.
+- **Known limits.** The binding's workspace id is checked against the group/item/attempt rows by their composite keys, but the
+  storage layer does not separately tie `harness_workspace_id` (the facts' workspace) to the attempt's workspace; the host's
+  intended resolve takes the workspace from the group. A typed-nil store or host handed to `NewManagedHarnessService` is not
+  detected (only an untyped nil host reads as not configured); the app wiring never passes one.
