@@ -267,6 +267,7 @@ describe("the transcript of a session the window knows", () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     container.remove();
+    await setSession(null);
   });
   const item = (id: string, kind: string, extra: Record<string, unknown> = {}) => ({ id, kind, ...extra }) as unknown as TranscriptItem;
   const latestTurn = [
@@ -281,43 +282,52 @@ describe("the transcript of a session the window knows", () => {
     await act(async () => root.render(<TranscriptStream items={items} refContext={ref} {...props} />));
     return [...container.querySelectorAll("[data-testid=agent-tool-call]")].map((el) => el.getAttribute("data-state"));
   };
+  // Through act: a mounted TranscriptStream subscribes to the store, and a store update outside
+  // act is an update outside act.
   const setSession = (session: AgentSession | null, inFlight = false) =>
-    useAgentSessionsStore.setState({
-      sessionsById: session ? { s1: session } : {},
-      turnInFlightBySession: inFlight ? { s1: true } : {},
+    act(async () => {
+      useAgentSessionsStore.setState({
+        sessionsById: session ? { s1: session } : {},
+        turnInFlightBySession: inFlight ? { s1: true } : {},
+      });
     });
 
   test("an idle session's latest turn no longer spins: a cancelled turn's call is settled", async () => {
-    setSession(row());
+    await setSession(row());
     expect(await states(latestTurn)).toEqual(["unfinished"]);
   });
 
   test("a session with only background tasks is quiet too", async () => {
-    setSession(row({ activity: { agentTurn: false, tasks: 2 } }));
+    await setSession(row({ activity: { agentTurn: false, tasks: 2 } }));
     expect(await states(latestTurn)).toEqual(["unfinished"]);
   });
 
   test("an agent-started turn keeps its calls live", async () => {
-    setSession(row({ activity: { agentTurn: true, tasks: 0 } }));
+    await setSession(row({ activity: { agentTurn: true, tasks: 0 } }));
     expect(await states(latestTurn)).toEqual(["running"]);
   });
 
-  test("a running turn, a turn in flight, or a call streaming keeps its calls live", async () => {
-    setSession(row({ status: "running" }));
+  test("a running turn, or a turn in flight, keeps its calls live", async () => {
+    await setSession(row({ status: "running" }));
     expect(await states(latestTurn)).toEqual(["running"]);
-    setSession(row(), true);
+    await setSession(row(), true);
     expect(await states(latestTurn)).toEqual(["running"]);
-    setSession(row());
+  });
+
+  // Its own test, rendered streaming from the first frame: a live turn starts motion animations, and
+  // happy-dom reports one cancelled on unmount as an unhandled AbortError when it began mid-test.
+  test("a caller that says a turn streams keeps its calls live, whatever the store says", async () => {
+    await setSession(row());
     expect(await states(latestTurn, { streaming: true })).toEqual(["running"]);
   });
 
   test("a session waiting for permission keeps its calls live", async () => {
-    setSession(row({ status: "awaiting_permission" }));
+    await setSession(row({ status: "awaiting_permission" }));
     expect(await states(latestTurn)).toEqual(["running"]);
   });
 
   test("a session that is not loaded settles nothing", async () => {
-    setSession(null);
+    await setSession(null);
     expect(await states(latestTurn)).toEqual(["running"]);
   });
 });
