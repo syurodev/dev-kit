@@ -124,14 +124,14 @@ export function isSameMessage(prevMessageId?: string, nextMessageId?: string): b
 /**
  * The plan this turn's agent is already keeping, which an update replaces in
  * place. A subagent's plan is its own: matched by origin, and only the person's
- * prompt or the subagent's own brief ends the search, so a subagent's plan
+ * prompt ends the search (a subagent's brief does not), so a subagent's plan
  * never replaces the lead agent's.
  */
 function livePlanIndex(items: TranscriptItem[], origin?: string): number {
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = items[index];
     const kind = String(item.kind);
-    if (kind === "user_message_chunk" && (!item.origin || item.origin === origin)) return -1;
+    if (kind === "user_message_chunk" && !item.origin) return -1;
     if (kind === "plan" && (item.origin || undefined) === (origin || undefined)) return index;
   }
   return -1;

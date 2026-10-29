@@ -349,7 +349,7 @@ describe("connectorRows", () => {
 });
 
 describe("backgroundTasks", () => {
-  test("one per id, running first, a subagent's own left out", () => {
+  test("one per id, running first, a subagent's own listed: the process belongs to the session", () => {
     const items = [
       item({ asyncTask: { id: "a", name: "Tests", state: "completed" } }),
       item({ asyncTask: { id: "b", name: "Dev server", state: "running" } }),
@@ -359,6 +359,7 @@ describe("backgroundTasks", () => {
     ];
     expect(backgroundTasks(items).map((t) => [t.id, t.state])).toEqual([
       ["b", "running"],
+      ["c", "running"],
       ["a", "failed"],
     ]);
   });

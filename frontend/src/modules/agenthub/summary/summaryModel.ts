@@ -350,12 +350,14 @@ export function isTaskRunning(task: AsyncTask): boolean {
 /**
  * The background tasks the vendor reported, one per id, running first. Only a
  * vendor that has the notion sends them (Claude does); for one that does not
- * the list is empty and the section is not drawn.
+ * the list is empty and the section is not drawn. A task a subagent started is
+ * listed too: the process belongs to the session (and the session's count of
+ * background tasks includes it), whoever started it.
  */
 export function backgroundTasks(items: readonly TranscriptItem[]): AsyncTask[] {
   const byId = new Map<string, AsyncTask>();
   for (const item of items) {
-    if (item.asyncTask?.id && !item.origin) byId.set(item.asyncTask.id, item.asyncTask);
+    if (item.asyncTask?.id) byId.set(item.asyncTask.id, item.asyncTask);
   }
   const all = [...byId.values()];
   return [...all.filter(isTaskRunning), ...all.filter((t) => !isTaskRunning(t))];

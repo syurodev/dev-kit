@@ -237,14 +237,27 @@ done by then; the half of `CloseSession` that tears it down; the next prompt reo
   `acpConnHandler.SessionUpdate` calls `markOrigin` for any update whose `sessionId` is not the runtime's own, tool calls included
   (no `parentToolUseId` rule exists in the repo; the real wire for a subagent's tool calls was not captured in a fixture). The
   recorder's flush rewrote each buffered tool row from the call alone and dropped the origin (`toolTail.origin` now carries it), so a
-  reload had the subagent's words and none of its steps (`TestSubagentToolCallKeepsItsOriginThroughFlushAndReload`). Rows stored
-  before the fix have no origin and stay in the lead's flow: no reliable link to repair them. `plan` and `async_task_*` items also
-  keep their origin in `transcript.ts` (live and reload), and a plan is replaced in place only by one of the same origin. What the
-  pane does per kind (`subagentAudit.test.ts`): `agent_message_chunk` text, `agent_thought_chunk` "Thinking" row (folded to "thought"
-  once the subagent ends), `tool_call`/`tool_call_update` step, `plan` its own plan, `async_task_*` its background task, nested
-  `subagent_*` a nested card with its own activity: all drawn. Not in the pane, deliberately: permission requests and elicitations
-  (session-level cards answered in the rail), `usage_update`, `available_commands_update`, `devkit_connectors_update`, provider retry
-  and `session_info_update` (session-level singletons, not guarded by origin: none measured from a subagent).
+  reload had the subagent's words and none of its steps (`TestSubagentToolCallKeepsItsOriginThroughFlushAndReload`). `plan` and
+  `async_task_*` items also keep their origin in `transcript.ts` (live and reload), and a plan is replaced in place only by one of the
+  same origin (`livePlanIndex`). What the pane does per kind (`subagentAudit.test.ts`): `agent_message_chunk` text,
+  `agent_thought_chunk` "Thinking" row (folded to "thought" once the subagent ends), `tool_call`/`tool_call_update` step, `plan` its
+  own plan, `async_task_*` its background task, nested `subagent_*` a nested card with its own activity: all drawn. Not in the pane,
+  deliberately: permission requests and elicitations (session-level cards answered in the rail), `usage_update`,
+  `available_commands_update`, `devkit_connectors_update`, provider retry and `session_info_update` (session-level singletons, not
+  guarded by origin: none measured from a subagent).
+  Owner-visible changes:
+  - A subagent's plan leaves the lead's session summary and the lead's markdown export, and shows in the subagent's pane; it no longer
+    replaces the lead's plan.
+  - A subagent's tool steps are in the subagent's activity, not in the lead's flow, on sessions stored after this fix. Rows stored
+    before it have no origin and stay in the lead's flow: there is no reliable link to repair them.
+  - The markdown export keeps only a subagent's final report (`subagentReport`), as before; its steps are not exported.
+  - A subagent's background task is drawn in the subagent's pane and still listed in the session summary's "Background tasks"
+    (`backgroundTasks` does not filter by origin: the process belongs to the session, and the sidebar's count includes it).
+  - A subagent's call still `in_progress` in the stored transcript says "didn't finish" once its turn is an earlier one, or the
+    session is quiet and that subagent is not tracked as running (`subagentTrackedRunning`, the store's `subagents`, fed by every
+    spawn and state update, ended ones dropped). It keeps spinning while the session works or the subagent is tracked as running. A
+    call without an origin keeps the old rule. The pane and the follow panel give their scope the session id and quietness the
+    transcript's own scope has (`EarlierTurnProvider`).
 - **Codex subagent limits: one cap on how many, no depth** (`internal/preferences/subagentlimits.go`, preference
   `agent_subagent_limits`, `internal/agenthub/codex_subagent_limits.go`, bridge `AgentHubGet|SetSubagentLimits`
   (UI-only, revision/CAS, grants `preferences:* agent_subagent_limits`), Settings → Agents → Models & subagents →

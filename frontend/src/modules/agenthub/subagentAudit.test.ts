@@ -88,3 +88,48 @@ describe.each([
     expect(workSegments(activity[SUB]).map((segment) => segment.kind)).toEqual(["steps", "plan", "steps", "text"]);
   });
 });
+
+describe.each([
+  ["a page reloaded from storage", (updates: Record<string, unknown>[]) =>
+    initTranscript(updates.map(({ kind, ...payload }, index) => stored(index + 1, String(kind), payload)))],
+  ["the live stream", (updates: Record<string, unknown>[]) => {
+    let model = createInitialTranscriptModel();
+    for (const update of updates) model = applySessionUpdate(model, { ...update } as never);
+    return model;
+  }],
+])("plans of the lead agent and two subagents from %s", (_name, build) => {
+  const plan = (content: string, origin?: string) => ({
+    kind: "plan",
+    ...(origin ? { origin } : {}),
+    plan: [{ content, status: "pending" }],
+  });
+
+  it("keeps one plan per origin: an update replaces its own, never another's", () => {
+    const model = build([
+      { kind: "user_message_chunk", messageId: "u1", content: { type: "text", text: "go" } },
+      plan("lead 1"),
+      plan("A 1", "a"),
+      plan("lead 2"),
+      plan("B 1", "b"),
+      plan("A 2", "a"),
+    ]);
+    const plans = model.items.filter((item) => item.kind === "plan");
+    expect(plans.map((item) => [item.origin, item.plan?.[0]?.content])).toEqual([
+      [undefined, "lead 2"],
+      ["a", "A 2"],
+      ["b", "B 1"],
+    ]);
+  });
+
+  it("starts the lead's plan over with the next prompt, and a subagent's brief does not end it", () => {
+    const model = build([
+      { kind: "user_message_chunk", messageId: "u1", content: { type: "text", text: "go" } },
+      plan("lead 1"),
+      { kind: "user_message_chunk", origin: "a", messageId: "brief", content: { type: "text", text: "the brief" } },
+      plan("lead 2"),
+      { kind: "user_message_chunk", messageId: "u2", content: { type: "text", text: "again" } },
+      plan("lead 3"),
+    ]);
+    expect(model.items.filter((item) => item.kind === "plan").map((item) => item.plan?.[0]?.content)).toEqual(["lead 2", "lead 3"]);
+  });
+});
