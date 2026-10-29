@@ -144,7 +144,7 @@ observations; write failures and runs left unclosed are visible in Settings. Shu
 calls, waits for entered observations within five seconds and drains pending/active batches. A crash can lose the unsaved tail;
 there is no durable per-call queue. The report reads persisted data only and never forces a flush. This measures host-served
 text bytes, not vendor request tokens, provider cost or subscription quota.
-- **A session endpoint can serve a prepared harness policy (H4a, inert)** (`internal/mcp/serving.go`, `session_host.go`; plan
+- **A session endpoint can serve a prepared harness policy (H4a; active since R4)** (`internal/mcp/serving.go`, `session_host.go`; plan
   `docs/superpowers/plans/2026-10-27-harness-h4-session-serving-implementation.md`). `Server.Inventory()` reads the registry
   from what the server really registers (name, group, serialized definition bytes, the fixed budget exemption), once; `Registry()`
   hands it to `harness.Resolve`, so validation, serving and the cost tests share one fact set (`TestInventoryIsWhatAClientSees`,
@@ -161,10 +161,10 @@ text bytes, not vendor request tokens, provider cost or subscription quota.
   listener) and removes the socket and registry entry only if they are still its own. Nothing reads SQLite, preferences or a
   vendor process on that path. The refusals are text results, so `harness.groupOff` / `harness.snapshotUnavailable` are in
   `bridge.keptCodes` (fixed sentences). Pre-approved and gate-owned lists are narrowed to served tools, never widened. Terminal
-  (shared-socket) and legacy `Open` endpoints are unchanged. **Inert**: no `Harness` provider is constructed in production, so
-  `OpenWithPolicy` is never called there; the prompt and the rest of launch guidance (H4b), live S publication (H4c) and
-  composition (H4d) are not done, and filtered serving must not be switched on before H4b.
-- **Host guidance, pre-approval and the endpoint come from one prepared value (H4b, inert)** (`internal/agenthub/devkit_guidance.go`,
+  (shared-socket) and legacy `Open` endpoints are unchanged. **Active since R4**: `main.go` composes the harness through `app.StartHarness`, so
+  `OpenWithPolicy` serves every workspace session's prepared policy; the prompt and launch guidance (H4b), live S publication (H4c) and
+  composition (H4d) are in place.
+- **Host guidance, pre-approval and the endpoint come from one prepared value (H4b; active since R4)** (`internal/agenthub/devkit_guidance.go`,
   `devkit_prompt.go`, `harness_runtime.go`; plan `docs/superpowers/plans/2026-10-27-harness-h4b-guidance-implementation.md`).
   `SessionHost.OpenWithPolicy` returns `MCPEndpoint.Served`: the tools its inventory registers *and* its policy lets through,
   from the same snapshot that filters discovery. `prepareLaunch` copies it into `OpenSpec.DevKit` (`*DevKitServing`) beside
@@ -187,8 +187,8 @@ text bytes, not vendor request tokens, provider cost or subscription quota.
   (`thread/start` and `thread/resume` developer instructions) and opencode (instructions file and config), and against a real
   `SessionHost` + resolver + service (`guidance_integration_test.go`). Bytes only, not tokens: all on 19,219 (Claude) /
   19,572 (Codex) / 19,528 (opencode), git off 16,287 / 16,642 / 16,598, tasks (board) off 15,758 / 16,111 / 16,067, all off 3,437.
-  Still inert: no production `Harness`, no public proposal tool (the prompt never names `harness.profile.propose`), H4d not done.
-- **A committed S change is installed on the exact endpoint incarnation (H4c, inert)** (`internal/mcp/serving.go`,
+  (At H4b this was inert; R4 activated it.)
+- **A committed S change is installed on the exact endpoint incarnation (H4c; active since R4)** (`internal/mcp/serving.go`,
   `serving_live.go`, `session_host.go`, `result_metrics.go`; protocol and lock order in
   `agent-customization-recovery.md` "Live publication of S"). `servingHolder` keeps one atomic `admissionState`
   (policy + paused/closed): the call-entry load decides admission, so a call that entered before a quarantine
@@ -204,9 +204,9 @@ text bytes, not vendor request tokens, provider cost or subscription quota.
   (`registerAll` is the one declaration of the registry). Integration tests run the real H2 `Apply`, SQLite
   `HarnessStore`, Agent Hub service, `SessionHost` and SDK clients with a scripted vendor
   (`serving_integration_test.go`, `serving_live_test.go`, `serving_status_test.go`).
-- **`harness.profile.get` / `harness.profile.propose` (H5a, inert)** (`internal/mcp/tools_harness.go`; facade and record in
-  `harness-composition-activation.md` "H5a"). Registered only when `Deps.Harness` is set, which production does not do, so
-  neither exists in production. `get` reads the caller's own groups (tool count, definition bytes, W/S, saved vs running;
+- **`harness.profile.get` / `harness.profile.propose` (H5a; active since R4)** (`internal/mcp/tools_harness.go`; facade and record in
+  `harness-composition-activation.md` "H5a"). Registered only when `Deps.Harness` is set, which `main.go` now does (R4), so both exist in
+  production once `app.StartHarness` has bound the port. `get` reads the caller's own groups (tool count, definition bytes, W/S, saved vs running;
   `unknown` is not `off`) and follows its group policy; `propose` is the one always-served bootstrap: with no `groups` it
   lists what is off and asks nobody, with `groups` the person picks this session or the workspace through the shared hub
   and the existing `Apply` asks and commits. Neither takes a session or workspace argument (scope is the caller's

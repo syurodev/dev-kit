@@ -1,5 +1,11 @@
 # Harness composition and activation record (H4d)
 
+> **Status (2026-10-29): activated (R4).** `main.go` now passes `Harness: container.Harness` to the MCP server and calls
+> `app.StartHarness`; see [R4 production activation](#r4-production-activation-2026-10-29) at the end, which also holds the
+> owner decisions, the startup order and the rollback. Everything above that section is a historical record written while
+> production was inert; where it says "inert", "not wired" or names `TestProductionDoesNotWireTheHarnessYet` (removed), the R4
+> section wins.
+
 Next workstream: [acceptance and production activation after H5b-2](../superpowers/plans/2026-10-27-harness-acceptance-activation-implementation.md).
 This plan adds no acceptance evidence and does not change the blocked activation decision below.
 
@@ -7,10 +13,10 @@ Plan: `docs/superpowers/plans/2026-10-27-harness-h4d-composition-activation-impl
 artifact, not on GitHub). Parent task OPT-79901a was **not** read or changed: no DevKit MCP tools were available
 to the implementing session. This is engineering evidence, not an approval policy.
 
-**Outcome: composition accepted, activation blocked.** `app.NewHarnessAssembly` builds the whole graph from narrow
+**Outcome (historical, at H4d): composition accepted, activation blocked.** `app.NewHarnessAssembly` builds the whole graph from narrow
 inputs and `Attach` is proven through real SQLite, preferences, workspaces, the shared hub, the real gateway,
 `SessionHost`, SDK clients and the usage collector, with only the vendor transports and the person's answers
-scripted. **`main.go` does not call it: production Harness stays inert.** No flag, environment toggle or
+scripted. **At H4d `main.go` did not call it (production Harness inert; activated by R4).** No flag, environment toggle or
 partial wiring exists. This completes the composition sub-deliverable only; it is not H4 production completion.
 
 ## Dependency record
@@ -20,7 +26,7 @@ partial wiring exists. This completes the composition sub-deliverable only; it i
 | Base | `origin/main` `89d8e88c` (#363), containing #357, #358, #359, #353 and #360 (`6befa5e2`). |
 | H4c as merged | #360 merged with `golangci-lint` failing; #363 then fixed real defects (a Close that could clear S after a replacement reopened with the old override, launch checks that ran before the durable-reference/publication step, staged endpoints reporting `Live=true`, deprecated `HasTools`, unused declarations). #363's own CI was green; it states no complete nine-package race pass. The H4d tree re-ran the plan's race suite (PR body has the result). |
 | Independent review | None beyond #363. H4c was authored and reviewed by the same line of work; this record does not count that as independent acceptance. |
-| Production construction | None (`main.go` unchanged). |
+| Production construction | None at H4d (`main.go` unchanged); added by R4. |
 
 ## D1 — the constructor graph
 
@@ -103,7 +109,7 @@ install hook is unexported and H4d does not add a production seam for it.
 | Shutdown/error handling | Pass | `TestShutdownIsNotACloseAndNeverErasesS`; refusals fail closed (reload, unsupported vendor, Attach). |
 | Full validation | **Blocked (partly)** | Backend, race, architecture and `-tags server` gates in the PR body. Local lint is unavailable (golangci-lint/staticcheck not installed; fetching one was refused), so lint/SA4000 evidence is CI-only. No native GUI or real-vendor run. |
 
-**Decision.** Activation is not wired. Blockers, in the order they should clear: (1) an independent review of H4c as
+**Decision (historical, at H4d; superseded by R4).** Activation was not wired. Blockers, in the order they should clear: (1) an independent review of H4c as
 merged; (2) a native, real-vendor smoke run of default sessions for Claude, Codex and opencode with the provider
 attached (cannot be done in a headless session and is not claimed here); (3) CI lint on this PR; (4) composed
 coverage of the task/branch/repository guards (or an explicit statement that they are out of the harness's reach);
@@ -153,11 +159,11 @@ inventory, attaches Agent Hub, and binds the port once, or does none of it; befo
 a fixed sentence. No second registry, late registration, global or flag. The window shows its entry points only from
 `HarnessAvailable()` (whether the port is bound).
 
-**Production is inert.** `main.go` neither passes `Harness` to the MCP server nor calls `ComposeHarness`; the port is
-never bound, so the tools are not registered, `HarnessAvailable()` is false and no menu item, dialog or session card
-appears. `TestProductionDoesNotWireTheHarnessYet` is a tripwire that must change together with the evidence below.
+**Production was inert at H4d (historical; activated by R4).** `main.go` neither passed `Harness` to the MCP server nor called
+`ComposeHarness`; the port was never bound, so the tools were not registered, `HarnessAvailable()` was false and no menu item,
+dialog or session card appeared. The tripwire `TestProductionDoesNotWireTheHarnessYet` was replaced by R4 with positive coverage.
 
-**What activation would change** (not applied): pass `Harness: container.Harness` in `mcp.Deps`; construct the session
+**What activation changes** (historical wording; applied by R4): pass `Harness: container.Harness` in `mcp.Deps`; construct the session
 host and set `agentSvc.MCPEndpoints` *before* starting `mcp.ServeUnix`; call `app.ComposeHarness(container.Harness,
 cfg, agentSvc)` between the two and abort startup on error (today the listener starts first, so activation reorders
 that block); then update the tripwire.
@@ -227,8 +233,7 @@ requires the A6 gates; `TestProductionDoesNotWireTheHarnessYet` is unchanged.
 
 ## Acceptance after H5b-2: AP1 review and AP2 composed guards
 
-Base `origin/main` `e39d9060` (#372). Production is still inert: `main.go` is unchanged and
-`TestProductionDoesNotWireTheHarnessYet` is intact. AP3 (real runtimes, native dialogs) and AP4 (activation) have **not**
+Base `origin/main` `e39d9060` (#372). Production was still inert at that point (historical; R4 activated it). AP3 (real runtimes, native dialogs) and AP4 (activation) have **not**
 been run; no gate below is marked passed on their behalf.
 
 ### AP1 - independent review (scope-limited)
@@ -328,7 +333,7 @@ and AP4 (activation). The A6 rows for those remain **Not run / Unmeasured**.
 
 Report, ledger per parent item, findings and limits: [`docs/reviews/2026-10-27-harness-ap1-completion.md`](../reviews/2026-10-27-harness-ap1-completion.md). AP1 remains **Partial**. Open for activation:
 F-C (no repair path for a stale stored profile, owner decision), a reviewer other than the author for the #375 git-scope and claim-lock code, and the AP4 decision on sessions that have no
-applied reference (O-2). AP3 and AP4 are still **not run**; production is still inert.
+applied reference (O-2). AP3 and AP4 were still **not run** at that point; production was inert (R4 activated it).
 
 ### F-C repair: stale references in a stored workspace profile
 
@@ -405,7 +410,7 @@ Still required before AP1 can be marked complete: a different reviewer for the f
 ### O-1 finish-forward hardening (2026-10-28, base `87159250`)
 
 `c9b7543e` (above) already put a bounded finish-forward on main; the plan `2026-10-27-harness-rewind-finish-forward-implementation.md` was written as if it were not there. This delivery checked that
-code against the plan, test first, and fixed what the checks found. Code and tests: `7e4dbe98` (backend, bridge) and `6f182c85` (frontend). Production is inert; AP3 and AP4 were **not run**; AP1 stays **Partial**; none of this is independently reviewed.
+code against the plan, test first, and fixed what the checks found. Code and tests: `7e4dbe98` (backend, bridge) and `6f182c85` (frontend). Production was inert; AP3 and AP4 were **not run**; AP1 stays **Partial**; none of this is independently reviewed.
 
 | # | Found by a failing test | Fix |
 | --- | --- | --- |
@@ -440,7 +445,7 @@ Two reviews by other instances of the same model family (not a human sign-off; n
 [R1a](../reviews/2026-10-28-r1a-fc-o2-dirswap-review.md) (F-C #377, O-2, the #375 directory-swap boundary) and
 [R1b](../reviews/2026-10-28-r1b-376-items-and-379-review.md) (the merged O-1 finish-forward #379 and ledger items 4-8 of #376).
 R2 (real-runtime protocol evidence, [report](../reviews/2026-10-28-r2-real-runtime-evidence.md)) is merged. **AP1 stays Partial; AP3 (R3, native)
-and AP4 (activation) are not run; production is still inert.** Nothing below is an acceptance.
+and AP4 (activation) are not run; production is still inert (historical: R4 below activated it).** Nothing below is an acceptance.
 
 **What now has independent evidence.** F-C backend and UI (traced, focused tests run, a real headless-browser layout check of the repair dialog; not the
 native window). #379: retry classification, the shared three-launch budget, ambiguous-commit read-back, bridge sentences and the frontend outcome
@@ -454,14 +459,13 @@ used as an independent sign-off; the Git canonical-path binding and Claim/Releas
   (`ErrExecutableNotReady`) stays; (ii) **Option B with E** is a hard prerequisite of AP4 and of any change that lets W carry executables: on any reopen
   (resume, reload, rewind forks, account move and their preflights) with no stored reference and a snapshot that has a workspace-owned executable,
   refuse with `ErrHarnessNewSessionRequired`, reading only, writing no row; `HarnessStatus` shows it before the launch refuses. Create is unchanged.
-  Option C (stamp a baseline from today's W) is rejected. **Not yet decided:** whether an inert build should keep deleting existing references
-  (`harness_runtime.go`, `rewind_store.go`); it stays as it is until the owner decides, and B makes it less urgent.
+  Option C (stamp a baseline from today's W) is rejected. **Decided later (O-2b, 2026-10-29):** an inert build no longer deletes existing references (see R4 below).
   **Implemented (condition ii, 2026-10-28, branch `feat/harness-o2-reopen-gate`, not independently reviewed):** `harnessGate` takes a `launchKind`
   (`launchCreate` or `launchReopen`); with `previous == nil`, a reopen and `len(snap.Ref.WorkspaceOwned) > 0` it returns `ErrHarnessNewSessionRequired`.
   `CreateSession` (`openNewRuntime`) passes `launchCreate`; resume/reload/account reopen (`resumeRuntime`), the rewind forks (`openForked`) and the
   three preflights (`preflightHarness`, always a reopen) pass `launchReopen`. It reads only (no row, no baseline), an unreadable row is still
   `ErrHarnessUnavailable`, and `HarnessStatus` maps "no reference and W owns an executable" to `new_session_required` (the window already shows it via
-  `SessionState.newSessionRequired`). Condition (i) still holds and the inert-build deletion question is **still open and unchanged**. Tests:
+  `SessionState.newSessionRequired`). Condition (i) still holds; the inert-build deletion question was decided as O-2b (R4 below). Tests:
   `internal/agenthub/harness_o2_reopen_test.go`.
 - **The Git directory-swap and `.git` indirection (#375): treated as a release-security blocker, and being fixed.** The Git scope must not be described
   as a boundary against a hostile agent until it is. Three routes reach a repository outside the grant (two need no race) and one reaches host execution.
@@ -495,3 +499,84 @@ acceptance-only candidate (unmerged, local branch `candidate/harness-ap3-native`
 the window and the late-approval variants were not run, and a failed publication cannot be produced natively. R4's gate is not met by it alone. It also
 records a window-blanking render error reachable from the prompt box (present on `main`, not harness code) and the candidate's startup-behaviour
 differences R4 must decide.
+
+## R4 production activation (2026-10-29)
+
+Branch `feat/harness-activation`, built on `origin/main` `6d142f04`. It reuses only the production wiring and tests of the accepted
+acceptance-only candidate `candidate/harness-ap3-native` (commit `e1a1a2be`; the scripted peer, launcher script, its native-run test
+and its candidate note are not brought). No flag, environment toggle, second registry or `Harness=nil` fallback exists.
+**R3 was accepted by the owner with open rows** ([native evidence](../reviews/2026-10-28-r3-native-evidence.md): stale repair, restart,
+the exact budget review in the window, late-approval variants and a native failed publication were not run); R4 proceeds on that.
+This is engineering evidence by agents, not a human sign-off.
+
+### Startup order (`main.go`, `app.StartHarness`)
+
+1. `mcp.Deps.Harness = container.Harness`, so `harness.profile.get` and `harness.profile.propose` are in the registry `Inventory` freezes.
+2. The session host is built and `agentSvc.MCPEndpoints` assigned (unchanged).
+3. After `application.New` (a second launch exits inside it, before binding anything) `app.StartHarness` runs, in this order only:
+   `ComposeHarness` (graph from the real inventory, attach to Agent Hub, bind the port, all or nothing), then `Listen`
+   (`mcp.ListenUnix` + `mcp.ServeListener`, split out of `ServeUnix`; the early `ServeUnix` start is gone).
+4. Only then Telegram, the windows and `Run`. Anything that can create or prompt a session comes after the graph is attached.
+
+Any compose, attach or bind failure undoes the composition (Agent Hub provider/lifecycle nil, port unbound), closes the session
+host, cancels the MCP context and aborts startup with `log.Fatalf` (a safe fixed message; no cause text from the store). Nothing keeps
+listening. `OnShutdown` is unchanged: endpoint close and admission invalidation, MCP cancellation, a 5 s bounded metric drain, then
+the transcript shutdown; shutdown never issues a session Close and never erases S or the reference.
+
+Behaviour changes versus the previous main, all decided: a shared-socket bind failure is fatal (it used to be logged and ignored); Telegram
+starts after the harness is attached; `StartHarness` follows `application.New`. `HarnessAssemblyConfig.Audit` is now wired (below).
+
+### Owner decisions (the coordinator, on the owner's explicit delegation, 2026-10-29)
+
+1. **O-2b: a build without the harness no longer deletes an applied reference.** `recordHarnessApplied` with no snapshot and a rewind
+   commit with no `HarnessRef` leave an existing row untouched when `Service.Harness == nil`. The one deletion left is where the harness
+   IS attached and the fork has no snapshot (a session with no workspace, to which no reference belongs); the rewind spec carries it as
+   an explicit `HarnessClear`, so the zero value keeps the row. The attached no-workspace rewind path (`HarnessClear = true`) has no test
+   of its own; the equivalent resume path does. Rationale: rollback must preserve data, and a deleted reference would recreate O-2 on the next
+   activation. Tests: `harness_o2b_test.go` (`TestARollbackReopenLeavesTheStoredReferenceByteForByte`,
+   `TestAfterARollbackReactivationStillRefusesANewWorkspaceExecutable` for a session with and without a reference,
+   `TestARollbackRewindLeavesTheStoredReferenceAlone`, `TestAnAttachedHarnessStillRemovesTheReferenceOfASessionWithNoWorkspace`),
+   `TestARollbackBuildRewindLeavesTheAppliedReferenceAlone` (composed), the inverted `TestO2KProbeRollbackBuildDoesNotLeaveAnOpeningForAWorkspaceExecutable`,
+   and the DELETE case of the reference-write-failure tests replaced by these.
+2. **Kept from the candidate:** fatal shared-socket bind failure, Telegram after the attach, `StartHarness` after `application.New`, `OnShutdown` unchanged.
+3. **Audit.** `app.HarnessAuditSink` maps a `harnessconfig.Event` to one row in the same sink the other services use (`audit.NewTee(container.Audit, auditSQL)`):
+   subject `builtin.harness`, capability `harness:configure`, scope `session:<id>` or `workspace:<id>`, outcome allowed for `applied` and denied for a refusal
+   code, caller as stamped (`unknown` if empty), and metadata of exactly `action`, `result` (the code), `tier`, `target`, `workspace_id`, `session_id`,
+   `profile_revision`, `override_revision`, `publication`. No group, definition, path, rationale or diff text can reach it (the event type has no such field).
+   Tests: `harness_audit_test.go`.
+4. **Git-scope residual risk (#375, #388)** is accepted as a documented known limitation, not an R4 blocker: the Git scope must not be described as a boundary
+   against a hostile agent. See the R1 ledger above and `docs/superpowers/specs/2026-10-28-git-descriptor-bound-execution.md`.
+5. **R3 accepted by the owner with open rows**, see above.
+
+### Checklist (AP4 / R4) and where it is satisfied
+
+| Item | Where |
+| --- | --- |
+| Public tools registered before the inventory freezes | `main.go` passes `Harness: container.Harness`; `TestMainWiresTheHarnessInTheRequiredOrder` (syntax-tree check of `main.go`), `TestTheHarnessIsComposedAndAttachedBeforeTheSharedListenerBinds` (the tools are in the resolved inventory and listed on the real listener) |
+| Compose and attach before any listener, session or UI admits work | `TestTheHarnessIsComposedAndAttachedBeforeTheSharedListenerBinds` records the state at the instant `Listen` runs; the order test fixes that Telegram and `Run` follow `StartHarness` and that the socket is bound only inside it |
+| Fail closed, clean staged resources, no flag or fallback | `TestAComposeFailureLeavesNothingReachableAndNeverBindsTheListener`, `TestAListenerFailureUndoesTheCompositionAndFailsStartup` (another owner's socket is not stolen or removed), `TestStartupRefusesAMissingPieceAndCleansWhatItWasHanded`, `TestAnAlreadyBoundPortIsRefusedAndKeepsItsOwner`; `internal/mcp/host_listen_test.go` for the bind split |
+| Tripwire replaced by positive coverage | `TestProductionDoesNotWireTheHarnessYet` removed; the tests above, not an inverted text match |
+| No profile | `TestStartupOnExistingDataWritesNothingAndKeepsEveryPathHonest` ("no profile": reads as defaults, not as a saved profile); `TestASessionWithNoWorkspaceStaysLegacyAndWritesNoReference`, `TestTheUnprofiledTerminalSurfaceIsIndependentOfSessionPolicy` |
+| Old data (sessions with and without a reference) | same startup test ("old sessions": nothing written); O-2 gate tests `harness_o2_reopen_test.go`; `TestResumeAfterRestartUsesLoadForAPromptedSessionAndOpenForANeverPromptedOne` |
+| Optional modules | `TestAnUnwiredOptionalModuleIsNotRegisteredServedOrAdvertised`, `TestAPolicyResolvedAgainstAnotherRegistryIsRefusedByTheComposedHost`, `TestAConfiguredEmptyEndpointStillDiscoversALaterEnable` |
+| Corrupt profile | startup test ("a stored profile that cannot be read": startup succeeds, nothing rewritten, shown as a refusal, never an empty profile); `TestACorruptStoredProfileRefusesANewSessionAndNeverServesUnfiltered`, `TestACorruptProfileIsNotOfferedARepairAndIsNotTouched`, `TestUnreadableStoredRecordsAreCorruptNeverDefaults` |
+| Locked vault | startup test ("locked vault (every process start)": succeeds, writes nothing; the vault is locked on every start and StartHarness does not need it) |
+| Account reopen | `TestAnAccountMoveReopensThroughTheSharedPreparationAndKeepsS`, `TestAnAccountMoveTheLaunchGateWouldRefuseLeavesTheSessionAlone`, `TestO2EAccountMovePreflightKeepsALegacySessionWhereItIs`, `TestO2FAccountMoveReopenOfALegacySessionIsRefused` |
+| Shutdown semantics, bounded metric drain, socket ownership | `OnShutdown` unchanged in the diff; `TestShutdownIsNotACloseAndNeverErasesS`, `TestShutdownWaitsForEnteredObservation` (`internal/usagemetrics`); socket: `internal/mcp/host_listen_test.go` and the listener-failure test above (a live owner is refused, a stale socket replaced, mode 0600) |
+| Rollback | below |
+| H5 entry points only for a bound graph; default-on groups and head/24 KiB budgets unchanged; no `AllowExecutable` | unchanged code; `HarnessAvailable()` is the port's `Bound()`, which `StartHarness` sets only after a successful compose |
+
+### Rollback
+
+Rollback is a **code/deployment revert** of this change (revert the `main.go` wiring and `StartHarness`), nothing else. It preserves every record: workspace
+profiles (W), session overrides (S), the policy, usage metrics, the schema and, with O-2b, the applied references. The reverted build is inert again
+(`Harness == nil`): sessions open with today's default launch, the two public tools are not registered, and none of the stored rows is read or
+deleted. Re-activating later is judged against the preserved references, so a session cannot adopt a new workspace executable because an inert build
+ran in between (`TestAfterARollbackReactivationStillRefusesANewWorkspaceExecutable`). Never roll back by deleting records, resetting settings,
+force-pushing, or adding a runtime fallback to `Harness=nil` on error; none exists.
+
+### Limits
+
+Not independently reviewed. The native rows listed as open in the R3 record stay open. Validation of the exact head and the mutation checks are
+in the delivery report, not claimed here as acceptance. A host-specific `internal/git` `TestResolveSideTakesTheStageExactly` failure (CRLF config) is
+present on clean `main` on the validating machine and is unrelated.

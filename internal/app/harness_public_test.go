@@ -149,7 +149,7 @@ func TestWithoutTheControlsTheToolsAreNotRegisteredAndNothingIsReachable(t *test
 		t.Fatal(err)
 	}
 	if inv.Has("harness.profile.get") || inv.Has(harness.ProposeTool) {
-		t.Fatalf("production wiring must stay inert: %v", inv.Tools)
+		t.Fatalf("a server built without the port must not register the harness tools: %v", inv.Tools)
 	}
 	var unbound HarnessPort
 	if unbound.Bound() {
