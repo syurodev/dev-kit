@@ -310,6 +310,8 @@ type Service struct {
 	// or replaced. The idle release reads it under mu so a caller that just
 	// took the runtime always wins over a sweep (idle_release.go).
 	lastUsed map[string]time.Time
+	// bgwork is the vendor tasks each live process is still running (bgwork.go).
+	bgwork backgroundWork
 	// stops remembers, per session, every runtime this process opened and how
 	// its process was seen to end (see WriterStopProof).
 	stops *runtimeTracker
@@ -1611,6 +1613,7 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	s.mu.Lock()
 	rt := s.runtimes[id]
 	delete(s.runtimes, id)
+	s.bgwork.forget(id)
 	delete(s.lastUsed, id)
 	delete(s.runtimeUsage, id)
 	s.forgetWorkspaceContextLocked(id)
@@ -2391,6 +2394,9 @@ func (s *Service) handleUpdate(ctx context.Context, sessionID string, update jso
 	logAgentUpdate(sessionID, update)
 	s.emit(sessionID, update)
 	parsed := ParseSessionUpdate(update)
+	if parsed.AsyncTask != nil {
+		s.bgwork.apply(sessionID, parsed.Kind, parsed.AsyncTask)
+	}
 	if parsed.Kind == UpdateSessionInfo && parsed.Title != "" {
 		if err := s.adoptSessionTitle(ctx, sessionID, parsed.Title); err != nil && s.OnRecordError != nil {
 			s.OnRecordError(sessionID, err)
@@ -2625,6 +2631,7 @@ func (s *Service) liveRuntime(ctx context.Context, id string) SessionRuntime {
 		return rt
 	}
 	delete(s.runtimes, id)
+	s.bgwork.forget(id)
 	delete(s.lastUsed, id)
 	delete(s.runtimeUsage, id)
 	s.forgetWorkspaceContextLocked(id)

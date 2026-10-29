@@ -279,3 +279,6 @@ func (s *Service) SetLastUsedForTest(id string, at time.Time) {
 	defer s.mu.Unlock()
 	s.lastUsed[id] = at
 }
+
+// HasBackgroundWorkForTest reports whether the session's process still has a tracked vendor task.
+func (s *Service) HasBackgroundWorkForTest(sessionID string) bool { return s.bgwork.running(sessionID) }
