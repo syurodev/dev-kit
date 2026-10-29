@@ -236,7 +236,9 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
   const bodies = useRetainedRecord(liveBodies, panelCloseMs(reduceMotion));
   // The header each pane's opener described. Like the bodies, one that goes
   // is kept while its slot closes around it, instead of the module's label
-  // flashing in for the length of the close.
+  // flashing in for the length of the close — but only while its pane is gone
+  // with it: a pane still open under another key with no header is headerless
+  // at once, not drawn with the last one's.
   const liveHeaders = React.useMemo(() => {
     const out: Record<PaneId, PanelHeader> = {};
     for (const m of visibleModules) {
@@ -245,7 +247,12 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
     }
     return out;
   }, [visibleModules, allPanels]);
-  const headers = useRetainedRecord(liveHeaders, panelCloseMs(reduceMotion));
+  const retainedHeaders = useRetainedRecord(liveHeaders, panelCloseMs(reduceMotion));
+  const headers = React.useMemo(() => {
+    const out: Record<PaneId, PanelHeader> = {};
+    for (const [pane, header] of Object.entries(retainedHeaders)) if (pane in liveHeaders || !(pane in liveBodies)) out[pane] = header;
+    return out;
+  }, [retainedHeaders, liveHeaders, liveBodies]);
 
   // A hidden pane of a module that left the screen has no body anywhere, and
   // its reopen would mount a fresh one: the entry is dropped (splitPanelModel.forgetHiddenStep).
@@ -844,9 +851,11 @@ export function PaneHeader({
   const ref = React.useRef<HTMLDivElement>(null);
   const Icon = iconFor(pane);
   const idle = focusedPane !== null && moduleOfPane(pane) !== null && pane !== focusedPane;
-  // What the pane's opener says it shows, else its module's label.
+  // What the pane's opener says it shows replaces the module's label on the
+  // row; the buttons keep naming the module, so "Close" never reads as
+  // closing the session or subagent the title names.
   const header = headers[pane];
-  const title = header?.title ?? titles[pane];
+  const title = titles[pane];
 
   // Native, not onPointerDown: the drag needs the raw event's button and a
   // preventDefault that stops a text selection starting before the threshold.
@@ -906,7 +915,7 @@ export function PaneHeader({
         <AgentPaneTabs />
       ) : (
         <span className="min-w-0 flex-1 truncate text-label-12" title={header?.titleHint}>
-          {title}
+          {header?.title ?? title}
         </span>
       )}
       {header?.status ? <span className="flex shrink-0 items-center">{header.status}</span> : null}

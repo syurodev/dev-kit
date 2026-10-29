@@ -73,9 +73,9 @@ test("a pane with a header draws it in the one row, in place of the module label
   expect(container.textContent).not.toContain("Agent Hub");
   expect(container.querySelector("[title='Check the whitelist']")?.textContent).toBe("Review whitelist");
   for (const id of ["header-icon", "header-status", "header-action"]) expect(container.querySelector(`[data-testid=${id}]`)).not.toBeNull();
-  // The shell's own buttons stay, named for what is on show, and close is still the shell's.
-  expect(container.querySelector("[aria-label='Move Review whitelist to…']")).not.toBeNull();
-  const close = container.querySelector<HTMLButtonElement>("[aria-label='Close Review whitelist']");
+  // The shell's own buttons stay, named for the module as ever: "Close Review whitelist" would read as closing the subagent.
+  expect(container.querySelector("[aria-label='Move Agent Hub to…']")).not.toBeNull();
+  const close = container.querySelector<HTMLButtonElement>("[aria-label='Close Agent Hub']");
   expect(container.querySelectorAll("[aria-label^='Close']")).toHaveLength(1);
   await act(async () => close!.click());
   expect(closed).toEqual([PANE]);
@@ -89,10 +89,10 @@ test("status and actions come in order: title, status, actions, then the shell's
       actions: <span data-testid="a" />,
     },
   });
-  const order = [...container.querySelectorAll("[data-testid=s], [data-testid=a], [aria-label^='Move T to'], [aria-label='Close T']")].map(
+  const order = [...container.querySelectorAll("[data-testid=s], [data-testid=a], [aria-label^='Move Agent Hub to'], [aria-label='Close Agent Hub']")].map(
     (el) => el.getAttribute("data-testid") ?? el.getAttribute("aria-label"),
   );
-  expect(order).toEqual(["s", "a", "Move T to…", "Close T"]);
+  expect(order).toEqual(["s", "a", "Move Agent Hub to…", "Close Agent Hub"]);
 });
 
 test("a long title truncates and the controls keep their size", async () => {
