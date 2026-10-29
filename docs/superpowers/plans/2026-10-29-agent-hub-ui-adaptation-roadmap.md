@@ -62,12 +62,12 @@ should see before code.
 - **Problem.** `handleAgentTurnFinished` refetches only the preview, so a folder added by `workspace.requestWrite` during a turn does not
   appear in the session until the next list refresh; the Environment view of a live session shows the process's own grants, so it shows the
   folder only after the reopen (documented in #396).
-- **Scope.** (1) After a turn finishes, take the session's folder list from the refetched row. (2) Invalidate the Environment query on that event.
-  (3) A one-line session notice "Write access to <folder> applies after this session reopens" while a grant is waiting for a reopen. (3) needs a
-  field, `grantReopenPending` (not persisted, from `reopenForGrant`), on the session DTO and a bindings regeneration
-  (`wails3 generate bindings -clean=true -ts -i`); do (1) and (2) first if (3) is deferred.
-- **Acceptance.** A grant during a turn shows in the session's folders when that turn ends; the notice shows while the mark is set and goes away after the reopen or a restart.
-- **Size:** small. **Depends on:** #396. May share U1's DTO change.
+- **Scope.** (1) After a turn finishes, take the session's folder list from the refetched row. (2) Invalidate the Environment query on that
+  event, and make `Service.Environment` for a live session also list each folder of the stored row that the process was not opened with,
+  flagged "Granted. Applies after this session reopens." (decision in section 5; no DTO field, no bindings change unless an `AppService`
+  signature moves).
+- **Acceptance.** A grant during a turn shows in the session's folders when that turn ends; the Environment view lists it as pending until the process is reopened, then as granted.
+- **Size:** small. **Depends on:** #396.
 
 ### U3. Prompt suggestions (spec first; owner decision)
 
@@ -142,16 +142,19 @@ Each slice: spec if marked, then a plan in the style of `2026-10-29-agent-write-
 the coordinator pushes, the owner merges). Frontend slices use `cd frontend && bun test --isolate` and `bun run build`; a change to an `AppService` method regenerates
 bindings with `wails3 generate bindings -clean=true -ts -i`.
 
-## 5. Owner decisions needed before the matching spec
+## 5. Decisions
 
-| Slice | Decision |
-| --- | --- |
-| U1 | A (window-only), B (backend `Activity`, recommended) or C (stored status). |
-| U2 | Ship (1) and (2) now and (3) later, or all three with the DTO change. |
-| U3 | Ghost text (recommended) or a chip; a setting to turn it off? |
-| U4a | Hide `ToolSearch` rows by default, or keep a muted folded row. |
-| U4b | Which module first. By call count: api and tasks, then git. |
-| U5 | Frontend-only "didn't finish" state now; backend rewrite of stored rows: no (recommended) or yes. |
+The owner delegated these on 2026-10-29 ("decide for the best UX"). They are the coordinator's choices, recorded so a later spec can
+challenge them.
+
+| Slice | Decision | Why |
+| --- | --- | --- |
+| U1 | **B**: a non-persisted `Activity` on the session DTO from `bgwork`, pushed with an event. | One rule for the window, MCP callers and peers; the data already exists on the backend; no stored-status semantics change. |
+| U2 | The session's folder list is refreshed at turn end. The **Environment view lists a granted folder the live process does not have yet**, marked "applies after this session reopens" (Go change in `environment.go`, reading the stored row). No new DTO field and no separate notice. | The place a person checks "what can this session write" tells the truth, including the pending part; a banner would duplicate it. |
+| U3 | **Ghost text** in the empty composer, Tab or right arrow accepts (fills, never sends), with a **setting to turn it off**. | Quietest way to offer a next message; a chip competes with the tray. |
+| U4a | `ToolSearch` rows are **folded into one muted "Loaded tools" row per run**, expandable, not hidden. | Hiding what the agent did costs trust; folding removes the noise. |
+| U4b | Order: **tasks and api first** (most calls), then git, agenthub, pr, `workspace.requestWrite`. | Call counts in section 3. |
+| U5 | **Frontend-only** "didn't finish" state; stored rows are not rewritten. | Rewriting history is not worth a spinner fix. |
 
 ## 6. Not planned
 
