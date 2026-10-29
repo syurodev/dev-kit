@@ -642,3 +642,122 @@ describe("results outside the fold", () => {
     expect(lone).toContain('data-variant="row"');
   });
 });
+
+describe("a run's ToolSearch calls", () => {
+  const search = (id: string, query: string, extra: Partial<TranscriptItem> = {}, status = "completed"): TranscriptItem => ({
+    id,
+    kind: "tool_call",
+    toolCall: { id, kind: "other", title: "ToolSearch", name: "ToolSearch", status, rawInput: { query } },
+    ...extra,
+  });
+  const read = (id: string): TranscriptItem => ({
+    id,
+    kind: "tool_call",
+    toolCall: { id, kind: "read", title: `Read ${id}.go`, status: "completed" },
+  });
+  const count = (html: string, testId: string) => html.split(`data-testid="${testId}"`).length - 1;
+
+  it("fold into one muted row inside the run, with the other steps as they were", () => {
+    const html = renderToString(
+      <StepGroup
+        defaultOpen
+        items={[search("s1", "select:A"), search("s2", "select:B,C"), search("s3", "select:D"), read("r")]}
+      />,
+    );
+    expect(count(html, "loaded-tools")).toBe(1);
+    expect(html).toContain("Loaded tools (3)");
+    expect(html).toContain("r.go");
+    // No row of their own, and the raw title is not what the person reads.
+    expect(html).not.toContain(">ToolSearch<");
+    expect(count(html, "agent-tool-call")).toBe(1);
+  });
+
+  it("name the run for what it did while it is closed", () => {
+    const html = renderToString(<StepGroup items={[search("s1", "select:A"), read("r")]} />);
+    expect(html).toContain("Loaded tools, read files");
+  });
+
+  it("are the run's one row when nothing else is in it, without a fold around it", () => {
+    const html = renderToString(<StepGroup items={[search("s1", "select:A"), search("s2", "select:B")]} />);
+    expect(html).not.toContain('data-testid="step-group"');
+    expect(count(html, "loaded-tools")).toBe(1);
+    expect(html).toContain("Loaded tools (2)");
+    const single = renderToString(<StepGroup items={[search("s1", "select:A")]} />);
+    expect(single).not.toContain('data-testid="step-group"');
+    expect(single).toContain(">Loaded tools<");
+  });
+
+  it("fold per stretch: another step between them keeps them apart", () => {
+    const html = renderToString(
+      <StepGroup defaultOpen items={[search("s1", "select:A"), read("r"), search("s2", "select:B")]} />,
+    );
+    expect(count(html, "loaded-tools")).toBe(2);
+    expect(html.indexOf("loaded-tools")).toBeLessThan(html.indexOf("r.go"));
+    expect(html.lastIndexOf("loaded-tools")).toBeGreaterThan(html.indexOf("r.go"));
+  });
+
+  it("leave a failed one visible as its own failed row", () => {
+    const html = renderToString(
+      <StepGroup
+        defaultOpen
+        items={[search("s1", "select:A"), search("bad", "select:Nope", {}, "failed"), search("s2", "select:B")]}
+      />,
+    );
+    expect(count(html, "loaded-tools")).toBe(2);
+    expect(html).toMatch(/data-step-id="bad"[^>]*data-state="failed"|data-state="failed"[^>]*data-step-id="bad"/);
+    expect(html).toContain("Couldn&#x27;t load");
+  });
+
+  it("fold the same way in a subagent's activity, followed live", () => {
+    const activity = [
+      search("s1", "select:A", { origin: "a1" }),
+      search("s2", "select:B", { origin: "a1" }),
+      { ...read("r"), origin: "a1" },
+    ];
+    const html = renderToString(<SubagentActivity subagent={{ id: "a1", name: "Look" }} activity={activity} brief={false} live />);
+    expect(count(html, "loaded-tools")).toBe(1);
+    expect(html).toContain("Loaded tools (2)");
+    expect(html).toContain("r.go");
+    expect(html).not.toContain(">ToolSearch<");
+  });
+
+  it("fold the same way in a subagent's activity, drawn as folded runs", () => {
+    const only = [search("s1", "select:A", { origin: "a1" }), search("s2", "select:B", { origin: "a1" })];
+    // Nothing else in the run: the row stands alone, under no summary.
+    const alone = renderToString(<SubagentActivity subagent={{ id: "a1", name: "Look" }} activity={only} brief={false} />);
+    expect(alone).not.toContain('data-testid="step-group"');
+    expect(count(alone, "loaded-tools")).toBe(1);
+    expect(alone).toContain("Loaded tools (2)");
+    expect(alone).not.toContain(">ToolSearch<");
+    // With another step the run is a closed fold named for what it did.
+    const mixed = renderToString(
+      <SubagentActivity subagent={{ id: "a1", name: "Look" }} activity={[...only, { ...read("r"), origin: "a1" }]} brief={false} />,
+    );
+    expect(mixed).toContain('data-testid="step-group"');
+    expect(mixed).toContain("Loaded tools, read files");
+    expect(mixed).not.toContain("r.go");
+    expect(mixed).not.toContain(">ToolSearch<");
+  });
+
+  it("fold inside a whole turn", () => {
+    const [turn] = groupTurns([
+      { id: "u", kind: "user_message_chunk", text: "go" },
+      search("s1", "select:A"),
+      search("s2", "select:B"),
+      read("r"),
+      { id: "a", kind: "agent_message_chunk", text: "Done." },
+    ]);
+    const html = renderToString(<AgentTurn turn={turn} />);
+    expect(html).toContain("Loaded tools, read files");
+  });
+
+  it("count as one entry of the run's layout", () => {
+    const [a, b] = [search("s1", "select:A"), search("s2", "select:B")];
+    expect(stepRunLayout({ items: [a, b], rows: 1, shown: [], hidden: [], activities: 0, commands: 0 })).toMatchObject({
+      lone: true,
+      head: "row",
+      fold: false,
+    });
+    expect(stepRunLayout({ items: [a, b], shown: [], hidden: [], activities: 0, commands: 0 }).lone).toBe(false);
+  });
+});
