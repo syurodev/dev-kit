@@ -52,6 +52,11 @@
   that arrives later waits for the old process to exit before it reopens (Codex refuses two writers on one thread). The
   setting is the window's own (`AgentIdleReleaseGet/Set`, `uiOnly`, scope `agent_idle_release`); nothing an agent can call
   reads or writes it.
+  A `closed` session never gets a process without a prompt: `PrepareSession`, `SetGoal` and the settings calls answer
+  `ErrSessionClosed` (public code `agenthub.sessionClosed`, in `keptCodes`), `Steer` answers `promptRequired`, and only
+  `Invoke` reopens it. The sweep also releases a `closed` row's live runtime at once (no threshold, no vendor task or
+  child to wait for, row left `closed`; the turn claim, `resuming` barrier and pending-message guards still apply). The
+  window's `sessionConfig` query turns that code into a re-read of the row, not an error.
 - **A fresh Claude session carries its model list from the handshake.** claude-agent-acp sends the settings once,
   in the answer to `session/new` / `session/load`, and never a `config_option_update` until one changes — and
   DevKit used to drop that answer (only the catalog read it). `acpRuntime` now keeps it (`options`), folds
