@@ -4,6 +4,7 @@ import {
   activityOf,
   currentStep,
   foldToolSearch,
+  foldedStepKey,
   isToolSearch,
   formatElapsed,
   groupTurns,
@@ -561,6 +562,17 @@ describe("ToolSearch", () => {
     const errored = search("select:Nope", {}, "error");
     expect(shape([a, failed, b])).toEqual(["loaded:1", failed.id, "loaded:1"]);
     expect(shape([errored])).toEqual([errored.id]);
+  });
+
+  it("keys a folded stretch apart from every step, whatever the id of its first call", () => {
+    const [a, b, c] = [search("select:A"), search("select:B"), search("select:C")];
+    const keys = (items: TranscriptItem[]) => foldToolSearch(items).map(foldedStepKey);
+    expect(keys([a, b, c])).toEqual([`loaded:${a.id}`]);
+    // The first call fails: its step keeps its own id and the stretch after it is keyed by the next call.
+    const failed = { ...a, toolCall: { ...a.toolCall!, status: "failed" } };
+    const next = keys([failed, b, c]);
+    expect(next).toEqual([failed.id, `loaded:${b.id}`]);
+    expect(new Set([...keys([a, b, c]), ...next]).size).toBe(3);
   });
 
   it("folds a subagent's searches the same way", () => {

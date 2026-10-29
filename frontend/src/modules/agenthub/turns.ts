@@ -641,6 +641,11 @@ function toolSearchLine(call: ToolCall): string {
 /** One entry of a run once its ToolSearch calls are folded: a step as it is, or a stretch of searches. */
 export type FoldedStep = { kind: "step"; item: TranscriptItem } | { kind: "loaded"; id: string; items: TranscriptItem[] };
 
+/** The React key of an entry: a stretch is `loaded:` its first call, so it never meets a step's id. */
+export function foldedStepKey(entry: FoldedStep): string {
+  return entry.kind === "step" ? entry.item.id : `loaded:${entry.id}`;
+}
+
 /**
  * A stretch of consecutive ToolSearch calls is one "Loaded tools" entry — 274 of
  * 7,048 calls, mostly `select:` loads, said nothing the next step did not.

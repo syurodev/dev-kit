@@ -146,7 +146,13 @@
   quiet. `settleToolState(state, {earlierTurn, sessionQuiet, subagent})`; the follow panel derives `quiet` the same way. Stored
   rows are not rewritten. A failed row with no error line of its own shows the first line of what it said (`failureLine`).
 - Step wording and `ToolSearch`. `stepLabel` words Claude's built-ins by tool name (`call.name`, else the title's first word unless the
-  call is a shell command): Skill (`skill`/`name`/`command`), Monitor (`description`), TaskStop, SendMessage (`to`), Enter/ExitPlanMode,
-  ListAgents, SubagentHandback; an unknown tool keeps its title. `ToolSearch` calls are folded by `foldToolSearch` (`turns.ts`): a stretch
+  call is a shell command), after the title-shape heads (Read/Write/Edit/Fetch/Search/Find/grep), which win over any name-based verb:
+  Skill (`skill`/`name`/`command`), Monitor (`description`; with no `command` or `description` it keeps its title), TaskStop,
+  SendMessage (`to`), Enter/ExitPlanMode, ListAgents, SubagentHandback; an unknown tool keeps its title. Past tense only when the call
+  is done: while pending, running or awaiting the vendor's own title stands when it has one (ExitPlanMode: "Ready to code?"), else a
+  present form ("Exiting plan mode", "Monitoring"); failed reads "Couldn't ...". A Skill keeps the vendor title when it already
+  names the skill ("Load skill: <name>"). `ToolSearch` calls are folded by `foldToolSearch` (`turns.ts`): a stretch
   of consecutive calls in a run, or in a subagent's activity, is one muted `AgentLoadedTools` row, "Loaded tools (n)", opening onto each
-  call's `select:` names or keyword words. A failed call is its own failed row and ends the stretch. The live label says "Loading tools".
+  call's `select:` names or keyword words (clipped by character). A failed call is its own row and ends the stretch; it reads "Couldn't
+  load <names>" in the row and the live label, and "couldn't load tools" in the run summary. The live label says "Loading tools" only
+  while a search runs, else the row's own words.

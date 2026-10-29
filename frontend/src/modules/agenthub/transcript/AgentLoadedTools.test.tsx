@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { MotionGlobalConfig } from "framer-motion";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { renderToString } from "react-dom/server";
 
 import type { TranscriptItem } from "../types";
 import { AgentLoadedTools } from "./AgentLoadedTools";
@@ -85,10 +84,51 @@ describe("AgentLoadedTools", () => {
     expect(toggle().textContent).toBe("Loaded tools (2)");
   });
 
-  test("is quiet: muted tokens only, no inline style", () => {
-    const html = renderToString(<AgentLoadedTools items={[search("select:A")]} defaultOpen />);
-    expect(html).toContain("text-text-tertiary");
-    expect(html).not.toContain("text-status-");
-    expect(html).not.toMatch(/style="[^"]*(color|background)/);
+  test("is quiet: the row itself is muted text with a muted icon, and nothing carries a colour of its own", async () => {
+    await draw(<AgentLoadedTools items={[search("select:A")]} defaultOpen />);
+    expect(toggle().className).toContain("text-text-tertiary");
+    expect(toggle().className).not.toMatch(/text-status-|text-text-primary/);
+    expect(toggle().querySelector("svg")?.getAttribute("class")).toContain("text-icon-secondary");
+    expect(container.innerHTML).not.toContain("text-status-");
+    expect(container.innerHTML).not.toMatch(/style="[^"]*(color|background)/);
+  });
+
+  describe("a call that has not ended", () => {
+    const rows = (...status: string[]) => status.map((s, i) => search(`select:T${i}`, s));
+    const label = () => toggle().textContent;
+
+    test.each(["pending", "in_progress", "awaiting_permission"])("%s: loading, while its session is busy", async (status) => {
+      await draw(
+        <EarlierTurnProvider earlier={false} quiet={false}>
+          <AgentLoadedTools items={rows("completed", status)} />
+        </EarlierTurnProvider>,
+      );
+      expect(label()).toBe("Loading tools (2)");
+    });
+
+    test.each(["pending", "in_progress", "awaiting_permission"])("%s: loaded, once the session is quiet", async (status) => {
+      await draw(
+        <EarlierTurnProvider earlier={false} quiet>
+          <AgentLoadedTools items={rows("completed", status)} />
+        </EarlierTurnProvider>,
+      );
+      expect(label()).toBe("Loaded tools (2)");
+    });
+
+    test("a subagent's search is not settled by a quiet session, only by its turn ending", async () => {
+      const sub = [{ ...search("select:A", "in_progress"), origin: "a1" }];
+      await draw(
+        <EarlierTurnProvider earlier={false} quiet>
+          <AgentLoadedTools items={sub} />
+        </EarlierTurnProvider>,
+      );
+      expect(label()).toBe("Loading tools");
+      await draw(
+        <EarlierTurnProvider earlier quiet>
+          <AgentLoadedTools items={sub} />
+        </EarlierTurnProvider>,
+      );
+      expect(label()).toBe("Loaded tools");
+    });
   });
 });

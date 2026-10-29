@@ -708,22 +708,35 @@ describe("a run's ToolSearch calls", () => {
     expect(html).toContain("Couldn&#x27;t load");
   });
 
-  it("fold the same way in a subagent's activity, followed live or folded", () => {
+  it("fold the same way in a subagent's activity, followed live", () => {
     const activity = [
       search("s1", "select:A", { origin: "a1" }),
       search("s2", "select:B", { origin: "a1" }),
       { ...read("r"), origin: "a1" },
     ];
-    for (const live of [false, true]) {
-      const html = renderToString(
-        <SubagentActivity subagent={{ id: "a1", name: "Look" }} activity={activity} brief={false} live={live} />,
-      );
-      // Folded, the run opens onto the row; followed live every step is already a row.
-      const opened = live ? html : renderToString(<StepGroup defaultOpen items={activity} results={{ shown: [], hidden: [] }} />);
-      expect(count(opened, "loaded-tools")).toBe(1);
-      expect(opened).toContain("Loaded tools (2)");
-      expect(html).not.toContain(">ToolSearch<");
-    }
+    const html = renderToString(<SubagentActivity subagent={{ id: "a1", name: "Look" }} activity={activity} brief={false} live />);
+    expect(count(html, "loaded-tools")).toBe(1);
+    expect(html).toContain("Loaded tools (2)");
+    expect(html).toContain("r.go");
+    expect(html).not.toContain(">ToolSearch<");
+  });
+
+  it("fold the same way in a subagent's activity, drawn as folded runs", () => {
+    const only = [search("s1", "select:A", { origin: "a1" }), search("s2", "select:B", { origin: "a1" })];
+    // Nothing else in the run: the row stands alone, under no summary.
+    const alone = renderToString(<SubagentActivity subagent={{ id: "a1", name: "Look" }} activity={only} brief={false} />);
+    expect(alone).not.toContain('data-testid="step-group"');
+    expect(count(alone, "loaded-tools")).toBe(1);
+    expect(alone).toContain("Loaded tools (2)");
+    expect(alone).not.toContain(">ToolSearch<");
+    // With another step the run is a closed fold named for what it did.
+    const mixed = renderToString(
+      <SubagentActivity subagent={{ id: "a1", name: "Look" }} activity={[...only, { ...read("r"), origin: "a1" }]} brief={false} />,
+    );
+    expect(mixed).toContain('data-testid="step-group"');
+    expect(mixed).toContain("Loaded tools, read files");
+    expect(mixed).not.toContain("r.go");
+    expect(mixed).not.toContain(">ToolSearch<");
   });
 
   it("fold inside a whole turn", () => {

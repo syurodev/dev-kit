@@ -12,6 +12,7 @@ import type { PromptAttachment, TranscriptItem } from "../types";
 import type { CheckpointSummary, FileDiff } from "../../../../bindings/devkit/internal/agenthub/models";
 import {
   activityOf,
+  foldedStepKey,
   foldToolSearch,
   stepCount,
   stepSummary,
@@ -486,7 +487,7 @@ export function StepGroup({
           <div className="flex w-full flex-col gap-2">
             {rows.map((row) => (
               <FoldedRow
-                key={row.kind === "step" ? row.item.id : row.id}
+                key={foldedStepKey(row)}
                 row={row}
                 subagents={subagents}
                 onOpenFile={onOpenFile}
@@ -698,7 +699,7 @@ export function SubagentActivity({
             <div key={segment.id} className="flex w-full min-w-0 flex-col gap-2">
               {foldToolSearch(segment.items).map((row) => (
                 <FoldedRow
-                  key={row.kind === "step" ? row.item.id : row.id}
+                  key={foldedStepKey(row)}
                   row={row}
                   subagents={subagents}
                   onOpenFile={onOpenFile}
