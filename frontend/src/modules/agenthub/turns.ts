@@ -236,6 +236,7 @@ export function currentStep(activity: TranscriptItem[]): string {
   if (kind === "agent_thought_chunk") return "Thinking";
   if (last.subagent) return `Running ${last.subagent.name || "a subagent"}`;
   if (last.toolCall) {
+    if (isToolSearch(last.toolCall) && !isFailed(last.toolCall.status)) return "Loading tools";
     const { verb, object } = stepLabel(last.toolCall);
     return object ? `${verb} ${object}` : verb;
   }
@@ -419,7 +420,8 @@ export function activityOf(turn: Turn): { label: string; orb: OrbState } {
           : kind === "edit" || kind === "delete" || kind === "move"
             ? "shaping"
             : "working";
-      return { label: call?.title || "Using a tool", orb };
+      const loading = isToolSearch(call) && !isFailed(call?.status);
+      return { label: loading ? "Loading tools" : call?.title || "Using a tool", orb };
     }
   }
 }
@@ -508,6 +510,8 @@ export function stepSummary(items: TranscriptItem[]): string {
             ? "ran background tasks"
           : isCompaction(item.toolCall)
             ? "compacted the conversation"
+            : isToolSearch(item.toolCall) && !isFailed(item.toolCall?.status)
+              ? "loaded tools"
             : (STEP_PHRASES[item.toolCall?.kind?.toLowerCase() ?? ""] ?? "used tools");
     if (!phrases.includes(phrase)) phrases.push(phrase);
   }
@@ -583,10 +587,63 @@ export function stepLabel(call: ToolCall): { verb: string; object: string } {
  * Monitor `{description, command}`, SendMessage `{to, message}` — read
  * defensively, since no recorded transcript holds one of each.
  */
-function builtinLabel(call: ToolCall, titleHead: string): { verb: string; object: string } | null {
+function builtinName(call: ToolCall, titleHead: string): string {
   // A Bash command is titled with the command itself, so a title's first word
   // names a tool only for a call that is not a shell command and has no name.
-  const tool = call.name?.trim() || (call.kind?.toLowerCase() === "execute" ? "" : titleHead);
+  return call.name?.trim() || (call.kind?.toLowerCase() === "execute" ? "" : titleHead);
+}
+
+function isFailed(status?: string): boolean {
+  return status?.toLowerCase() === "failed" || status?.toLowerCase() === "error";
+}
+
+/** Claude's ToolSearch: it loads deferred tools (`select:<Name>[,<Name>]`) or looks them up by keyword. */
+export function isToolSearch(call?: ToolCall | null): boolean {
+  return Boolean(call) && builtinName(call!, call!.title?.trim().split(/\s+/)[0] ?? "") === "ToolSearch";
+}
+
+const TOOL_TERM_MAX = 80;
+
+/**
+ * What a ToolSearch asked for: the tool names of a `select:A,B` query, or the
+ * words of a keyword one, each clipped. Its input is `{query, max_results}`.
+ */
+export function toolSearchTerms(call: ToolCall): { select: boolean; terms: string[] } {
+  const input = call.rawInput as { query?: unknown } | null | undefined;
+  const query = typeof input?.query === "string" ? input.query.trim() : "";
+  const select = /^select:/i.test(query);
+  const clip = (term: string) => (term.length > TOOL_TERM_MAX ? `${term.slice(0, TOOL_TERM_MAX - 1)}…` : term);
+  const terms = (select ? query.slice("select:".length).split(",") : query.split(/\s+/))
+    .map((term) => term.trim())
+    .filter(Boolean)
+    .map(clip);
+  return { select, terms };
+}
+
+/** One entry of a run once its ToolSearch calls are folded: a step as it is, or a stretch of searches. */
+export type FoldedStep = { kind: "step"; item: TranscriptItem } | { kind: "loaded"; id: string; items: TranscriptItem[] };
+
+/**
+ * A stretch of consecutive ToolSearch calls is one "Loaded tools" entry — 274 of
+ * 7,048 calls, mostly `select:` loads, said nothing the next step did not.
+ * A failed search stays a step of its own, and ends the stretch before it.
+ */
+export function foldToolSearch(items: readonly TranscriptItem[]): FoldedStep[] {
+  const out: FoldedStep[] = [];
+  for (const item of items) {
+    if (isToolSearch(item.toolCall) && !isFailed(item.toolCall?.status)) {
+      const last = out[out.length - 1];
+      if (last?.kind === "loaded") last.items.push(item);
+      else out.push({ kind: "loaded", id: item.id, items: [item] });
+    } else {
+      out.push({ kind: "step", item });
+    }
+  }
+  return out;
+}
+
+function builtinLabel(call: ToolCall, titleHead: string): { verb: string; object: string } | null {
+  const tool = builtinName(call, titleHead);
   const input = (call.rawInput && typeof call.rawInput === "object" ? call.rawInput : {}) as Record<string, unknown>;
   const text = (...keys: string[]) => {
     for (const key of keys) {
@@ -596,6 +653,11 @@ function builtinLabel(call: ToolCall, titleHead: string): { verb: string; object
     return "";
   };
   switch (tool) {
+    case "ToolSearch": {
+      const { select, terms } = toolSearchTerms(call);
+      const object = terms.join(select ? ", " : " ");
+      return isFailed(call.status) ? { verb: "Couldn't load", object } : { verb: "Loaded tools", object };
+    }
     case "Skill": {
       const skill = text("skill", "name", "command");
       return skill ? { verb: "Used skill", object: skill } : { verb: "Used a skill", object: "" };

@@ -145,3 +145,8 @@
   subagent can run with the session quiet and the session has no signal for it. A session the window has not loaded is never
   quiet. `settleToolState(state, {earlierTurn, sessionQuiet, subagent})`; the follow panel derives `quiet` the same way. Stored
   rows are not rewritten. A failed row with no error line of its own shows the first line of what it said (`failureLine`).
+- Step wording and `ToolSearch`. `stepLabel` words Claude's built-ins by tool name (`call.name`, else the title's first word unless the
+  call is a shell command): Skill (`skill`/`name`/`command`), Monitor (`description`), TaskStop, SendMessage (`to`), Enter/ExitPlanMode,
+  ListAgents, SubagentHandback; an unknown tool keeps its title. `ToolSearch` calls are folded by `foldToolSearch` (`turns.ts`): a stretch
+  of consecutive calls in a run, or in a subagent's activity, is one muted `AgentLoadedTools` row, "Loaded tools (n)", opening onto each
+  call's `select:` names or keyword words. A failed call is its own failed row and ends the stretch. The live label says "Loading tools".

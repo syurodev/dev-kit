@@ -3,6 +3,8 @@ import { describe, expect, it } from "bun:test";
 import {
   activityOf,
   currentStep,
+  foldToolSearch,
+  isToolSearch,
   formatElapsed,
   groupTurns,
   newestPlanTurnIndex,
@@ -10,6 +12,7 @@ import {
   stepCount,
   stepLabel,
   stepSummary,
+  toolSearchTerms,
   workedFor,
   workSegments,
 } from "./turns";
@@ -421,6 +424,92 @@ describe("stepLabel for the built-in tools without a title shape", () => {
   it("leaves a tool it does not know as its own title", () => {
     expect(stepLabel(call("Teleport"))).toEqual({ verb: "Teleport", object: "" });
     expect(stepLabel({ id: "x" })).toEqual({ verb: "Used a tool", object: "" });
+  });
+});
+
+describe("ToolSearch", () => {
+  const search = (query: unknown, extra: Partial<TranscriptItem> = {}, status = "completed") =>
+    row("tool_call", {
+      toolCall: { id: `ts${++seq}`, kind: "other", title: "ToolSearch", name: "ToolSearch", status, rawInput: { query, max_results: 5 } },
+      ...extra,
+    });
+  const other = (title = "Read a.go") => row("tool_call", { toolCall: { id: `o${++seq}`, kind: "read", title, status: "completed" } });
+  /** A run, as the ids of what it draws: a folded row is "loaded:<n>", a step its own id. */
+  const shape = (items: TranscriptItem[]) =>
+    foldToolSearch(items).map((entry) => (entry.kind === "loaded" ? `loaded:${entry.items.length}` : entry.item.id));
+
+  it("is the tool called ToolSearch, by name or, without one, by title", () => {
+    expect(isToolSearch({ id: "x", name: "ToolSearch" })).toBe(true);
+    expect(isToolSearch({ id: "x", title: "ToolSearch" })).toBe(true);
+    expect(isToolSearch({ id: "x", kind: "execute", title: "ToolSearch --all" })).toBe(false);
+    expect(isToolSearch({ id: "x", name: "Read", title: "ToolSearch" })).toBe(false);
+    expect(isToolSearch(undefined)).toBe(false);
+  });
+
+  it("lists the tool names a select: query loads, and the words of a keyword query", () => {
+    expect(toolSearchTerms(search("select:mcp__devkit__db_query").toolCall!)).toEqual({
+      select: true,
+      terms: ["mcp__devkit__db_query"],
+    });
+    expect(toolSearchTerms(search("select:TaskStop, Monitor ,").toolCall!)).toEqual({
+      select: true,
+      terms: ["TaskStop", "Monitor"],
+    });
+    expect(toolSearchTerms(search("+slack send message").toolCall!)).toEqual({
+      select: false,
+      terms: ["+slack", "send", "message"],
+    });
+    expect(toolSearchTerms(search("select:" + "N".repeat(200)).toolCall!).terms[0]).toHaveLength(80);
+    expect(toolSearchTerms(search(undefined).toolCall!)).toEqual({ select: false, terms: [] });
+    expect(toolSearchTerms({ id: "x", name: "ToolSearch" })).toEqual({ select: false, terms: [] });
+  });
+
+  it("folds consecutive searches into one entry, even a single one", () => {
+    const [a, b, c] = [search("select:A"), search("select:B"), search("select:C")];
+    expect(shape([a, b, c])).toEqual(["loaded:3"]);
+    expect(shape([a])).toEqual(["loaded:1"]);
+    expect(foldToolSearch([a, b])[0]).toMatchObject({ kind: "loaded", id: a.id });
+  });
+
+  it("keeps the other steps between searches as they are, and folds each stretch of searches", () => {
+    const [a, b, c] = [search("select:A"), search("select:B"), search("select:C")];
+    const [r, t] = [other(), row("agent_thought_chunk")];
+    expect(shape([a, b, r, c])).toEqual(["loaded:2", r.id, "loaded:1"]);
+    expect(shape([r, a, t, b])).toEqual([r.id, "loaded:1", t.id, "loaded:1"]);
+    expect(shape([r, t])).toEqual([r.id, t.id]);
+  });
+
+  it("leaves a search that failed as its own step, and splits the stretch around it", () => {
+    const [a, b] = [search("select:A"), search("select:B")];
+    const failed = search("select:Nope", {}, "failed");
+    const errored = search("select:Nope", {}, "error");
+    expect(shape([a, failed, b])).toEqual(["loaded:1", failed.id, "loaded:1"]);
+    expect(shape([errored])).toEqual([errored.id]);
+  });
+
+  it("folds a subagent's searches the same way", () => {
+    const [a, b] = [search("select:A", { origin: "a1" }), search("select:B", { origin: "a1" })];
+    expect(shape([a, other(), b])).toHaveLength(3);
+    expect(shape([a, b])).toEqual(["loaded:2"]);
+  });
+
+  it("says it is loading tools while it is the newest step, in the turn and in a subagent", () => {
+    const live = (...rows: TranscriptItem[]) => activityOf(groupTurns([row("user_message_chunk"), ...rows])[0]);
+    expect(live(search("select:A", {}, "in_progress"))).toEqual({ label: "Loading tools", orb: "working" });
+    expect(currentStep([search("select:A", { origin: "a1" }, "in_progress")])).toBe("Loading tools");
+    // A search that failed is not "loading": it says what it was and how it ended.
+    expect(live(search("select:A", {}, "failed")).label).toBe("ToolSearch");
+    expect(currentStep([search("select:Nope", {}, "failed")])).toBe("Couldn't load Nope");
+    // Another step keeps its own label.
+    expect(live(search("select:A"), other("Read go.mod")).label).toBe("Read go.mod");
+    expect(currentStep([search("select:A"), other("Read src/a.lua")])).toBe("Read a.lua");
+  });
+
+  it("words a failed search as its own row, and a run of them as loaded tools", () => {
+    expect(stepLabel(search("select:Nope", {}, "failed").toolCall!)).toEqual({ verb: "Couldn't load", object: "Nope" });
+    expect(stepLabel(search("select:A,B").toolCall!)).toEqual({ verb: "Loaded tools", object: "A, B" });
+    expect(stepLabel(search("slack send").toolCall!)).toEqual({ verb: "Loaded tools", object: "slack send" });
+    expect(stepSummary([search("select:A"), other()])).toBe("Loaded tools, read files");
   });
 });
 
