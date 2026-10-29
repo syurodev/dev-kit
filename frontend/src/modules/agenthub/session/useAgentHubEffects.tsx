@@ -6,7 +6,8 @@ import { useSplitPanelActions } from "@/components/ui/split-panel";
 import { detectPlatform } from "@/lib/platform";
 import { appendChips, refChip } from "../composerDraft";
 import { sessionTitle, useAgentDraftRequests } from "../documents";
-import { AgentActivityPanel, useFollowing } from "../follow";
+import { AgentActivityPanel, useActivityHeader, useFollowing } from "../follow";
+import { useSubagentHeader } from "../subagentHeader";
 import { SubagentPanel, useSubagentPanel } from "../subagents";
 import { isNewSessionShortcut } from "./sessionModel";
 import type { AgentDraft } from "./useAgentDraft";
@@ -103,13 +104,17 @@ export function useAgentHubEffects({
   const closeSubagent = useSubagentPanel((s) => s.close);
   const activeId = activeSession?.id ?? "";
   const subagentId = openSubagent && openSubagent.sessionId === activeId ? openSubagent.subagentId : "";
+  // What the shell's one header says for each panel; the panels draw none of their own.
+  const subagentHeader = useSubagentHeader(activeId, subagentId);
+  const activityHeader = useActivityHeader(followedId, followedTitle, toggleFollowing);
   useEffect(() => {
     if (!visible) return;
     if (subagentId && activeId) {
-      openPanel(<SubagentPanel sessionId={activeId} subagentId={subagentId} onClose={closeSubagent} />, {
+      openPanel(<SubagentPanel sessionId={activeId} subagentId={subagentId} />, {
         width: 420,
         onClose: closeSubagent,
         key: `subagent:${activeId}:${subagentId}`,
+        header: subagentHeader,
       });
       return;
     }
@@ -119,12 +124,13 @@ export function useAgentHubEffects({
       closePanel({ discard: true });
       return;
     }
-    openPanel(<AgentActivityPanel sessionId={followedId} title={followedTitle} onStop={toggleFollowing} />, {
+    openPanel(<AgentActivityPanel sessionId={followedId} />, {
       width: 400,
       onClose: toggleFollowing,
       key: `activity:${followedId}`,
+      header: activityHeader,
     });
-  }, [visible, subagentId, activeId, followedId, followedTitle, openPanel, closePanel, toggleFollowing, closeSubagent]);
+  }, [visible, subagentId, activeId, followedId, subagentHeader, activityHeader, openPanel, closePanel, toggleFollowing, closeSubagent]);
 
   // A draft asked for from elsewhere — the sidebar's project or child "+" —
   // lands in the new-session tab, once it is on screen.
