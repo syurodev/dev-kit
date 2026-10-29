@@ -436,6 +436,15 @@ func (r *Recorder) recordSessionState(ctx context.Context, sessionID string, upd
 			update.AvailableModes = stored.AvailableModes
 		}
 	}
+	if update.Kind == UpdateUsage && update.Usage != nil {
+		// A usage_update that carries no plan windows does not withdraw the
+		// ones the row holds; see mergeUsage.
+		var stored SessionUpdate
+		if json.Unmarshal(prev.Payload, &stored) == nil {
+			merged := mergeUsage(stored.Usage, *update.Usage, r.now())
+			update.Usage = &merged
+		}
+	}
 	payload, err := json.Marshal(update)
 	if err != nil {
 		return errors.Join(flushErr, err)
