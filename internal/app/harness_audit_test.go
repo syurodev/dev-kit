@@ -32,7 +32,7 @@ func TestHarnessAuditSinkMapsAnOutcomeToFixedAuditFields(t *testing.T) {
 		ok.Outcome != audit.OutcomeAllowed || ok.Caller != "agent:s1" || ok.At.IsZero() {
 		t.Errorf("applied row = %+v", ok)
 	}
-	want := map[string]any{"action": "proposal", "result": "applied", "tier": "ordinary", "target": "session",
+	want := map[string]any{"action": "proposal", "result": "applied", "commit": "committed", "tier": "ordinary", "target": "session",
 		"workspace_id": "w1", "session_id": "s1", "profile_revision": int64(4), "override_revision": int64(2), "publication": "installed"}
 	if !reflect.DeepEqual(ok.Metadata, want) {
 		t.Errorf("applied metadata = %v", ok.Metadata)
@@ -43,6 +43,38 @@ func TestHarnessAuditSinkMapsAnOutcomeToFixedAuditFields(t *testing.T) {
 	}
 	if HarnessAuditSink(nil) != nil {
 		t.Error("no sink must give no callback")
+	}
+}
+
+// A commit whose result is unknown (the write may have landed) is neither a
+// refusal nor a success: it is not recorded as denied, and the row says so in its
+// own fields. A stale-repair event carries its own action, not "proposal".
+func TestHarnessAuditSinkIsHonestAboutAnUnknownCommitAndLabelsRepairs(t *testing.T) {
+	sink := audit.NewMemorySink()
+	record := HarnessAuditSink(sink)
+	record(harnessconfig.Event{Outcome: "unknown", Tier: "widening", Target: harnessconfig.TargetRepair, WorkspaceID: "w1", Caller: "ui"})
+	record(harnessconfig.Event{Outcome: "applied", Tier: "narrowing", Target: harnessconfig.TargetSessionRepair, WorkspaceID: "w1", SessionID: "s1", Caller: "ui", Override: 3})
+	record(harnessconfig.Event{Outcome: "harness.proposalStale", Tier: "widening", Target: harnessconfig.TargetRepair, WorkspaceID: "w1", Caller: "ui"})
+	record(harnessconfig.Event{Outcome: "unknown", Target: harnessconfig.TargetWorkspace, WorkspaceID: "w1", Caller: "ui"})
+	rows := sink.Events()
+	if len(rows) != 4 {
+		t.Fatalf("rows = %d", len(rows))
+	}
+	unknown, applied, refused, wsUnknown := rows[0], rows[1], rows[2], rows[3]
+	if unknown.Outcome == audit.OutcomeDenied || unknown.Outcome != audit.OutcomeAllowed {
+		t.Errorf("an unknown commit must not be recorded as a denial: %+v", unknown)
+	}
+	if unknown.Metadata["result"] != "unknown" || unknown.Metadata["commit"] != "unknown" || unknown.Metadata["action"] != "stale_repair" {
+		t.Errorf("unknown row = %v", unknown.Metadata)
+	}
+	if applied.Metadata["action"] != "stale_repair" || applied.Metadata["commit"] != "committed" || applied.Outcome != audit.OutcomeAllowed {
+		t.Errorf("session repair row = %v %v", applied.Outcome, applied.Metadata)
+	}
+	if refused.Outcome != audit.OutcomeDenied || refused.Metadata["commit"] != "none" || refused.Metadata["action"] != "stale_repair" {
+		t.Errorf("refused repair row = %v %v", refused.Outcome, refused.Metadata)
+	}
+	if wsUnknown.Metadata["action"] != "proposal" || wsUnknown.Metadata["commit"] != "unknown" {
+		t.Errorf("a proposal keeps its action: %v", wsUnknown.Metadata)
 	}
 }
 
@@ -60,7 +92,7 @@ func TestHarnessAuditMetadataKeysAreFixedAndNeverRedacted(t *testing.T) {
 		}
 	}
 	sort.Strings(keys)
-	want := []string{"action", "override_revision", "profile_revision", "publication", "result", "session_id", "target", "tier", "workspace_id"}
+	want := []string{"action", "commit", "override_revision", "profile_revision", "publication", "result", "session_id", "target", "tier", "workspace_id"}
 	if !reflect.DeepEqual(keys, want) {
 		t.Errorf("keys = %v", keys)
 	}

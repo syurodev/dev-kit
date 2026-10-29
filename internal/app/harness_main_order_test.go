@@ -48,10 +48,10 @@ func once(t *testing.T, calls map[string][]mainCall, key string) mainCall {
 	return calls[key][0]
 }
 
-// keyedFields returns the field names set by the first composite literal inside
-// call whose type's last element is typeName.
-func keyedFields(call *ast.CallExpr, typeName string) map[string]bool {
-	out := map[string]bool{}
+// keyedFields returns the keyed fields (name to value expression) of the first
+// composite literal inside call whose type's last element is typeName.
+func keyedFields(call *ast.CallExpr, typeName string) map[string]ast.Expr {
+	out := map[string]ast.Expr{}
 	found := false
 	ast.Inspect(call, func(n ast.Node) bool {
 		lit, ok := n.(*ast.CompositeLit)
@@ -72,7 +72,7 @@ func keyedFields(call *ast.CallExpr, typeName string) map[string]bool {
 		for _, el := range lit.Elts {
 			if kv, ok := el.(*ast.KeyValueExpr); ok {
 				if id, ok := kv.Key.(*ast.Ident); ok {
-					out[id.Name] = true
+					out[id.Name] = kv.Value
 				}
 			}
 		}
@@ -96,8 +96,8 @@ func TestMainWiresTheHarnessInTheRequiredOrder(t *testing.T) {
 
 	// 1. The port is handed to the MCP server's dependencies, so the two public
 	//    tools are registered before Inventory freezes the registry.
-	if !keyedFields(server.call, "Deps")["Harness"] {
-		t.Error("mcp.Deps.Harness must be set when the MCP server is built")
+	if !isSelector(keyedFields(server.call, "Deps")["Harness"], "container", "Harness") {
+		t.Error("mcp.Deps.Harness must be the container's port (container.Harness), not nil or another value")
 	}
 	// 2. Compose and attach after the server exists and after application.New (a
 	//    second launch exits inside New, before it binds anything).
@@ -111,16 +111,28 @@ func TestMainWiresTheHarnessInTheRequiredOrder(t *testing.T) {
 	// The assembly receives its real collaborators and the audit sink.
 	fields := keyedFields(start.call, "HarnessAssemblyConfig")
 	for _, f := range []string{"Store", "Preferences", "Hub", "Workspaces", "Agents", "Vendors", "Inventory", "Audit"} {
-		if !fields[f] {
+		if v := fields[f]; v == nil || isNil(v) {
 			t.Errorf("HarnessAssemblyConfig.%s is not wired in main.go", f)
 		}
 	}
+	// The same port the MCP server was given, and an audit sink built by the
+	// adapter, not a hand-made callback.
 	startFields := keyedFields(start.call, "HarnessStartup")
-	for _, f := range []string{"Port", "Config", "Listen", "Cleanup"} {
-		if !startFields[f] {
+	if !isSelector(startFields["Port"], "container", "Harness") {
+		t.Error("HarnessStartup.Port must be container.Harness, the port handed to mcp.Deps")
+	}
+	if call, ok := fields["Audit"].(*ast.CallExpr); !ok || !isSelector(call.Fun, "app", "HarnessAuditSink") {
+		t.Error("HarnessAssemblyConfig.Audit must be app.HarnessAuditSink(...)")
+	}
+	if !isIdent(fields["Agents"], "agentSvc") {
+		t.Error("HarnessAssemblyConfig.Agents must be the Agent Hub service the MCP endpoints were assigned to")
+	}
+	for _, f := range []string{"Config", "Listen", "Cleanup"} {
+		if v := startFields[f]; v == nil || isNil(v) {
 			t.Errorf("HarnessStartup.%s is not wired in main.go", f)
 		}
 	}
+	checkStartupFailureTerminates(t)
 	// 4. The shared socket is bound only by Listen, inside StartHarness; the early
 	//    ServeUnix start is gone and nothing else binds or serves it.
 	if len(calls["mcp.ServeUnix"]) != 0 {
@@ -131,5 +143,81 @@ func TestMainWiresTheHarnessInTheRequiredOrder(t *testing.T) {
 		if c.pos < start.pos || c.end > start.end {
 			t.Errorf("%s must be called inside the StartHarness call", key)
 		}
+	}
+}
+
+func isNil(e ast.Expr) bool { return isIdent(e, "nil") }
+
+func isIdent(e ast.Expr, name string) bool {
+	id, ok := e.(*ast.Ident)
+	return ok && id.Name == name
+}
+
+// isSelector reports whether e is the selector x.sel (any x when x is "").
+func isSelector(e ast.Expr, x, sel string) bool {
+	se, ok := e.(*ast.SelectorExpr)
+	if !ok || se.Sel.Name != sel {
+		return false
+	}
+	if x == "" {
+		return true
+	}
+	return isIdent(se.X, x)
+}
+
+// checkStartupFailureTerminates finds the `if _, err := app.StartHarness(...); err
+// != nil { ... }` statement and requires that its branch ends the process
+// (log.Fatal, Fatalf, Fatalln, os.Exit or panic) and never returns, logs and
+// continues, or has an else. A failed startup that continued would run with
+// Harness nil, which is the forbidden fallback.
+func checkStartupFailureTerminates(t *testing.T) {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), "../../main.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var branch *ast.IfStmt
+	ast.Inspect(file, func(n ast.Node) bool {
+		ifs, ok := n.(*ast.IfStmt)
+		if !ok {
+			return true
+		}
+		as, ok := ifs.Init.(*ast.AssignStmt)
+		if !ok || len(as.Rhs) != 1 {
+			return true
+		}
+		if call, ok := as.Rhs[0].(*ast.CallExpr); ok && isSelector(call.Fun, "app", "StartHarness") {
+			branch = ifs
+			return false
+		}
+		return true
+	})
+	if branch == nil {
+		t.Fatal("main.go must handle the result of app.StartHarness in an if statement")
+	}
+	cond, ok := branch.Cond.(*ast.BinaryExpr)
+	if !ok || cond.Op != token.NEQ || !isNil(cond.Y) || !isIdent(cond.X, "err") {
+		t.Fatal("the StartHarness result must be checked as `err != nil`")
+	}
+	if branch.Else != nil {
+		t.Error("the StartHarness failure branch must not have an else")
+	}
+	terminates := false
+	ast.Inspect(branch.Body, func(n ast.Node) bool {
+		if _, ok := n.(*ast.ReturnStmt); ok {
+			t.Error("the StartHarness failure branch must not return: startup would continue")
+		}
+		return true
+	})
+	if n := len(branch.Body.List); n > 0 {
+		if es, ok := branch.Body.List[n-1].(*ast.ExprStmt); ok {
+			if call, ok := es.X.(*ast.CallExpr); ok {
+				terminates = isSelector(call.Fun, "log", "Fatal") || isSelector(call.Fun, "log", "Fatalf") ||
+					isSelector(call.Fun, "log", "Fatalln") || isSelector(call.Fun, "os", "Exit") || isIdent(call.Fun, "panic")
+			}
+		}
+	}
+	if !terminates {
+		t.Error("the StartHarness failure branch must end in log.Fatal*, os.Exit or panic")
 	}
 }
