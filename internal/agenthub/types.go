@@ -64,7 +64,9 @@ type AgentSession struct {
 	UpdatedAt           time.Time
 	// Activity is what the session's live process is doing that no DevKit turn
 	// started (bgwork.go). Derived from the process, never stored: Service.ListSessions
-	// and GetStatus fill it, the store does not, and MCP results blank it.
+	// and GetStatus fill it, the store does not, and MCP results blank it. Nil for a
+	// session that never had any; once it did, it stays (with nothing running) so its
+	// Rev can order a read against an event.
 	Activity *SessionActivity `json:"activity,omitempty"`
 }
 
@@ -72,9 +74,18 @@ type AgentSession struct {
 type SessionActivity struct {
 	AgentTurn bool `json:"agentTurn,omitempty"` // the vendor runs a turn of its own (taskType "turn")
 	Tasks     int  `json:"tasks,omitempty"`     // running background tasks other than that turn (taskType "shell", others)
+	// Rev counts the changes of this session's activity since DevKit started, and is not
+	// reset when the process goes away: of two reads or events of one session, the higher
+	// Rev is the newer, so a read that was in flight when an event landed cannot undo it.
+	// The DTO carries the activity whenever Rev > 0, even with nothing running.
+	Rev uint64 `json:"rev,omitempty"`
+	// Ended is true on a state with no agent turn when that turn ended by the vendor's own
+	// update (its work is done), false when the activity was cleared because the process
+	// went away (closed, reloaded, rewound, cancelled, crashed): the turn did not finish.
+	Ended bool `json:"ended,omitempty"`
 }
 
-// Zero reports that there is nothing to show.
+// Zero reports that there is nothing to show (Rev and Ended say nothing running).
 func (a SessionActivity) Zero() bool { return !a.AgentTurn && a.Tasks == 0 }
 
 // TurnRecord is one completed (or failed) prompt turn on a session.

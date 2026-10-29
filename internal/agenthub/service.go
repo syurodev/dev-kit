@@ -627,7 +627,7 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 		// who turned the feature off, runs the same Invoke as everyone else.
 		checkpoints: noCheckpoints{},
 	}
-	s.activity = newActivityNotifier(s.bgwork.snapshot, func(id string, a SessionActivity) {
+	s.activity = newActivityNotifier(s.bgwork.snapshotRev, func(id string, a SessionActivity) {
 		if s.OnActivityChanged != nil {
 			s.OnActivityChanged(id, a)
 		}
@@ -1426,7 +1426,7 @@ func (s *Service) GetStatus(ctx context.Context, id string) (AgentSession, error
 // attachActivity fills what the session's live process is doing that no DevKit turn
 // started (bgwork.go). The window's reads carry it; the store never holds it.
 func (s *Service) attachActivity(sess *AgentSession) {
-	if a := s.bgwork.snapshot(sess.ID); !a.Zero() {
+	if a := s.bgwork.snapshotRev(sess.ID); !a.Zero() || a.Rev > 0 {
 		sess.Activity = &a
 	}
 }

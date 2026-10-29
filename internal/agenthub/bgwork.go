@@ -24,6 +24,13 @@ type backgroundWork struct {
 	mu    sync.Mutex
 	tasks map[string]map[string]bgTask // session id -> task id -> what it is and when it spawned
 	now   func() time.Time             // nil: time.Now
+	// seen, rev and ended are the revision (SessionActivity.Rev) of each session's
+	// snapshot. They are NOT dropped by forget: a window that read the row just before
+	// a process went away must still be able to tell its answer is older than the event
+	// that cleared it. One small entry per session that ever had activity.
+	seen  map[string]SessionActivity // the content last observed
+	rev   map[string]uint64          // how many times it changed
+	ended map[string]bool            // the agent's turn last ended by the vendor's own update
 }
 
 // bgTask is one tracked task: when it spawned (the age limit counts from it) and
@@ -74,6 +81,7 @@ func (b *backgroundWork) apply(sessionID string, kind UpdateKind, task *AsyncTas
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.observeLocked(sessionID, false) // an expiry since the last look
 	before := b.snapshotLocked(sessionID)
 	switch kind {
 	case UpdateAsyncTaskSpawned:
@@ -98,7 +106,42 @@ func (b *backgroundWork) apply(sessionID string, kind UpdateKind, task *AsyncTas
 			}
 		}
 	}
+	b.observeLocked(sessionID, true)
 	return activityChange{Before: before, After: b.snapshotLocked(sessionID)}
+}
+
+// observeLocked records a change of the session's snapshot since it was last looked at:
+// the revision goes up, and when the agent's turn went off it notes whether the vendor's
+// own update ended it (byUpdate) or the process went away or the valve expired it. A
+// change nobody looked at between (an expiry) is counted the next time anyone does.
+func (b *backgroundWork) observeLocked(sessionID string, byUpdate bool) {
+	cur := b.snapshotLocked(sessionID)
+	last := b.seen[sessionID]
+	if cur == last {
+		return
+	}
+	if b.seen == nil {
+		b.seen = make(map[string]SessionActivity)
+		b.rev = make(map[string]uint64)
+		b.ended = make(map[string]bool)
+	}
+	if last.AgentTurn && !cur.AgentTurn {
+		b.ended[sessionID] = byUpdate
+	}
+	b.seen[sessionID] = cur
+	b.rev[sessionID]++
+}
+
+// snapshotRev is snapshot with the revision and cause (Rev, Ended) a reader needs to
+// order it against another read or event of the same session. What the window gets.
+func (b *backgroundWork) snapshotRev(sessionID string) SessionActivity {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.observeLocked(sessionID, false)
+	a := b.snapshotLocked(sessionID)
+	a.Rev = b.rev[sessionID]
+	a.Ended = !a.AgentTurn && b.ended[sessionID]
+	return a
 }
 
 // running reports whether the session's process still has a task that is younger
@@ -145,7 +188,9 @@ func (b *backgroundWork) snapshotLocked(sessionID string) SessionActivity {
 func (b *backgroundWork) forget(sessionID string) activityChange {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.observeLocked(sessionID, false)
 	before := b.snapshotLocked(sessionID)
 	delete(b.tasks, sessionID)
+	b.observeLocked(sessionID, false)
 	return activityChange{Before: before}
 }

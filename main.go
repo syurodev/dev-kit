@@ -767,6 +767,10 @@ func main() {
 			"sessionId": sessionID,
 			"agentTurn": a.AgentTurn,
 			"tasks":     a.Tasks,
+			// Orders this against a read of the row; ended says the agent's turn finished
+			// rather than its process going away.
+			"rev":   a.Rev,
+			"ended": a.Ended,
 		})
 	}
 	agentSvc.OnTurnFinished = func(sessionID string, status agenthub.SessionStatus, outcome string) {

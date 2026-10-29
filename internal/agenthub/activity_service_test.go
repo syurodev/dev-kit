@@ -52,7 +52,7 @@ func TestActivityHookSeesTheTurnOnThenOffOnce(t *testing.T) {
 		{f.parent.ID, agenthub.SessionActivity{}},
 	}
 	got := log.all()
-	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+	if len(got) != len(want) || got[0].id != want[0].id || content(got[0].a) != want[0].a || content(got[1].a) != want[1].a {
 		t.Fatalf("hook calls = %+v, want %+v", got, want)
 	}
 }
@@ -146,6 +146,15 @@ func TestShutdownStopsTheActivityNotifier(t *testing.T) {
 	}
 }
 
+// content is the activity without its revision and cause: what is running.
+func content(a agenthub.SessionActivity) agenthub.SessionActivity {
+	a.Rev, a.Ended = 0, false
+	return a
+}
+
+// nothing is an activity that shows nothing running: absent, or only a revision left.
+func nothing(a *agenthub.SessionActivity) bool { return a == nil || a.Zero() }
+
 func activityOf(t *testing.T, f *idleFixture, id string) *agenthub.SessionActivity {
 	t.Helper()
 	got, err := f.svc.GetStatus(context.Background(), id)
@@ -179,10 +188,10 @@ func TestGetStatusAndListSessionsCarryTheActivity(t *testing.T) {
 	f.svc.HandleUpdateForTest(ctx, f.kid.ID, []byte(spawnShellJSON))
 	f.svc.HandleUpdateForTest(ctx, f.kid.ID, []byte(spawnTurnJSON))
 	want := agenthub.SessionActivity{AgentTurn: true, Tasks: 1}
-	if a := activityOf(t, f, f.kid.ID); a == nil || *a != want {
+	if a := activityOf(t, f, f.kid.ID); a == nil || content(*a) != want {
 		t.Fatalf("GetStatus activity = %+v, want %+v", a, want)
 	}
-	if a := listedActivity(t, f, f.kid.ID); a == nil || *a != want {
+	if a := listedActivity(t, f, f.kid.ID); a == nil || content(*a) != want {
 		t.Fatalf("ListSessions activity = %+v, want %+v", a, want)
 	}
 	if a := listedActivity(t, f, f.parent.ID); a != nil {
@@ -190,7 +199,7 @@ func TestGetStatusAndListSessionsCarryTheActivity(t *testing.T) {
 	}
 	f.svc.HandleUpdateForTest(ctx, f.kid.ID, []byte(doneShellJSON))
 	f.svc.HandleUpdateForTest(ctx, f.kid.ID, []byte(`{"sessionUpdate":"async_task_state_update","asyncTaskId":"autonomous-turn-c1514d72","state":"completed"}`))
-	if a := activityOf(t, f, f.kid.ID); a != nil {
+	if a := activityOf(t, f, f.kid.ID); !nothing(a) {
 		t.Fatalf("after both ended: %+v", a)
 	}
 }
@@ -237,6 +246,12 @@ func (f *idleFixture) previewOf(t *testing.T, id string) string {
 		t.Fatal(err)
 	}
 	return got.Preview
+}
+
+func (f *idleFixture) feed2(id string, updates ...string) {
+	for _, u := range updates {
+		f.svc.HandleUpdateForTest(context.Background(), id, []byte(u))
+	}
 }
 
 func (f *idleFixture) feed(updates ...string) {
@@ -430,7 +445,7 @@ func TestCancelThatKillsTheProcessClearsTheActivityOnce(t *testing.T) {
 	}
 	f.svc.WaitActivityIdleForTest()
 
-	if a := activityOf(t, f, id); a != nil {
+	if a := activityOf(t, f, id); !nothing(a) {
 		t.Fatalf("activity after the process was killed: %+v", a)
 	}
 	if f.hasRuntime(id) {
@@ -479,7 +494,72 @@ func TestCancelThatLeavesTheProcessAliveKeepsTheActivity(t *testing.T) {
 	// The vendor's own end still clears it.
 	f.feed(doneTurnJSON)
 	f.svc.WaitActivityIdleForTest()
-	if a := activityOf(t, f, id); a != nil {
+	if a := activityOf(t, f, id); !nothing(a) {
 		t.Fatalf("activity after the vendor's end: %+v", a)
+	}
+}
+
+// A window that read the row while the process was running must be able to tell that read
+// is older than the event that cleared it, so the DTO keeps its revision with nothing running.
+func TestTheDTOKeepsTheRevisionWhenNothingRunsAnyMore(t *testing.T) {
+	f := newIdleFixture(t)
+	ctx := context.Background()
+	if a := activityOf(t, f, f.kid.ID); a != nil {
+		t.Fatalf("a session that never had work carries %+v", a)
+	}
+	f.feed2(f.kid.ID, spawnShellJSON)
+	running := activityOf(t, f, f.kid.ID)
+	f.svc.HandleUpdateForTest(ctx, f.kid.ID, []byte(doneShellJSON))
+	after := activityOf(t, f, f.kid.ID)
+	if after == nil || !after.Zero() || after.Rev <= running.Rev {
+		t.Fatalf("after the end: %+v (it was %+v)", after, running)
+	}
+	if listed := listedActivity(t, f, f.kid.ID); listed == nil || listed.Rev != after.Rev {
+		t.Fatalf("the list says %+v", listed)
+	}
+}
+
+func TestActivityEventsCarryIncreasingRevisionsAndWhyTheTurnEnded(t *testing.T) {
+	f := newIdleFixture(t)
+	ctx := context.Background()
+	log := &activityLog{}
+	f.svc.OnActivityChanged = log.hook
+	f.feed2(f.parent.ID, spawnTurnJSON)
+	f.svc.WaitActivityIdleForTest()
+	f.feed2(f.parent.ID, doneTurnJSON)
+	f.svc.WaitActivityIdleForTest()
+	f.feed2(f.parent.ID, spawnTurnJSON)
+	f.svc.WaitActivityIdleForTest()
+	f.svc.ForgetBackgroundWorkForTest(f.parent.ID) // the process went away mid-turn
+	f.svc.WaitActivityIdleForTest()
+	_ = ctx
+	got := log.all()
+	if len(got) != 4 {
+		t.Fatalf("events = %+v", got)
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i].a.Rev <= got[i-1].a.Rev {
+			t.Fatalf("revisions do not increase: %+v", got)
+		}
+	}
+	if !got[1].a.Ended {
+		t.Fatalf("the vendor's own end is not marked ended: %+v", got[1])
+	}
+	if got[3].a.Ended || got[3].a.AgentTurn {
+		t.Fatalf("a process that went away mid-turn: %+v", got[3])
+	}
+}
+
+func TestACancelThatKillsTheProcessIsNotAnEndedTurn(t *testing.T) {
+	f := newIdleFixture(t)
+	id := f.parent.ID
+	installCancelRuntime(t, f, id, true)
+	f.feed2(id, spawnTurnJSON)
+	if err := f.svc.Cancel(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+	a := activityOf(t, f, id)
+	if a == nil || a.AgentTurn || a.Ended {
+		t.Fatalf("after a cancel that killed it: %+v", a)
 	}
 }

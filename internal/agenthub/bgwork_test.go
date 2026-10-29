@@ -216,3 +216,101 @@ func TestBackgroundWorkSnapshotDoesNotCountAStaleTask(t *testing.T) {
 		t.Fatal("forgetting only stale tasks changed what the window shows")
 	}
 }
+
+func TestBackgroundWorkRevCountsEveryChangeAndOnlyChanges(t *testing.T) {
+	var b backgroundWork
+	rev := func() uint64 { return b.snapshotRev("s1").Rev }
+	if rev() != 0 {
+		t.Fatal("a session that never had work has a revision")
+	}
+	steps := []struct {
+		name string
+		do   func()
+		want uint64
+	}{
+		{"a shell spawn", func() { b.apply("s1", UpdateAsyncTaskSpawned, shellTask("a")) }, 1},
+		{"the same spawn again", func() { b.apply("s1", UpdateAsyncTaskSpawned, shellTask("a")) }, 1},
+		{"progress", func() { b.apply("s1", UpdateAsyncTaskProgress, shellTask("a")) }, 1},
+		{"a turn spawn", func() { b.apply("s1", UpdateAsyncTaskSpawned, turnTask("autonomous-turn-1")) }, 2},
+		{"the turn ends", func() { b.apply("s1", UpdateAsyncTaskState, taskState("autonomous-turn-1", "completed")) }, 3},
+		{"the shell ends", func() { b.apply("s1", UpdateAsyncTaskState, taskState("a", "completed")) }, 4},
+		{"an end for nothing", func() { b.apply("s1", UpdateAsyncTaskState, taskState("a", "completed")) }, 4},
+		{"forget with nothing", func() { b.forget("s1") }, 4},
+	}
+	for _, st := range steps {
+		st.do()
+		if got := rev(); got != st.want {
+			t.Fatalf("%s: rev = %d, want %d", st.name, got, st.want)
+		}
+	}
+}
+
+// The revision outlives the process: what a window read before the process went away is
+// older than the event that cleared it, and has to be seen to be.
+func TestBackgroundWorkRevSurvivesForgetAndKeepsCounting(t *testing.T) {
+	var b backgroundWork
+	b.apply("s1", UpdateAsyncTaskSpawned, shellTask("a")) // 1
+	b.forget("s1")                                        // 2
+	got := b.snapshotRev("s1")
+	if got.Rev != 2 || !got.Zero() {
+		t.Fatalf("after forget = %+v", got)
+	}
+	b.apply("s1", UpdateAsyncTaskSpawned, shellTask("b"))
+	if got := b.snapshotRev("s1"); got.Rev != 3 || got.Tasks != 1 {
+		t.Fatalf("a new process's task = %+v", got)
+	}
+	if got := b.snapshotRev("other"); got.Rev != 0 {
+		t.Fatalf("another session's revision = %d", got.Rev)
+	}
+}
+
+func TestBackgroundWorkRevCountsAnExpiryWhenItIsObserved(t *testing.T) {
+	clock := time.Date(2026, 10, 29, 9, 0, 0, 0, time.UTC)
+	b := backgroundWork{now: func() time.Time { return clock }}
+	b.apply("s1", UpdateAsyncTaskSpawned, shellTask("a"))
+	before := b.snapshotRev("s1").Rev
+	clock = clock.Add(backgroundWorkMaxAge + time.Minute)
+	after := b.snapshotRev("s1")
+	if after.Rev != before+1 || !after.Zero() {
+		t.Fatalf("expiry: before %d, after %+v", before, after)
+	}
+	if again := b.snapshotRev("s1"); again.Rev != after.Rev {
+		t.Fatal("an expiry was counted twice")
+	}
+}
+
+func TestBackgroundWorkEndedSaysWhyTheAgentTurnWentOff(t *testing.T) {
+	ended := func(b *backgroundWork) bool { return b.snapshotRev("s1").Ended }
+	var b backgroundWork
+	b.apply("s1", UpdateAsyncTaskSpawned, turnTask("autonomous-turn-1"))
+	if ended(&b) {
+		t.Fatal("a turn that is running has ended")
+	}
+	b.apply("s1", UpdateAsyncTaskState, taskState("autonomous-turn-1", "completed"))
+	if !ended(&b) {
+		t.Fatal("a turn the vendor ended is not ended")
+	}
+	b.apply("s1", UpdateAsyncTaskSpawned, turnTask("autonomous-turn-2"))
+	if ended(&b) {
+		t.Fatal("a new turn is already ended")
+	}
+	b.forget("s1")
+	if ended(&b) {
+		t.Fatal("a turn cut off by the process going away is ended")
+	}
+	// A shell task alone never makes a turn that ended.
+	var shell backgroundWork
+	shell.apply("s1", UpdateAsyncTaskSpawned, shellTask("a"))
+	shell.apply("s1", UpdateAsyncTaskState, taskState("a", "completed"))
+	if ended(&shell) {
+		t.Fatal("a shell task ending is an agent turn ending")
+	}
+	// The valve is not the vendor's own end.
+	clock := time.Date(2026, 10, 29, 9, 0, 0, 0, time.UTC)
+	expired := backgroundWork{now: func() time.Time { return clock }}
+	expired.apply("s1", UpdateAsyncTaskSpawned, turnTask("autonomous-turn-3"))
+	clock = clock.Add(backgroundWorkMaxAge + time.Minute)
+	if ended(&expired) {
+		t.Fatal("an expired turn is ended")
+	}
+}
