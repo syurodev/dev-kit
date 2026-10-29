@@ -86,7 +86,8 @@ describe("the subagent pane's header", () => {
     await seed({ id: "a1", name: "Review whitelist", task: "Check the list", state: "completed" }, session("idle"));
     await draw();
     expect(q("[data-testid=title]")?.textContent).toBe("Review whitelist");
-    expect(q("[data-testid=title]")?.getAttribute("title")).toBe("Check the list");
+    // The tooltip carries the whole name, which the row may cut, and then the task.
+    expect(q("[data-testid=title]")?.getAttribute("title")).toBe("Review whitelist\nCheck the list");
     expect(q("[data-testid=icon] svg")).not.toBeNull();
     expect(q("[data-testid=status] [data-slot=agent-state]")?.getAttribute("data-status")).toBe("closed");
   });
@@ -95,11 +96,11 @@ describe("the subagent pane's header", () => {
     await seed({ id: "a1" }, session("idle"));
     await draw();
     expect(q("[data-testid=title]")?.textContent).toBe("Subagent");
-    expect(q("[data-testid=title]")?.getAttribute("title")).toBeNull();
+    expect(q("[data-testid=title]")?.getAttribute("title")).toBe("Subagent");
     await seed(null, session("idle"), [{ id: "sp", kind: "subagent_spawned", subagent: { id: "a1", name: "Java fixes", task: "Fix it" } }]);
     await draw();
     expect(q("[data-testid=title]")?.textContent).toBe("Java fixes");
-    expect(q("[data-testid=title]")?.getAttribute("title")).toBe("Fix it");
+    expect(q("[data-testid=title]")?.getAttribute("title")).toBe("Java fixes\nFix it");
   });
 
   test("follows the subagent's state as the store changes, without the pane being opened again", async () => {

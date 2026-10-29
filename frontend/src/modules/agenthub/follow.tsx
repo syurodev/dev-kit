@@ -98,8 +98,9 @@ function ActivityStatus({ sessionId }: { sessionId: string }) {
 export function useActivityHeader(sessionId: string, title: string, onStop: () => void): PanelHeader {
   return React.useMemo(
     () => ({
-      title: title || "Session",
-      titleHint: "The session you are following: what it changes in DevKit shows here",
+      title: title ? `Following ${title}` : "Following session",
+      // All of the title, which the row may cut, and what this pane is.
+      titleHint: `${title ? `Following ${title}` : "Following session"}\nWhat the session changes in DevKit shows here`,
       icon: <Eye className="text-icon-secondary" />,
       status: <ActivityStatus sessionId={sessionId} />,
       actions: (

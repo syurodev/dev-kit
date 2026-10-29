@@ -55,7 +55,10 @@ describe("the follow feed's header", () => {
   test("is the session's title, with the session's state and the stop-following control", async () => {
     await seed(session("idle"));
     await draw();
-    expect(q("[data-testid=title]")?.textContent).toBe("Fix login");
+    expect(q("[data-testid=title]")?.textContent).toBe("Following Fix login");
+    // The row may cut the title: the tooltip has all of it, and says what this pane is.
+    expect(q("[data-testid=title]")?.getAttribute("title")).toContain("Following Fix login");
+    expect(q("[data-testid=title]")?.getAttribute("title")).toContain("changes in DevKit");
     expect(q("[data-testid=icon] svg")).not.toBeNull();
     expect(statusOf()).toBe("idle");
     const action = q("[data-testid=actions] button");
@@ -74,11 +77,11 @@ describe("the follow feed's header", () => {
     expect(statusOf()).toBe("error");
   });
 
-  test("draws no state for a session the store does not know, and names an untitled one", async () => {
+  test("draws no state for a session the store does not know, and names an untitled one as a followed session", async () => {
     await seed(null);
     await draw("");
     expect(statusOf()).toBeUndefined();
-    expect(q("[data-testid=title]")?.textContent).toBe("Session");
+    expect(q("[data-testid=title]")?.textContent).toBe("Following session");
   });
 });
 

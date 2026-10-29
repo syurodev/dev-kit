@@ -128,7 +128,8 @@ export function useSubagentHeader(sessionId: string, subagentId: string): PanelH
   return React.useMemo(
     () => ({
       title: name || "Subagent",
-      titleHint: task || undefined,
+      // All of the name, which the row may cut, then the task.
+      titleHint: task ? `${name || "Subagent"}\n${task}` : name || "Subagent",
       icon: <Bot className="text-icon-secondary" />,
       status: <SubagentStatus key={key} sessionId={sessionId} subagentId={subagentId} />,
       actions: <SubagentStop key={key} sessionId={sessionId} subagentId={subagentId} />,
