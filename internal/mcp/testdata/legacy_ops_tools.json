@@ -141,5 +141,6 @@
   "workspace.memory.list",
   "workspace.memory.restore",
   "workspace.memory.search",
-  "workspace.memory.update"
+  "workspace.memory.update",
+  "workspace.requestWrite"
 ]

@@ -93,7 +93,7 @@ var groupDefinitionCeilings = map[string]int{
 	"accounts": 1000, "agenthub": 7000, "api": 11200, "codegraph": 17800, "codex": 1000,
 	"db": 2750, "env": 250, "git": 12800, "kafka": 2250, "notes": 3950,
 	"pdf": 5850, "pr": 8700, "ssh": 1150, "tasks": 7950, "tools": 380,
-	"vault": 580, "workspace": 5300,
+	"vault": 580, "workspace": 5900,
 }
 
 const maxTotalInventoryBytes = 89000

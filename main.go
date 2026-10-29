@@ -1149,6 +1149,11 @@ func main() {
 		beginUsage = metrics.Begin
 		endUsage = metrics.End
 	}
+	// workspace.requestWrite: nil stays nil (an interface holding a nil pointer would not).
+	var workspaceWrite mcp.WorkspaceWriteAPI
+	if container.AgentHub != nil {
+		workspaceWrite = container.AgentHub
+	}
 	mcpServer := mcp.NewServerFromContainer(mcp.Deps{
 		UsageScope: agentSvc.ToolUsageScope, RecordUsage: recordUsage, DropUsage: dropUsage, BeginUsage: beginUsage, EndUsage: endUsage,
 		Caller:            bridge.NewCaller(appService),
@@ -1166,6 +1171,7 @@ func main() {
 		// workspace.list: an agent learns which folders make up its
 		// workspace and which of them its session may write.
 		Workspace:       container.Workspace,
+		WorkspaceWrite:  workspaceWrite,
 		WorkspaceMemory: container.WorkspaceMemory,
 		// pdf.*: the PDFs attached to Agent Hub sessions, read by page.
 		PDFDocuments: agentDocuments,

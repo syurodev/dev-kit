@@ -932,6 +932,12 @@ var keptCodes = map[string]bool{
 	// a fixed sentence per stop kind, the stop's time, and the vendor's text folded
 	// to one line, clipped to 300 runes and said to be third-party.
 	"agenthub.resumeRefused": true,
+	// internal/mcp/tools_workspace.go workspace.requestWrite: fixed sentences, or the
+	// refusal reason Agent Hub wrote (agenthub.GrantRefusedError), which names no path
+	// and no folder the caller did not name itself.
+	"workspace.grantRefused":     true,
+	"workspace.grantDeclined":    true,
+	"workspace.grantUnavailable": true,
 	// internal/mcp/serving.go: the refusals an endpoint serving a harness
 	// policy answers itself. Fixed sentences; the only variable part is a group
 	// name from the server's own registry. They are text results of a call, not

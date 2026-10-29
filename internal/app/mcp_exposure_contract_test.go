@@ -33,7 +33,7 @@ func exposureDeps(caller mcp.Caller) mcp.Deps {
 		Git: stubGit{}, GitRepos: stubGitRepos{}, PullRequests: stubPullRequests{},
 		Accounts: stubAccounts{}, API: stubAPI{}, CodexHook: stubCodexHook{},
 		PlanBacklog: stubPlanBacklog{}, TaskBranches: stubTaskBranches{}, AgentHub: stubAgentHub{},
-		Workspace: stubWorkspace{}, WorkspaceMemory: stubWorkspaceMemory{}, PDFDocuments: stubPDFDocuments{},
+		Workspace: stubWorkspace{}, WorkspaceWrite: stubWorkspaceWrite{}, WorkspaceMemory: stubWorkspaceMemory{}, PDFDocuments: stubPDFDocuments{},
 	}
 }
 
@@ -61,6 +61,7 @@ type (
 	stubTaskBranches      struct{ mcp.TaskBranches }
 	stubAgentHub          struct{ mcp.AgentHubAPI }
 	stubWorkspace         struct{ mcp.WorkspaceAPI }
+	stubWorkspaceWrite    struct{ mcp.WorkspaceWriteAPI }
 	stubWorkspaceMemory   struct{ mcp.WorkspaceMemoryAPI }
 	stubPDFDocuments      struct{ mcp.PDFDocumentsAPI }
 )
