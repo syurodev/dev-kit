@@ -76,6 +76,13 @@ export interface AgentSession {
     "ACPSessionID": string;
     "CreatedAt": string;
     "UpdatedAt": string;
+
+    /**
+     * Activity is what the session's live process is doing that no DevKit turn
+     * started (bgwork.go). Derived from the process, never stored: Service.ListSessions
+     * and GetStatus fill it, the store does not, and MCP results blank it.
+     */
+    "activity"?: SessionActivity | null;
 }
 
 /**
@@ -884,6 +891,21 @@ export interface RewindResult {
      * Files is the file half's outcome, when there was one.
      */
     "files"?: RestoreResult | null;
+}
+
+/**
+ * SessionActivity is what a session's live process is doing that no DevKit turn started.
+ */
+export interface SessionActivity {
+    /**
+     * the vendor runs a turn of its own (taskType "turn")
+     */
+    "agentTurn"?: boolean;
+
+    /**
+     * running background tasks other than that turn (taskType "shell", others)
+     */
+    "tasks"?: number;
 }
 
 /**

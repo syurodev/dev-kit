@@ -1175,6 +1175,9 @@ func (s *Service) ListSessions(ctx context.Context) ([]AgentSession, error) {
 	if err != nil {
 		return nil, err
 	}
+	for i := range list {
+		s.attachActivity(&list[i])
+	}
 	caller, _ := identity.FromContext(ctx)
 	if !caller.IsAgent() {
 		return list, nil
@@ -1405,12 +1408,25 @@ func (s *Service) ListVendorTypes() []AgentType {
 	return s.reg.Types()
 }
 
-// GetStatus returns the persisted session record by id.
+// GetStatus returns the persisted session record by id, with its live Activity.
 func (s *Service) GetStatus(ctx context.Context, id string) (AgentSession, error) {
 	if err := s.authorizeTarget(ctx, id); err != nil {
 		return AgentSession{}, err
 	}
-	return s.store.GetSession(ctx, id)
+	sess, err := s.store.GetSession(ctx, id)
+	if err != nil {
+		return sess, err
+	}
+	s.attachActivity(&sess)
+	return sess, nil
+}
+
+// attachActivity fills what the session's live process is doing that no DevKit turn
+// started (bgwork.go). The window's reads carry it; the store never holds it.
+func (s *Service) attachActivity(sess *AgentSession) {
+	if a := s.bgwork.snapshot(sess.ID); !a.Zero() {
+		sess.Activity = &a
+	}
 }
 
 // ToolRawPreviewLimit is how much of a tool call's raw fields a transcript

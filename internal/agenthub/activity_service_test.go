@@ -140,3 +140,76 @@ func TestShutdownStopsTheActivityNotifier(t *testing.T) {
 		t.Fatal("the hook was called after Shutdown")
 	}
 }
+
+func activityOf(t *testing.T, f *idleFixture, id string) *agenthub.SessionActivity {
+	t.Helper()
+	got, err := f.svc.GetStatus(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got.Activity
+}
+
+func listedActivity(t *testing.T, f *idleFixture, id string) *agenthub.SessionActivity {
+	t.Helper()
+	list, err := f.svc.ListSessions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range list {
+		if s.ID == id {
+			return s.Activity
+		}
+	}
+	t.Fatalf("session %s not listed", id)
+	return nil
+}
+
+func TestGetStatusAndListSessionsCarryTheActivity(t *testing.T) {
+	f := newIdleFixture(t)
+	ctx := context.Background()
+	if a := activityOf(t, f, f.kid.ID); a != nil {
+		t.Fatalf("a quiet session carries activity %+v", a)
+	}
+	f.svc.HandleUpdateForTest(ctx, f.kid.ID, []byte(spawnShellJSON))
+	f.svc.HandleUpdateForTest(ctx, f.kid.ID, []byte(spawnTurnJSON))
+	want := agenthub.SessionActivity{AgentTurn: true, Tasks: 1}
+	if a := activityOf(t, f, f.kid.ID); a == nil || *a != want {
+		t.Fatalf("GetStatus activity = %+v, want %+v", a, want)
+	}
+	if a := listedActivity(t, f, f.kid.ID); a == nil || *a != want {
+		t.Fatalf("ListSessions activity = %+v, want %+v", a, want)
+	}
+	if a := listedActivity(t, f, f.parent.ID); a != nil {
+		t.Fatalf("another session carries activity %+v", a)
+	}
+	f.svc.HandleUpdateForTest(ctx, f.kid.ID, []byte(doneShellJSON))
+	f.svc.HandleUpdateForTest(ctx, f.kid.ID, []byte(`{"sessionUpdate":"async_task_state_update","asyncTaskId":"autonomous-turn-c1514d72","state":"completed"}`))
+	if a := activityOf(t, f, f.kid.ID); a != nil {
+		t.Fatalf("after both ended: %+v", a)
+	}
+}
+
+// Activity is read from the live process: the stored row never has it, so whatever
+// else reads the store (idle release, peers, recovery) is untouched.
+func TestActivityIsNeverStored(t *testing.T) {
+	f := newIdleFixture(t)
+	ctx := context.Background()
+	f.svc.HandleUpdateForTest(ctx, f.kid.ID, []byte(spawnTurnJSON))
+	row, err := f.store.GetSession(ctx, f.kid.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Activity != nil || row.Status != agenthub.SessionStatusIdle {
+		t.Fatalf("stored row = status %q activity %+v", row.Status, row.Activity)
+	}
+	list, err := f.store.ListSessions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range list {
+		if s.Activity != nil {
+			t.Fatalf("the store's list carries activity for %s", s.ID)
+		}
+	}
+}
