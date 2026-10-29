@@ -117,8 +117,8 @@ export function SubagentPanel({ sessionId, subagentId, onClose }: { sessionId: s
           body={running ? "Its steps show here as it takes them." : "Its work is in an older part of the conversation that has not loaded."}
         />
       ) : (
-        <div data-testid="subagent-panel-activity" className="min-h-0 flex-1 overflow-y-auto p-3">
-          <SubagentActivity subagent={subagent} activity={activity} subagents={activityById} live={running} />
+        <div data-testid="subagent-panel-activity" className="min-h-0 flex-1 overflow-y-auto p-2">
+          <SubagentActivity subagent={subagent} activity={activity} subagents={activityById} live={running} flat />
         </div>
       )}
     </section>

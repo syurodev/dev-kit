@@ -626,6 +626,7 @@ export function SubagentActivity({
   onOpenFile,
   brief = true,
   live = false,
+  flat = false,
 }: {
   subagent: NonNullable<TranscriptItem["subagent"]>;
   activity: TranscriptItem[];
@@ -638,6 +639,12 @@ export function SubagentActivity({
    * step it is on right now sat behind a "Read files, ran commands" line.
    */
   live?: boolean;
+  /**
+   * No nesting rule and no indent, for a pane of its own (SubagentPanel): the
+   * rule belongs to a fold inside the transcript, and in a 420px pane the
+   * indent was a quarter of the width.
+   */
+  flat?: boolean;
 }) {
   const segments = React.useMemo(() => workSegments(activity), [activity]);
   return (
@@ -647,7 +654,7 @@ export function SubagentActivity({
     // stretches anyway.
     <div
       data-testid="subagent-activity"
-      className="ml-1.5 flex min-w-0 flex-col gap-3 border-l border-border-subtle pl-4"
+      className={cn("flex min-w-0 flex-col gap-3", !flat && "ml-1.5 border-l border-border-subtle pl-4")}
     >
       {brief && subagent.task ? <SubagentBrief text={subagent.task} /> : null}
       {segments.map((segment) => {

@@ -145,3 +145,7 @@
   subagent can run with the session quiet and the session has no signal for it. A session the window has not loaded is never
   quiet. `settleToolState(state, {earlierTurn, sessionQuiet, subagent})`; the follow panel derives `quiet` the same way. Stored
   rows are not rewritten. A failed row with no error line of its own shows the first line of what it said (`failureLine`).
+- **The subagent pane is flat** (`SubagentActivity flat`, `SubagentPanel`). The nesting rule and indent (`ml-1.5 border-l pl-4`) belong to a
+  fold inside the transcript and stay there (and in the composer tray); the 420px pane draws the same content with no rule, no indent and an
+  8px well (`p-2`), so the steps and their output use the pane's width. A nested subagent inside the pane keeps its rule. `AgentActivityPanel`
+  has only its 12px well and no indent, so it is unchanged. Test: `subagentPaneLayout.test.tsx`.
