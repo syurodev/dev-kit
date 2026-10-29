@@ -496,6 +496,44 @@ func TestAgentHubToolsDoNotLeakTheSessionsAccount(t *testing.T) {
 	}
 }
 
+// Agents read nothing about the folders a session may write: the list is paths
+// from the person's disk, and it reaches the window alone.
+func TestAgentHubToolsDoNotLeakTheSessionsGrantedFolders(t *testing.T) {
+	const folder = "/home/person/private-clients/acme"
+	id := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	leaky := agenthub.AgentSession{ID: id, AgentType: agenthub.AgentTypeMock, Status: agenthub.SessionStatusIdle, ExtraReadWritePaths: []string{folder}}
+	hub := &fakeAgentHub{list: []agenthub.AgentSession{leaky}, created: leaky, status: leaky}
+	srv := NewServer(agentHubTestDeps(&fakeCaller{}, hub))
+	ctx := context.Background()
+	req := &sdk.CallToolRequest{}
+
+	_, listed, err := srv.toolAgentHubListAgents(ctx, req, struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, created, err := srv.toolAgentHubCreateAgentSession(ctx, req, agentHubCreateInput{AgentType: "mock", Cwd: "/tmp/proj"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, status, err := srv.toolAgentHubGetSessionStatus(ctx, req, agentHubSessionIDInput{SessionID: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, resumed, err := srv.toolAgentHubResumeSession(ctx, req, agentHubResumeInput{SessionID: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, v := range map[string]any{"listAgents": listed, "createAgentSession": created, "getSessionStatus": status, "resumeSession": resumed} {
+		raw, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(raw), folder) {
+			t.Fatalf("%s leaked the session's granted folders: %s", name, raw)
+		}
+	}
+}
+
 func TestAgentHubSendMessageTool(t *testing.T) {
 	caller := &fakeCaller{}
 	target := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
