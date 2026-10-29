@@ -3037,6 +3037,13 @@ func (s *Service) PrepareSession(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	// Only a prompt reopens a closed session (see configurator). A window whose
+	// copy of the row is stale (a parent closed the child) asks for this too, and
+	// a process opened for it would live until DevKit quits: nothing else ever
+	// closes a session whose row already says closed.
+	if sess.Status == SessionStatusClosed {
+		return ErrSessionClosed
+	}
 	rt, err := s.runtimeFor(ctx, sess)
 	if err != nil {
 		return err
@@ -3083,6 +3090,12 @@ func (s *Service) Steer(ctx context.Context, id, text string) (SteerOutcome, err
 	sess, err := s.store.GetSession(ctx, id)
 	if err != nil {
 		return "", err
+	}
+	// Nothing runs in a closed session, so there is nothing to steer: the answer
+	// is the one an idle session gets, and the prompt that follows reopens it.
+	// Resuming a process just to say so would leave one no turn is using.
+	if sess.Status == SessionStatusClosed {
+		return SteerPromptRequired, nil
 	}
 	leaveAdmission, err := s.enterWriterAdmission(ctx, id)
 	if err != nil {
@@ -3134,6 +3147,10 @@ func (s *Service) SetGoal(ctx context.Context, id, objective string) error {
 	sess, err := s.store.GetSession(ctx, id)
 	if err != nil {
 		return err
+	}
+	// A goal is a setting: it does not wake a closed session (see configurator).
+	if sess.Status == SessionStatusClosed {
+		return ErrSessionClosed
 	}
 	rt, err := s.runtimeFor(ctx, sess)
 	if err != nil {
