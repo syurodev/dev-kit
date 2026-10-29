@@ -29,25 +29,52 @@ func ServeUnix(ctx context.Context, path string, s *Server) error {
 	if s == nil {
 		return fmt.Errorf("mcp: nil server")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	ln, err := ListenUnix(path)
+	if err != nil {
 		return err
+	}
+	return ServeListener(ctx, ln, s)
+}
+
+// ListenUnix binds the shared socket without accepting anything: it creates the
+// config directory, refuses a socket another live instance still answers on,
+// replaces a stale one and chmods the new one to 0600. It is split from
+// ServeListener so the composition root can fail startup on a bind error and can
+// bind only after the rest of its graph is attached.
+func ListenUnix(path string) (net.Listener, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
 	}
 	// Refuse to steal a live socket from another DevKit instance: a successful
 	// probe means some process still owns it. Only a stale (dead) socket is
 	// removed.
 	if conn, dialErr := net.DialTimeout("unix", path, 250*time.Millisecond); dialErr == nil {
 		conn.Close()
-		return fmt.Errorf("mcp socket %s is already in use by another instance", path)
+		return nil, fmt.Errorf("mcp socket %s is already in use by another instance", path)
 	}
 	_ = os.Remove(path)
 	ln, err := net.Listen("unix", path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := os.Chmod(path, 0o600); err != nil {
 		_ = ln.Close()
-		return err
+		_ = os.Remove(path)
+		return nil, err
 	}
+	return ln, nil
+}
+
+// ServeListener serves one MCP session per accepted connection of ln (from
+// ListenUnix) until ctx is cancelled, then closes ln and removes its socket.
+func ServeListener(ctx context.Context, ln net.Listener, s *Server) error {
+	if s == nil || ln == nil {
+		if ln != nil {
+			_ = ln.Close()
+		}
+		return fmt.Errorf("mcp: nil server")
+	}
+	path := ln.Addr().String()
 	go func() {
 		<-ctx.Done()
 		_ = ln.Close()

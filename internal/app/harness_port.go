@@ -52,6 +52,17 @@ func (p *HarnessPort) Bind(c harnessconfig.Controls) error {
 	return nil
 }
 
+// unbind drops the controls. It exists only for StartHarness, which undoes a
+// composition whose startup then failed; nothing else detaches a bound port.
+func (p *HarnessPort) unbind() {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	p.ctl = nil
+	p.mu.Unlock()
+}
+
 // Bound reports whether the controls are attached. The window shows its entry
 // points from this, so nothing is offered that cannot answer.
 func (p *HarnessPort) Bound() bool {

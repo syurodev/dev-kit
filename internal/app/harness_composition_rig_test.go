@@ -324,6 +324,9 @@ type compOptions struct {
 	// resolver (main.go: hub.ConfirmAgent = agentSvc.ConfirmTool). It is also what
 	// makes the gate-owned tools delegable to a vendor.
 	resolveGate agenthub.PermissionResolver
+	// auditSink receives the proposal outcomes through HarnessAuditSink, the same
+	// adapter main.go gives the assembly.
+	auditSink audit.Sink
 }
 
 func newCompRig(t *testing.T, opt compOptions) *compRig {
@@ -486,6 +489,10 @@ func (r *compRig) build() {
 		Store: hstore, Preferences: r.prefs, Hub: r.hub, Workspaces: r.ws, Agents: r.agents, Vendors: productionVendors,
 		Inventory: r.inventory,
 		Audit:     func(e harnessconfig.Event) { r.evMu.Lock(); r.events = append(r.events, e); r.evMu.Unlock() },
+	}
+	if r.opt.auditSink != nil {
+		record, sink := cfg.Audit, HarnessAuditSink(r.opt.auditSink)
+		cfg.Audit = func(e harnessconfig.Event) { record(e); sink(e) }
 	}
 	if r.opt.controls {
 		if r.asm, err = ComposeHarness(r.port, cfg, r.agents); err != nil {
