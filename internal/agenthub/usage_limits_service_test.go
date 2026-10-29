@@ -72,3 +72,22 @@ func TestStoredUsageKeepsLimitsALaterUpdateDoesNotCarry(t *testing.T) {
 		t.Fatalf("rateLimit = %+v, want it kept", got.RateLimit)
 	}
 }
+
+// claude-agent-acp streams a subagent's updates on the parent's connection and
+// the runtime tags them with their origin. A subagent's usage_update names its
+// own context window; stored as the session's it would replace the real one.
+func TestAnOriginTaggedUsageUpdateDoesNotReplaceTheSessionsUsage(t *testing.T) {
+	svc, st := newServiceForPreviewTest(t, agenthub.NewMockAdapter())
+	ctx := context.Background()
+	sess, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	svc.HandleUpdateForTest(ctx, sess.ID, []byte(`{"sessionUpdate":"usage_update","used":500,"size":1000000}`))
+	svc.HandleUpdateForTest(ctx, sess.ID, []byte(`{"sessionUpdate":"usage_update","used":3,"size":200000,"_devkit":{"origin":"a0549d"}}`))
+
+	if got := storedUsage(t, st, sess.ID); got.Used != 500 || got.Size != 1000000 {
+		t.Fatalf("stored usage = %+v, want the session's own", got)
+	}
+}

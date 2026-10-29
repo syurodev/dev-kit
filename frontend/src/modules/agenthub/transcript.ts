@@ -302,8 +302,9 @@ export function applySessionUpdates(
       continue;
     }
 
+    // A subagent's usage is its own context window, not the session's.
     if (kind === UpdateKind.UpdateUsage || kind === "usage_update") {
-      if (update.usage) {
+      if (update.usage && !update.origin) {
         usage = mergeUsage(usage, update.usage);
         changed = true;
       }
@@ -642,8 +643,9 @@ export function initTranscript(
     const seqRaw = asEntry.Seq ?? rec.seq;
     const seq = typeof seqRaw === "number" && seqRaw > 0 ? seqRaw : undefined;
 
+    // A subagent's usage is its own context window, not the session's.
     if (kind === UpdateKind.UpdateUsage || kind === "usage_update") {
-      if (payload.usage) {
+      if (payload.usage && !payload.origin) {
         model.usage = mergeUsage(model.usage, payload.usage);
       }
       continue;

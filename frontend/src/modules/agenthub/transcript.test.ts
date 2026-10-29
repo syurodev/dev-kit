@@ -328,6 +328,18 @@ describe("Agent Hub Transcript Reducer & Coalescing", () => {
     expect(loaded.usage?.limits).toEqual(withLimits.limits);
   });
 
+  it("does not take a subagent's usage for the session's", () => {
+    let model = createInitialTranscriptModel();
+    model = applySessionUpdate(model, { kind: UpdateKind.UpdateUsage, usage: { used: 500, size: 1000000, amount: 0 } });
+    model = applySessionUpdate(model, { kind: UpdateKind.UpdateUsage, origin: "a0549d", usage: { used: 3, size: 200000, amount: 0 } });
+    expect(model.usage?.used).toBe(500);
+    const loaded = initTranscript([
+      { ID: "u1", Seq: 1, Kind: UpdateKind.UpdateUsage, Payload: { kind: UpdateKind.UpdateUsage, usage: { used: 500, size: 1000000, amount: 0 } } },
+      { ID: "u2", Seq: 2, Kind: UpdateKind.UpdateUsage, Payload: { kind: UpdateKind.UpdateUsage, origin: "a0549d", usage: { used: 3, size: 200000, amount: 0 } } },
+    ]);
+    expect(loaded.usage?.used).toBe(500);
+  });
+
   it("updates session-level commands and mode without adding transcript rows", () => {
     let model = createInitialTranscriptModel();
 

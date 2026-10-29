@@ -394,13 +394,14 @@ func isSessionState(kind UpdateKind) bool {
 	return slices.Contains(sessionStateKinds, kind)
 }
 
-// isOwnState reports whether a kind is a setting the person picks for the
-// session: the settings and the mode. A subagent's update of either names the
-// subagent's own (measured: its model "sonnet" and a single choice replaced the
-// Opus session's), so the recorder keeps only the session's. The window's
-// reducer applies the same rule, by the update's origin.
+// isOwnState reports whether a kind is a value that belongs to the session
+// itself: the settings, the mode and the usage. A subagent's update of any
+// names the subagent's own (measured: its model "sonnet" and a single choice
+// replaced the Opus session's; its usage is its own context window), so the
+// recorder keeps only the session's. The window's reducer applies the same
+// rule, by the update's origin.
 func isOwnState(kind UpdateKind) bool {
-	return kind == UpdateConfigOptions || kind == UpdateCurrentMode
+	return kind == UpdateConfigOptions || kind == UpdateCurrentMode || kind == UpdateUsage
 }
 
 var sessionStateKinds = []UpdateKind{UpdateCurrentMode, UpdateConfigOptions, UpdateAvailableCommands, UpdateUsage, UpdateConnectors, UpdateProviderRetry}
