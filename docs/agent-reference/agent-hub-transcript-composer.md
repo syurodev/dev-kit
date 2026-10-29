@@ -141,7 +141,7 @@
   when **(1)** its turn is an earlier one, whatever the session is doing now, or **(2)** it is in the newest turn and the
   session is quiet (`isSessionQuiet`): `isWorking` is false (neither our turn nor an agent-started one, session activity),
   no turn of ours is in flight (`turnInFlightBySession`), the stored status is not `awaiting_permission`, and the caller does not say
-  a turn streams. That is the cancelled-newest-turn case. A call with a subagent `origin` is settled only by (1): a background
+  a turn streams. That is the cancelled-newest-turn case. A call with a subagent `origin` (including the row a result card falls back to) is settled only by (1): a background
   subagent can run with the session quiet and the session has no signal for it. A session the window has not loaded is never
   quiet. `settleToolState(state, {earlierTurn, sessionQuiet, subagent})`; the follow panel derives `quiet` the same way. Stored
   rows are not rewritten. A failed row with no error line of its own shows the first line of what it said (`failureLine`).

@@ -111,16 +111,32 @@ done by then; the half of `CloseSession` that tears it down; the next prompt reo
   writes the stored status, so it reads `idle` throughout. `backgroundWork` keeps each task's type beside its spawn
   time; `snapshot` is `SessionActivity{AgentTurn, Tasks}` (a `turn` task is `AgentTurn`, every other running task counts in
   `Tasks`; a task past the 12 h limit counts for neither). `apply` and `forget` report `activityChange{Before, After}`.
-  `AgentSession.Activity` (`json:"activity,omitempty"`, nil when zero) is **derived, never stored**: `Service.ListSessions`
+  `AgentSession.Activity` (`json:"activity,omitempty"`; nil for a session that never had any, and kept, with nothing running, once it
+  did, so its `Rev` can order reads) is **derived, never stored**: `Service.ListSessions`
   and `GetStatus` fill it (`attachActivity`), the store never holds it, and the MCP helper `forAgent` blanks it (an agent
   result never carries it). A vendor that sends no `async_task_*` (Codex, opencode) shows none.
+  - **Revision and cause**: `SessionActivity.Rev` counts the session's changes (every `apply` or `forget` that changed the
+    snapshot, and an expiry the first time it is observed); it is kept across `forget`, one small entry per session that
+    ever had activity (never pruned). Of two reads or events of one session the higher `Rev` is newer, which is how the
+    window keeps a read that was in flight when an event landed from erasing it. `Ended` is true on a state with no agent turn
+    when that turn ended by the vendor's own `async_task_state_update`, false when the process went away (cancel, crash, close,
+    reload, rewind, account switch) or the valve expired it. Both ride the DTO and the event. `Service.Cancel` runs `liveRuntime`
+    after `rt.Cancel`: the shutdown ladder can end the whole process (background shell tasks included), so a dead runtime is
+    evicted and its work forgotten at once; one that survived keeps its activity for the vendor's updates to end.
   - **Notification**: `Service.OnActivityChanged(sessionID, SessionActivity)`, wired in `main.go` to the app event
-    `agenthub:activity` `{sessionId, agentTurn, tasks}` (the whole state, not a delta). `forgetBackgroundWork` (process
-    released, closed, rewound, account switched, reloaded) and `noteActivityChange` only **mark** the session dirty in
+    `agenthub:activity` `{sessionId, agentTurn, tasks, rev, ended}` (the whole state, not a delta). The forget triggers are
+    `forgetBackgroundWork`'s callers: process released (idle release), `CloseSession`, rewind, account switch, reload, a dead
+    runtime evicted by `liveRuntime` (a crash found at the next use) and `Cancel` that killed the process. `forgetBackgroundWork`
+    and `noteActivityChange` only **mark** the session dirty in
     `activityNotifier`; one goroutine (started on the first mark, stopped by `Service.Shutdown`) snapshots each dirty
     session and calls the hook with no lock held, in order per session. A burst collapses to the last state; the final
-    state is always delivered. The hook never runs with `s.mu` held (`forget` is called under it). A task that ages out of
-    the 12 h valve changes the snapshot with no event: a reload shows the truth.
+    state is delivered, except after `Shutdown` (marks are dropped once stopped). The hook never runs with `s.mu` held
+    (`forget` is called under it).
+  - **Known limits** (nothing here was run against a real vendor): a task past the 12 h valve and its later real end send no
+    event until a reload or the next read; a late update from a replaced process can register a task on its successor;
+    back-to-back agent turns can collapse to one "on" (the end between them is coalesced away); `Rev` restarts from 0 when
+    DevKit restarts, so a server-mode browser that outlives the server compares against a stale higher number until it
+    reloads; a vendor that sends no `async_task_*` (Codex, opencode) shows no activity.
   - **Preview of an agent-started turn** (`trackAgentTurnMessage`): while `AgentTurn` is true and no `Invoke` claim
     (`s.invoking`) is held, the top-level `agent_message_chunk` text is accumulated in the same `lastAgentMessage` Invoke
     uses (reset at the spawn, 4 KiB, memory only); when the turn ends the preview is written through `PreviewFromMessage` and
