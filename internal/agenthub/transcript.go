@@ -121,10 +121,14 @@ type chunkTail struct {
 // in memory; lastRaw keeps the wire of the newest update so a flushed payload
 // carries the same Raw the write-through path used to.
 type toolTail struct {
-	id        string
-	kind      UpdateKind
-	call      ToolCall
-	lastRaw   json.RawMessage
+	id      string
+	kind    UpdateKind
+	call    ToolCall
+	lastRaw json.RawMessage
+	// origin is the subagent session the call came from, empty for the
+	// session's own. The flush rewrites the row from this struct, so a field
+	// that is not kept here is gone from the row.
+	origin    string
 	updatedAt time.Time
 }
 
@@ -252,7 +256,7 @@ func (r *Recorder) flushLocked(ctx context.Context, sessionID string, s *recordS
 		}
 	}
 	for id, tt := range s.tools {
-		payload, err := json.Marshal(SessionUpdate{Kind: tt.kind, ToolCall: &tt.call, Raw: tt.lastRaw})
+		payload, err := json.Marshal(SessionUpdate{Kind: tt.kind, ToolCall: &tt.call, Raw: tt.lastRaw, Origin: tt.origin})
 		if err != nil {
 			errs = errors.Join(errs, err)
 			continue
@@ -536,6 +540,7 @@ func (r *Recorder) recordToolCall(ctx context.Context, sessionID string, update 
 		kind:      update.Kind,
 		call:      *update.ToolCall,
 		lastRaw:   update.Raw,
+		origin:    update.Origin,
 		updatedAt: entry.UpdatedAt,
 	}
 	r.armTimerLocked(sessionID, s)
