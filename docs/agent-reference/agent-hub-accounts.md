@@ -135,7 +135,7 @@
     window), so the backstop can miss a repeated identical one. A saved reading tells the page through
     `accountsChangedThrottled` (at most one `agentaccounts:changed` per 2 s). The policy read behind `vendorConfigured`
     is cached for 3 s (`account_policy_cache.go`; a policy write drops it), so a limits update of an unconfigured vendor
-    costs one session-row read.
+    costs one session-row read. The Summary's "Plan limits" do not read these account windows: they come from the session's own stored/stream usage, kept across updates by label until their reset (`mergeUsage`, vendors-sessions guide), so a session that has not yet seen a rate-limit event shows none even when its account has windows.
   - **A real limit** (`recordStop` → `upgradeStopForReachedWindow` → `markAccountLimited`). Only Codex returns
     `ErrAgentUsageLimit`. **Claude Code's real refusal wording is not measured** (a limit cannot be provoked on demand), so
     Claude's refusal classes as `failed`; `upgradeStopForReachedWindow` (only for a configured vendor) turns a plain `failed` stop into `usage_limit`

@@ -237,7 +237,8 @@ done by then; the half of `CloseSession` that tears it down; the next prompt reo
   on the parent's connection, tagged `_devkit.origin` (parsed as `SessionUpdate.origin`); an update with an origin is emitted but
   neither stored over the session's one row nor applied by the window, so the model picker keeps showing the session's own model.
   A row already holding a subagent's options heals when the main agent next announces its own (`PrepareSession` →
-  `RefreshConfigOptions`, or `SetHandlers`); no migration. The other singleton kinds (usage, commands, connectors, retry) are not guarded: no subagent case has been measured for them.
+  `RefreshConfigOptions`, or `SetHandlers`); no migration. `usage_update` is guarded the same way (a subagent's names its own context window; `isOwnState` and the two `origin` checks in the reducer, `TestAnOriginTaggedUsageUpdateDoesNotReplaceTheSessionsUsage`), though no stored case was measured. The other singleton kinds (commands, connectors, retry) are not guarded: no subagent case has been measured for them.
+- **Plan limits are kept across usage updates until their reset** (`mergeUsage` in `usage_limits.go`, mirrored by `usageLimits.ts`). Claude puts its rate-limit windows (`usage.limits`, `usage.rateLimit`) on some `usage_update`s only, and the singleton usage row and the window's `usage` are replaced by each one, so a context-only update used to erase the windows (Plan limits flashed and was gone, also after a reload). The recorder's write and the window's live reducer and page path now merge: context, cost and tokens come from the newest update; windows are identified by `label` (a new one replaces its label, the others stay); a window whose `resetsAt` has passed is dropped (the Summary also hides one past its reset at render and ticks every 30 s while open); a `rateLimit` verdict is carried until its `resetsAt` unless it is `rejected` (an event, not a state: carrying it would keep the usage-limit banner up). A vendor that sends every window on every update (Codex) just replaces them. Not derived from the account windows (`observeAccountUsage`): see the accounts guide.
 - **A subagent's rows keep their origin from the wire to the pane** (U8c). The origin is decided by the ACP `sessionId`:
   `acpConnHandler.SessionUpdate` calls `markOrigin` for any update whose `sessionId` is not the runtime's own, tool calls included
   (no `parentToolUseId` rule exists in the repo; the real wire for a subagent's tool calls was not captured in a fixture). The
@@ -247,7 +248,7 @@ done by then; the half of `CloseSession` that tears it down; the next prompt reo
   same origin (`livePlanIndex`). What the pane does per kind (`subagentAudit.test.ts`): `agent_message_chunk` text,
   `agent_thought_chunk` "Thinking" row (folded to "thought" once the subagent ends), `tool_call`/`tool_call_update` step, `plan` its
   own plan, `async_task_*` its background task, nested `subagent_*` a nested card with its own activity: all drawn. Not in the pane,
-  deliberately: permission requests and elicitations (session-level cards answered in the rail), `usage_update`,
+  deliberately: permission requests and elicitations (session-level cards answered in the rail), `usage_update` (dropped when it has an origin),
   `available_commands_update`, `devkit_connectors_update`, provider retry and `session_info_update` (session-level singletons, not
   guarded by origin: none measured from a subagent).
   Owner-visible changes:
