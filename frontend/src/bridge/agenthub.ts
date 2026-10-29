@@ -453,6 +453,11 @@ export function agentHubPrepareSession(sessionId: string): Promise<void> {
   return callBridge(() => AppService.AgentHubPrepareSession(sessionId));
 }
 
+/** The call needed a running process and the session is closed (internal/bridge: agenthub.sessionClosed). */
+export function isSessionClosedError(error: unknown): boolean {
+  return toAppError(error).code === "agenthub.sessionClosed";
+}
+
 export function agentHubGetStatus(sessionId: string): Promise<AgentSession> {
   return callBridge(async () => {
     const status = await AppService.AgentHubGetStatus(sessionId);
