@@ -10,7 +10,18 @@ import { AnimatedCollapse } from "@/components/ui/animated-collapse";
 import { FADE_THROUGH } from "@/lib/motion";
 import type { PromptAttachment, TranscriptItem } from "../types";
 import type { CheckpointSummary, FileDiff } from "../../../../bindings/devkit/internal/agenthub/models";
-import { activityOf, stepCount, stepSummary, workedFor, workSegments, type Turn } from "../turns";
+import {
+  activityOf,
+  foldedStepKey,
+  foldToolSearch,
+  stepCount,
+  stepSummary,
+  workedFor,
+  workSegments,
+  type FoldedStep,
+  type Turn,
+} from "../turns";
+import { AgentLoadedTools } from "../transcript/AgentLoadedTools";
 import {
   AgentPlan,
   AgentSubagent,
@@ -348,12 +359,15 @@ export type ActivityById = Readonly<Record<string, TranscriptItem[]>>;
  */
 export function stepRunLayout({
   items,
+  rows = items.length,
   shown,
   hidden,
   activities,
   commands,
 }: {
   items: readonly TranscriptItem[];
+  /** How many rows `items` draw once its ToolSearch calls are folded (foldToolSearch); every step its own, left out. */
+  rows?: number;
   shown: readonly TranscriptItem[];
   hidden: readonly TranscriptItem[];
   activities: number;
@@ -363,7 +377,7 @@ export function stepRunLayout({
   // same thing twice, and a fold around a single line hides nothing. Unless it
   // is a card: then the line is the way to its raw call. A lone result is its
   // card, no row.
-  const lone = items.length === 1 && activities === 0 && commands === 0;
+  const lone = rows === 1 && activities === 0 && commands === 0;
   return {
     lone,
     head: lone ? (shown.length === 1 ? "none" : "row") : "summary",
@@ -443,7 +457,15 @@ export function StepGroup({
       ?.focus({ preventScroll: true });
   }, [open, focus]);
 
-  const layout = stepRunLayout({ items, shown, hidden, activities: activities.length, commands: commands.length });
+  const rows = React.useMemo(() => foldToolSearch(items), [items]);
+  const layout = stepRunLayout({
+    items,
+    rows: rows.length,
+    shown,
+    hidden,
+    activities: activities.length,
+    commands: commands.length,
+  });
   const { lone } = layout;
   const loneCard = lone && layout.head === "none";
   // One wrapper and fixed slots (stepRunLayout). Hidden when the only thing in
@@ -457,7 +479,7 @@ export function StepGroup({
       className="flex w-full min-w-0 flex-col empty:hidden"
     >
       {layout.head === "none" ? null : layout.head === "row" ? (
-        <StepRow item={items[0]} subagents={subagents} onOpenFile={onOpenFile} />
+        <FoldedRow row={rows[0]} subagents={subagents} onOpenFile={onOpenFile} />
       ) : (
         <button
           type="button"
@@ -475,13 +497,13 @@ export function StepGroup({
       {layout.fold ? (
         <AnimatedCollapse open={open} className="pt-2">
           <div className="flex w-full flex-col gap-2">
-            {items.map((item) => (
-              <StepRow
-                key={item.id}
-                item={item}
+            {rows.map((row) => (
+              <FoldedRow
+                key={foldedStepKey(row)}
+                row={row}
                 subagents={subagents}
                 onOpenFile={onOpenFile}
-                resultOutside={outside.has(item.id)}
+                outside={outside}
               />
             ))}
           </div>
@@ -531,6 +553,25 @@ export function StepGroup({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** One entry of a run, as a row: a step, or the stretch of ToolSearch calls folded into one. */
+function FoldedRow({
+  row,
+  subagents,
+  onOpenFile,
+  outside,
+}: {
+  row: FoldedStep;
+  subagents?: ActivityById;
+  onOpenFile?: (path: string, line?: number) => void;
+  /** Steps whose result already stands as a card after the fold. */
+  outside?: ReadonlySet<string>;
+}) {
+  if (row.kind === "loaded") return <AgentLoadedTools items={row.items} />;
+  return (
+    <StepRow item={row.item} subagents={subagents} onOpenFile={onOpenFile} resultOutside={outside?.has(row.item.id)} />
   );
 }
 
@@ -675,8 +716,13 @@ export function SubagentActivity({
         if (live) {
           return (
             <div key={segment.id} className="flex w-full min-w-0 flex-col gap-2">
-              {segment.items.map((item) => (
-                <StepRow key={item.id} item={item} subagents={subagents} onOpenFile={onOpenFile} />
+              {foldToolSearch(segment.items).map((row) => (
+                <FoldedRow
+                  key={foldedStepKey(row)}
+                  row={row}
+                  subagents={subagents}
+                  onOpenFile={onOpenFile}
+                />
               ))}
             </div>
           );

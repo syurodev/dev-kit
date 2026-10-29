@@ -77,17 +77,25 @@ window or against a real vendor. Details: `docs/agent-reference/agent-hub-vendor
 - **Acceptance.** A grant during a turn shows in the session's folders when that turn ends; the Environment view lists it as pending until the process is reopened, then as granted.
 - **Size:** small. **Depends on:** #396.
 
-### U3. Prompt suggestions (spec first; owner decision)
+### U3. Prompt suggestions as ghost text (decided by the owner on 2026-10-29)
 
 - **Evidence.** `session_info_update` rows carry `_meta.promptSuggestions.suggestions` 312 times (177 with exactly one suggestion
   `{text}`, 135 empty). Neither the Go parser nor the window reads them.
-- **Options.** A. Ghost text in the empty composer, accepted with Tab or the right arrow (fills the draft, never sends). B. A chip
-  above the composer. Recommendation: A, as the text is a proposal for the next message and a chip competes with the existing tray.
-- **Rules.** The text is model output: shown as plain text, length-capped, never sent without the person's action, cleared when a new turn starts or
-  the draft is edited; the composer's IME and external-value rules (#393 `externalValue.ts`) must hold.
-- **Scope.** Parse the field into `SessionUpdate` (Go, with a table test of the wire shape: empty array, one item, missing key);
-  the window keeps the latest suggestion per session; the composer renders and accepts it; a setting to turn it off.
-- **Acceptance.** Frontend tests with IME composition, Tab accept, edit-clears, new-turn-clears, empty suggestion shows nothing.
+- **Behaviour (the owner's words: "ghost text, not a button; Tab inserts the text into the prompt, like a code suggestion in VS Code").**
+  When the composer's draft is empty and the session can take a prompt, the latest suggestion shows as dimmed text where the caret is, as an
+  inline suggestion does in an editor. **Tab** inserts it into the draft (it becomes ordinary text the person can edit, and the caret ends after it);
+  it never sends. **Escape**, any typing, a paste, a click elsewhere, a new turn, or a session switch dismisses it. A non-empty draft shows nothing
+  in this slice (completing a half-typed sentence is not offered by the vendor). A hint for the key ("Tab") is a small muted label at the end of the
+  line, shown once the ghost has been on screen for a moment, not a button.
+- **Rules.** The text is model output: plain text only, length-capped, single paragraph (a suggestion with newlines is shown up to the first
+  line break and inserted whole). The composer's IME and external-value rules (#393 `externalValue.ts`, `ComposerEditorBoundary`) must hold:
+  no ghost and no Tab capture while a composition is in progress; Tab keeps its normal meaning (focus move, list indent) when there is no
+  ghost; screen readers get the suggestion through `aria-description` on the editor, not as extra text in the document.
+- **Scope.** Parse the field into `SessionUpdate` (Go table test of the wire shape: empty array, one item, missing key); the window keeps the latest
+  suggestion per session (cleared by the rules above); the editor draws the ghost as a decoration that is not part of the document (check how the
+  composer editor is built, `composerEditorKit.ts`, before choosing a decoration over an overlay); a setting to turn it off.
+- **Acceptance.** Frontend tests: ghost appears for an empty idle draft only, Tab inserts and clears, Escape clears, typing/paste/IME composition clears or
+  suppresses it, a new turn or session switch clears it, empty suggestion shows nothing, Tab without a ghost is unchanged.
 - **Size:** medium. **Depends on:** nothing.
 
 ### U4. Tool rows and result cards for the long tail (several small slices, parallel)
@@ -132,6 +140,41 @@ window or against a real vendor. Details: `docs/agent-reference/agent-hub-vendor
   the vendor's text kept as a quoted detail. Do not parse the vendor sentence beyond what the structured fields already give.
 - **Size:** small after the inspection. **Depends on:** nothing.
 
+### U8. The right-hand panel of Agent Hub: one header, no wasted width, nothing dropped (added by the owner on 2026-10-29)
+
+Applies to the two panels Agent Hub opens beside the conversation through `useSplitPanelActions().openPanel` (`session/useAgentHubEffects.tsx`):
+`SubagentPanel` (`subagents.tsx`, a subagent's work, opened from the sidebar) and `AgentActivityPanel` (the follow feed of the active session).
+
+- **U8a. One header.** Today the shell draws a panel header (module icon, the text "Agent Hub", a layout button, close) and the panel draws a second one
+  inside (`SubagentPanel`: Bot icon, the subagent's name, its state, close). Two rows of chrome, two close buttons, and the text "Agent Hub" says which
+  module the person is already in. Make it one: `openPanel` options gain a header description (title text, optional icon, a status, optional actions), the shell draws it in
+  its single header in place of the module label, and the panels stop drawing their own. Content of the header for `SubagentPanel`: the subagent's name
+  (its task as the tooltip), the state (`AgentState`), and a **Stop** while it runs; for `AgentActivityPanel`: the session title, its state and the existing stop-following action.
+  The shell's close and layout buttons stay. Read `docs/design/module-shell-integration.md` and `docs/agent-reference/core-development.md` first (the shell owns the sidebar and
+  the panel chrome; a module must not add a second strip); the change belongs in the shell's panel slot (`workbench/slots/slotModel.ts` and the split-panel host), with the
+  option optional so other modules (`kafka` message panel and the like) are unchanged.
+  - **Stop for a subagent: owner decision needed in the slice's spec.** DevKit has no per-subagent cancel for a Task-tool subagent; `Service.Cancel` ends the session's whole runtime
+    (and with it every background task, see the vendors doc). A background *task* the vendor reports with `canStop` can be stopped on its own (`AgentAsyncTask`). Proposal:
+    show **Stop** only where it means what it says: for an async task with `canStop`, stop that task; for a Task-tool subagent show "Stop session turn" with a one-line
+    confirmation that it ends the whole turn; never a bare Stop that silently does the larger thing.
+- **U8b. Width.** The panel is 420 px wide and `SubagentActivity` indents its content (`ml-1.5 border-l pl-4`, the nesting rule meant for a fold inside the transcript) inside a `p-3`
+  container, so a quarter of the width is gutter, as the owner's screenshot shows (the commands and their output start well inside the panel and long lines wrap early). Add
+  a flat variant of `SubagentActivity` for the panel: no rule, no indent, 8 px padding; tool output boxes use the full width. Check `AgentActivityPanel` for the same gutter.
+- **U8c. Audit of the subagent's events.** Find out, with tests and not by reading alone, which of a subagent's events the panel draws, folds or drops. Known from the code and the
+  owner's data (2026-10-29): the panel reads the owning session's transcript and groups rows by `origin` (`splitFlow` in `turns.ts`, `runningSubagents`), draws text, plans and steps
+  (`SubagentActivity` / `workSegments`), and shows an empty state "Nothing to show yet" when a subagent's rows are in a page that is not loaded. In the stored rows of the owner's database
+  the kinds that carry an `origin` are `agent_message_chunk` (333), `agent_thought_chunk` (28), `async_task_*` (24) and `subagent_*` (4); **no stored `tool_call` row carries an origin**
+  (7,048 tool calls, none), although the live panel shows a subagent's commands. So after a reload or for a subagent that ran in an earlier session load, the panel may show only the
+  words and drop the steps. First step of the slice: reproduce it with a fixture of the wire shape (a tool call streamed with `_devkit.origin`, recorded, reloaded through `initTranscript`),
+  and find where the origin is lost (`ParseSessionUpdate`, `Recorder.recordToolCall`/the payload, the page path). Then list every kind a subagent can emit against what the panel draws:
+  `agent_thought_chunk` (is "Thinking" shown?), `async_task_*` of the subagent (its background tasks), nested `subagent_*`, permission requests raised by the subagent (does the card
+  say which subagent asked, and can the person answer from the panel?), `plan`, usage, failures. Fix what is dropped; list what is deliberately not shown.
+- **Acceptance.** One header row per panel with title, state and the right Stop; no second close button; content starts at the panel's left padding and uses the full width (a layout
+  test on the class set, since there is no native window to measure); a reloaded subagent shows its steps as the live one did; a table in the PR of every subagent event kind and what
+  the panel does with it.
+- **Size:** medium (U8a touches the shell slot; U8b small; U8c an investigation plus fixes). **Depends on:** nothing; U8c may need a Go change if the origin is lost on the way into storage.
+  Spec first: the header API and the Stop semantics.
+
 ### U7. Measure it (not UI code)
 
 After U1 to U5, rerun `/home/ptvu3/Downloads/devkit-usage/session-token-report.sh` and compare with
@@ -143,8 +186,9 @@ and the new `workspace` tool (about 570 bytes of definition per session). A repe
 1. **U2 (1) and (2)** and **U5**: frontend only, no design choice, the quickest visible fixes.
 2. **U1** (needs the A/B/C decision), with U2 (3) if the DTO is touched anyway.
 3. **U4a**, then **U4b** slices in parallel by module (tasks, git, api, agenthub, pr), each its own pull request.
-4. **U3** (needs the ghost-text/chip decision).
-5. **U6** after its inspection.
+4. **U8** (spec first for the header API and Stop; U8c can start as an investigation at once).
+5. **U3** (decided: ghost text, Tab inserts).
+6. **U6** after its inspection.
 
 Each slice: spec if marked, then a plan in the style of `2026-10-29-agent-write-grant-implementation.md` (failing test first, mutation checks, independent review,
 the coordinator pushes, the owner merges). Frontend slices use `cd frontend && bun test --isolate` and `bun run build`; a change to an `AppService` method regenerates
@@ -159,7 +203,7 @@ challenge them.
 | --- | --- | --- |
 | U1 | **B**: a non-persisted `Activity` on the session DTO from `bgwork`, pushed with an event. | One rule for the window, MCP callers and peers; the data already exists on the backend; no stored-status semantics change. |
 | U2 | The session's folder list is refreshed at turn end. The **Environment view lists a granted folder the live process does not have yet**, marked "applies after this session reopens" (Go change in `environment.go`, reading the stored row). No new DTO field and no separate notice. | The place a person checks "what can this session write" tells the truth, including the pending part; a banner would duplicate it. |
-| U3 | **Ghost text** in the empty composer, Tab or right arrow accepts (fills, never sends), with a **setting to turn it off**. | Quietest way to offer a next message; a chip competes with the tray. |
+| U3 | **Ghost text** in the empty composer like an editor's inline suggestion: **Tab inserts it into the prompt** (never sends), Escape or typing dismisses; a **setting to turn it off**. Confirmed by the owner. | Quietest way to offer a next message; a chip competes with the tray. |
 | U4a | `ToolSearch` rows are **folded into one muted "Loaded tools" row per run**, expandable, not hidden. | Hiding what the agent did costs trust; folding removes the noise. |
 | U4b | Order: **tasks and api first** (most calls), then git, agenthub, pr, `workspace.requestWrite`. | Call counts in section 3. |
 | U5 | **Frontend-only** "didn't finish" state; stored rows are not rewritten. | Rewriting history is not worth a spinner fix. |
