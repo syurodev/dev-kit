@@ -3091,17 +3091,18 @@ func (s *Service) Steer(ctx context.Context, id, text string) (SteerOutcome, err
 	if err != nil {
 		return "", err
 	}
+	leaveAdmission, err := s.enterWriterAdmission(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	defer leaveAdmission()
+	// After the admission fence, which a sealed writer refuses whatever the status.
 	// Nothing runs in a closed session, so there is nothing to steer: the answer
 	// is the one an idle session gets, and the prompt that follows reopens it.
 	// Resuming a process just to say so would leave one no turn is using.
 	if sess.Status == SessionStatusClosed {
 		return SteerPromptRequired, nil
 	}
-	leaveAdmission, err := s.enterWriterAdmission(ctx, id)
-	if err != nil {
-		return "", err
-	}
-	defer leaveAdmission()
 	rt, err := s.runtimeFor(ctx, sess)
 	if err != nil {
 		return "", err
