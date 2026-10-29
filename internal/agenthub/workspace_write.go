@@ -34,6 +34,10 @@ type WriteGrantPlan struct {
 	Folder         string
 	Path           string
 	AlreadyGranted bool
+	// coveredByCwd says the folder is inside the session's working directory, which
+	// its process had from the start. Set only by planWriteGrant, and read from the
+	// fresh plan CommitWorkspaceWrite builds, never from the caller's copy.
+	coveredByCwd bool
 }
 
 // When each reader sees a granted folder (WriteGrantEffect).
@@ -103,7 +107,7 @@ func (s *Service) planWriteGrant(ctx context.Context, sessionID, folder string) 
 		}
 	}
 	if path == "" || path == "." {
-		return WriteGrantPlan{}, refuseGrant(fmt.Sprintf("%q is not a folder of this workspace. Call workspace.list to see its folders.", folder))
+		return WriteGrantPlan{}, refuseGrant(fmt.Sprintf("%q is not a folder of this workspace. Call workspace.list to see its folders.", clipRunes(folder, maxEchoedFolderRunes)))
 	}
 	home, _ := os.UserHomeDir()
 	if !filepath.IsAbs(path) || path == string(filepath.Separator) || (home != "" && path == filepath.Clean(home)) {
@@ -113,8 +117,12 @@ func (s *Service) planWriteGrant(ctx context.Context, sessionID, folder string) 
 	return WriteGrantPlan{
 		SessionID: sessionID, WorkspaceID: sess.WorkspaceID, WorkspaceName: workspaceName,
 		Folder: folder, Path: path, AlreadyGranted: folderCovered(path, writable),
+		coveredByCwd: folderCovered(path, []string{sess.ProjectPath}),
 	}, nil
 }
+
+// maxEchoedFolderRunes bounds the caller's folder name where a refusal repeats it.
+const maxEchoedFolderRunes = 80
 
 // folderCovered reports whether path is one of roots or inside one. A folder whose
 // name merely starts like a root's does not count.
@@ -144,25 +152,36 @@ func (s *Service) CommitWorkspaceWrite(ctx context.Context, plan WriteGrantPlan)
 	if err != nil {
 		return WriteGrantResult{}, err
 	}
-	if now.Path != plan.Path {
+	if now.Path != plan.Path || (plan.AlreadyGranted && !now.AlreadyGranted) {
 		return WriteGrantResult{}, refuseGrant("The folder changed while the person was answering. Ask again.")
 	}
 	result := WriteGrantResult{Folder: plan.Folder, Granted: true, Effective: WriteGrantEffect{Git: EffectNow, NewSessions: EffectNow}}
 	if now.AlreadyGranted {
 		result.AlreadyGranted = true
-		result.Effective.ShellAndFiles = EffectNow
+		// Only the folder the process always had is writable there now. Any other
+		// folder was granted after it started, and the process may not have been
+		// reopened yet (an earlier request's reopen can have been blocked): mark the
+		// session again so this turn's end tries once more.
+		if now.coveredByCwd {
+			result.Effective.ShellAndFiles = EffectNow
+		} else {
+			result.Effective.ShellAndFiles = s.scheduleReopenForGrant(ctx, plan.SessionID)
+		}
 		return result, nil
 	}
 	store, ok := s.store.(ExtraPathStore)
 	if !ok {
 		return WriteGrantResult{}, errors.New("agenthub: this store cannot add a folder grant")
 	}
-	if _, err := store.AddExtraReadWritePath(ctx, plan.SessionID, now.Path); err != nil {
+	added, err := store.AddExtraReadWritePath(ctx, plan.SessionID, now.Path)
+	if err != nil {
 		if errors.Is(err, ErrExtraPathsContended) {
 			return WriteGrantResult{}, refuseGrant("The session's folders kept changing. Ask again.")
 		}
 		return WriteGrantResult{}, err
 	}
+	// Another writer listed the folder after the last check: it is granted, just not by this call.
+	result.AlreadyGranted = !added
 	result.Effective.ShellAndFiles = s.scheduleReopenForGrant(ctx, plan.SessionID)
 	return result, nil
 }

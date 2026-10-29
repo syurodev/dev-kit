@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"devkit/internal/agenthub"
 	"devkit/internal/identity"
@@ -15,6 +17,7 @@ import (
 
 type grantRig struct {
 	svc                  *agenthub.Service
+	store                *agenthub.SQLStore
 	root                 agenthub.AgentSession
 	primary, audit, away string
 	folders              []agenthub.WorkspaceFolder
@@ -36,10 +39,11 @@ func newGrantRig(t *testing.T) *grantRig {
 	}
 	reg := agenthub.NewRegistry()
 	reg.Register(agenthub.NewMockAdapter())
-	svc := agenthub.NewService(reg, agenthub.NewSQLStore(db), nil)
+	store := agenthub.NewSQLStore(db)
+	svc := agenthub.NewService(reg, store, nil)
 	svc.MCPEndpoints = &fakeEndpoints{}
 	base := t.TempDir()
-	r := &grantRig{svc: svc, primary: filepath.Join(base, "event-router"), audit: filepath.Join(base, "audit"), away: filepath.Join(base, "elsewhere")}
+	r := &grantRig{svc: svc, store: store, primary: filepath.Join(base, "event-router"), audit: filepath.Join(base, "audit"), away: filepath.Join(base, "elsewhere")}
 	for _, d := range []string{r.primary, r.audit, r.away} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
@@ -116,6 +120,10 @@ func TestPrepareWorkspaceWriteRefusals(t *testing.T) {
 	}{
 		{"a terminal caller", identity.WithCaller(context.Background(), identity.UserTerminal()), "fsap-audit-service", nil},
 		{"the window", uiCtx(), "fsap-audit-service", nil},
+		// A caller that is not an agent session never gets to name one, even when it
+		// carries a real session id (identity.Agent is the only constructor of one).
+		{"the window carrying a session id", identity.WithCaller(context.Background(), identity.Caller{Kind: identity.KindUI, SessionID: r.root.ID}), "fsap-audit-service", nil},
+		{"a terminal carrying a session id", identity.WithCaller(context.Background(), identity.Caller{Kind: identity.KindUserTerminal, SessionID: r.root.ID}), "fsap-audit-service", nil},
 		{"no folder named", agentCtx(r.root.ID), "  ", nil},
 		{"a folder that is not in the workspace", agentCtx(r.root.ID), "not-a-service", nil},
 		{"a sub-session", agentCtx(kid.ID), "fsap-audit-service", nil},
@@ -250,5 +258,107 @@ func TestAGrantReachesOnlyChildrenCreatedAfterIt(t *testing.T) {
 	}
 	if got := rowExtras(t, r.svc, after.ID); !slices.Equal(got, []string{r.audit}) {
 		t.Fatalf("the later child has %v, want the parent's list", got)
+	}
+}
+
+func TestPrepareWorkspaceWriteClipsTheFolderItEchoes(t *testing.T) {
+	r := newGrantRig(t)
+	long := strings.Repeat("x", 300)
+	_, err := r.svc.PrepareWorkspaceWrite(agentCtx(r.root.ID), long)
+	if !isRefused(err) {
+		t.Fatalf("err = %v, want a refusal", err)
+	}
+	if strings.Contains(err.Error(), long) || !strings.Contains(err.Error(), strings.Repeat("x", 80)) || len([]rune(err.Error())) > 200 {
+		t.Fatalf("the refusal echoes %d runes: %q", len([]rune(err.Error())), err.Error())
+	}
+}
+
+func TestCommitWorkspaceWriteRefusesAPlanThatSaysAlreadyGrantedWhenItIsNot(t *testing.T) {
+	r := newGrantRig(t)
+	ctx := agentCtx(r.root.ID)
+	plan, err := r.svc.PrepareWorkspaceWrite(ctx, "fsap-audit-service")
+	if err != nil || plan.AlreadyGranted {
+		t.Fatalf("plan = %+v, %v", plan, err)
+	}
+	plan.AlreadyGranted = true // a plan nobody was asked about
+	if _, err := r.svc.CommitWorkspaceWrite(ctx, plan); !isRefused(err) {
+		t.Fatalf("err = %v, want a refusal", err)
+	}
+	if got := rowExtras(t, r.svc, r.root.ID); len(got) != 0 {
+		t.Fatalf("stored %v", got)
+	}
+}
+
+// Another writer adds the folder between this request's last check and its write.
+func TestCommitWorkspaceWriteReportsALostRaceAsAlreadyGranted(t *testing.T) {
+	r := newGrantRig(t)
+	ctx := agentCtx(r.root.ID)
+	plan, err := r.svc.PrepareWorkspaceWrite(ctx, "fsap-audit-service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lookup := r.svc.WorkspaceFolders
+	r.svc.WorkspaceFolders = func(id string) (string, []agenthub.WorkspaceFolder, error) {
+		// Called by the commit's re-check, after it has read the session row.
+		if _, err := r.store.AddExtraReadWritePath(context.Background(), r.root.ID, r.audit); err != nil {
+			t.Error(err)
+		}
+		return lookup(id)
+	}
+	res, err := r.svc.CommitWorkspaceWrite(ctx, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.AlreadyGranted || !res.Granted {
+		t.Fatalf("result = %+v, want alreadyGranted after losing the race", res)
+	}
+	if got := rowExtras(t, r.svc, r.root.ID); !slices.Equal(got, []string{r.audit}) {
+		t.Fatalf("stored %v, want the folder once", got)
+	}
+}
+
+// The first request's reopen was blocked and its mark spent: the live process may
+// still predate the grant, so a second request must not say the folder is writable
+// now, and must mark the session again.
+func TestAnAlreadyGrantedFolderIsNotReportedWritableNowWhileTheProcessMayBeOld(t *testing.T) {
+	r := newGrantRig(t)
+	ctx := agentCtx(r.root.ID)
+	plan, _ := r.svc.PrepareWorkspaceWrite(ctx, "fsap-audit-service")
+	if _, err := r.svc.CommitWorkspaceWrite(ctx, plan); err != nil {
+		t.Fatal(err)
+	}
+	// The end-of-turn release is blocked by a running vendor task, which spends the mark.
+	r.svc.HandleUpdateForTest(context.Background(), r.root.ID, []byte(spawnShellJSON))
+	r.svc.ReopenAfterGrantForTest(context.Background(), r.root.ID, time.Time{})
+	if r.svc.ReopenMarkedForTest(r.root.ID) {
+		t.Fatal("setup: the mark should be spent")
+	}
+
+	again, _ := r.svc.PrepareWorkspaceWrite(ctx, "fsap-audit-service")
+	if !again.AlreadyGranted {
+		t.Fatalf("setup: plan = %+v", again)
+	}
+	res, err := r.svc.CommitWorkspaceWrite(ctx, again)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.AlreadyGranted || res.Effective.ShellAndFiles == agenthub.EffectNow {
+		t.Fatalf("result = %+v: the shell may still run in the old jail", res)
+	}
+	if !r.svc.ReopenMarkedForTest(r.root.ID) {
+		t.Fatal("the second request did not mark the session again")
+	}
+}
+
+func TestTheSessionsOwnFolderIsWritableNowAndNeedsNoReopen(t *testing.T) {
+	r := newGrantRig(t)
+	ctx := agentCtx(r.root.ID)
+	plan, _ := r.svc.PrepareWorkspaceWrite(ctx, "event-router") // the cwd
+	res, err := r.svc.CommitWorkspaceWrite(ctx, plan)
+	if err != nil || !res.AlreadyGranted || res.Effective.ShellAndFiles != agenthub.EffectNow {
+		t.Fatalf("result = %+v, %v", res, err)
+	}
+	if r.svc.ReopenMarkedForTest(r.root.ID) {
+		t.Fatal("a folder the process always had must not mark the session")
 	}
 }
