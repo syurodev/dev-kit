@@ -51,8 +51,10 @@ does not promise more.
 
 ## 4. Where the checks live
 
-The tool handler only parses the input and calls one owner method, `agenthub.Service.RequestWorkspaceWrite`.
-Every check is in Go, in that method, in this order. The first failure ends the call and nothing is stored.
+The tool handler only parses the input and calls the owner, `agenthub.Service`, in two steps around the
+confirmation: `PrepareWorkspaceWrite` (steps 1 to 4) and `CommitWorkspaceWrite` (step 6). The confirmation (step 5)
+stays in the MCP layer, as `peerConfirm` does, because `agenthub` owns no confirmation transport for a tool call.
+Every check is in Go, in the order below. The first failure ends the call and nothing is stored.
 
 1. **Capability.** `Caller.Call(ctx, "builtin.workspace", "ws:grant", "workspace:requestWrite", ...)` with a new
    grant in `internal/app/container.go`, given to agent sessions only. A terminal caller or any non-agent is
@@ -72,9 +74,10 @@ Every check is in Go, in that method, in this order. The first failure ends the 
 6. **Re-check and store.** The wait may take minutes. After the answer, read the session and the service list
    again and repeat steps 2 to 4. Then write with a compare-and-set:
    `UPDATE agent_sessions SET extra_rw_paths = <new> WHERE id = ? AND extra_rw_paths = <value read>`. No row
-   changed means someone else moved the grants: run the checks once more, and refuse with
-   `workspace.grantRefused` if it fails again. The storage method is a new optional store interface
-   (`ExtraPathStore`), not a change to `UpdateSession`.
+   changed means another writer moved the grants: the store re-reads and tries again, up to ten times (each
+   failed try means another writer succeeded, so the loop ends), and the call is refused with
+   `workspace.grantRefused` if it never lands. The checks of steps 2 to 4 run once, right before the write. The
+   storage method is a new optional store interface (`ExtraPathStore`), not a change to `UpdateSession`.
 
 Nothing in this method reads a path, a session id or an approval from the tool input except the folder name, and
 the value stored is always the registered service path.
@@ -114,9 +117,10 @@ row.
   dropped with the runtime). It is in memory on purpose: a task dies with its process, so a record that survives a
   restart would only be wrong. An agent-initiated turn (`taskType: "turn"`, id `autonomous-turn-*`) counts as work
   for the same reason.
-- A session that fails any guard is not reopened. The call has already answered `after_reopen`, and the window
-  shows a one-line notice on the session ("New folder access applies after this session reopens"). Idle release
-  or a restart then applies it. Nothing is retried in a loop.
+- A session that fails any guard is not reopened. The tool's answer already told the agent that the shell and
+  file tools get the folder "after this turn, or after the session is reopened if DevKit cannot do it now". Idle
+  release or a restart then applies it. Nothing is retried in a loop. A window notice for this state is left to
+  the UI plan (it needs a new session field).
 - A failed release does not undo the stored grant. The stored row is the truth; the process is only late.
 - The same background-work set must be consulted by idle release (`ReleaseIdle`), which closes the gap that
   started this section. That change is small and shared, so it ships in the same plan, in its own commit, and is
@@ -134,9 +138,9 @@ path and no other folder:
 | `workspace.grantUnavailable` | no one can answer the card |
 
 Audit goes through the capability call (`builtin.workspace`, `ws:grant`, scope `workspace:requestWrite`) with
-fixed metadata keys: `op`, `result` (`granted`, `already`, `declined`, `refused`, `unavailable`, `error`) and the
-service name. No path, no summary text, no prompt. A storage error after approval is `result: error` and the call
-returns `internal_error`; it is never reported as declined.
+metadata `origin`, `action: request_workspace_write` and the service name; the gateway records the outcome. No
+path, no summary text, no prompt. A storage error after approval returns `internal_error`; it is never reported as
+declined.
 
 ## 8. Window
 
@@ -144,12 +148,13 @@ returns `internal_error`; it is never reported as declined.
 - The Environment view lists each writable folder with "Granted when this session was created."
   (`internal/agenthub/environment.go`). The wording becomes "Granted to this session." because a folder can now
   be added later.
-- A session that is waiting for a reopen shows the notice in section 6. The notice is derived from the in-memory
-  mark, so it disappears with a restart (which reopens anyway).
-- The agent's own text: the session brief and `devkitPromptNoBrief` (`devkit_guidance.go`, `devkit_prompt.go`)
-  gain one sentence: a folder with `granted: false` is read-only, and `{{workspace.requestWrite}}` asks the person
-  for write access. The sentence is rendered only when the endpoint serves the tool (the existing `served`
-  filter).
+- The agent learns the tool from the refusal it already meets: the `git.repoNotGranted` message (two copies,
+  `internal/mcp/tools_git.go` and `internal/mcp/git_repo.go`) now says "Ask for it with `workspace.requestWrite`
+  (a sub-session asks its parent), or work in <cwd>." instead of "Ask the person to add it to the session". The
+  prompt brief is not changed: that keeps the six `legacy_*.golden` prompt files and the per-vendor tool naming
+  out of this change. If the tool is not served (its harness group is off) the agent gets the usual unknown-tool
+  or `harness.groupOff` answer.
+- A window notice for "applies after this session reopens" is left to the UI plan (it needs a new session field).
 
 ## 9. Tests
 
@@ -172,18 +177,20 @@ returns `internal_error`; it is never reported as declined.
 
 ## 10. To confirm at the start of the plan
 
-1. **Harness group.** The harness classifies every served tool into a group, and the harness is now active in
-   production. Find which group owns `workspace.list` and put `workspace.requestWrite` with it, or in a group that
-   cannot be turned off for a session that needs it; check that a session with that group off cannot call the
-   tool and says so. Not examined for this spec.
-2. **No grant cache** between the store and the running session's `git.*` scope (section 5).
-3. **Reopen at turn end.** Confirm that the end of `Invoke` is a safe place to call the release without racing the
-   caller's own result being delivered, and that the tool's answer reaches the model before the process goes. If it
-   does not, release on the next idle sweep instead and keep `after_reopen`, and tell the owner.
+1. **Harness group (resolved).** `harness.Group` is the part of a tool name before its first dot, so
+   `workspace.requestWrite` is in group `workspace`, with `workspace.list` and `workspace.memory.*`. A session
+   with that group off gets `harness.groupOff` for it (`internal/mcp/serving.go`); no new group is needed. The plan
+   adds a test that proves it.
+2. **No grant cache** between the store and the running session's `git.*` scope (section 5): confirm in the plan.
+3. **Reopen at turn end.** Confirm that the deferred block of `Invoke` is a safe place to call the release
+   without racing the caller's own result being delivered, and that the tool's answer reaches the model before the
+   process goes. If it does not, release on the next idle sweep instead and keep the `after_reopen` wording, and
+   tell the owner.
 4. **Vendors.** Only Claude is measured. For Codex and opencode, check that `resumeRuntime` rebuilds the jail from
    the stored row as it does for Claude, or answer `after_reopen` for them.
-5. **Events.** How the window learns that a session's grants changed (an existing session-changed event, or a new
-   one), so the Environment view and the notice refresh without polling.
+5. **Events (default chosen).** The window refetches the session row when a turn finishes (`OnTurnFinished`), and
+   the grant is made inside a turn, so the Environment view refreshes at the end of that turn without a new event.
+   The plan confirms that the window really refetches there; if it does not, one event is added.
 
 ## 11. Docs to update with the change
 
