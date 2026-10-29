@@ -90,6 +90,17 @@ under the same jail with its own `CODEX_HOME` (`<data>/agent-homes/codex`) — d
     waiting/error dot), title and age, then a second line: the pending ask (the first permission wins),
     else `AgentSession.preview`, which Go writes at turn end (migration 41, `agenthub/preview.go`). MCP
     blanks the preview. Subagents are in the row menu.
+  - **A session is working** when a turn of ours runs (stored status `running`) **or** the agent runs a turn of its own
+    (`activity.agentTurn`, see `agent-hub-vendors-sessions.md` "Session activity"): `isWorking(session)` in
+    `modules/agenthub/sessionActivity.ts`. Everything that asked "is this session active" reads it: the card's avatar and strong
+    title (`cardIndicator`), the group's and branch's running counts, `branchSignals`/`visibleChildren`, the **Cancel turn**
+    item (`Service.Cancel` works on any live runtime), the composer's Stop (`streaming`), the dock badge, "Reload session",
+    the system status count and the tab (`handleAgentActivity`: running while the agent's turn runs, finished and unread when it
+    ends; `handleSessionUpdateTabs` no longer paints an idle session's tab running for a background task's update). What
+    stays on the **stored status** because it is about DevKit's own turn: `shouldSteer`, the send queue, queue drain, the
+    permission bookkeeping, `statusAnnouncement`. **Background tasks alone** (`tasks > 0`, no agent turn, idle) draw no spinner
+    and no running count: the second line says "1 background task" quietly (`backgroundTasksOnly`, `secondLine`), in
+    place of the older preview. When an agent turn ends the window reads the row once for the new preview.
   - "Needs you" lists waiting/failed sessions across workspaces (`needsYou`, through `groupSessions`'
     keep filter, so a child stays with its parent's group).
   - **A failed session can be dismissed from Needs you** (`sidebar/dismissed.ts`, `dismissFailure.ts`; X button on the row,

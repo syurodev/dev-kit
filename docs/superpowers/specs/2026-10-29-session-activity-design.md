@@ -1,7 +1,7 @@
 # Session activity: what a session is doing when no turn of DevKit's is running
 
 Roadmap slice U1 (`docs/superpowers/plans/2026-10-29-agent-hub-ui-adaptation-roadmap.md`), option B, chosen by the owner's
-delegation on 2026-10-29. Base `f9dc7b51`. Not implemented, not reviewed.
+delegation on 2026-10-29. Base `f9dc7b51`. Implemented on `feat/session-activity`; not reviewed.
 
 ## 1. Problem
 

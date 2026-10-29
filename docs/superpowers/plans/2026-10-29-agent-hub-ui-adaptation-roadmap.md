@@ -37,6 +37,14 @@ should see before code.
 
 ### U1. Session activity during background work and agent-started turns (spec first; owner decision)
 
+**Status: done on branch `feat/session-activity` (option B, spec `docs/superpowers/specs/2026-10-29-session-activity-design.md`),
+2026-10-29, not yet merged or reviewed.** Built: `SessionActivity` from `bgwork` on `AgentSession.Activity` (derived, never stored,
+blanked for MCP), a coalescing notifier and the `agenthub:activity` event, the preview of an agent-started turn, `isWorking` in the
+window (sidebar, tab, Stop, composer) and the tasks-only quiet line, and the latest-turn rule of `settleToolState` (which also
+closes the "cancelled newest turn keeps spinning" gap U5 noted). Verified by tests and mutations only; nothing was run in the native
+window or against a real vendor. Details: `docs/agent-reference/agent-hub-vendors-sessions.md` (Session activity), `agent-hub-ui.md`,
+`agent-hub-transcript-composer.md`.
+
 - **Problem.** After a vendor task finishes, Claude starts a turn on its own (`async_task_spawned` with `taskType: "turn"`,
   id `autonomous-turn-*`, ended by `async_task_state_update` `completed`). DevKit keeps the session `idle`: in the
   owner's data one such turn ran 41 s with 11 tool calls and the database said `idle` throughout; the sidebar showed no

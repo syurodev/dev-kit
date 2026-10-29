@@ -93,7 +93,8 @@ done by then; the half of `CloseSession` that tears it down; the next prompt reo
   for a folder under the session's working directory; any other already-granted folder answers `after_this_turn` (or
   `after_reopen`) and marks the session again, since an earlier reopen may have been blocked. The audit record of the
   request carries `origin` and `action` only, not the folder name. The set is fed from
-  `async_task_*` updates, which only Claude sends today; for Codex and opencode the guard protects nothing. The Environment
+  `async_task_*` updates, which only Claude sends today; for Codex and opencode the guard protects nothing.
+  The same set is the session's **activity** (below). The Environment
   view of a live session reports the process's own grants and then lists each folder of the stored row the process was
   not opened with as an "Additional writable folder" with status `pending` ("Granted. Applies after this session
   reopens."; `addFoldersGrantedSinceOpen`); the window marks the session's Environment queries stale when a turn ends
@@ -103,6 +104,33 @@ done by then; the half of `CloseSession` that tears it down; the next prompt reo
   which resolves links, still refuses; and a mark set during a vendor-started turn (no `Invoke`) is spent by the end
   of the next turn that runs. Not run
   against the real vendors: the tests use the mock adapter (a loadable variant for the reopen).
+- **Session activity: what the process does that no DevKit turn started** (`bgwork.go`, `activity_notify.go`,
+  `activity_preview.go`; spec `docs/superpowers/specs/2026-10-29-session-activity-design.md`, roadmap U1). Claude keeps
+  working after DevKit's turn ends: a shell task runs on, and when it finishes Claude starts a turn of its own
+  (`async_task_spawned` `taskType: "turn"`, id `autonomous-turn-…`, ended by `async_task_state_update`). Only `Invoke`
+  writes the stored status, so it reads `idle` throughout. `backgroundWork` keeps each task's type beside its spawn
+  time; `snapshot` is `SessionActivity{AgentTurn, Tasks}` (a `turn` task is `AgentTurn`, every other running task counts in
+  `Tasks`; a task past the 12 h limit counts for neither). `apply` and `forget` report `activityChange{Before, After}`.
+  `AgentSession.Activity` (`json:"activity,omitempty"`, nil when zero) is **derived, never stored**: `Service.ListSessions`
+  and `GetStatus` fill it (`attachActivity`), the store never holds it, and the MCP helper `forAgent` blanks it (an agent
+  result never carries it). A vendor that sends no `async_task_*` (Codex, opencode) shows none.
+  - **Notification**: `Service.OnActivityChanged(sessionID, SessionActivity)`, wired in `main.go` to the app event
+    `agenthub:activity` `{sessionId, agentTurn, tasks}` (the whole state, not a delta). `forgetBackgroundWork` (process
+    released, closed, rewound, account switched, reloaded) and `noteActivityChange` only **mark** the session dirty in
+    `activityNotifier`; one goroutine (started on the first mark, stopped by `Service.Shutdown`) snapshots each dirty
+    session and calls the hook with no lock held, in order per session. A burst collapses to the last state; the final
+    state is always delivered. The hook never runs with `s.mu` held (`forget` is called under it). A task that ages out of
+    the 12 h valve changes the snapshot with no event: a reload shows the truth.
+  - **Preview of an agent-started turn** (`trackAgentTurnMessage`): while `AgentTurn` is true and no `Invoke` claim
+    (`s.invoking`) is held, the top-level `agent_message_chunk` text is accumulated in the same `lastAgentMessage` Invoke
+    uses (reset at the spawn, 4 KiB, memory only); when the turn ends the preview is written through `PreviewFromMessage` and
+    `UpdateSessionPreview` **before** the change is notified, so the window's refetch finds it. An Invoke claim (before or
+    at the end) leaves the preview with Invoke and drops the buffer; a released process drops it too (a message cut off
+    mid-turn is not a preview).
+  - Nothing in `Invoke`, peers, idle release or the stored status reads the activity beyond the existing `bgwork.running`
+    guards. Window side: `useAgentSessionsStore` keeps `activity` on the session row (every read carries it, the event
+    replaces it, an event for an unloaded session is ignored); `modules/agenthub/sessionActivity.ts` has the selectors
+    (see `agent-hub-ui.md`).
 - **An agent chooses a child's model and effort, and the person's profiles guide it**
   (`agenthub/model_catalog.go`, `model_choice.go`, `mcp/tools_agenthub.go`, `preferences/modelprofiles.go`,
   `bridge/agenthub_modelprofiles.go`, Settings → Agents → "Models by job" in `settings/ModelProfilesEditor.tsx`).
