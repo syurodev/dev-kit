@@ -170,9 +170,13 @@ type Container struct {
 	// ManagedTeams persists task-group coordination metadata locally. It is
 	// wired by main after opening the database; no public bridge surface is
 	// installed in this increment.
-	ManagedTeams          *agentwork.ManagedService
-	ManagedLeases         *agentwork.ManagedLeaseService
-	ManagedPayloads       *agentwork.ManagedPayloadService
+	ManagedTeams    *agentwork.ManagedService
+	ManagedLeases   *agentwork.ManagedLeaseService
+	ManagedPayloads *agentwork.ManagedPayloadService
+	// ManagedHarness binds a managed attempt to the harness configuration it was
+	// meant to run with and the one its child runs with. Internal only: no
+	// dispatcher, AppService method or tool uses it yet.
+	ManagedHarness        *agentwork.ManagedHarnessService
 	managedTerminalPolicy *managedTerminalPolicy
 	// AgentHubPermissions completes UI permission prompts for AgentHub.
 	// Nil when AgentHub is unset.

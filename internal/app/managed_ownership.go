@@ -21,6 +21,7 @@ import (
 func WireManagedOwnership(c *Container, store interface {
 	agentwork.ManagedLeaseStore
 	agentwork.ManagedPayloadStore
+	agentwork.ManagedHarnessStore
 	managedItemByTask
 }) {
 	if c == nil || c.AgentHub == nil || c.Tasks == nil || c.Workspace == nil || c.Vault == nil || store == nil {
@@ -31,6 +32,11 @@ func WireManagedOwnership(c *Container, store interface {
 	payloads := agentwork.NewManagedPayloadService(store, host, managedVaultPayloadCodec{vault: c.Vault})
 	c.ManagedLeases = leases
 	c.ManagedPayloads = payloads
+	// The harness binding reads the Agent Hub's harness at call time (see
+	// newManagedHarnessHost), so wiring order relative to the harness graph does
+	// not matter, and a hub without one answers "not configured". Nothing calls
+	// this service yet: there is no dispatcher, AppService method or tool.
+	c.ManagedHarness = agentwork.NewManagedHarnessService(store, newManagedHarnessHost(c, host))
 	c.AgentHub.SetManagedWriterGuard(leases)
 }
 
