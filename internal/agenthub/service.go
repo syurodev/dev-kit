@@ -2071,6 +2071,9 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 				s.OnTurnFinished(in.SessionID, session.Status, turnOutcome)
 			}
 		}
+		// The turn is over and its result recorded: a folder granted during it can
+		// now reach the session's own shell, if the process can be swapped safely.
+		s.reopenAfterGrant(context.WithoutCancel(ctx), in.SessionID)
 	}()
 
 	adapter, ok := s.reg.Get(sess.AgentType)

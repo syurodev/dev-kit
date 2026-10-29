@@ -291,3 +291,25 @@ func (s *Service) ReleaseRuntimeForTest(ctx context.Context, id string, now time
 	}
 	return s.releaseRuntime(ctx, sess, now, after)
 }
+
+// MarkReopenForGrantForTest marks a session as the grant tool does.
+func (s *Service) MarkReopenForGrantForTest(sessionID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.reopenForGrant == nil {
+		s.reopenForGrant = make(map[string]bool)
+	}
+	s.reopenForGrant[sessionID] = true
+}
+
+// ReopenMarkedForTest reports whether the session is still marked.
+func (s *Service) ReopenMarkedForTest(sessionID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.reopenForGrant[sessionID]
+}
+
+// ReopenAfterGrantForTest runs the end-of-turn step on its own.
+func (s *Service) ReopenAfterGrantForTest(ctx context.Context, sessionID string) {
+	s.reopenAfterGrant(ctx, sessionID)
+}
