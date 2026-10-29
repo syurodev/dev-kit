@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { backgroundTasksLabel, backgroundTasksOnly, isWorking } from "./sessionActivity";
+import { backgroundTasksLabel, backgroundTasksOnly, isSessionQuiet, isWorking } from "./sessionActivity";
 import type { AgentSession } from "../../bridge/agenthub";
 
 const session = (over: Partial<AgentSession> = {}): AgentSession => ({
@@ -62,5 +62,23 @@ describe("backgroundTasksLabel", () => {
   it("is plural-aware", () => {
     expect(backgroundTasksLabel(1)).toBe("1 background task");
     expect(backgroundTasksLabel(2)).toBe("2 background tasks");
+  });
+});
+
+describe("isSessionQuiet", () => {
+  it("is true for a loaded session that nothing is working on and nothing waits for", () => {
+    for (const status of ["idle", "error", "closed"] as const) expect(isSessionQuiet(session({ status }), false)).toBe(true);
+    expect(isSessionQuiet(session({ activity: { agentTurn: false, tasks: 3 } }), false)).toBe(true);
+  });
+
+  it("is false while a turn of ours runs or is in flight, the agent runs its own, or a permission waits", () => {
+    expect(isSessionQuiet(session({ status: "running" }), false)).toBe(false);
+    expect(isSessionQuiet(session(), true)).toBe(false);
+    expect(isSessionQuiet(session({ activity: { agentTurn: true, tasks: 0 } }), false)).toBe(false);
+    expect(isSessionQuiet(session({ status: "awaiting_permission" }), false)).toBe(false);
+  });
+
+  it("is false for a session that is not loaded: nothing is known, so nothing is settled", () => {
+    expect(isSessionQuiet(undefined, false)).toBe(false);
   });
 });

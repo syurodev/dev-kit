@@ -27,3 +27,17 @@ export function backgroundTasksOnly(session: Pick<AgentSession, "status" | "acti
 export function backgroundTasksLabel(count: number): string {
   return `${count} background ${count === 1 ? "task" : "tasks"}`;
 }
+
+/**
+ * Whether nothing can still finish this session's latest tool calls: the session is
+ * loaded, nothing is working on it (isWorking), no turn of ours is in flight and no
+ * permission waits. Only then does the transcript settle a call of the latest turn
+ * (transcript/toolSettle.tsx). A session that is not loaded is not quiet: nothing is
+ * known, so nothing is settled.
+ */
+export function isSessionQuiet(
+  session: Pick<AgentSession, "status" | "activity"> | null | undefined,
+  turnInFlight: boolean,
+): boolean {
+  return Boolean(session) && !isWorking(session) && !turnInFlight && session?.status !== "awaiting_permission";
+}

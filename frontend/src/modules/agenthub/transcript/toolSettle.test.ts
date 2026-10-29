@@ -5,8 +5,28 @@ import { earlierTurnItemIds, failureLine, settleToolState } from "./toolSettle";
 describe("settleToolState", () => {
   const states = ["pending", "running", "awaiting", "done", "failed"] as const;
 
-  it("lets a call of the latest turn carry on as it is, whatever the session says", () => {
+  it("lets a call of the latest turn carry on as it is while the session may still finish it", () => {
     for (const state of states) expect(settleToolState(state, { earlierTurn: false })).toBe(state);
+    for (const state of states) expect(settleToolState(state, { earlierTurn: false, sessionQuiet: false })).toBe(state);
+  });
+
+  it("settles a call of the latest turn when the session is quiet: nothing is working, nothing waits", () => {
+    const quiet = { earlierTurn: false, sessionQuiet: true };
+    expect(settleToolState("pending", quiet)).toBe("unfinished");
+    expect(settleToolState("running", quiet)).toBe("unfinished");
+    expect(settleToolState("awaiting", quiet)).toBe("unfinished");
+    expect(settleToolState("done", quiet)).toBe("done");
+    expect(settleToolState("failed", quiet)).toBe("failed");
+  });
+
+  it("leaves a background subagent's call of the latest turn alone: the session has no signal for it", () => {
+    const quietSubagent = { earlierTurn: false, sessionQuiet: true, subagent: true };
+    for (const state of states) expect(settleToolState(state, quietSubagent)).toBe(state);
+  });
+
+  it("still settles a subagent's call once its turn is an earlier one", () => {
+    expect(settleToolState("running", { earlierTurn: true, sessionQuiet: false, subagent: true })).toBe("unfinished");
+    expect(settleToolState("running", { earlierTurn: true, sessionQuiet: true, subagent: true })).toBe("unfinished");
   });
 
   it("settles a call of an earlier turn that can no longer finish, and only those", () => {

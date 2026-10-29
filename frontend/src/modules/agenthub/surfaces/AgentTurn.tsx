@@ -21,7 +21,7 @@ import {
 import { NO_RESULTS, surfaceResults, ToolResultCard, type StepResults } from "../transcript/ToolResultCard";
 import { AgentToolActivity, isToolActivity } from "../transcript/AgentToolActivity";
 import { AgentRunningCommand, isRunningCommand } from "../transcript/AgentRunningCommand";
-import { useInEarlierTurn } from "../transcript/toolSettle";
+import { cannotFinish, useSettleFacts } from "../transcript/toolSettle";
 import { AgentProse } from "../transcript/AgentMessageRich";
 import { MessageActions } from "./MessageActions";
 import { PeerMessage } from "../transcript/PeerMessage";
@@ -404,8 +404,11 @@ export function StepGroup({
   // runs (AgentRunningCommand), so a ten-minute build is not one quiet row
   // behind the fold.
   // Not one that was interrupted: no clock for a command nothing can finish.
-  const earlierTurn = useInEarlierTurn();
-  const commands = React.useMemo(() => (earlierTurn ? [] : items.filter(isRunningCommand)), [items, earlierTurn]);
+  const settle = useSettleFacts();
+  const commands = React.useMemo(
+    () => items.filter((item) => isRunningCommand(item) && !cannotFinish({ ...settle, subagent: Boolean(item.origin) })),
+    [items, settle.earlierTurn, settle.sessionQuiet],
+  );
   // A result the owning module draws (a query's rows, a plan, a message) is
   // what the person asked for, not the account of getting it: it stands after
   // the fold, in call order (ToolResultCard.tsx).
@@ -507,7 +510,7 @@ export function StepGroup({
       {layout.activities ? (
         <div data-testid="step-activities" className="flex w-full min-w-0 flex-col gap-2 pt-2 empty:hidden">
           {activities.map((item) => (
-            <AgentToolActivity key={item.id} call={item.toolCall!} sessionId={item.sessionId} />
+            <AgentToolActivity key={item.id} call={item.toolCall!} sessionId={item.sessionId} origin={item.origin} />
           ))}
           {commands.map((item) => (
             <AgentRunningCommand key={item.id} item={item} />
@@ -561,6 +564,7 @@ function StepRow({
           variant="row"
           sessionId={item.sessionId}
           stepId={item.id}
+          origin={item.origin}
           resultOutside={resultOutside}
           onOpenFile={onOpenFile}
           call={item.toolCall ?? { id: item.toolCallId || item.id, title: "Tool execution", status: "completed" }}

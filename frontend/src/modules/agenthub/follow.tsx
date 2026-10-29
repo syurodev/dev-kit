@@ -9,6 +9,7 @@ import { useAgentPinsStore } from "@/stores/agentPins";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
 import { dispatchIntent, type EntityRef } from "@/workbench/intents";
 import { hasEntityPreview, renderEntityPreview, toolActivityOf } from "@/workbench/toolActivity";
+import { isSessionQuiet } from "./sessionActivity";
 import type { ToolCall, TranscriptItem } from "./types";
 import { AgentToolActivity, activityTargetOf, isToolActivity } from "./transcript/AgentToolActivity";
 import { toolNameOf } from "@/workbench/toolPayload";
@@ -93,6 +94,8 @@ export function AgentActivityPanel({ sessionId, title, onStop }: { sessionId: st
   const feed = React.useMemo(() => activityFeed(items), [items]);
   // The cards stand outside any turn here: which of them belong to one that is over.
   const earlier = React.useMemo(() => earlierTurnItemIds(items), [items]);
+  // Nothing works on the followed session and nothing waits: its newest calls cannot finish either.
+  const quiet = useAgentSessionsStore((s) => isSessionQuiet(s.sessionsById[sessionId], Boolean(s.turnInFlightBySession[sessionId])));
   // Keyed to the session so following another one starts from its newest again.
   const [extra, setExtra] = React.useState({ sessionId, count: 0 });
   const limit = FOLLOW_FEED_PAGE + (extra.sessionId === sessionId ? extra.count : 0);
@@ -132,11 +135,11 @@ export function AgentActivityPanel({ sessionId, title, onStop }: { sessionId: st
             className={preview ? "flex max-h-[45%] shrink-0 flex-col gap-2 overflow-y-auto p-3" : "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3"}
           >
             {drawn.map((item) => (
-              <EarlierTurnProvider key={item.id} earlier={earlier.has(item.id)}>
+              <EarlierTurnProvider key={item.id} earlier={earlier.has(item.id)} quiet={quiet}>
                 {isRunningCommand(item) ? (
                   <AgentRunningCommand item={item} />
                 ) : (
-                  <AgentToolActivity call={item.toolCall!} sessionId={item.sessionId ?? sessionId} />
+                  <AgentToolActivity call={item.toolCall!} sessionId={item.sessionId ?? sessionId} origin={item.origin} />
                 )}
               </EarlierTurnProvider>
             ))}

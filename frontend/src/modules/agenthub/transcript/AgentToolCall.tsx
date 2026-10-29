@@ -14,7 +14,7 @@ import { AgentToolTerminal } from "./AgentToolTerminal";
 import { AgentCodeBlock } from "./AgentCodeBlock";
 import { languageForPath, normalizeLanguage } from "@/components/code/languages";
 import { parseListing } from "./syntax";
-import { failureLine, settleToolState, useInEarlierTurn, type SettledToolState } from "./toolSettle";
+import { failureLine, settleToolState, useSettleFacts, type SettledToolState } from "./toolSettle";
 import { hasToolResultView, renderToolResult } from "@/workbench/toolResultViews";
 import { isDevkitTool, toolNameOf, toolPayloadOf, toolResultInputOf } from "@/workbench/toolPayload";
 
@@ -48,6 +48,8 @@ export type AgentToolCallProps = {
    * "Show full output" — a second copy of the card would hide both.
    */
   resultOutside?: boolean;
+  /** The subagent the call belongs to, when it is a subagent's: it is settled only by its turn ending (toolSettle.tsx). */
+  origin?: string;
   onOpenFile?: (path: string, line?: number) => void;
   className?: string;
 };
@@ -219,14 +221,14 @@ export function AgentToolCall({
   sessionId,
   stepId,
   resultOutside = false,
+  origin,
   onOpenFile,
   className,
 }: AgentToolCallProps) {
   const KindIcon = kindIcon(call);
   // A call the stored transcript still has pending or in progress, in a turn
-  // that is over, will never finish (toolSettle.ts).
-  const earlierTurn = useInEarlierTurn();
-  const state = settleToolState(toToolState(call.status), { earlierTurn });
+  // that is over or in a session nothing works on, will never finish (toolSettle.tsx).
+  const state = settleToolState(toToolState(call.status), useSettleFacts(origin));
   const title = call.title || call.kind || call.id || "Tool execution";
   const [expanded, setExpanded] = React.useState(defaultExpanded);
   // The whole call behind a truncated preview, fetched on ask; once loaded it

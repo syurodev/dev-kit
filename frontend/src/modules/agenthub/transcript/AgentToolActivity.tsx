@@ -14,7 +14,7 @@ import { toolActivityOf, type ToolActivity, type ToolActivityState, type ToolAct
 import type { ToolCall } from "../types";
 import { toolActivityState } from "./AgentToolCall";
 import { resultCallOf, useFullToolCall } from "./toolCallDetail";
-import { useInEarlierTurn } from "./toolSettle";
+import { cannotFinish, useSettleFacts } from "./toolSettle";
 
 /** Whether a call is one of the DevKit tools that change something. */
 export function isToolActivity(call: ToolCall | undefined): boolean {
@@ -61,8 +61,11 @@ function revealIntent(module: string): string {
 export const AgentToolActivity = React.memo(function AgentToolActivity({
   call,
   sessionId,
+  origin,
 }: {
   call: ToolCall;
+  /** The subagent the call belongs to, when it is a subagent's (toolSettle.tsx). */
+  origin?: string;
   /** Whose transcript this is: a cut answer is read from its full row. */
   sessionId?: string;
 }) {
@@ -70,9 +73,8 @@ export const AgentToolActivity = React.memo(function AgentToolActivity({
   const activity = toolActivityOf(name);
   const state = toolActivityState(call.status);
   // Still pending or in progress in the stored transcript, but its turn is
-  // over (toolSettle.ts): the card says so instead of spinning.
-  const earlierTurn = useInEarlierTurn();
-  const stopped = state === "running" && earlierTurn;
+  // over, or its session is quiet (toolSettle.tsx): the card says so instead of spinning.
+  const stopped = state === "running" && cannotFinish(useSettleFacts(origin));
   // Fixed at mount: whether this card is news or history.
   const bornLive = React.useRef(state === "running" && !stopped).current;
 

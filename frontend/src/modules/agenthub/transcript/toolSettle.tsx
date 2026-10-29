@@ -8,36 +8,75 @@ import type { ToolCall, TranscriptItem } from "../types";
  * left behind stays that way for ever, and drawing it with a spinner says the
  * agent is working when it is not.
  *
- * The rule is per turn, not per session: a call of an EARLIER turn (a later
- * user message exists) can no longer finish, whatever the session is doing now,
- * even a newer turn. A call of the LATEST turn keeps drawing as its status
- * says. The stored session status cannot settle it: a turn the vendor starts
- * on its own, or a background subagent, produces updates with no turn event
- * and leaves the status idle, so judging by status would draw a call that is
- * really in flight as "didn't finish". The one case this leaves spinning is the
- * person cancelling the latest turn while a call stays in_progress (behaviour
- * as it was); the roadmap's U1 (session Activity) will say what the session is
- * really doing and let the latest turn settle safely.
+ * Two rules settle it to "didn't finish":
+ *
+ * - A call of an EARLIER turn (a later user message exists) can no longer finish,
+ *   whatever the session is doing now, even a newer turn.
+ * - A call of the LATEST turn can no longer finish when the session is quiet
+ *   (isSessionQuiet): nothing works on it (neither a turn of ours nor one the agent
+ *   started itself, session.activity), no turn of ours is in flight and no permission
+ *   waits. That is the cancelled-turn case. The stored status alone could not say it:
+ *   a turn the vendor starts on its own leaves the status idle and was
+ *   indistinguishable from a cancelled one, which is what session activity now tells
+ *   apart.
+ *
+ * A call with a subagent `origin` is settled only by the first rule: a background
+ * subagent can keep running with the session quiet, and the session has no signal for it.
  */
 
 /** The states a tool call draws (AgentToolCall); `unfinished` is one that never got to end. */
 export type SettledToolState = "pending" | "running" | "awaiting" | "done" | "failed" | "unfinished";
 
-export function settleToolState<S extends SettledToolState>(state: S, facts: { earlierTurn: boolean }): S | "unfinished" {
-  if (!facts.earlierTurn) return state;
+/** What decides whether a call can still finish. */
+export type SettleFacts = {
+  /** A later user message exists. */
+  earlierTurn: boolean;
+  /** The session is quiet (isSessionQuiet). Absent outside a session: not quiet. */
+  sessionQuiet?: boolean;
+  /** The call belongs to a subagent (its row has an `origin`). */
+  subagent?: boolean;
+};
+
+/** Whether a call that has not ended can never end. */
+export function cannotFinish(facts: SettleFacts): boolean {
+  return facts.earlierTurn || (Boolean(facts.sessionQuiet) && !facts.subagent);
+}
+
+export function settleToolState<S extends SettledToolState>(state: S, facts: SettleFacts): S | "unfinished" {
+  if (!cannotFinish(facts)) return state;
   return state === "pending" || state === "running" || state === "awaiting" ? "unfinished" : state;
 }
 
-/** Whether the call being drawn belongs to a turn that is not the newest. Outside a turn (a panel, a fixture): no. */
-const EarlierTurnContext = React.createContext(false);
+type SettleScope = { earlier: boolean; quiet: boolean };
 
-/** What AgentTurn gives everything it draws: the turn it is, relative to the newest. */
-export function EarlierTurnProvider({ earlier, children }: { earlier: boolean; children: React.ReactNode }) {
-  return <EarlierTurnContext.Provider value={earlier}>{children}</EarlierTurnContext.Provider>;
+/** Outside a turn (a panel, a fixture): neither an earlier turn nor a quiet session. */
+const SettleContext = React.createContext<SettleScope>({ earlier: false, quiet: false });
+
+/**
+ * What AgentTurn gives everything it draws: the turn it is, relative to the newest, and
+ * whether the session is quiet (only the newest turn can then settle by it).
+ */
+export function EarlierTurnProvider({
+  earlier,
+  quiet = false,
+  children,
+}: {
+  earlier: boolean;
+  quiet?: boolean;
+  children: React.ReactNode;
+}) {
+  const value = React.useMemo(() => ({ earlier, quiet }), [earlier, quiet]);
+  return <SettleContext.Provider value={value}>{children}</SettleContext.Provider>;
 }
 
 export function useInEarlierTurn(): boolean {
-  return React.useContext(EarlierTurnContext);
+  return React.useContext(SettleContext).earlier;
+}
+
+/** The facts for one call: the scope it is drawn in, and whether it is a subagent's (`origin`). */
+export function useSettleFacts(origin?: string): SettleFacts {
+  const { earlier, quiet } = React.useContext(SettleContext);
+  return { earlierTurn: earlier, sessionQuiet: quiet, subagent: Boolean(origin) };
 }
 
 /**
