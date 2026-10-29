@@ -305,6 +305,9 @@ describe("Stop turn's question", () => {
       expect(dialog()).toBeNull();
       // Nothing was stopped: the session still works, the control is still there, and may be tried again.
       expect(stop()).not.toBeNull();
+      await press(stop());
+      await press(buttonNamed(dialog()!, "Stop turn"));
+      expect(cancelled).toEqual(["s1", "s1"]);
     } finally {
       shown.mockRestore();
     }
