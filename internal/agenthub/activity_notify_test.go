@@ -1,15 +1,18 @@
 package agenthub
 
 import (
+	"runtime"
 	"sync"
 	"testing"
 	"time"
 )
 
 type activityRecorder struct {
-	mu    sync.Mutex
-	calls []activityCall
-	gate  chan struct{} // when set, fire blocks until it is closed
+	mu      sync.Mutex
+	calls   []activityCall
+	gate    chan struct{} // when set, fire blocks until it is closed
+	entered chan struct{} // when set, closed when fire is first entered
+	once    sync.Once
 }
 
 type activityCall struct {
@@ -18,6 +21,9 @@ type activityCall struct {
 }
 
 func (r *activityRecorder) fire(id string, a SessionActivity) {
+	if r.entered != nil {
+		r.once.Do(func() { close(r.entered) })
+	}
 	if r.gate != nil {
 		<-r.gate
 	}
@@ -106,10 +112,11 @@ func TestActivityNotifierKeepsEachSessionsOrderAndFinalState(t *testing.T) {
 
 func TestActivityNotifierMarkNeverBlocksOnASlowHook(t *testing.T) {
 	st := &activityState{}
-	rec := &activityRecorder{gate: make(chan struct{})}
+	rec := &activityRecorder{gate: make(chan struct{}), entered: make(chan struct{})}
 	n := newActivityNotifier(st.snap, rec.fire)
 	st.set("s1", SessionActivity{Tasks: 1})
 	n.mark("s1")
+	<-rec.entered // the hook is inside its call and will not return until the gate opens
 	done := make(chan struct{})
 	go func() {
 		for i := 0; i < 1000; i++ {
@@ -167,18 +174,37 @@ func TestActivityNotifierStopWithNothingMarkedStartsNothing(t *testing.T) {
 
 func TestActivityNotifierStopDoesNotWaitForeverOnABlockedHook(t *testing.T) {
 	st := &activityState{}
-	gate := make(chan struct{})
-	rec := &activityRecorder{gate: gate}
+	rec := &activityRecorder{gate: make(chan struct{}), entered: make(chan struct{})}
 	n := newActivityNotifier(st.snap, rec.fire)
 	st.set("s1", SessionActivity{Tasks: 1})
 	n.mark("s1")
-	time.Sleep(20 * time.Millisecond)
-	go func() { time.Sleep(50 * time.Millisecond); close(gate) }()
-	done := make(chan struct{})
-	go func() { n.stop(); close(done) }()
+	<-rec.entered
+	stopped := make(chan struct{})
+	go func() { n.stop(); close(stopped) }()
+	// stop has closed the notifier before it waits for the hook; once it has, a mark is a no-op.
+	for {
+		n.mu.Lock()
+		closed := n.closed
+		n.mu.Unlock()
+		if closed {
+			break
+		}
+		runtime.Gosched()
+	}
 	select {
-	case <-done:
+	case <-stopped:
+		t.Fatal("stop returned while the hook was still inside its call")
+	default:
+	}
+	close(rec.gate)
+	select {
+	case <-stopped:
 	case <-time.After(5 * time.Second):
 		t.Fatal("stop did not return once the hook did")
+	}
+	select {
+	case <-n.done:
+	default:
+		t.Fatal("the goroutine is still running after stop returned")
 	}
 }

@@ -358,3 +358,13 @@ func (s *Service) ClaimInvokeForTest(sessionID string) (release func()) {
 func (s *Service) AgentTurnMessageHeldForTest(sessionID string) bool {
 	return s.agentTurnMsgs.get(sessionID) != nil
 }
+
+// ActivityNotifierDoneForTest is closed once the activity notifier's goroutine has ended.
+func (s *Service) ActivityNotifierDoneForTest() <-chan struct{} { return s.activity.done }
+
+// ActivityNotifierStartedForTest reports whether the notifier's goroutine was ever started.
+func (s *Service) ActivityNotifierStartedForTest() bool {
+	s.activity.mu.Lock()
+	defer s.activity.mu.Unlock()
+	return s.activity.started
+}

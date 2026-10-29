@@ -2953,7 +2953,15 @@ func (s *Service) Cancel(ctx context.Context, id string) error {
 		// press kills the process and the runtime is evicted with it.
 		return nil
 	}
-	return rt.Cancel(ctx)
+	err := rt.Cancel(ctx)
+	// The shutdown ladder can end the whole process, and a killed process sends no
+	// `completed` for the turn or the tasks it was running: they would stay on the
+	// session's activity (the window spins, Stop stays on, idle release is blocked)
+	// until a second press found the corpse. Evict a dead runtime now, the way
+	// liveRuntime does, which also forgets its background work. One that survived the
+	// cancel keeps its activity: the vendor's own updates end it.
+	s.liveRuntime(ctx, id)
+	return err
 }
 
 // runtimeForTurn is runtimeFor plus whether the process had to be opened. It is

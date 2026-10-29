@@ -132,10 +132,15 @@ func TestShutdownStopsTheActivityNotifier(t *testing.T) {
 	if err := f.svc.Shutdown(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// Shutdown returned, so the goroutine has ended: no delivery can happen any more.
+	select {
+	case <-f.svc.ActivityNotifierDoneForTest():
+	default:
+		t.Fatal("the notifier's goroutine is still running after Shutdown")
+	}
 	n := len(log.all())
 	f.svc.HandleUpdateForTest(ctx, f.kid.ID, []byte(doneShellJSON))
 	f.svc.WaitActivityIdleForTest() // returns at once: stopped
-	time.Sleep(20 * time.Millisecond)
 	if len(log.all()) != n {
 		t.Fatal("the hook was called after Shutdown")
 	}
@@ -372,5 +377,109 @@ func TestAnInvokeClaimAtTheEndOfAnAgentTurnKeepsThePreviewWithInvoke(t *testing.
 	}
 	if f.svc.AgentTurnMessageHeldForTest(f.parent.ID) {
 		t.Fatal("the buffer outlived the turn")
+	}
+}
+
+// cancelRuntime is a live runtime whose Cancel may take the process down, as the
+// shutdown ladder does, and which then reports itself dead (RuntimeLiveness).
+type cancelRuntime struct {
+	agenthub.SessionRuntime
+	diesOnCancel bool
+	mu           sync.Mutex
+	dead         bool
+}
+
+func (r *cancelRuntime) Cancel(context.Context) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.diesOnCancel {
+		r.dead = true
+	}
+	return nil
+}
+
+func (r *cancelRuntime) Dead() (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.dead, nil
+}
+
+func installCancelRuntime(t *testing.T, f *idleFixture, id string, diesOnCancel bool) {
+	t.Helper()
+	inner, ok := f.svc.RuntimeForTest(id)
+	if !ok {
+		t.Fatal("no runtime to wrap")
+	}
+	f.svc.SetRuntimeForTest(id, "", &cancelRuntime{SessionRuntime: inner, diesOnCancel: diesOnCancel})
+}
+
+// Stop on an agent-started turn can end the whole process, and a killed process sends no
+// `completed`: the activity would stay on until a second press evicted the corpse.
+func TestCancelThatKillsTheProcessClearsTheActivityOnce(t *testing.T) {
+	f := newIdleFixture(t)
+	ctx := context.Background()
+	id := f.parent.ID
+	installCancelRuntime(t, f, id, true)
+	log := &activityLog{}
+	f.svc.OnActivityChanged = log.hook
+	f.feed(spawnShellJSON, spawnTurnJSON)
+	f.svc.WaitActivityIdleForTest()
+
+	if err := f.svc.Cancel(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	f.svc.WaitActivityIdleForTest()
+
+	if a := activityOf(t, f, id); a != nil {
+		t.Fatalf("activity after the process was killed: %+v", a)
+	}
+	if f.hasRuntime(id) {
+		t.Fatal("the dead runtime was left in the live map")
+	}
+	zeros := 0
+	for _, c := range log.all() {
+		if c.id == id && c.a.Zero() {
+			zeros++
+		}
+	}
+	if zeros != 1 {
+		t.Fatalf("zero notifications = %d, want exactly 1: %+v", zeros, log.all())
+	}
+	// A second press finds nothing to do and says nothing more.
+	before := len(log.all())
+	if err := f.svc.Cancel(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	f.svc.WaitActivityIdleForTest()
+	if got := len(log.all()); got != before {
+		t.Fatalf("a second Cancel notified again: %+v", log.all())
+	}
+}
+
+// A runtime that outlives the cancel is still running whatever the vendor says next:
+// its activity is the vendor's own updates' business.
+func TestCancelThatLeavesTheProcessAliveKeepsTheActivity(t *testing.T) {
+	f := newIdleFixture(t)
+	id := f.parent.ID
+	installCancelRuntime(t, f, id, false)
+	log := &activityLog{}
+	f.svc.OnActivityChanged = log.hook
+	f.feed(spawnTurnJSON)
+	f.svc.WaitActivityIdleForTest()
+	if err := f.svc.Cancel(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+	f.svc.WaitActivityIdleForTest()
+	if a := activityOf(t, f, id); a == nil || !a.AgentTurn {
+		t.Fatalf("activity = %+v, want the agent turn kept", a)
+	}
+	if got := len(log.all()); got != 1 {
+		t.Fatalf("notifications = %+v", log.all())
+	}
+	// The vendor's own end still clears it.
+	f.feed(doneTurnJSON)
+	f.svc.WaitActivityIdleForTest()
+	if a := activityOf(t, f, id); a != nil {
+		t.Fatalf("activity after the vendor's end: %+v", a)
 	}
 }
