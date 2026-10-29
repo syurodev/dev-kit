@@ -21,6 +21,8 @@ import {
   type PermissionClosedEvent,
   type SessionUpdateEvent,
 } from "../bridge/agenthub";
+import { queryClient } from "../lib/query";
+import { isSessionEnvironmentKey } from "../modules/agenthub/environment/environmentKey";
 import { useAgentPinsStore } from "../stores/agentPins";
 import { useAgentSessionsStore } from "../stores/agentSessions";
 import { refreshSessionAfterPermission } from "../modules/agenthub/permissions";
@@ -186,6 +188,13 @@ export function handleAgentTurnFinished(
   if (session && !ours && session.status !== nextStatus) {
     state.upsertSession({ ...session, status: nextStatus });
   }
+  // A folder the agent was granted during the turn (workspace.requestWrite) is
+  // in the stored row, and a live session's Environment lists it as pending: an
+  // open view reads again. Go recomputes the report, so nothing is copied here.
+  void queryClient.invalidateQueries({
+    queryKey: ["agenthub", "environment"],
+    predicate: (query) => isSessionEnvironmentKey(query.queryKey, sessionId),
+  });
   if (session && !ours) {
     // The preview is written with the status; a turn from elsewhere (MCP,
     // another agent) only told us the status, so read the row once. Only the

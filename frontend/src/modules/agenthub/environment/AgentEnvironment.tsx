@@ -9,6 +9,7 @@ import { errorMessage } from "@/bridge/errors";
 
 import { vendorInfo } from "../vendors";
 import { AgentCustomizationManager } from "./AgentCustomization";
+import { agentEnvironmentKey } from "./environmentKey";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
 
 const GROUPS = [
@@ -21,7 +22,7 @@ const GROUPS = [
 const STATUS: Record<string, string> = {
   found: "Found", configured: "Configured", loaded: "Loaded", reported: "Reported",
   missing: "Not found", unverified: "Unverified", needs_auth: "Sign-in needed", disabled: "Disabled",
-  restricted: "Restricted", unavailable: "Unavailable",
+  restricted: "Restricted", unavailable: "Unavailable", pending: "Pending",
 };
 
 /** Shared by the live dialog, Settings and the bridge-free gallery. */
@@ -78,7 +79,7 @@ function EnvironmentCheck({ vendor, sessionId = "", enabled }: { vendor: string;
     finally { setReloading(false); }
   }
   const query = useQuery({
-    queryKey: ["agenthub", "environment", vendor, sessionId],
+    queryKey: agentEnvironmentKey(vendor, sessionId),
     queryFn: () => agentHubEnvironment(vendor, sessionId),
     enabled,
     staleTime: 0,

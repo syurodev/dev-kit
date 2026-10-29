@@ -14,6 +14,7 @@ import { AgentToolTerminal } from "./AgentToolTerminal";
 import { AgentCodeBlock } from "./AgentCodeBlock";
 import { languageForPath, normalizeLanguage } from "@/components/code/languages";
 import { parseListing } from "./syntax";
+import { failureLine, settleToolState, useInEarlierTurn, type SettledToolState } from "./toolSettle";
 import { hasToolResultView, renderToolResult } from "@/workbench/toolResultViews";
 import { isDevkitTool, toolNameOf, toolPayloadOf, toolResultInputOf } from "@/workbench/toolPayload";
 
@@ -88,7 +89,7 @@ function kindIcon(call: ToolCall) {
   return Wrench;
 }
 
-type ToolState = "pending" | "running" | "awaiting" | "done" | "failed";
+type ToolState = SettledToolState;
 
 function toToolState(status?: string): ToolState {
   switch (status?.toLowerCase()) {
@@ -119,6 +120,7 @@ export function toolActivityState(status?: string): "running" | "done" | "failed
 
 const DOT: Record<ToolState, string> = {
   pending: "border border-text-tertiary",
+  unfinished: "border border-border",
   running: "bg-(--status-running)",
   awaiting: "bg-status-warning",
   done: "bg-text-tertiary",
@@ -130,6 +132,7 @@ const FALLBACK: Record<ToolState, string> = {
   pending: "queued",
   running: "running…",
   awaiting: "awaiting permission",
+  unfinished: "didn't finish",
   done: "",
   failed: "failed",
 };
@@ -220,7 +223,10 @@ export function AgentToolCall({
   className,
 }: AgentToolCallProps) {
   const KindIcon = kindIcon(call);
-  const state = toToolState(call.status);
+  // A call the stored transcript still has pending or in progress, in a turn
+  // that is over, will never finish (toolSettle.ts).
+  const earlierTurn = useInEarlierTurn();
+  const state = settleToolState(toToolState(call.status), { earlierTurn });
   const title = call.title || call.kind || call.id || "Tool execution";
   const [expanded, setExpanded] = React.useState(defaultExpanded);
   // The whole call behind a truncated preview, fetched on ask; once loaded it
@@ -411,7 +417,9 @@ export function AgentToolCall({
 
   if (variant === "row") {
     const { verb, object } = stepLabel(call);
-    const pending = state === "running" || state === "pending" || state === "awaiting";
+    const pending = state === "running" || state === "pending" || state === "awaiting" || state === "unfinished";
+    // What a failed call said, for a row that has no error line of its own below it.
+    const said = state === "failed" && !reason ? failureLine({ rawOutput: fullCall?.rawOutput ?? call.rawOutput, content }) : "";
     return (
       <div
         data-testid="agent-tool-call"
@@ -447,6 +455,12 @@ export function AgentToolCall({
                   )}
                 >
                   {object}
+                </span>
+              ) : null}
+              {said ? (
+                // Last to give way: the verb and what it acted on matter more.
+                <span data-testid="tool-call-said" className="min-w-0 shrink-3 truncate text-caption-11 text-text-tertiary">
+                  {`· ${said}`}
                 </span>
               ) : null}
             </span>
@@ -491,7 +505,7 @@ export function AgentToolCall({
                 "min-w-0 max-w-1/2 shrink truncate text-caption-11 whitespace-nowrap",
                 state === "failed"
                   ? "text-status-danger"
-                  : state === "done"
+                  : state === "done" || state === "unfinished"
                     ? "text-text-tertiary"
                     : "text-text-secondary",
               )}

@@ -21,6 +21,7 @@ import {
 import { NO_RESULTS, surfaceResults, ToolResultCard, type StepResults } from "../transcript/ToolResultCard";
 import { AgentToolActivity, isToolActivity } from "../transcript/AgentToolActivity";
 import { AgentRunningCommand, isRunningCommand } from "../transcript/AgentRunningCommand";
+import { useInEarlierTurn } from "../transcript/toolSettle";
 import { AgentProse } from "../transcript/AgentMessageRich";
 import { MessageActions } from "./MessageActions";
 import { PeerMessage } from "../transcript/PeerMessage";
@@ -402,7 +403,9 @@ export function StepGroup({
   // A shell command still running: it gets a card with its clock while it
   // runs (AgentRunningCommand), so a ten-minute build is not one quiet row
   // behind the fold.
-  const commands = React.useMemo(() => items.filter(isRunningCommand), [items]);
+  // Not one that was interrupted: no clock for a command nothing can finish.
+  const earlierTurn = useInEarlierTurn();
+  const commands = React.useMemo(() => (earlierTurn ? [] : items.filter(isRunningCommand)), [items, earlierTurn]);
   // A result the owning module draws (a query's rows, a plan, a message) is
   // what the person asked for, not the account of getting it: it stands after
   // the fold, in call order (ToolResultCard.tsx).

@@ -20,6 +20,8 @@ import { useAgentSessionsStore } from "../stores/agentSessions";
 import { useWorkbenchTabsStore } from "../stores/workbenchTabs";
 import { sendAgentTurn, setAgentHubTabsStatus, type TurnBridge } from "./agentPromptQueue";
 import type { AgentSession, InvokeResult } from "../bridge/agenthub";
+import { queryClient } from "../lib/query";
+import { agentEnvironmentKey } from "../modules/agenthub/environment/environmentKey";
 
 // No ui_state writes: the debounced bridge call would reject after this file ends.
 useWorkbenchTabsStore.persist.setOptions({
@@ -174,6 +176,28 @@ describe("an Agent Hub tab when a turn finishes", () => {
     const row = useAgentSessionsStore.getState().sessionsById.s1;
     expect(row.preview).toBe("Second answer.");
     expect(row.updatedAt).toBe(2000);
+  });
+
+  it("marks the finished session's Environment stale, and no other session's", () => {
+    queryClient.setQueryData(agentEnvironmentKey("claude", "s1"), { entries: [] });
+    queryClient.setQueryData(agentEnvironmentKey("claude", "s2"), { entries: [] });
+    queryClient.setQueryData(agentEnvironmentKey("claude", ""), { entries: [] });
+    const stale = (key: readonly string[]) => queryClient.getQueryState(key)?.isInvalidated;
+
+    handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" });
+
+    expect(stale(agentEnvironmentKey("claude", "s1"))).toBe(true);
+    expect(stale(agentEnvironmentKey("claude", "s2"))).toBe(false);
+    expect(stale(agentEnvironmentKey("claude", ""))).toBe(false);
+  });
+
+  it("marks it stale for a turn of its own too", () => {
+    queryClient.setQueryData(agentEnvironmentKey("claude", "s1"), { entries: [] });
+    useAgentSessionsStore.setState({ turnInFlightBySession: { s1: true } });
+
+    handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" });
+
+    expect(queryClient.getQueryState(agentEnvironmentKey("claude", "s1"))?.isInvalidated).toBe(true);
   });
 
   it("does not read the row for a turn of its own", async () => {

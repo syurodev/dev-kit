@@ -13,6 +13,16 @@ test("inventory distinguishes discovery, runtime loading and authentication", ()
   expect(html).toContain("after reopening the session");
 });
 
+test("a folder granted during the session reads as pending, not as unverified", () => {
+  const html = renderToString(<EnvironmentReportView report={{ ...ENVIRONMENT_PREVIEW, scope: "session", entries: [
+    { name: "Additional writable folder", kind: "access", status: "pending", source: "/work/api", detail: "Granted. Applies after this session reopens." },
+  ] }} />);
+  expect(html).toContain("Pending");
+  expect(html).toContain("Applies after this session reopens.");
+  expect(html).toContain("/work/api");
+  expect(html).not.toContain("Unverified");
+});
+
 test("next-session report never claims that an agent has started", () => {
   const html = renderToString(<EnvironmentReportView report={{ ...ENVIRONMENT_PREVIEW, scope: "next", entries: [] }} />);
   expect(html).toContain("No agent was started");

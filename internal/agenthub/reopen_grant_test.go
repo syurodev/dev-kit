@@ -155,3 +155,25 @@ func TestARuntimeUsedAfterTheTurnEndedIsNotReleasedForAGrant(t *testing.T) {
 		t.Fatal("a runtime last used before the turn ended should be released")
 	}
 }
+
+// The window reads the session again when it hears the turn is over. If the old
+// process is released only after that event, the read still lists the folder as
+// waiting for a reopen that has already happened, and nothing asks again.
+func TestAMarkedSessionIsReleasedBeforeTheTurnIsReportedFinished(t *testing.T) {
+	f := newLoadableIdleFixture(t)
+	f.svc.MarkReopenForGrantForTest(f.parent.ID)
+	var finished, releasedAtEvent bool
+	f.svc.OnTurnFinished = func(id string, _ agenthub.SessionStatus, _ string) {
+		finished = true
+		releasedAtEvent = !f.hasRuntime(id)
+	}
+	if _, err := f.svc.Invoke(context.Background(), agenthub.InvokeInput{SessionID: f.parent.ID, Prompt: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if !finished {
+		t.Fatal("OnTurnFinished did not fire")
+	}
+	if !releasedAtEvent {
+		t.Fatal("the turn was reported finished while the old process was still held")
+	}
+}

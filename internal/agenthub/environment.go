@@ -86,7 +86,11 @@ func (s *Service) Environment(ctx context.Context, vendor AgentType, sessionID s
 		rt := s.runtimes[sessionID]
 		s.mu.Unlock()
 		if reporter, ok := rt.(environmentReporter); ok {
-			return reporter.reportEnvironment(ctx)
+			report, err := reporter.reportEnvironment(ctx)
+			if err == nil {
+				addFoldersGrantedSinceOpen(&report, sess)
+			}
+			return report, err
 		}
 		// A read-only report: it must not record which account a runtime runs as.
 		s.fillAccountSpec(ctx, &spec, sess)
@@ -102,6 +106,26 @@ func (s *Service) Environment(ctx context.Context, vendor AgentType, sessionID s
 	return EnvironmentReport{Agent: string(vendor), Scope: "next", CheckedAt: time.Now().UnixMilli(), Entries: []EnvironmentEntry{
 		{Name: "Environment inspection", Kind: "access", Status: "unavailable", Detail: "This runtime does not expose environment inspection."},
 	}}, nil
+}
+
+// addFoldersGrantedSinceOpen adds the folders the stored row lists that the
+// running process was not opened with: a grant made mid-session
+// (workspace.requestWrite) is in the row at once but reaches the jail only when
+// the session reopens. The report's own writable-folder entries are what the
+// process was opened with; one in both is left as the process reports it.
+func addFoldersGrantedSinceOpen(report *EnvironmentReport, sess AgentSession) {
+	opened := map[string]bool{filepath.Clean(sess.ProjectPath): true}
+	for _, entry := range report.Entries {
+		if entry.Kind == "access" && entry.Name == "Additional writable folder" {
+			opened[filepath.Clean(entry.Source)] = true
+		}
+	}
+	for _, path := range cleanExtraReadWritePaths(sess.ExtraReadWritePaths) {
+		if opened[path] {
+			continue
+		}
+		addEnvironmentEntry(report, EnvironmentEntry{Name: "Additional writable folder", Kind: "access", Status: "pending", Source: path, Detail: "Granted. Applies after this session reopens."})
+	}
 }
 
 func (a *CodexAdapter) inspectEnvironment(ctx context.Context, spec OpenSpec) (EnvironmentReport, error) {
