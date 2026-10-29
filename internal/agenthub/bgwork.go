@@ -22,9 +22,25 @@ import (
 // agent-started turn outliving half a day is far less likely than a lost update.
 type backgroundWork struct {
 	mu    sync.Mutex
-	tasks map[string]map[string]time.Time // session id -> task id -> when it spawned
-	now   func() time.Time                // nil: time.Now
+	tasks map[string]map[string]bgTask // session id -> task id -> what it is and when it spawned
+	now   func() time.Time             // nil: time.Now
 }
+
+// bgTask is one tracked task: when it spawned (the age limit counts from it) and
+// whether it is a turn the agent began (taskType "turn") or other work.
+type bgTask struct {
+	spawned time.Time
+	turn    bool
+}
+
+// taskTypeTurn is the taskType of a turn the agent started by itself.
+const taskTypeTurn = "turn"
+
+// activityChange is what one apply or forget did to a session's snapshot.
+type activityChange struct{ Before, After SessionActivity }
+
+// Changed reports whether the window would see something different.
+func (c activityChange) Changed() bool { return c.Before != c.After }
 
 // backgroundWorkMaxAge is how long after its spawn a task still blocks a release.
 const backgroundWorkMaxAge = 12 * time.Hour
@@ -50,27 +66,30 @@ func taskStillRunning(state string) bool {
 
 // apply folds one async_task_* update into the set. Only a spawn adds a task, so
 // a late update of a task that was already dropped cannot bring it back.
-func (b *backgroundWork) apply(sessionID string, kind UpdateKind, task *AsyncTask) {
+//
+// It reports what the update did to the session's snapshot (see activityChange).
+func (b *backgroundWork) apply(sessionID string, kind UpdateKind, task *AsyncTask) activityChange {
 	if task == nil || task.ID == "" {
-		return
+		return activityChange{}
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	before := b.snapshotLocked(sessionID)
 	switch kind {
 	case UpdateAsyncTaskSpawned:
 		if !taskStillRunning(task.State) {
-			return
+			break
 		}
 		if b.tasks == nil {
-			b.tasks = make(map[string]map[string]time.Time)
+			b.tasks = make(map[string]map[string]bgTask)
 		}
 		if b.tasks[sessionID] == nil {
-			b.tasks[sessionID] = make(map[string]time.Time)
+			b.tasks[sessionID] = make(map[string]bgTask)
 		}
-		b.tasks[sessionID][task.ID] = b.clock()
+		b.tasks[sessionID][task.ID] = bgTask{spawned: b.clock(), turn: task.TaskType == taskTypeTurn}
 	case UpdateAsyncTaskState:
 		if taskStillRunning(task.State) {
-			return
+			break
 		}
 		if set := b.tasks[sessionID]; set != nil {
 			delete(set, task.ID)
@@ -79,6 +98,7 @@ func (b *backgroundWork) apply(sessionID string, kind UpdateKind, task *AsyncTas
 			}
 		}
 	}
+	return activityChange{Before: before, After: b.snapshotLocked(sessionID)}
 }
 
 // running reports whether the session's process still has a task that is younger
@@ -87,17 +107,45 @@ func (b *backgroundWork) running(sessionID string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	now := b.clock()
-	for _, spawned := range b.tasks[sessionID] {
-		if now.Sub(spawned) < backgroundWorkMaxAge {
+	for _, task := range b.tasks[sessionID] {
+		if now.Sub(task.spawned) < backgroundWorkMaxAge {
 			return true
 		}
 	}
 	return false
 }
 
-// forget drops a session's tasks: its process is gone.
-func (b *backgroundWork) forget(sessionID string) {
+// snapshot is what the session's process is doing that no DevKit turn started.
+// A task past backgroundWorkMaxAge does not count, so an indicator cannot outlive
+// the valve that frees the process.
+func (b *backgroundWork) snapshot(sessionID string) SessionActivity {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	return b.snapshotLocked(sessionID)
+}
+
+func (b *backgroundWork) snapshotLocked(sessionID string) SessionActivity {
+	var a SessionActivity
+	now := b.clock()
+	for _, task := range b.tasks[sessionID] {
+		if now.Sub(task.spawned) >= backgroundWorkMaxAge {
+			continue
+		}
+		if task.turn {
+			a.AgentTurn = true
+		} else {
+			a.Tasks++
+		}
+	}
+	return a
+}
+
+// forget drops a session's tasks: its process is gone. It reports what that did
+// to the snapshot; a session whose tasks had all gone stale changed nothing.
+func (b *backgroundWork) forget(sessionID string) activityChange {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	before := b.snapshotLocked(sessionID)
 	delete(b.tasks, sessionID)
+	return activityChange{Before: before}
 }

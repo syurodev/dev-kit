@@ -62,7 +62,20 @@ type AgentSession struct {
 	ExtraReadWritePaths []string `json:"-"`
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+	// Activity is what the session's live process is doing that no DevKit turn
+	// started (bgwork.go). Derived from the process, never stored: Service.ListSessions
+	// and GetStatus fill it, the store does not, and MCP results blank it.
+	Activity *SessionActivity `json:"activity,omitempty"`
 }
+
+// SessionActivity is what a session's live process is doing that no DevKit turn started.
+type SessionActivity struct {
+	AgentTurn bool `json:"agentTurn,omitempty"` // the vendor runs a turn of its own (taskType "turn")
+	Tasks     int  `json:"tasks,omitempty"`     // running background tasks other than that turn (taskType "shell", others)
+}
+
+// Zero reports that there is nothing to show.
+func (a SessionActivity) Zero() bool { return !a.AgentTurn && a.Tasks == 0 }
 
 // TurnRecord is one completed (or failed) prompt turn on a session.
 type TurnRecord struct {
