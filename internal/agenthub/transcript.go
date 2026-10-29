@@ -321,6 +321,10 @@ func (r *Recorder) Record(ctx context.Context, sessionID string, update SessionU
 		return nil
 	}
 	switch {
+	case update.Origin != "" && isOwnState(update.Kind):
+		// A subagent announcing its own settings or mode on the parent's
+		// connection. The session has one row of each, and it is the session's.
+		return nil
 	case update.IsChunk():
 		return r.recordChunk(ctx, sessionID, update)
 	case update.ToolCall != nil && update.ToolCall.ID != "":
@@ -384,6 +388,15 @@ func (r *Recorder) retireTailLocked(sessionID string, s *recordSession) error {
 // on every model switch, effort change and plan-mode exit.
 func isSessionState(kind UpdateKind) bool {
 	return slices.Contains(sessionStateKinds, kind)
+}
+
+// isOwnState reports whether a kind is a setting the person picks for the
+// session: the settings and the mode. A subagent's update of either names the
+// subagent's own (measured: its model "sonnet" and a single choice replaced the
+// Opus session's), so the recorder keeps only the session's. The window's
+// reducer applies the same rule, by the update's origin.
+func isOwnState(kind UpdateKind) bool {
+	return kind == UpdateConfigOptions || kind == UpdateCurrentMode
 }
 
 var sessionStateKinds = []UpdateKind{UpdateCurrentMode, UpdateConfigOptions, UpdateAvailableCommands, UpdateUsage, UpdateConnectors, UpdateProviderRetry}

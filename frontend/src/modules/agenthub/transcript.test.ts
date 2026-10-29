@@ -736,3 +736,51 @@ describe("a message another session sent", () => {
     expect("source" in model.items[0]).toBe(false);
   });
 });
+
+// A subagent streams its own settings and mode on the parent's connection, and
+// the wire marks them with an origin. The session's picker shows the session's.
+describe("a subagent's settings and mode", () => {
+  const own = [{ id: "model", name: "Model", currentValue: "opus", options: [{ value: "opus", name: "Opus 5.5" }] }];
+  const subagent = [{ id: "model", name: "Model", currentValue: "sonnet", options: [{ value: "sonnet", name: "Sonnet 5.5" }] }];
+  const modes = [{ id: "default", name: "Default" }];
+
+  it("does not replace the session's options or mode in the live reducer", () => {
+    let model = createInitialTranscriptModel();
+    model = applySessionUpdate(model, { kind: "config_option_update", configOptions: own });
+    model = applySessionUpdate(model, { kind: "current_mode_update", mode: "default", availableModes: modes });
+
+    const after = applySessionUpdate(model, { kind: "config_option_update", configOptions: subagent, origin: "a1851634a85452625" });
+    expect(after.configOptions).toEqual(own);
+    const mode = applySessionUpdate(after, { kind: "current_mode_update", mode: "plan", availableModes: [], origin: "a1851634a85452625" });
+    expect(mode.mode).toBe("default");
+    expect(mode.availableModes).toEqual(modes);
+
+    // Without an origin the same update is the session's own and replaces.
+    const replaced = applySessionUpdate(mode, { kind: "config_option_update", configOptions: subagent });
+    expect(replaced.configOptions[0].currentValue).toBe("sonnet");
+    expect(applySessionUpdate(replaced, { kind: "current_mode_update", mode: "plan" }).mode).toBe("plan");
+  });
+
+  it("does not replace the session's options or mode from a stored row", () => {
+    const row = (seq: number, kind: string, payload: Record<string, unknown>) => ({
+      ID: `r${seq}`,
+      Seq: seq,
+      Kind: kind,
+      Payload: payload,
+      CreatedAt: "2026-09-05T12:00:00Z",
+    });
+    // A row stored before the backend dropped these: the subagent's came last.
+    const model = initTranscript([
+      row(1, "config_option_update", { configOptions: own }),
+      row(2, "current_mode_update", { mode: "default", availableModes: modes }),
+      row(3, "config_option_update", { configOptions: subagent, origin: "a1851634a85452625" }),
+      row(4, "current_mode_update", { mode: "plan", origin: "a1851634a85452625" }),
+    ]);
+    expect(model.configOptions).toEqual(own);
+    expect(model.mode).toBe("default");
+
+    // A row with no origin, even as the last one, is the session's.
+    const own2 = initTranscript([row(1, "config_option_update", { configOptions: subagent })]);
+    expect(own2.configOptions).toEqual(subagent);
+  });
+});
