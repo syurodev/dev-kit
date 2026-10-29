@@ -289,9 +289,14 @@ export function resetsIn(resetsAt: number, now = Date.now()): string {
   return hours < 48 ? `resets in ${hours}h` : `resets in ${Math.round(hours / 24)}d`;
 }
 
+/** The windows still running: one past its reset started over, so what it last said is no longer true. */
+export function liveLimits(limits: readonly LimitWindow[] | null | undefined, now = Date.now()): LimitWindow[] {
+  return (limits ?? []).filter((limit) => !limit.resetsAt || limit.resetsAt * 1000 > now);
+}
+
 /** The plan's windows, one row each, as the vendor labelled them. */
 export function limitRows(limits: readonly LimitWindow[] | null | undefined, now = Date.now()): SummaryRow[] {
-  return (limits ?? []).map((limit, i) => {
+  return liveLimits(limits, now).map((limit, i) => {
     const parts = [`${Math.round(limit.usedPercent)}%`];
     if (limit.resetsAt) parts.push(resetsIn(limit.resetsAt, now));
     return {
