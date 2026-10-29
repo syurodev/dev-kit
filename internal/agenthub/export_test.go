@@ -309,7 +309,8 @@ func (s *Service) ReopenMarkedForTest(sessionID string) bool {
 	return s.reopenForGrant[sessionID]
 }
 
-// ReopenAfterGrantForTest runs the end-of-turn step on its own.
-func (s *Service) ReopenAfterGrantForTest(ctx context.Context, sessionID string) {
-	s.reopenAfterGrant(ctx, sessionID)
+// ReopenAfterGrantForTest runs the end-of-turn step on its own. turnEnded is when
+// the turn it stands for ended; the zero time means "no floor".
+func (s *Service) ReopenAfterGrantForTest(ctx context.Context, sessionID string, turnEnded time.Time) {
+	s.reopenAfterGrant(ctx, sessionID, turnEnded)
 }

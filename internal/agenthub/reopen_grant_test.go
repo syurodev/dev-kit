@@ -77,6 +77,11 @@ func TestTheReopenGuards(t *testing.T) {
 				t.Fatal(err)
 			}
 		},
+		"the session itself is running": func(t *testing.T, f *idleFixture) {
+			if err := f.store.UpdateSessionStatus(ctx, f.parent.ID, agenthub.SessionStatusRunning, time.Now().UTC()); err != nil {
+				t.Fatal(err)
+			}
+		},
 		"the vendor cannot load the session again": func(t *testing.T, f *idleFixture) {
 			markPrompted(t, f.store, f.parent.ID)
 		},
@@ -86,7 +91,7 @@ func TestTheReopenGuards(t *testing.T) {
 			f := newIdleFixture(t)
 			setup(t, f)
 			f.svc.MarkReopenForGrantForTest(f.parent.ID)
-			f.svc.ReopenAfterGrantForTest(ctx, f.parent.ID)
+			f.svc.ReopenAfterGrantForTest(ctx, f.parent.ID, time.Time{})
 			if !f.hasRuntime(f.parent.ID) {
 				t.Fatalf("released although %s: that would kill work or lose the conversation", name)
 			}
@@ -107,5 +112,46 @@ func TestAGrantMarksASessionOnlyWhenTheVendorCanReopenIt(t *testing.T) {
 	}
 	if !r.svc.ReopenMarkedForTest(r.root.ID) {
 		t.Fatal("the session was not marked")
+	}
+}
+
+// The turn's claim is dropped before the end-of-turn step runs, so a prompt that
+// arrives in between can claim the session and be running on this very process.
+func TestAClaimedSessionIsNotReleasedForAGrant(t *testing.T) {
+	f := newLoadableIdleFixture(t)
+	ctx := context.Background()
+	if _, err := f.svc.Invoke(ctx, agenthub.InvokeInput{SessionID: f.parent.ID, Prompt: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if !f.hasRuntime(f.parent.ID) {
+		t.Fatal("setup: the session has no process")
+	}
+	releaseClaim := f.svc.ClaimSessionForTest(f.parent.ID)
+	defer releaseClaim()
+	f.svc.MarkReopenForGrantForTest(f.parent.ID)
+	f.svc.ReopenAfterGrantForTest(ctx, f.parent.ID, time.Time{})
+	if !f.hasRuntime(f.parent.ID) {
+		t.Fatal("released a session whose next turn had already claimed it: that kills the turn")
+	}
+}
+
+func TestARuntimeUsedAfterTheTurnEndedIsNotReleasedForAGrant(t *testing.T) {
+	f := newLoadableIdleFixture(t)
+	ctx := context.Background()
+	if _, err := f.svc.Invoke(ctx, agenthub.InvokeInput{SessionID: f.parent.ID, Prompt: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	turnEnded := time.Now().Add(-time.Minute)
+	f.svc.SetLastUsedForTest(f.parent.ID, time.Now()) // a later caller took the runtime
+	f.svc.MarkReopenForGrantForTest(f.parent.ID)
+	f.svc.ReopenAfterGrantForTest(ctx, f.parent.ID, turnEnded)
+	if !f.hasRuntime(f.parent.ID) {
+		t.Fatal("released a runtime that a caller took after the turn ended")
+	}
+	// The same call with the turn ending after that use releases it.
+	f.svc.MarkReopenForGrantForTest(f.parent.ID)
+	f.svc.ReopenAfterGrantForTest(ctx, f.parent.ID, time.Now().Add(time.Minute))
+	if f.hasRuntime(f.parent.ID) {
+		t.Fatal("a runtime last used before the turn ended should be released")
 	}
 }

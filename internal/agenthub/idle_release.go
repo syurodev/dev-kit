@@ -111,6 +111,8 @@ func (s *Service) ReleaseIdle(ctx context.Context, now time.Time, p IdlePolicy) 
 		if sess.Status != SessionStatusIdle && sess.Status != SessionStatusError {
 			continue
 		}
+		// The bgwork check here is an optimisation: releaseRuntime repeats it under
+		// the lock, and that one is the guard.
 		if s.runtimes[sess.ID] == nil || s.resuming[sess.ID] != nil || activeChild[sess.ID] || s.bgwork.running(sess.ID) {
 			continue
 		}
@@ -205,12 +207,27 @@ func (s *Service) idleBlockedSessions(ctx context.Context) (map[string]bool, boo
 // processes holding one vendor thread is an error for Codex). A caller that
 // arrived first stamped lastUsed under the same lock and the check refuses.
 func (s *Service) releaseRuntime(ctx context.Context, sess AgentSession, now time.Time, after time.Duration) bool {
+	return s.releaseRuntimeSince(ctx, sess, now, after, time.Time{})
+}
+
+// releaseRuntimeSince is releaseRuntime with a floor on use: a runtime handed to a
+// caller after since is not released. The zero time means no floor. The end-of-turn
+// reopen after a folder grant passes the instant its turn ended, because it has no
+// idle threshold to protect a process that the next turn has just taken.
+//
+// A session whose turn claim is held (s.invoking) is never released: its turn is
+// running on this process, or about to. This check, under the lock, is the guard;
+// the checks callers make before it (the sweep's candidate loop, releasableNow) are
+// optimisations that save work, not the guard.
+func (s *Service) releaseRuntimeSince(ctx context.Context, sess AgentSession, now time.Time, after time.Duration, since time.Time) bool {
 	id := sess.ID
 	call := &resumeCall{done: make(chan struct{})}
 
 	s.mu.Lock()
 	rt := s.runtimes[id]
-	if rt == nil || s.resuming[id] != nil || now.Sub(s.lastUsed[id]) < after || s.bgwork.running(id) {
+	_, claimed := s.invoking[id]
+	if rt == nil || s.resuming[id] != nil || claimed || now.Sub(s.lastUsed[id]) < after ||
+		(!since.IsZero() && s.lastUsed[id].After(since)) || s.bgwork.running(id) {
 		s.mu.Unlock()
 		return false
 	}

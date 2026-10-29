@@ -2047,6 +2047,9 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 
 	turnOutcome := "error"
 	defer func() {
+		// Before the claim is dropped: a runtime that a later caller takes after this
+		// instant belongs to that caller's turn, not to this one (reopenAfterGrant).
+		turnEnded := time.Now()
 		release()
 		// Whatever waited for this turn to end can go now.
 		defer s.kickPeers(in.SessionID)
@@ -2073,7 +2076,7 @@ func (s *Service) invoke(ctx context.Context, in InvokeInput, peer *peerRun) (re
 		}
 		// The turn is over and its result recorded: a folder granted during it can
 		// now reach the session's own shell, if the process can be swapped safely.
-		s.reopenAfterGrant(context.WithoutCancel(ctx), in.SessionID)
+		s.reopenAfterGrant(context.WithoutCancel(ctx), in.SessionID, turnEnded)
 	}()
 
 	adapter, ok := s.reg.Get(sess.AgentType)
