@@ -1,6 +1,6 @@
 # TEAM C1: bind preflight and packages to actual harness snapshots
 
-Date: 2026-10-29. Status: **prepared, not implemented**. Written against `origin/main` `6d142f04` (#393). Nothing here was executed: this document is planning only, no Go test was run while writing it, and it authorizes no account/model use, activation, dispatch, push or merge.
+Date: 2026-10-29. Status: **implemented on `feat/team-c1-harness-snapshot` (tasks 0-7, awaiting review; not merged)**. Written against `origin/main` `6d142f04` (#393). The original text below is the plan as prepared; where the implementation differs, `docs/agent-reference/agent-hub-coordination.md` ("Managed harness binding (C1)") is the record. It authorizes no account/model use, activation, dispatch, push or merge.
 
 Parent: R5 in [remaining acceptance and TEAM handoff](2026-10-27-harness-remaining-acceptance-team-implementation.md). It continues C1 from [Harness Phase 2 and TEAM Slice C](2026-10-26-harness-phase2-team-snapshot-implementation.md) and Slice C of [TEAM harness integration](2026-10-26-team-harness-integration-implementation.md). It does not replay their old tasks: H1-H5a and the ownership/package slices have since landed, and the "current state" below replaces their starting assumptions.
 
