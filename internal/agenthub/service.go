@@ -312,6 +312,9 @@ type Service struct {
 	lastUsed map[string]time.Time
 	// bgwork is the vendor tasks each live process is still running (bgwork.go).
 	bgwork backgroundWork
+	// reopenForGrant marks sessions whose process should be reopened when the
+	// current turn ends because a folder was just added to their grant (mu).
+	reopenForGrant map[string]bool
 	// stops remembers, per session, every runtime this process opened and how
 	// its process was seen to end (see WriterStopProof).
 	stops *runtimeTracker
@@ -379,6 +382,10 @@ type Service struct {
 	// MatchingWorkspaces resolves cwd when creating a root session. Ambiguous
 	// folders require an explicit choice; UI switching never moves a session.
 	MatchingWorkspaces func(cwd string) ([]string, error)
+	// WorkspaceFolders names a workspace and lists its folders (services). It is
+	// what a request for write access is checked against. nil: such a request
+	// is refused.
+	WorkspaceFolders func(workspaceID string) (name string, folders []WorkspaceFolder, err error)
 	// ProtectedPaths lists what is hidden from every session whatever
 	// SandboxExtras shares — DevKit's data directory (ProtectDataDir). A
 	// function, read on every spawn, because the directory's contents are
