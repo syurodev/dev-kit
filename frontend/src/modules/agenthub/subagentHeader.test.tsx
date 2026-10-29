@@ -106,6 +106,49 @@ describe("the subagent pane's header", () => {
   });
 });
 
+/** Items that count how often they are walked: `findSubagent` iterates them. */
+function counted(items: TranscriptItem[]) {
+  let walks = 0;
+  const proxy = new Proxy(items, {
+    get(target, key, receiver) {
+      if (key === Symbol.iterator) walks++;
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  return { items: proxy as TranscriptItem[], walks: () => walks };
+}
+const setItems = (items: TranscriptItem[]) => act(async () => useAgentSessionsStore.setState({ transcriptsById: { s1: { items } } as never }));
+
+describe("what the header costs on a streaming session", () => {
+  test("with no subagent open, no transcript is walked, however often the store changes", async () => {
+    const log = counted([{ id: "t1", kind: "agent_message_chunk", text: "a" } as TranscriptItem]);
+    await seed(null, session("running"));
+    await setItems(log.items);
+    await act(async () => root.render(<ShellRow sessionId="s1" subagentId="" />));
+    await setItems(counted([]).items);
+    await act(async () => useAgentSessionsStore.setState({ sessionsById: { s1: session("idle") } }));
+    await setItems(log.items);
+    await act(async () => useAgentSessionsStore.setState({ sessionsById: { s1: session("running") } }));
+    expect(log.walks()).toBe(0);
+    expect(q("[data-testid=title]")?.textContent).toBe("Subagent");
+    expect(stop()).toBeNull();
+  });
+
+  test("the three pieces share one walk per change of the transcript, and a store change that leaves it alone walks nothing", async () => {
+    const base = [{ id: "sp", kind: "subagent_spawned", subagent: { id: "a1", name: "R" } } as TranscriptItem];
+    const first = counted(base);
+    await seed(null, session("running"));
+    await setItems(first.items);
+    await draw();
+    expect(first.walks()).toBe(1);
+    await act(async () => useAgentSessionsStore.setState({ sessionsById: { s1: session("running", true) } }));
+    expect(first.walks()).toBe(1);
+    const next = counted([...base, { id: "t2", kind: "agent_message_chunk", text: "x" } as TranscriptItem]);
+    await setItems(next.items);
+    expect(next.walks()).toBe(1);
+  });
+});
+
 describe("Stop turn on a subagent", () => {
   test("is offered while the subagent runs and its session is working, and says what it does", async () => {
     await seed({ id: "a1", name: "R" }, session("running"));

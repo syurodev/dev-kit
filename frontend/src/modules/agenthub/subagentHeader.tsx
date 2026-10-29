@@ -23,18 +23,33 @@ import { cancelSessionTurn } from "./session/cancelTurn";
 import { isWorking } from "./sessionActivity";
 import { findSubagent, isSubagentRunning, subagentStatus } from "./subagents";
 import { AgentState } from "./surfaces/AgentState";
+import type { Subagent, TranscriptItem } from "./types";
+
+const NO_FACTS: { name?: string; task?: string; state?: string } = {};
+
+/** Every row a subagent appears in, folded: one walk per transcript, however many pieces of the header ask. */
+const folded = new WeakMap<readonly TranscriptItem[], Map<string, Subagent | null>>();
+function seenSubagent(items: readonly TranscriptItem[], id: string): Subagent | null {
+  let byId = folded.get(items);
+  if (!byId) folded.set(items, (byId = new Map()));
+  if (!byId.has(id)) byId.set(id, findSubagent(items, id));
+  return byId.get(id)!;
+}
 
 /**
  * A subagent's name, task and state, as the pane's header reads them: the
  * tracked subagent over what the transcript's rows say of it (SubagentPanel
  * merges the same two). Primitives only, so a streamed token that changes
- * neither does not re-render the header.
+ * neither does not re-render the header; and the walk of the transcript is
+ * once per change of it, not once per store update, and none while nothing is
+ * open (`subagentId` empty: the opener calls this unconditionally).
  */
 function useSubagentFacts(sessionId: string, subagentId: string): { name?: string; task?: string; state?: string } {
   return useAgentSessionsStore(
     useShallow((s) => {
+      if (!subagentId) return NO_FACTS;
       const tracked = s.subagents[sessionId]?.find((a) => a.id === subagentId);
-      const seen = findSubagent(s.transcriptsById[sessionId]?.items ?? EMPTY_ARRAY, subagentId);
+      const seen = seenSubagent(s.transcriptsById[sessionId]?.items ?? EMPTY_ARRAY, subagentId);
       const { name, task, state } = { ...seen, ...tracked };
       return { name, task, state };
     }),
@@ -57,7 +72,7 @@ function SubagentStop({ sessionId, subagentId }: { sessionId: string; subagentId
   const { state } = useSubagentFacts(sessionId, subagentId);
   const working = useAgentSessionsStore((s) => isWorking(s.sessionsById[sessionId]));
   const [asking, setAsking] = React.useState(false);
-  if (!isSubagentRunning(state) || !working) return null;
+  if (!subagentId || !isSubagentRunning(state) || !working) return null;
   return (
     <>
       <ActionTooltip label="Stops the whole session's turn, including this subagent and background tasks">
