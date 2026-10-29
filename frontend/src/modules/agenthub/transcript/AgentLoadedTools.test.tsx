@@ -4,6 +4,7 @@ import { MotionGlobalConfig } from "framer-motion";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
+import { useAgentSessionsStore } from "@/stores/agentSessions";
 import type { TranscriptItem } from "../types";
 import { AgentLoadedTools } from "./AgentLoadedTools";
 import { EarlierTurnProvider } from "./toolSettle";
@@ -115,20 +116,27 @@ describe("AgentLoadedTools", () => {
       expect(label()).toBe("Loaded tools (2)");
     });
 
-    test("a subagent's search is not settled by a quiet session, only by its turn ending", async () => {
+    test("a subagent's search settles in a quiet session unless that subagent is still running", async () => {
       const sub = [{ ...search("select:A", "in_progress"), origin: "a1" }];
-      await draw(
-        <EarlierTurnProvider earlier={false} quiet>
+      const quiet = (earlier: boolean) => (
+        <EarlierTurnProvider earlier={earlier} quiet sessionId="s1">
           <AgentLoadedTools items={sub} />
-        </EarlierTurnProvider>,
+        </EarlierTurnProvider>
       );
-      expect(label()).toBe("Loading tools");
-      await draw(
-        <EarlierTurnProvider earlier quiet>
-          <AgentLoadedTools items={sub} />
-        </EarlierTurnProvider>,
-      );
-      expect(label()).toBe("Loaded tools");
+      try {
+        // Nothing tracks the subagent as running: nothing can finish the call.
+        await draw(quiet(false));
+        expect(label()).toBe("Loaded tools");
+        // Tracked as running, it may still answer.
+        useAgentSessionsStore.getState().trackSubagent("s1", { id: "a1", name: "a" });
+        await draw(quiet(false));
+        expect(label()).toBe("Loading tools");
+        // An earlier turn's call never finishes, running subagent or not.
+        await draw(quiet(true));
+        expect(label()).toBe("Loaded tools");
+      } finally {
+        useAgentSessionsStore.setState({ subagents: {} });
+      }
     });
   });
 });
