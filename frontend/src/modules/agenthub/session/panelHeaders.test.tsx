@@ -80,6 +80,14 @@ test("a subagent opened from the sidebar goes in the pane with the subagent's he
   expect(seen.agenthub.header).toBe(named.header);
 });
 
+test("the shell's close of a subagent pane closes the subagent pane, and the pane goes with it", async () => {
+  await act(async () => useSubagentPanel.getState().show("s1", "a1"));
+  expect(useSubagentPanel.getState().open).toEqual({ sessionId: "s1", subagentId: "a1" });
+  await act(async () => seen.agenthub.onClose());
+  expect(useSubagentPanel.getState().open).toBeNull();
+  expect(seen.agenthub).toBeUndefined();
+});
+
 test("following a session puts the feed in the pane with the session's title; stopping following is its action and its close", async () => {
   await act(async () => useAgentPinsStore.getState().toggleFollowing("s1"));
   const feed = seen.agenthub;

@@ -71,14 +71,29 @@ function SubagentStatus({ sessionId, subagentId }: { sessionId: string; subagent
 function SubagentStop({ sessionId, subagentId }: { sessionId: string; subagentId: string }) {
   const { state } = useSubagentFacts(sessionId, subagentId);
   const working = useAgentSessionsStore((s) => isWorking(s.sessionsById[sessionId]));
+  const shown = Boolean(subagentId) && isSubagentRunning(state) && working;
   const [asking, setAsking] = React.useState(false);
-  if (!subagentId || !isSubagentRunning(state) || !working) return null;
+  const busy = React.useRef(false);
+  // A question belongs to the turn it was asked about: once there is no turn
+  // to stop, it is withdrawn, so it does not come back when the session works
+  // again. (Another subagent or session is another element: see the keys in useSubagentHeader.)
+  React.useEffect(() => {
+    if (!shown) setAsking(false);
+  }, [shown]);
+  if (!shown) return null;
+  // The action stays pressable while the question closes: one cancel, however often it is hit.
+  function confirm() {
+    if (busy.current) return;
+    busy.current = true;
+    void cancelSessionTurn(sessionId, (e) => toast.error(errorMessage(e))).finally(() => {
+      busy.current = false;
+    });
+  }
   return (
     <>
       <ActionTooltip label="Stops the whole session's turn, including this subagent and background tasks">
-        <Button variant="ghost" size="xs" aria-label="Stop turn" onClick={() => setAsking(true)}>
+        <Button variant="ghost" size="icon-xs" aria-label="Stop turn" onClick={() => setAsking(true)}>
           <Square />
-          Stop turn
         </Button>
       </ActionTooltip>
       <AlertDialog open={asking} onOpenChange={setAsking}>
@@ -92,7 +107,7 @@ function SubagentStop({ sessionId, subagentId }: { sessionId: string; subagentId
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void cancelSessionTurn(sessionId, (e) => toast.error(errorMessage(e)))}>Stop turn</AlertDialogAction>
+            <AlertDialogAction onClick={confirm}>Stop turn</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -108,14 +123,16 @@ function SubagentStop({ sessionId, subagentId }: { sessionId: string; subagentId
  */
 export function useSubagentHeader(sessionId: string, subagentId: string): PanelHeader {
   const { name, task } = useSubagentFacts(sessionId, subagentId);
+  // One element per subagent: another one is not the same control, and an open question is not carried over to it.
+  const key = `${sessionId}:${subagentId}`;
   return React.useMemo(
     () => ({
       title: name || "Subagent",
       titleHint: task || undefined,
       icon: <Bot className="text-icon-secondary" />,
-      status: <SubagentStatus sessionId={sessionId} subagentId={subagentId} />,
-      actions: <SubagentStop sessionId={sessionId} subagentId={subagentId} />,
+      status: <SubagentStatus key={key} sessionId={sessionId} subagentId={subagentId} />,
+      actions: <SubagentStop key={key} sessionId={sessionId} subagentId={subagentId} />,
     }),
-    [name, task, sessionId, subagentId],
+    [name, task, sessionId, subagentId, key],
   );
 }

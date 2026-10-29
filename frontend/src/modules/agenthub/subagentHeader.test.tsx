@@ -1,15 +1,21 @@
 import { domWindow } from "@/testing/happyDom";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+
+import { toast } from "sonner";
 
 import type { AgentSession } from "@/bridge/agenthub";
 
 const cancelled: string[] = [];
+let failCancel: Error | null = null;
 const realBridge = await import("@/bridge/agenthub");
 mock.module("@/bridge/agenthub", () => ({
   ...realBridge,
-  agentHubCancel: async (id: string) => void cancelled.push(id),
+  agentHubCancel: async (id: string) => {
+    cancelled.push(id);
+    if (failCancel) throw failCancel;
+  },
   agentHubGetStatus: async (id: string) => ({ id, status: "idle" }) as AgentSession,
 }));
 
@@ -56,6 +62,7 @@ let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
   cancelled.length = 0;
+  failCancel = null;
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -153,7 +160,9 @@ describe("Stop turn on a subagent", () => {
   test("is offered while the subagent runs and its session is working, and says what it does", async () => {
     await seed({ id: "a1", name: "R" }, session("running"));
     await draw();
-    expect(stop()?.textContent).toBe("Stop turn");
+    // Icon-only: a pane can be 320px wide, and the title is what the row is for.
+    expect(stop()?.textContent).toBe("");
+    expect(stop()?.querySelector("svg")).not.toBeNull();
     expect(stop()?.getAttribute("aria-label")).toBe("Stop turn");
   });
 
@@ -164,7 +173,8 @@ describe("Stop turn on a subagent", () => {
       stop()!.focus();
       await new Promise((resolve) => setTimeout(resolve, 200));
     });
-    expect(document.body.textContent).toContain("Stops the whole session's turn, including this subagent and background tasks");
+    const tip = document.body.querySelector("[data-slot=tooltip-content]");
+    expect(tip?.textContent).toContain("Stops the whole session's turn, including this subagent and background tasks");
   });
 
   test("is offered through a turn the agent started itself", async () => {
@@ -219,6 +229,85 @@ describe("Stop turn on a subagent", () => {
     // The row is read again, so the pane follows the store like everywhere else.
     expect(useAgentSessionsStore.getState().sessionsById.s1.status).toBe("idle");
     expect(stop()).toBeNull();
+  });
+});
+
+describe("Stop turn's question", () => {
+  const ask = async () => {
+    await seed({ id: "a1", name: "R" }, session("running"));
+    await draw();
+    await press(stop());
+    expect(dialog()).not.toBeNull();
+  };
+
+  test("is not asked again when the turn ends and the session works again with the subagent still running", async () => {
+    await ask();
+    await seed({ id: "a1", name: "R" }, session("idle"));
+    expect(stop()).toBeNull();
+    expect(dialog()).toBeNull();
+    await seed({ id: "a1", name: "R" }, session("running"));
+    expect(stop()).not.toBeNull();
+    expect(dialog()).toBeNull();
+    expect(cancelled).toEqual([]);
+  });
+
+  test("closes with the subagent it was asked for, and never confirms a cancel for another one", async () => {
+    await ask();
+    await act(async () =>
+      useAgentSessionsStore.setState({ subagents: { s1: [{ id: "a1", name: "R" }, { id: "a2", name: "Other" }] } }),
+    );
+    await act(async () => root.render(<ShellRow sessionId="s1" subagentId="a2" />));
+    expect(dialog()).toBeNull();
+    expect(cancelled).toEqual([]);
+  });
+
+  test("closes with the session it was asked for", async () => {
+    await ask();
+    await act(async () =>
+      useAgentSessionsStore.setState({
+        sessionsById: { s1: session("running"), s2: { ...session("running"), id: "s2" } },
+        subagents: { s1: [{ id: "a1", name: "R" }], s2: [{ id: "a1", name: "R" }] },
+      }),
+    );
+    await act(async () => root.render(<ShellRow sessionId="s2" subagentId="a1" />));
+    expect(dialog()).toBeNull();
+    await press(stop());
+    await press(buttonNamed(dialog()!, "Stop turn"));
+    expect(cancelled).toEqual(["s2"]);
+  });
+
+  test("two quick confirms cancel once", async () => {
+    await ask();
+    const action = buttonNamed(dialog()!, "Stop turn")!;
+    await act(async () => {
+      action.click();
+      action.click();
+    });
+    expect(cancelled).toEqual(["s1"]);
+  });
+
+  test("Escape dismisses it and cancels nothing", async () => {
+    await ask();
+    await act(async () => void document.dispatchEvent(new domWindow.KeyboardEvent("keydown", { key: "Escape", bubbles: true }) as unknown as Event));
+    expect(dialog()).toBeNull();
+    expect(cancelled).toEqual([]);
+  });
+
+  test("a cancel that fails is shown as an error, and the question is closed", async () => {
+    const shown = spyOn(toast, "error").mockImplementation((() => "") as never);
+    try {
+      failCancel = new Error("no runtime");
+      await ask();
+      await press(buttonNamed(dialog()!, "Stop turn"));
+      expect(cancelled).toEqual(["s1"]);
+      expect(shown).toHaveBeenCalledTimes(1);
+      expect(String(shown.mock.calls[0][0])).toContain("no runtime");
+      expect(dialog()).toBeNull();
+      // Nothing was stopped: the session still works, the control is still there, and may be tried again.
+      expect(stop()).not.toBeNull();
+    } finally {
+      shown.mockRestore();
+    }
   });
 });
 
