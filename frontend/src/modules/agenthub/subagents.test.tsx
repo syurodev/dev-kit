@@ -37,7 +37,7 @@ describe("running subagents", () => {
 
 describe("SubagentPanel", () => {
   it("names the subagent and says when there is nothing to show yet", () => {
-    const html = renderToString(<SubagentPanel sessionId="s-none" subagentId="a9" onClose={() => {}} />);
+    const html = renderToString(<SubagentPanel sessionId="s-none" subagentId="a9" />);
     expect(html).toContain('data-testid="subagent-panel"');
     expect(html).toContain("Subagent");
     expect(html).toContain("Starting…");

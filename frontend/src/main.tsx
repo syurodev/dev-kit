@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import './index.css'
 import App from './App'
 import { RootErrorBoundary } from './components/RootErrorBoundary'
+import { installWindowErrorReporting } from './bridge/clientErrors'
 import { installNativeZoomGuard } from './lib/nativeZoom'
 import { installWindowShape } from './lib/windowShape'
 import { SQUIRCLE_SHELL_CLASS } from './lib/shellSquircle'
@@ -15,6 +16,9 @@ import { markQuietScrollBoxes } from './lib/platform'
 // solid by default — see the backdrop handling in main.go.
 if ('_wails' in window) {
   document.documentElement.classList.add('native')
+  // Errors outside React (an event handler, a rejected promise) go to DevKit's
+  // log with the root boundary's: the webview has no inspector to read them in.
+  installWindowErrorReporting(window)
   // Only inside the desktop window. A browser tab — the component gallery —
   // keeps its page zoom, which there is a real accessibility affordance rather
   // than a gesture landing on the wrong layer.

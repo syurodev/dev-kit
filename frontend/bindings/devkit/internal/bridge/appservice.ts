@@ -2508,6 +2508,22 @@ export function PullRequestState(sessionID: string, folders: string[] | null): $
     return $Call.ByID(4230584371, sessionID, folders);
 }
 
+/**
+ * ReportClientError is the window's one-way channel to DevKit's log: the root
+ * error screen and the window's own error events send what crashed, because the
+ * production webview has no inspector and the error is gone after Reload.
+ * 
+ * It is fire and forget. It returns nothing, so a failing report can neither
+ * break the window nor tell it anything, and it records the label, message and
+ * stack the window chose to send, all bounded and rate limited in
+ * internal/clienterror. Window only: an agent or a terminal on the shared socket
+ * is dropped without a line. The audit record carries the action, never the
+ * text; no MCP tool reaches this method.
+ */
+export function ReportClientError(label: string, message: string, stack: string, componentStack: string): $CancellablePromise<void> {
+    return $Call.ByID(48410135, label, message, stack, componentStack);
+}
+
 export function SSHActiveProfile(): $CancellablePromise<$models.ActiveProfileDTO> {
     return $Call.ByID(3462748943);
 }

@@ -145,7 +145,7 @@ window or against a real vendor. Details: `docs/agent-reference/agent-hub-vendor
 Applies to the two panels Agent Hub opens beside the conversation through `useSplitPanelActions().openPanel` (`session/useAgentHubEffects.tsx`):
 `SubagentPanel` (`subagents.tsx`, a subagent's work, opened from the sidebar) and `AgentActivityPanel` (the follow feed of the active session).
 
-- **U8a. One header.** Today the shell draws a panel header (module icon, the text "Agent Hub", a layout button, close) and the panel draws a second one
+- **U8a. One header. Done** (spec `docs/superpowers/specs/2026-10-30-panel-single-header-design.md`; contract in `docs/agent-reference/agent-hub-ui.md`; U8b and U8c are open; the look of the single header and its truncation at 420 px were not seen in a native window). Today the shell draws a panel header (module icon, the text "Agent Hub", a layout button, close) and the panel draws a second one
   inside (`SubagentPanel`: Bot icon, the subagent's name, its state, close). Two rows of chrome, two close buttons, and the text "Agent Hub" says which
   module the person is already in. Make it one: `openPanel` options gain a header description (title text, optional icon, a status, optional actions), the shell draws it in
   its single header in place of the module label, and the panels stop drawing their own. Content of the header for `SubagentPanel`: the subagent's name

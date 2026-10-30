@@ -53,7 +53,7 @@ test("the pane puts a subagent's work in an 8px well, flat", async () => {
     step("r1", "a1"),
   ];
   useAgentSessionsStore.setState({ transcriptsById: { sp: { items } } as never });
-  await act(async () => root.render(<SubagentPanel sessionId="sp" subagentId="a1" onClose={() => {}} />));
+  await act(async () => root.render(<SubagentPanel sessionId="sp" subagentId="a1" />));
   expect(classes("subagent-panel-activity")).toContain("p-2");
   expect(classes("subagent-panel-activity")).not.toContain("p-3");
   for (const cls of NESTING) expect(classes("subagent-activity")).not.toContain(cls);

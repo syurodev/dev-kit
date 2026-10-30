@@ -1,5 +1,6 @@
 import * as React from "react";
 
+import { reportClientError, type ClientErrorReporter } from "@/bridge/clientErrors";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 
 /**
@@ -15,8 +16,10 @@ const reloadWindow: ReloadWindow = () => window.location.reload();
  * Without it React unmounts the root and the window is an empty page while the
  * process lives on. Deliberately small and self-contained — plain elements,
  * chrome tokens only — because it runs after the rest of the UI has failed: no
- * providers, no shared Button, no stack, no data. The console line the boundary
- * writes is where the cause goes.
+ * providers, no shared Button, no stack, no data. The cause goes to the console
+ * line the boundary writes and, through the bridge, to DevKit's own log (the
+ * message, stack and component stack only), because the production webview has
+ * no inspector and the error is gone once Reload is pressed.
  */
 export function RootErrorFallback({ onReload }: { onReload: ReloadWindow }) {
   return (
@@ -38,9 +41,29 @@ export function RootErrorFallback({ onReload }: { onReload: ReloadWindow }) {
 }
 
 /** The outermost boundary: the whole app below it, one panel in its place when it throws. */
-export function RootErrorBoundary({ children, reload = reloadWindow }: { children?: React.ReactNode; reload?: ReloadWindow }) {
+export function RootErrorBoundary({
+  children,
+  reload = reloadWindow,
+  report = reportClientError,
+}: {
+  children?: React.ReactNode;
+  reload?: ReloadWindow;
+  /** Injectable so a test sees the report without a bridge. */
+  report?: ClientErrorReporter;
+}) {
+  const label = "app";
   return (
-    <ErrorBoundary label="app" fallback={<RootErrorFallback onReload={reload} />}>
+    <ErrorBoundary
+      label={label}
+      fallback={<RootErrorFallback onReload={reload} />}
+      onError={(error, componentStack) => {
+        try {
+          report(label, error, componentStack);
+        } catch {
+          // The fallback is already chosen; a failing report must not unmount it.
+        }
+      }}
+    >
       {children}
     </ErrorBoundary>
   );

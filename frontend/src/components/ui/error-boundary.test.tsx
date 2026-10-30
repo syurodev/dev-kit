@@ -65,11 +65,44 @@ describe("ErrorBoundary", () => {
   test("tells onError about the throw after the console line", () => {
     const consoleError = spyOn(console, "error").mockImplementation(mock(() => {}));
     try {
-      const onError = mock(() => {});
+      const onError = mock((_error: unknown, _componentStack?: string) => {});
       const b = boundary({ onError });
       const thrown = new Error("boom");
       b.componentDidCatch(thrown, { componentStack: "" });
-      expect(onError).toHaveBeenCalledWith(thrown);
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onError.mock.calls[0][0]).toBe(thrown);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  test("hands onError the component stack as a second argument", () => {
+    const consoleError = spyOn(console, "error").mockImplementation(mock(() => {}));
+    try {
+      const calls: Array<[unknown, string | undefined]> = [];
+      const b = boundary({ onError: (error, componentStack) => void calls.push([error, componentStack]) });
+      const thrown = new Error("boom");
+      b.componentDidCatch(thrown, { componentStack: "\n    at Card\n    at Panel" });
+      expect(calls.length).toBe(1);
+      expect(calls[0][0]).toBe(thrown);
+      expect(calls[0][1]).toBe("\n    at Card\n    at Panel");
+      // A missing stack (React gives null on some paths) arrives as undefined.
+      b.componentDidCatch(thrown, { componentStack: null } as unknown as React.ErrorInfo);
+      expect(calls[1][1]).toBeUndefined();
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  test("an existing one-argument onError keeps working", () => {
+    const consoleError = spyOn(console, "error").mockImplementation(mock(() => {}));
+    try {
+      const seen: unknown[] = [];
+      const b = boundary({ onError: (error: unknown) => void seen.push(error) });
+      const thrown = new Error("boom");
+      b.componentDidCatch(thrown, { componentStack: "x" });
+      expect(seen.length).toBe(1);
+      expect(seen[0]).toBe(thrown);
     } finally {
       consoleError.mockRestore();
     }

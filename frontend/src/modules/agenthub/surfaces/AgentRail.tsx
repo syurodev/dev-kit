@@ -14,7 +14,7 @@ import { AgentComposer } from "./AgentComposer";
 import { composerPlaceholder } from "./AgentHubContent";
 import { AgentSessionFailure } from "./AgentSessionFailure";
 import { useAgentTray } from "./composer/agentTray";
-import { AgentState, agentStatusOf, type AgentStatus } from "./AgentState";
+import { AgentState, agentStatusOf, toAgentStatus } from "./AgentState";
 import { VendorIcon } from "./VendorIcon";
 
 export type AgentRailState = "Conversation" | "Empty";
@@ -75,21 +75,6 @@ export type AgentRailProps = {
   sendDisabled?: boolean;
   className?: string;
 };
-
-function toAgentStatus(status: string): AgentStatus {
-  switch (status) {
-    case "running":
-      return "running";
-    case "awaiting_permission":
-      return "awaiting";
-    case "error":
-      return "error";
-    case "closed":
-      return "closed";
-    default:
-      return "idle";
-  }
-}
 
 /**
  * Agent / Rail — Figma `915:97`, states `915:35` Conversation and

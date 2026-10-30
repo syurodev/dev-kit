@@ -9,7 +9,7 @@ import {
   type SplitPanelStore,
 } from "@/components/ui/splitPanelModel";
 
-export type { PanelCloseOptions, PanelOpenOptions } from "@/components/ui/splitPanelModel";
+export type { PanelCloseOptions, PanelHeader, PanelOpenOptions } from "@/components/ui/splitPanelModel";
 
 type PanelState = PanelEntry<React.ReactNode>;
 

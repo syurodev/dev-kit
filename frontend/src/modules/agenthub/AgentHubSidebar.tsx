@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
-  agentHubCancel,
   agentHubCloseSession,
   agentHubDeleteSession,
   agentHubGetStatus,
@@ -35,6 +34,7 @@ import { useSidebarWorkspaces } from "./sidebarWorkspaces";
 import { forgetAgentTranscript, loadWholeTranscript } from "./transcript";
 import { transcriptToMarkdown } from "./exportMarkdown";
 import { groupTurns } from "./turns";
+import { cancelSessionTurn } from "./session/cancelTurn";
 import { renameAgentSession } from "./session/sessionModel";
 import {
   AGENTHUB_MODULE,
@@ -86,8 +86,6 @@ export function AgentHubSidebar() {
   const peerUnread = useAgentSessionsStore((state) => state.peerUnreadBySession);
   const upsertSession = useAgentSessionsStore((state) => state.upsertSession);
   const removeSession = useAgentSessionsStore((state) => state.removeSession);
-  const dequeuePendingForSession = useAgentSessionsStore((state) => state.dequeuePendingForSession);
-  const dequeueElicitationForSession = useAgentSessionsStore((state) => state.dequeueElicitationForSession);
   const pinned = useAgentPinsStore((state) => state.pinned);
   const togglePin = useAgentPinsStore((state) => state.togglePin);
   const unpin = useAgentPinsStore((state) => state.unpin);
@@ -134,15 +132,8 @@ export function AgentHubSidebar() {
     [pendingQueue, elicitationQueue, providerRetries],
   );
 
-  async function cancelTurn(session: AgentSession) {
-    try {
-      await agentHubCancel(session.id);
-      dequeuePendingForSession(session.id);
-      dequeueElicitationForSession(session.id);
-      upsertSession(await agentHubGetStatus(session.id));
-    } catch (e) {
-      reportError(e);
-    }
+  function cancelTurn(session: AgentSession) {
+    return cancelSessionTurn(session.id, reportError);
   }
 
   async function closeSession(session: AgentSession) {

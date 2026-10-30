@@ -31,7 +31,7 @@ const user = (id: string): TranscriptItem => ({ id, kind: "user_message_chunk", 
 test("the follow panel settles a card of an earlier turn and keeps the latest turn's spinning", async () => {
   const items = [user("u1"), commit("old"), user("u2"), commit("new")];
   useAgentSessionsStore.setState({ transcriptsById: { s1: { items } } as never });
-  await act(async () => root.render(<AgentActivityPanel sessionId="s1" title="t" onStop={() => {}} />));
+  await act(async () => root.render(<AgentActivityPanel sessionId="s1" />));
   const states = [...container.querySelectorAll("[data-testid=tool-activity]")].map((el) => `${el.textContent?.includes("old") ? "old" : "new"}:${el.getAttribute("data-state")}`);
   expect(states.sort()).toEqual(["new:running", "old:unfinished"]);
 });
@@ -45,7 +45,7 @@ test("the follow panel keeps a subagent's card spinning only while that subagent
       sessionsById: { s1: session } as never,
       subagents: { s1: tracked ? [{ id: "sub-1", name: "Look", state: "running" }] : [] } as never,
     });
-    await act(async () => root.render(<AgentActivityPanel sessionId="s1" title="t" onStop={() => {}} />));
+    await act(async () => root.render(<AgentActivityPanel sessionId="s1" />));
     return container.querySelector("[data-testid=tool-activity]")?.getAttribute("data-state");
   };
   try {
@@ -71,7 +71,7 @@ test("the follow panel draws a subagent's running command clock only while that 
       sessionsById: { s1: session } as never,
       subagents: { s1: tracked ? [{ id: "sub-1", name: "Look", state: "running" }] : [] } as never,
     });
-    await act(async () => root.render(<AgentActivityPanel sessionId="s1" title="t" onStop={() => {}} />));
+    await act(async () => root.render(<AgentActivityPanel sessionId="s1" />));
     return container.textContent ?? "";
   };
   try {
