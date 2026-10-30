@@ -10,6 +10,7 @@ import (
 
 	"devkit/internal/agenthub"
 	"devkit/internal/apperrors"
+	"devkit/internal/capabilities"
 	"devkit/internal/harnessconfig"
 	"devkit/internal/identity"
 	"devkit/internal/tasks"
@@ -479,6 +480,164 @@ func TestACancelledRequestStillClosesTheTaskChildItCreated(t *testing.T) {
 	if git.removed == "" {
 		t.Fatal("the checkout of a child that was closed was left behind")
 	}
+	// The removal ran on a live, bounded context with the caller's identity.
+	if git.removeCtxErr != nil || !git.removeDeadline || git.removeCaller != "parent-1" || git.removeCalls != 1 {
+		t.Fatalf("remove: ctxErr=%v deadline=%v caller=%q calls=%d", git.removeCtxErr, git.removeDeadline, git.removeCaller, git.removeCalls)
+	}
+}
+
+// gatewayProbe sits in front of the capability gateway: it records the context a
+// checkout removal reached the gateway on, and can refuse it.
+type gatewayProbe struct {
+	Caller
+	deny         error
+	calls        int
+	ctxErr       error
+	hasDeadline  bool
+	callerSessID string
+}
+
+func (g *gatewayProbe) Call(ctx context.Context, subject, capability, scope string, md map[string]any, h capabilities.Handler) (any, error) {
+	if md["action"] == "worktree_remove" {
+		g.calls++
+		g.ctxErr = ctx.Err()
+		_, g.hasDeadline = ctx.Deadline()
+		if c, ok := identity.FromContext(ctx); ok {
+			g.callerSessID = c.SessionID
+		}
+		if g.deny != nil {
+			return nil, g.deny
+		}
+	}
+	return g.Caller.Call(ctx, subject, capability, scope, md, h)
+}
+
+func (g *gatewayProbe) CallOperation(ctx context.Context, r capabilities.CallRequest) (any, error) {
+	return g.Call(ctx, r.SubjectID, r.Capability, r.Scope, r.Metadata, r.Handler)
+}
+
+// The same, as seen at the gateway: the removal is a gateway call (git:write on
+// repo:worktree) on a live context with a deadline and the caller's identity.
+func TestTheCheckoutIsRemovedThroughTheGatewayOnALiveContext(t *testing.T) {
+	srv, hub, board, git, ctx, _ := taskCleanupFixture(t)
+	gw := &gatewayProbe{Caller: srv.deps.Caller}
+	srv.deps.Caller = gw
+	_, _, err := srv.toolAgentHubCreateAgentSession(ctx, &sdk.CallToolRequest{}, agentHubCreateInput{AgentType: "mock", Cwd: "/tmp/p", TaskID: "t1", Worktree: "feature/task"})
+	if !errors.Is(err, agenthub.ErrChildGroupsNotReady) {
+		t.Fatalf("err = %v", err)
+	}
+	if gw.calls != 1 || gw.ctxErr != nil || !gw.hasDeadline || gw.callerSessID != "parent-1" {
+		t.Fatalf("gateway: calls=%d ctxErr=%v deadline=%v caller=%q", gw.calls, gw.ctxErr, gw.hasDeadline, gw.callerSessID)
+	}
+	if git.removed == "" || hub.closeID != "child-1" || board.assignCalls != 0 || hub.sendCalled {
+		t.Fatalf("removed=%q closed=%q assigns=%d sent=%v", git.removed, hub.closeID, board.assignCalls, hub.sendCalled)
+	}
+}
+
+// The child was closed but its checkout could not be removed (the gateway refused
+// it, Git refused it, or it timed out): the answer is childCheckoutKept - the child
+// is closed, the checkout is left, nothing is forced, retried or hidden.
+func TestAClosedChildWhoseCheckoutCannotBeRemovedIsReportedAsSuch(t *testing.T) {
+	cases := map[string]func(*gatewayProbe, *fakeGit){
+		"the gateway refuses the removal": func(g *gatewayProbe, _ *fakeGit) { g.deny = errors.New("denied: /home/x/secret grant") },
+		"git refuses (dirty checkout)":    func(_ *gatewayProbe, f *fakeGit) { f.removeErr = errors.New("worktree has changes in /home/x/secret") },
+		"the removal times out":           func(_ *gatewayProbe, f *fakeGit) { f.removeBlocks = true },
+	}
+	for name, setup := range cases {
+		t.Run(name, func(t *testing.T) {
+			old := childCleanupTimeout
+			childCleanupTimeout = 30 * time.Millisecond
+			t.Cleanup(func() { childCleanupTimeout = old })
+			srv, hub, board, git, ctx, _ := taskCleanupFixture(t)
+			gw := &gatewayProbe{Caller: srv.deps.Caller}
+			srv.deps.Caller = gw
+			setup(gw, git)
+			_, _, err := srv.toolAgentHubCreateAgentSession(ctx, &sdk.CallToolRequest{}, agentHubCreateInput{AgentType: "mock", Cwd: "/tmp/p", TaskID: "t1", Worktree: "feature/task"})
+			var app *apperrors.AppError
+			if !errors.As(err, &app) || app.Code != codeChildCheckoutKept {
+				t.Fatalf("err = %v, want %s", err, codeChildCheckoutKept)
+			}
+			if errors.Is(err, agenthub.ErrChildGroupsNotReady) || app.Code == codeChildNotClosed {
+				t.Fatal("a checkout that is still there was reported as a complete rollback, or the closed child as open")
+			}
+			for _, want := range []string{"child-1", "closed", "feature/task", "left in place", "git.worktree.remove"} {
+				if !strings.Contains(app.Message, want) {
+					t.Fatalf("message %q lacks %q", app.Message, want)
+				}
+			}
+			for _, leak := range []string{"secret", "/home", "/tmp/p", "changes"} {
+				if strings.Contains(app.Message, leak) {
+					t.Fatalf("message leaks %q: %q", leak, app.Message)
+				}
+			}
+			if hub.closeID != "child-1" || hub.closeCalls != 1 {
+				t.Fatalf("closed=%q calls=%d: the child must have been closed once", hub.closeID, hub.closeCalls)
+			}
+			if git.removed != "" || gw.calls != 1 || git.removeCalls > 1 {
+				t.Fatalf("removed=%q gateway calls=%d git calls=%d: one attempt, nothing removed", git.removed, gw.calls, git.removeCalls)
+			}
+			if board.assignCalls != 0 || hub.sendCalled {
+				t.Fatalf("assign=%d sent=%v", board.assignCalls, hub.sendCalled)
+			}
+		})
+	}
+}
+
+// A child that could not be closed never has its checkout touched: not at the
+// gateway, not in Git.
+func TestACheckoutIsNeverTouchedWhileTheChildMayStillBeWriting(t *testing.T) {
+	for name, setup := range map[string]func(*closeProbeHub){
+		"the close fails":     func(h *closeProbeHub) { h.closeErr = errors.New("runtime refused") },
+		"the close times out": func(h *closeProbeHub) { h.closeBlocks = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			old := childCleanupTimeout
+			childCleanupTimeout = 30 * time.Millisecond
+			t.Cleanup(func() { childCleanupTimeout = old })
+			srv, hub, _, git, ctx, _ := taskCleanupFixture(t)
+			gw := &gatewayProbe{Caller: srv.deps.Caller}
+			srv.deps.Caller = gw
+			setup(hub)
+			_, _, err := srv.toolAgentHubCreateAgentSession(ctx, &sdk.CallToolRequest{}, agentHubCreateInput{AgentType: "mock", Cwd: "/tmp/p", TaskID: "t1", Worktree: "feature/task"})
+			var app *apperrors.AppError
+			if !errors.As(err, &app) || app.Code != codeChildNotClosed {
+				t.Fatalf("err = %v", err)
+			}
+			if gw.calls != 0 || git.removeCalls != 0 || git.removed != "" {
+				t.Fatalf("the checkout was touched: gateway=%d git=%d removed=%q", gw.calls, git.removeCalls, git.removed)
+			}
+		})
+	}
+}
+
+// Where no child exists (creation failed) the checkout made for it is still removed
+// on a live context, even if the request was cancelled meanwhile, and the caller
+// still gets the original error.
+func TestACheckoutMadeForAChildThatWasNotCreatedIsRemovedOnALiveContext(t *testing.T) {
+	srv, hub, _, git, ctx, cancel := taskCleanupFixture(t)
+	failing := &createFailsHub{closeProbeHub: hub, cancel: cancel}
+	srv.deps.AgentHub = failing
+	_, _, err := srv.toolAgentHubCreateAgentSession(ctx, &sdk.CallToolRequest{}, agentHubCreateInput{AgentType: "mock", Cwd: "/tmp/p", Worktree: "feature/task"})
+	if !errors.Is(err, errCreateFailed) {
+		t.Fatalf("err = %v, want the creation error", err)
+	}
+	if git.removed == "" || git.removeCtxErr != nil || !git.removeDeadline || git.removeCaller != "parent-1" {
+		t.Fatalf("removed=%q ctxErr=%v deadline=%v caller=%q", git.removed, git.removeCtxErr, git.removeDeadline, git.removeCaller)
+	}
+}
+
+var errCreateFailed = errors.New("create failed")
+
+// createFailsHub cancels the request and fails the creation, as a request that is
+// abandoned while its child is being made would.
+type createFailsHub struct {
+	*closeProbeHub
+	cancel context.CancelFunc
+}
+
+func (h *createFailsHub) CreateSession(context.Context, agenthub.CreateInput) (agenthub.AgentSession, error) {
+	h.cancel()
+	return agenthub.AgentSession{}, errCreateFailed
 }
 
 // The close fails: the child is reported as still open, by id, and nothing is
@@ -511,8 +670,8 @@ func TestAChildThatCannotBeClosedIsReportedAndItsCheckoutKept(t *testing.T) {
 			if !hub.closeDeadline || hub.closeCtxErr != nil && name == "the close fails" {
 				t.Fatalf("close ran on ctxErr=%v deadline=%v", hub.closeCtxErr, hub.closeDeadline)
 			}
-			if git.removed != "" {
-				t.Fatalf("the checkout %q was removed while the child may still be writing", git.removed)
+			if git.removed != "" || git.removeCalls != 0 {
+				t.Fatalf("the checkout %q was touched (%d calls) while the child may still be writing", git.removed, git.removeCalls)
 			}
 			if board.assignCalls != 0 || hub.sendCalled {
 				t.Fatalf("assign=%d sent=%v", board.assignCalls, hub.sendCalled)

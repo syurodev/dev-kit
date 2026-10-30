@@ -988,6 +988,9 @@ var keptCodes = map[string]bool{
 	// internal/mcp/tools_agenthub.go codeChildNotClosed: a fixed sentence plus the id
 	// of the child the caller created (abandonNewChild); never a cause.
 	"agenthub.childNotClosed": true,
+	// codeChildCheckoutKept: a fixed sentence, the child's id and the branch the caller
+	// itself asked for (abandonNewChild); never a path or a cause.
+	"agenthub.childCheckoutKept": true,
 	// internal/mcp/tools_workspace.go workspace.requestWrite: fixed sentences, or the
 	// refusal reason Agent Hub wrote (agenthub.GrantRefusedError), which names no path
 	// and no folder the caller did not name itself.
