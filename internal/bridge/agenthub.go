@@ -16,8 +16,6 @@ import (
 	"devkit/internal/agenthub"
 	"devkit/internal/interaction"
 	"devkit/internal/terminal"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // AgentHubAuthMethods lists the sign-ins an agent offers ("claude"), each with
@@ -968,24 +966,10 @@ func (s *AppService) AgentHubPendingElicitations() ([]agenthub.PendingElicitatio
 	return result.([]agenthub.PendingElicitation), nil
 }
 
-// defaultOpenDirectoryDialog is the native folder picker. Same shape as
-// defaultSaveFileDialog in database.go: the real dialog lives here, and the
+// defaultOpenDirectoryDialog is what an AppService without a native host has: no
+// dialog. The desktop shell supplies the real one (NativeHost.OpenDirectory); the
 // AppService field beside it lets tests substitute one without a window.
-func defaultOpenDirectoryDialog(title, startIn string) (string, error) {
-	app := application.Get()
-	if app == nil || app.Dialog == nil {
-		return "", errors.New("dialog service unavailable")
-	}
-	dialog := app.Dialog.OpenFile().
-		CanChooseDirectories(true).
-		CanChooseFiles(false).
-		CanCreateDirectories(true).
-		SetTitle(title)
-	if startIn != "" {
-		dialog.SetDirectory(startIn)
-	}
-	return dialog.PromptForSingleSelection()
-}
+func defaultOpenDirectoryDialog(string, string) (string, error) { return "", errDialogUnavailable }
 
 // AgentHubChooseFiles opens the native file picker and returns the chosen
 // paths, empty when the user cancelled.
@@ -1034,24 +1018,9 @@ func (s *AppService) AgentHubDescribeFiles(paths []string) ([]agenthub.Attachmen
 	return result.([]agenthub.AttachmentInfo), nil
 }
 
-// defaultOpenFilesDialog is the native file picker, sibling of
-// defaultOpenDirectoryDialog.
-func defaultOpenFilesDialog(title, startIn string) ([]string, error) {
-	app := application.Get()
-	if app == nil || app.Dialog == nil {
-		return nil, errors.New("dialog service unavailable")
-	}
-	dialog := app.Dialog.OpenFile().
-		CanChooseFiles(true).
-		CanChooseDirectories(false).
-		SetTitle(title)
-	if startIn != "" {
-		dialog.SetDirectory(startIn)
-	}
-	// Cancel comes back as no paths and no error; AgentHubChooseFiles turns
-	// that into an empty list.
-	return dialog.PromptForMultipleSelection()
-}
+// defaultOpenFilesDialog is the no-dialog default, sibling of
+// defaultOpenDirectoryDialog (NativeHost.OpenFiles supplies the real one).
+func defaultOpenFilesDialog(string, string) ([]string, error) { return nil, errDialogUnavailable }
 
 // AgentHubChooseDirectory opens the native folder picker and returns the chosen
 // path, or "" when the user cancelled. Cancelling is not an error: the dialog

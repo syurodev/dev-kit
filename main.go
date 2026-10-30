@@ -1146,9 +1146,9 @@ func main() {
 	// one that diverged moves it back. Chains the existing listener rather
 	// than replacing it, so the frontend still hears about re-indexes.
 	app.WirePlanReconcile(container)
-	appService := bridge.NewAppServiceWithMode(container, func(theme preferences.Theme) error {
+	appService := bridge.NewAppServiceWithHost(container, func(theme preferences.Theme) error {
 		return applyNativeTheme(mainWindow, theme)
-	}, func() bool { return application.System.IsServer() })
+	}, nativeHost())
 	// pr.*: the pull/merge request of an agent's branch. Assigned only when
 	// wired — a nil *prwatch.Service in this interface field would be the
 	// typed-nil trap (see CodexHook below).

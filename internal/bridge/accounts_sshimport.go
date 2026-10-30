@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/wailsapp/wails/v3/pkg/application"
-
 	"devkit/internal/accounts"
 )
 
@@ -55,7 +53,7 @@ func (s *AppService) inServerMode() bool {
 	if s.serverMode != nil {
 		return s.serverMode()
 	}
-	return application.System.IsServer()
+	return false // a desktop one: the shell passes the real answer (NativeHost.IsServer)
 }
 
 // sshImportGuard runs before anything that reads a key file.

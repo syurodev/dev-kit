@@ -5,12 +5,9 @@ import (
 	"errors"
 	"log"
 	"os"
-	"strings"
 
 	"devkit/internal/database"
 	"devkit/internal/identity"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 func (s *AppService) DBListProfiles() ([]database.ProfileSummary, error) {
@@ -234,20 +231,10 @@ func (s *AppService) DBUpdateProfileOptions(id string, opts database.UpdateProfi
 	return result.(database.ProfileSummary), nil
 }
 
-func defaultSaveFileDialog(suggestedName string) (string, error) {
-	app := application.Get()
-	if app == nil || app.Dialog == nil {
-		return "", errors.New("dialog service unavailable")
-	}
-	dialog := app.Dialog.SaveFile().SetFilename(suggestedName)
-	lower := strings.ToLower(suggestedName)
-	if strings.HasSuffix(lower, ".csv") {
-		dialog.AddFilter("CSV Files (*.csv)", "*.csv")
-	} else if strings.HasSuffix(lower, ".json") {
-		dialog.AddFilter("JSON Files (*.json)", "*.json")
-	}
-	return dialog.PromptForSingleSelection()
-}
+// defaultSaveFileDialog is what an AppService without a native host has: no
+// dialog. The desktop shell supplies the real one (NativeHost.SaveFile), so this
+// package never imports the window toolkit.
+func defaultSaveFileDialog(string) (string, error) { return "", errDialogUnavailable }
 
 func (s *AppService) DBSaveExportFile(suggestedName, content string) (string, error) {
 	result, err := s.call(context.Background(), "builtin.database", "db:query", "profile:export", map[string]any{
