@@ -6,8 +6,10 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"devkit/internal/agenthub"
+	"devkit/internal/apperrors"
 	"devkit/internal/harnessconfig"
 	"devkit/internal/identity"
 	"devkit/internal/tasks"
@@ -397,5 +399,145 @@ func TestTheStatusToolWithoutAnIdListsOnlyTheCallersOwnRequests(t *testing.T) {
 	raw, _ := json.Marshal(out)
 	if !strings.Contains(string(raw), `"mine"`) || strings.Contains(string(raw), `"kids"`) {
 		t.Fatalf("out = %s", raw)
+	}
+}
+
+// ---- cleaning up a task child ----------------------------------------------
+
+// closeProbeHub records the context the close ran on and can fail or hang it.
+type closeProbeHub struct {
+	*fakeAgentHub
+	closeCalls    int
+	closeCtxErr   error
+	closeDeadline bool
+	closeCaller   string
+	closeErr      error
+	closeBlocks   bool
+}
+
+func (h *closeProbeHub) CloseSession(ctx context.Context, id string) error {
+	h.closeCalls++
+	h.closeCtxErr = ctx.Err()
+	_, h.closeDeadline = ctx.Deadline()
+	if c, ok := identity.FromContext(ctx); ok {
+		h.closeCaller = c.SessionID
+	}
+	if h.closeBlocks {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	if h.closeErr != nil || ctx.Err() != nil {
+		if h.closeErr != nil {
+			return h.closeErr
+		}
+		return ctx.Err()
+	}
+	h.fakeAgentHub.closeID = id
+	return nil
+}
+
+// cancelOnGrant cancels the request while the child's groups are being written,
+// which is when a cleanup on the request's own context would fail.
+type cancelOnGrant struct {
+	*fakeGroups
+	cancel context.CancelFunc
+}
+
+func (g *cancelOnGrant) GrantChildGroups(ctx context.Context, id string, groups []string) (*harnessconfig.Outcome, error) {
+	g.cancel()
+	return nil, context.Canceled
+}
+
+func taskCleanupFixture(t *testing.T) (*Server, *closeProbeHub, *childTasks, *fakeGit, context.Context, context.CancelFunc) {
+	t.Helper()
+	srv, hub, board, groups, ctx := taskGroupFixture(t)
+	ctx, cancel := context.WithCancel(ctx)
+	t.Cleanup(cancel)
+	probe := &closeProbeHub{fakeAgentHub: hub}
+	srv.deps.AgentHub = probe
+	srv.deps.Harness = &cancelOnGrant{fakeGroups: groups, cancel: cancel}
+	hub.status = agenthub.AgentSession{ID: "parent-1", ProjectPath: "/tmp/p"}
+	git := &fakeGit{}
+	srv.deps.GitRepos = fakeRepos{"/tmp/p": git}
+	return srv, probe, board, git, ctx, cancel
+}
+
+// The request is cancelled while the groups are written: the child is still
+// closed, on a context that is alive, with the caller's identity and a deadline.
+func TestACancelledRequestStillClosesTheTaskChildItCreated(t *testing.T) {
+	srv, hub, board, git, ctx, _ := taskCleanupFixture(t)
+	_, _, err := srv.toolAgentHubCreateAgentSession(ctx, &sdk.CallToolRequest{}, agentHubCreateInput{AgentType: "mock", Cwd: "/tmp/p", TaskID: "t1", Worktree: "feature/task"})
+	if !errors.Is(err, agenthub.ErrChildGroupsNotReady) {
+		t.Fatalf("err = %v, want ErrChildGroupsNotReady", err)
+	}
+	if hub.closeCalls != 1 || hub.closeCtxErr != nil || !hub.closeDeadline || hub.closeCaller != "parent-1" || hub.closeID != "child-1" {
+		t.Fatalf("close: calls=%d ctxErr=%v deadline=%v caller=%q closed=%q", hub.closeCalls, hub.closeCtxErr, hub.closeDeadline, hub.closeCaller, hub.closeID)
+	}
+	if board.assignCalls != 0 || hub.sendCalled {
+		t.Fatalf("assign=%d sent=%v: the task must not be claimed or sent", board.assignCalls, hub.sendCalled)
+	}
+	if git.removed == "" {
+		t.Fatal("the checkout of a child that was closed was left behind")
+	}
+}
+
+// The close fails: the child is reported as still open, by id, and nothing is
+// said to have been rolled back. Its checkout is not removed.
+func TestAChildThatCannotBeClosedIsReportedAndItsCheckoutKept(t *testing.T) {
+	for name, setup := range map[string]func(*closeProbeHub){
+		"the close fails":     func(h *closeProbeHub) { h.closeErr = errors.New("runtime refused /home/x/secret") },
+		"the close times out": func(h *closeProbeHub) { h.closeBlocks = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			old := childCleanupTimeout
+			childCleanupTimeout = 30 * time.Millisecond
+			t.Cleanup(func() { childCleanupTimeout = old })
+			srv, hub, board, git, ctx, _ := taskCleanupFixture(t)
+			setup(hub)
+			_, _, err := srv.toolAgentHubCreateAgentSession(ctx, &sdk.CallToolRequest{}, agentHubCreateInput{AgentType: "mock", Cwd: "/tmp/p", TaskID: "t1", Worktree: "feature/task"})
+			var app *apperrors.AppError
+			if !errors.As(err, &app) || app.Code != codeChildNotClosed {
+				t.Fatalf("err = %v, want %s", err, codeChildNotClosed)
+			}
+			if errors.Is(err, agenthub.ErrChildGroupsNotReady) {
+				t.Fatal("a child that is still open was reported as rolled back")
+			}
+			if !strings.Contains(app.Message, "child-1") || !strings.Contains(app.Message, "still open") {
+				t.Fatalf("message = %q", app.Message)
+			}
+			if strings.Contains(app.Message, "secret") || strings.Contains(app.Message, "/home") {
+				t.Fatalf("the cause reached the caller: %q", app.Message)
+			}
+			if !hub.closeDeadline || hub.closeCtxErr != nil && name == "the close fails" {
+				t.Fatalf("close ran on ctxErr=%v deadline=%v", hub.closeCtxErr, hub.closeDeadline)
+			}
+			if git.removed != "" {
+				t.Fatalf("the checkout %q was removed while the child may still be writing", git.removed)
+			}
+			if board.assignCalls != 0 || hub.sendCalled {
+				t.Fatalf("assign=%d sent=%v", board.assignCalls, hub.sendCalled)
+			}
+			if hub.closeCalls != 1 {
+				t.Fatalf("close was tried %d times: the cleanup must not retry or loop", hub.closeCalls)
+			}
+		})
+	}
+}
+
+// A child with no task is never closed by this path, and a ready one is started.
+func TestTheCleanupDoesNotTouchAChildWithoutATaskOrAReadyOne(t *testing.T) {
+	srv, hub, groups, _, ctx := groupFixture(t)
+	probe := &closeProbeHub{fakeAgentHub: hub}
+	srv.deps.AgentHub = probe
+	groups.grantOut = &harnessconfig.Outcome{Status: harnessconfig.OutcomePaused, Live: false}
+	if _, _, err := srv.toolAgentHubCreateAgentSession(ctx, &sdk.CallToolRequest{}, agentHubCreateInput{AgentType: "mock", Cwd: "/tmp/p"}); err != nil || probe.closeCalls != 0 {
+		t.Fatalf("no task: err=%v closes=%d", err, probe.closeCalls)
+	}
+	srv2, hub2, board, groups2, ctx2 := taskGroupFixture(t)
+	probe2 := &closeProbeHub{fakeAgentHub: hub2}
+	srv2.deps.AgentHub = probe2
+	groups2.grantOut = &harnessconfig.Outcome{Status: harnessconfig.OutcomeApplied, Live: true}
+	if _, _, err := srv2.toolAgentHubCreateAgentSession(ctx2, &sdk.CallToolRequest{}, agentHubCreateInput{AgentType: "mock", Cwd: "/tmp/p", TaskID: "t1"}); err != nil || probe2.closeCalls != 0 || board.assignCalls != 1 {
+		t.Fatalf("ready task child: err=%v closes=%d assigns=%d", err, probe2.closeCalls, board.assignCalls)
 	}
 }

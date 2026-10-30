@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"path/filepath"
 	"strings"
 	"time"
@@ -367,12 +368,10 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 				groupsReport = grantChildGroups(callCtx, groups, sess.ID, plannedGroups)
 				if taskID != "" && !groupsReport.ready() {
 					// A task is about to be claimed for this child and sent to it. Do
-					// not start it on a child whose groups are not confirmed: close
-					// the child (the task is never claimed) and say why. The caller
-					// can retry, or pass toolGroups: [] to start without them.
-					_ = s.deps.AgentHub.CloseSession(callCtx, sess.ID)
-					cleanupWorktree()
-					return nil, agenthub.ErrChildGroupsNotReady
+					// not start it on a child whose groups are not confirmed: close the
+					// child (the task is never claimed) and say why. The caller can
+					// retry, or pass toolGroups: [] to start without them.
+					return nil, s.abandonNewChild(callCtx, sess.ID, cleanupWorktree)
 				}
 			}
 			return forAgent(sess), nil
@@ -790,4 +789,39 @@ func hubSessionID(value string) string {
 		}
 	}
 	return value
+}
+
+// childCleanupTimeout bounds closing a child that must not run its task. It is
+// the handoff's own rollback deadline (agentwork.closeAfterFailure); a variable
+// only so a test can shorten it.
+var childCleanupTimeout = 5 * time.Second
+
+// codeChildNotClosed is raised when a new child had to be abandoned and could not
+// be closed: the child is still open and the caller must deal with it. Its
+// sentence names the child (an id the caller was about to receive anyway) and
+// never a cause.
+const codeChildNotClosed = "agenthub.childNotClosed"
+
+// abandonNewChild closes a child created for a task whose starting groups are not
+// confirmed. The close runs on a context that keeps the caller's identity and
+// scope but not its cancellation, with a finite deadline: a request cancelled
+// while its groups were being written must not leave the child behind. The
+// answer says what is true:
+//
+//   - closed: agenthub.childGroupsNotReady, and only then is the checkout removed,
+//     because only then has the child's process stopped;
+//   - not closed (error or timeout): agenthub.childNotClosed naming the child. The
+//     child is still open, its checkout is left in place (a writer may still be
+//     running in it), and the task was neither claimed nor sent.
+func (s *Server) abandonNewChild(ctx context.Context, childID string, removeWorktree func()) error {
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), childCleanupTimeout)
+	defer cancel()
+	if err := s.deps.AgentHub.CloseSession(cleanup, childID); err != nil {
+		log.Printf("mcp: session %s could not be closed after its tool groups were not confirmed", childID)
+		return apperrors.New(codeChildNotClosed,
+			"The child session "+childID+" was not started on the task because its tool groups were not confirmed, and it could not be closed either: it is still open, its checkout was left in place, and the task was not claimed or sent. "+
+				"Close it with agenthub.closeSession or tell the person.", true)
+	}
+	removeWorktree()
+	return agenthub.ErrChildGroupsNotReady
 }

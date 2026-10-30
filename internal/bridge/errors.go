@@ -985,6 +985,9 @@ var keptCodes = map[string]bool{
 	// a fixed sentence per stop kind, the stop's time, and the vendor's text folded
 	// to one line, clipped to 300 runes and said to be third-party.
 	"agenthub.resumeRefused": true,
+	// internal/mcp/tools_agenthub.go codeChildNotClosed: a fixed sentence plus the id
+	// of the child the caller created (abandonNewChild); never a cause.
+	"agenthub.childNotClosed": true,
 	// internal/mcp/tools_workspace.go workspace.requestWrite: fixed sentences, or the
 	// refusal reason Agent Hub wrote (agenthub.GrantRefusedError), which names no path
 	// and no folder the caller did not name itself.
