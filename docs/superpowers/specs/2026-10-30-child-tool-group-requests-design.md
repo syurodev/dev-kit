@@ -228,8 +228,34 @@ request, not the message; the reason is data). The root `AGENTS.md` only gets a 
   served even when the `harness` group is off). The `harness` group now holds four tools (get, propose, group.request,
   group.requestStatus).
 - **Locks and the existing tools.** `harness.profile.propose` (both scopes) refuses a locked group too. A window Revoke
-  of a session group writes the lock when the person confirms, before the revoke is applied; a revoke refused before it
-  writes (declined, cancelled, stale) takes back only the locks it added.
+  of a session group carries its block (`Patch.LockRevoked`, window only): S and the lock are written **in the same SQL
+  transaction** when the person confirms (`OverrideWrite.Lock`), so there is no moment with one and not the other, a failed
+  lock write fails the revoke, a declined or stale revoke writes nothing and there is nothing to undo (the first version wrote the
+  lock before the revoke and took back "the ones it added"; that ignored lock errors and could delete another operation's lock).
+- **Blocks are enforced where S is written.** Every write that adds a group to S carries `OverrideWrite.Forbid` (the groups it adds)
+  and `HarnessStore.Apply` reads the session's locks inside its own transaction, refusing the whole write
+  (`ErrStoreGroupLocked` → `harnessconfig.ErrGroupLocked`, nothing written, admission restored). This covers an old proposal, a
+  user-route request, a parent's delegation and the grant at creation alike; the checks made earlier are only early refusals.
+  A request whose commit finds a block ends as `denied` / `blocked_by_user`.
+- **The parent's right is read inside the boundary.** `Delegation.Grantable` is a function: `ApplyDelegated` calls it to refuse early and
+  again inside the commit (under the V boundary and the child's coordinator), and it re-reads that the grantor is still the child's
+  direct parent and open, what its confirmed endpoint serves and the child's blocks. Lock order: V boundary → child's coordinator →
+  grantor's coordinator (a short read of its served set; sessions are only ever read upward, so no cycle) → SQL transaction. Window
+  `SetGroupLock` touches SQL only. A request's own mutex is outermost.
+- **Always-served tools prove nothing.** `ServedGroups` counts a group only through a tool that follows its group
+  (`harness.ServedWhateverItsGroup` excludes propose and request), so a parent whose harness group is off cannot hand it over, while
+  every session can still ask.
+- **Requests are claimed in SQL (migration 58).** `agent_group_request_open_groups` holds one row per open request and group with
+  `UNIQUE(child_id, group_name)`, removed by a trigger when the request closes; a `BEFORE INSERT` trigger refuses a fifth open request.
+  The request and its rows go in one transaction, so two racing creators cannot both win. Semantics: the same set again returns the
+  existing request (no second notice or question); a set that shares a group with a different open request is refused whole
+  (`agenthub.groupRequestOverlap`, nothing merged or dropped); a closed request frees its groups. `harness.group.requestStatus` without an
+  id lists the caller's own open requests so it can find the one in the way. Migration 58 closes requests still open at upgrade
+  (they never survive a restart anyway); migration 57 is unchanged.
+- **Task children.** With `taskId`, a child whose planned groups are not confirmed live (grant failed, paused, staged, unknown commit,
+  applied but not live) is not started on the task: it is closed, the task is never claimed, nothing is sent, and the answer is
+  `agenthub.childGroupsNotReady` (fixed sentence). The parent retries or passes `toolGroups: []`. Without a task the child is kept and
+  the `toolGroups` report says what is true (this replaces "the child is kept ... in every case").
 - **User question.** It is a hub selection (`KindHarnessGroupRequest`: allow, decline, decline and block) followed by the
   ordinary exact-change confirmation (`KindHarness`), so the person is asked twice on approval, like the existing scope flow.
   Closing the question declines that one request. No prompt handler or headless: `denied`, outcome `no_prompt`.
@@ -238,6 +264,12 @@ request, not the message; the reason is data). The root `AGENTS.md` only gets a 
 - **Prompt.** The always-on DevKit prompt is pinned byte-for-byte for sessions without a harness, so the rules for the
   new tools live in their descriptions (reason is data, a missing tool enables nothing, blocks cannot be overridden), not
   in the prompt.
+- **Integration gap (C1 managed harness).** `ManagedHarnessService.CheckActual` refuses a managed child that has an S of its own
+  (`harness_override_present`, `HarnessOverridePresent`), while a delegated grant or inherited groups write S. Managed dispatch is not
+  open, so nothing hits it today; it is recorded here and not worked around (no bypass of the preflight, no rewriting of bindings or
+  packages). Before managed dispatch uses children with groups, C1 needs an explicit rule for an S that a grant wrote.
+- **`toolGroups: []` is not "no tools".** Selection only adds to S on top of the workspace profile; the empty list inherits nothing
+  extra. Narrowing below the workspace profile is out of scope.
 - **Not built.** A window list of every pending request across sessions beyond the question itself, and any session-card
   view of pending requests; the window can answer through `HarnessAnswerGroupRequest` and manage locks in the session card.
   Forwarded requests are asked in a goroutine of the process that forwarded them; a restart invalidates them.

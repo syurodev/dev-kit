@@ -132,9 +132,19 @@ Spec: `docs/superpowers/specs/2026-10-30-child-tool-group-requests-design.md` (s
   endpoint) that are not locked for that child; anything else is deny or forward. `ApplyDelegated` replaces only the person's question; the
   evaluation, tier, V boundary, coordinator, compare-and-swap, publication and audit are the same as `Apply`, and its patch can only be
   `EnableGroups` inside `Grantable`. Audit events carry `Grantor` and `RequestID`.
-- **Locks.** Written only by the person (window): "Decline and block" in the question, or a confirmed Revoke. No agent path adds a locked
-  group (request, parent approval, creation, `harness.profile.propose`); only the window lifts one (session card, `HarnessSetGroupLock`).
-  A plain decline closes that request only. A lock does not hide a group the workspace profile serves.
+- **Locks.** Written only by the person (window): "Decline and block" in the question, or a confirmed Revoke (the revoke and its lock are one
+  SQL transaction, `OverrideWrite.Lock`). No agent path adds a locked group (request, parent approval, creation, `harness.profile.propose`)
+  and the check is made where S is written: `OverrideWrite.Forbid` is read inside `HarnessStore.Apply`'s transaction, so a block written while
+  a question was open, or just before a commit, is not bypassed. Only the window lifts one (session card, `HarnessSetGroupLock`). A plain
+  decline closes that request only. A lock does not hide a group the workspace profile serves.
+- **One open request per child and group, at most four open (migration 58).** SQL-enforced (`agent_group_request_open_groups`, a quota trigger);
+  an identical set returns the existing request, an overlapping different set is `agenthub.groupRequestOverlap`, nothing is merged.
+- **Boundary revalidation.** `Delegation.Grantable` is re-read inside the commit (V boundary → child's coordinator → grantor's coordinator, read
+  only → SQL): the grantor must still be the child's open direct parent and serve the group through a tool that follows its group
+  (`harness.ServedWhateverItsGroup` tools prove nothing about their group). With `taskId`, a child whose groups are not confirmed live is closed
+  and the task is not claimed or sent (`agenthub.childGroupsNotReady`).
+- **Integration gap.** C1 (`CheckActual`) refuses a managed child with an S (`harness_override_present`) while grants write S; managed dispatch
+  is not open and the preflight is not bypassed. Decide the rule before managed children get groups.
 - **Honesty.** `Live` only from an acknowledged endpoint; a saved-but-unpublished change is a failure response with its outcome (like propose).
   Enabling a group never changes grants, workspace scope, sandbox, model gates or prod/unknown-environment confirmation, and a missing-tool
   error never creates a request.
