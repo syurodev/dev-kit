@@ -433,6 +433,8 @@ func TestTheRequestToolIsServedEvenWhenTheHarnessGroupIsOff(t *testing.T) {
 type beforeApplyStore struct {
 	harnessPersistence
 	before *func()
+	// writes counts the writes of S that reached SQL (nil: not counted).
+	writes *atomic.Int32
 }
 
 func (s *beforeApplyStore) Apply(ctx context.Context, w harness.StoreWrite) (harness.Applied, error) {
@@ -440,7 +442,11 @@ func (s *beforeApplyStore) Apply(ctx context.Context, w harness.StoreWrite) (har
 		*s.before = nil
 		f()
 	}
-	return s.harnessPersistence.Apply(ctx, w)
+	a, err := s.harnessPersistence.Apply(ctx, w)
+	if err == nil && w.Override != nil && s.writes != nil {
+		s.writes.Add(1)
+	}
+	return a, err
 }
 
 func (g *groupRig) locks() []string {
@@ -685,5 +691,196 @@ func TestAnAlwaysServedToolDoesNotMakeItsWholeGroupGrantable(t *testing.T) {
 	}
 	if out, err := ccs.CallTool(r.ctx, &sdk.CallToolParams{Name: "harness.profile.get", Arguments: map[string]any{}}); err != nil || out.IsError {
 		t.Fatalf("the granted tool did not answer: %+v %v", out, err)
+	}
+}
+
+// ---- the grantor and the request are fenced at the write -------------------
+
+// closeBeforeWrite makes a rig whose next write of S is preceded by hook.
+func fencedRig(t *testing.T, writes *atomic.Int32) (*groupRig, *func()) {
+	t.Helper()
+	var before func()
+	g := newGroupRig(t, compOptions{wrapStore: func(s harnessPersistence) harnessPersistence {
+		return &beforeApplyStore{harnessPersistence: s, before: &before, writes: writes}
+	}})
+	return g, &before
+}
+
+func (g *groupRig) invalidate(id string) {
+	if _, err := g.db.Exec(`UPDATE agent_group_requests SET state='invalidated',revision=revision+1,resolver='system',outcome='session_closed',resolved_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), id); err != nil {
+		panic(err)
+	}
+}
+
+func (g *groupRig) requestState(id string) string {
+	v, err := g.port.GroupRequestStatus(g.ui(), id)
+	if err != nil {
+		g.t.Fatal(err)
+	}
+	return v.State
+}
+
+func (g *groupRig) childHoldsVault() bool {
+	o, _ := g.override(g.child.ID)
+	return o != nil && contains(o.Groups, "vault")
+}
+
+// The parent closes after its right was read inside the boundary and before S is
+// written: the write is refused where it happens, so nothing is granted and the
+// request ends as the close left it.
+func TestAParentClosedImmediatelyBeforeTheWriteGrantsNothing(t *testing.T) {
+	var writes atomic.Int32
+	g, before := fencedRig(t, &writes)
+	asked, err := g.port.CreateGroupRequest(g.agentCtx(g.child.ID), []string{"vault"}, "parent", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writes.Store(0)
+	*before = func() {
+		if err := g.agents.CloseSession(g.ui(), g.parent.ID); err != nil {
+			panic(err)
+		}
+	}
+	_, err = g.port.ResolveGroupRequest(g.agentCtx(g.parent.ID), asked.Request.ID, asked.Request.Revision, "approve")
+	if !errors.Is(err, agenthub.ErrGroupRequestResolved) {
+		t.Fatalf("err = %v, want the request no longer waiting", err)
+	}
+	if g.served(g.child.ID) || g.childHoldsVault() || writes.Load() != 0 {
+		t.Fatalf("a closed parent granted a group: served=%v S=%v writes=%d", g.served(g.child.ID), g.childHoldsVault(), writes.Load())
+	}
+	if st := g.requestState(asked.Request.ID); st != "invalidated" {
+		t.Fatalf("request = %s, want invalidated by the close", st)
+	}
+}
+
+// The request is closed by someone else after the ledger read it: no grant.
+func TestARequestInvalidatedImmediatelyBeforeTheWriteGrantsNothing(t *testing.T) {
+	var writes atomic.Int32
+	g, before := fencedRig(t, &writes)
+	asked, err := g.port.CreateGroupRequest(g.agentCtx(g.child.ID), []string{"vault"}, "parent", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writes.Store(0)
+	*before = func() { g.invalidate(asked.Request.ID) }
+	if _, err := g.port.ResolveGroupRequest(g.agentCtx(g.parent.ID), asked.Request.ID, asked.Request.Revision, "approve"); !errors.Is(err, agenthub.ErrGroupRequestResolved) {
+		t.Fatalf("err = %v", err)
+	}
+	if g.served(g.child.ID) || g.childHoldsVault() || writes.Load() != 0 {
+		t.Fatalf("an invalidated request granted a group: served=%v S=%v writes=%d", g.served(g.child.ID), g.childHoldsVault(), writes.Load())
+	}
+	if st := g.requestState(asked.Request.ID); st != "invalidated" {
+		t.Fatalf("request = %s", st)
+	}
+}
+
+// The same for a request waiting on the person: it is invalidated while the exact
+// change is being reviewed.
+func TestARequestInvalidatedWhileThePersonReviewsGrantsNothing(t *testing.T) {
+	g := newGroupRig(t, compOptions{})
+	g.answers("approve", "allow")
+	var id atomic.Value
+	g.prompter.mu.Lock()
+	g.prompter.during = func() {
+		if len(kinds(g.prompter)) == 2 { // the confirmation of the exact change
+			if v, ok := id.Load().(string); ok {
+				g.invalidate(v)
+			}
+		}
+	}
+	g.prompter.mu.Unlock()
+	// The request id is only known after creation, but creation blocks on the
+	// question: find it from the ledger while the selection is answered.
+	g.prompter.mu.Lock()
+	first := g.prompter.during
+	g.prompter.during = func() {
+		if list, err := g.port.ListGroupRequests(g.ui()); err == nil && len(list) == 1 {
+			id.Store(list[0].ID)
+		}
+		first()
+	}
+	g.prompter.mu.Unlock()
+	res, err := g.port.CreateGroupRequest(g.agentCtx(g.child.ID), []string{"vault"}, "user", "")
+	if err == nil {
+		t.Fatalf("an invalidated request was approved: %+v", res.Request)
+	}
+	if g.served(g.child.ID) || g.childHoldsVault() {
+		t.Fatal("the group was granted although the request was invalidated before the write")
+	}
+}
+
+// A grant that committed before the close stays: the existing snapshot semantics,
+// no cascade revoke. The request stays approved.
+func TestAGrantThatCommittedBeforeTheParentClosedSurvivesTheClose(t *testing.T) {
+	g := newGroupRig(t, compOptions{})
+	asked, err := g.port.CreateGroupRequest(g.agentCtx(g.child.ID), []string{"vault"}, "parent", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := g.port.ResolveGroupRequest(g.agentCtx(g.parent.ID), asked.Request.ID, asked.Request.Revision, "approve")
+	if err != nil || res.Request.State != "approved" || res.Outcome == nil || !res.Outcome.Live {
+		t.Fatalf("approve = %+v %v", res, err)
+	}
+	if err := g.agents.CloseSession(g.ui(), g.parent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if !g.childHoldsVault() || !g.served(g.child.ID) {
+		t.Fatalf("closing the parent revoked what it had already handed over: S=%v served=%v", g.childHoldsVault(), g.served(g.child.ID))
+	}
+	if st := g.requestState(asked.Request.ID); st != "approved" {
+		t.Fatalf("request = %s, want it left approved", st)
+	}
+}
+
+// A repeated or stale answer finds the request finished or moved and writes nothing.
+func TestARepeatedOrStaleResolveWritesNothingMore(t *testing.T) {
+	var writes atomic.Int32
+	g, _ := fencedRig(t, &writes)
+	asked, err := g.port.CreateGroupRequest(g.agentCtx(g.child.ID), []string{"vault"}, "parent", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writes.Store(0)
+	if _, err := g.port.ResolveGroupRequest(g.agentCtx(g.parent.ID), asked.Request.ID, asked.Request.Revision+7, "approve"); !errors.Is(err, agenthub.ErrGroupRequestStale) {
+		t.Fatalf("stale revision: %v", err)
+	}
+	if writes.Load() != 0 {
+		t.Fatalf("a stale answer wrote S")
+	}
+	if _, err := g.port.ResolveGroupRequest(g.agentCtx(g.parent.ID), asked.Request.ID, asked.Request.Revision, "approve"); err != nil {
+		t.Fatal(err)
+	}
+	if writes.Load() != 1 {
+		t.Fatalf("writes = %d, want 1", writes.Load())
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := g.port.ResolveGroupRequest(g.agentCtx(g.parent.ID), asked.Request.ID, asked.Request.Revision, "approve"); !errors.Is(err, agenthub.ErrGroupRequestResolved) {
+			t.Fatalf("repeat %d: %v", i, err)
+		}
+	}
+	if writes.Load() != 1 {
+		t.Fatalf("a repeated answer wrote S again (writes = %d)", writes.Load())
+	}
+}
+
+// The grant at creation has no request but the same grantor fence.
+func TestTheGrantAtCreationIsRefusedWhenTheParentClosesBeforeTheWrite(t *testing.T) {
+	var writes atomic.Int32
+	g, before := fencedRig(t, &writes)
+	writes.Store(0)
+	*before = func() {
+		if err := g.agents.CloseSession(g.ui(), g.parent.ID); err != nil {
+			panic(err)
+		}
+	}
+	// The parent's session is closed, so the caller's own identity is gone too:
+	// use the parent's identity as the creation flow does, which is still the
+	// authenticated caller of this call.
+	_, err := g.port.GrantChildGroups(g.agentCtx(g.parent.ID), g.child.ID, []string{"vault"})
+	if err == nil {
+		t.Fatal("a closed parent granted a group at creation")
+	}
+	if g.served(g.child.ID) || g.childHoldsVault() || writes.Load() != 0 {
+		t.Fatalf("served=%v S=%v writes=%d", g.served(g.child.ID), g.childHoldsVault(), writes.Load())
 	}
 }

@@ -585,16 +585,31 @@ func (s *Service) applyAndSettle(ctx context.Context, st GroupRequestStore, r Gr
 		}
 		return r, res.Payload, aerr
 	}
-	// The write is durable (its publication may not be): the request is done and
-	// the caller learns the publication fact from aerr and the payload.
-	next, ok, err := s.settleGroupRequest(ctx, st, r, GroupRequestApproved, r.Route, by, GroupOutcomeApplied)
+	// The write is durable (its publication may not be). A fenced applier (every
+	// production one) approved the request in the same transaction as the write,
+	// so the row is already approved; read it back rather than assume. An applier
+	// that does not fence leaves the row open at the revision it was read at, and
+	// only then is it approved here, by compare-and-swap. A row that is neither
+	// (invalidated by a close that raced an unfenced write) is reported as it is:
+	// the grant happened and the request did not end as approved.
+	cur, found, err := st.GetGroupRequest(ctx, r.ID)
 	if err != nil {
 		return r, res.Payload, err
 	}
-	if !ok {
-		return r, res.Payload, ErrGroupRequestStale
+	switch {
+	case found && cur.State == GroupRequestApproved && cur.Resolver == by:
+		return cur, res.Payload, aerr
+	case found && cur.Open() && cur.Revision == r.Revision:
+		next, ok, err := s.settleGroupRequest(ctx, st, r, GroupRequestApproved, r.Route, by, GroupOutcomeApplied)
+		if err != nil {
+			return r, res.Payload, err
+		}
+		if !ok {
+			return cur, res.Payload, ErrGroupRequestStale
+		}
+		return next, res.Payload, aerr
 	}
-	return next, res.Payload, aerr
+	return cur, res.Payload, ErrGroupRequestStale
 }
 
 // AnswerGroupRequestAsUser settles a request that waits for the person. It is a

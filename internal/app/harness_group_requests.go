@@ -190,8 +190,13 @@ func (c *harnessControls) userApply(ctx context.Context, req agenthub.GroupReque
 	if err != nil {
 		return agenthub.GroupApplyResult{}, harnessconfig.ErrScopeGone
 	}
+	// The write is fenced on this very request: it must still be waiting for the
+	// person at the revision the question was built from when S is written, and it
+	// is approved in the same transaction.
+	fence := &harness.WriteFence{RequestID: req.ID, RequestState: string(req.State), RequestRevision: req.Revision,
+		Resolver: "user", Outcome: agenthub.GroupOutcomeApplied}
 	r := harnessconfig.Request{WorkspaceID: scope.WorkspaceID, SessionID: req.ChildID, Target: harnessconfig.TargetSession,
-		Patch: harnessconfig.Patch{EnableGroups: req.Groups}, Rationale: req.Reason}
+		Patch: harnessconfig.Patch{EnableGroups: req.Groups}, Rationale: req.Reason, Fence: fence}
 	prepared, err := c.svc.Prepare(uctx, r)
 	if err != nil {
 		return agenthub.GroupApplyResult{}, err
@@ -206,6 +211,11 @@ func (c *harnessControls) userApply(ctx context.Context, req agenthub.GroupReque
 func (c *harnessControls) groupApplyResult(req agenthub.GroupRequest, scope harnessconfig.SessionScope, res harnessconfig.Result, err error) (agenthub.GroupApplyResult, error) {
 	out, oerr := harnessconfig.OutcomeOf(harnessconfig.TargetSession, res, err)
 	if oerr != nil {
+		if errors.Is(oerr, harnessconfig.ErrFenceLost) {
+			// The grantor closed or the request ended before the write: the request
+			// is no longer waiting, and nothing was written.
+			return agenthub.GroupApplyResult{}, agenthub.ErrGroupRequestResolved
+		}
 		if errors.Is(oerr, harnessconfig.ErrGroupLocked) {
 			// The person's block was found at the commit; the ledger ends the request as blocked.
 			return agenthub.GroupApplyResult{}, agenthub.ErrGroupBlocked
@@ -261,7 +271,8 @@ func (c *harnessControls) ResolveGroupRequest(ctx context.Context, id string, re
 		// The set read before this call is not carried in: ApplyDelegated asks for
 		// it again inside its boundary.
 		res, err := c.svc.ApplyDelegated(actx, harnessconfig.Delegation{WorkspaceID: scope.WorkspaceID, ChildSessionID: req.ChildID,
-			Groups: req.Groups, GrantorSessionID: caller.SessionID, RequestID: req.ID, Grantable: c.grantableAtCommit(caller.SessionID, req.ChildID)})
+			Groups: req.Groups, GrantorSessionID: caller.SessionID, RequestID: req.ID, Grantable: c.grantableAtCommit(caller.SessionID, req.ChildID),
+			Request: &harnessconfig.DelegationRequest{ID: req.ID, State: string(req.State), Revision: req.Revision, Outcome: agenthub.GroupOutcomeApplied}})
 		return c.groupApplyResult(req, scope, res, err)
 	}
 	next, payload, err := c.agents.ResolveGroupRequestAsParent(ctx, id, revision, agenthub.GroupDecision(decision), apply)
@@ -399,6 +410,9 @@ func (c *harnessControls) GrantChildGroups(ctx context.Context, childID string, 
 	}
 	if errors.Is(err, harnessconfig.ErrGroupLocked) {
 		return nil, agenthub.ErrGroupBlocked
+	}
+	if errors.Is(err, harnessconfig.ErrFenceLost) {
+		return nil, agenthub.ErrGroupNotGrantable // the parent closed before the write
 	}
 	req := agenthub.GroupRequest{ChildID: childID, Groups: groups}
 	applied, err := c.groupApplyResult(req, scope, res, err)
