@@ -20,7 +20,13 @@ const session = { id: "s1", agentType: "claude", projectPath: "/p", status: "idl
 
 let seen: ReturnType<typeof useSplitPanelState>["panels"] = {};
 
+// A pane opened again on every render would loop (openPanel is a store write, the store a re-render): count
+// them and fail fast, with a message, rather than spin. Each openPanel makes a new entry in the store.
+let renders = 0;
+let opens = 0;
+let lastEntry: unknown;
 function Tab() {
+  if (++renders > 60) throw new Error("the tab re-renders without end: a header or a dependency changes on every render");
   useAgentHubEffects({
     tabSessionId: "s1",
     reads: { visible: true, activeSession: session } as never,
@@ -31,12 +37,19 @@ function Tab() {
 }
 function Spy() {
   seen = useSplitPanelState().panels;
+  if (seen.agenthub !== lastEntry) {
+    lastEntry = seen.agenthub;
+    if (++opens > 50) throw new Error("the pane is opened again and again: its header or a dependency changes on every render");
+  }
   return null;
 }
 
 let container: HTMLDivElement;
 let root: Root;
 beforeEach(async () => {
+  renders = 0;
+  opens = 0;
+  lastEntry = undefined;
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -67,17 +80,21 @@ test("a subagent opened from the sidebar goes in the pane with the subagent's he
   const opened = seen.agenthub;
   expect(opened.header?.title).toBe("Subagent");
   expect(opened.key).toBe("subagent:s1:a1");
+  expect(opens).toBeLessThanOrEqual(3);
 
   await act(async () => useAgentSessionsStore.setState({ subagents: { s1: [{ id: "a1", name: "Review whitelist", task: "Check the list" }] } }));
   const named = seen.agenthub;
-  expect(named.header).toMatchObject({ title: "Review whitelist", titleHint: "Check the list" });
+  expect([named.header?.title, named.header?.titleHint]).toEqual(["Review whitelist", "Review whitelist\nCheck the list"]);
+  expect(opens).toBeLessThanOrEqual(5);
   // The same tree: the shell keys the body by generation.
   expect(named.generation).toBe(opened.generation);
   expect(named.key).toBe(opened.key);
 
   // A state change is the header's own business: nothing is reopened.
   await act(async () => useAgentSessionsStore.setState({ subagents: { s1: [{ id: "a1", name: "Review whitelist", task: "Check the list", state: "completed" }] } }));
-  expect(seen.agenthub.header).toBe(named.header);
+  expect(Object.is(seen.agenthub.header, named.header)).toBe(true);
+  expect(opens).toBeLessThanOrEqual(5);
+  expect(renders).toBeLessThanOrEqual(12);
 });
 
 test("the shell's close of a subagent pane closes the subagent pane, and the pane goes with it", async () => {
@@ -92,8 +109,9 @@ test("following a session puts the feed in the pane with the session's title; st
   await act(async () => useAgentPinsStore.getState().toggleFollowing("s1"));
   const feed = seen.agenthub;
   expect(feed.key).toBe("activity:s1");
-  expect(feed.header?.title).toBe("Fix login");
+  expect(feed.header?.title).toBe("Following Fix login");
   expect(feed.header?.actions).toBeDefined();
+  expect(opens).toBeLessThanOrEqual(3);
   await act(async () => feed.onClose());
   expect(useAgentPinsStore.getState().following).toEqual([]);
 });
