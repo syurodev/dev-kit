@@ -313,6 +313,19 @@ func TestNoImportCycles(t *testing.T) {
 	}
 }
 
+// goList runs `go list -f format patterns...` from the module root and returns the
+// output.
+func goList(t *testing.T, format string, patterns ...string) string {
+	t.Helper()
+	cmd := exec.Command("go", append([]string{"list", "-f", format}, patterns...)...)
+	cmd.Dir = repoRoot(t)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go list failed: %v\n%s", err, out)
+	}
+	return string(out)
+}
+
 func short(importPath string) string {
 	return strings.TrimPrefix(importPath, modulePrefix)
 }

@@ -62,6 +62,7 @@ contracts in focused reference docs, not a growing root changelog.
 | Work area | On-demand guide |
 | --- | --- |
 | Local UI shell, theme, toolchain, run modes, test commands | [Core development](docs/agent-reference/core-development.md) |
+| Layering, Wails isolation, table ownership, ratcheted code rules (`internal/arch`) | [Architecture rules](docs/agent-reference/architecture-rules.md) |
 | MCP grants, gates, error publication, result budgets | [MCP tools](docs/agent-reference/mcp-tools.md) |
 | Agent Hub rail, summary, peer messages, pull requests | [Agent Hub UI](docs/agent-reference/agent-hub-ui.md) |
 | Agent Hub transcript, tool views, composer, attachments in draft | [Agent Hub transcript and composer](docs/agent-reference/agent-hub-transcript-composer.md) |
