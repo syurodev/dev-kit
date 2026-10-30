@@ -17,8 +17,12 @@ type ErrorBoundaryProps = {
    * on every render does not retry on each of its parent's.
    */
   resetKey?: unknown;
-  /** Told after the console line; for a caller that has to react to the throw (never given the stack). */
-  onError?: (error: unknown) => void;
+  /**
+   * Told after the console line; for a caller that has to react to the throw.
+   * The component stack is the second argument, for a caller that records the
+   * failure; a caller that takes one argument is unaffected.
+   */
+  onError?: (error: unknown, componentStack?: string) => void;
   children?: React.ReactNode;
 };
 
@@ -43,7 +47,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 
   componentDidCatch(error: unknown, info: React.ErrorInfo): void {
     console.error(`[${this.props.label}] failed to render; showing its fallback.`, error, info.componentStack);
-    this.props.onError?.(error);
+    this.props.onError?.(error, info.componentStack ?? undefined);
   }
 
   private reset = (): void => {

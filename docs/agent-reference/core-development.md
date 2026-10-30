@@ -71,6 +71,21 @@ Backend method calls from JS go to `POST /wails/runtime`. The vault is **locked 
 process start** (the wrapped keyring persists, but the DEK is in-memory only); the UI shows
 a first-run "Create Master Password" or an "Unlock" gate before the workbench.
 
+### Window errors (where a crash goes)
+The production webview has no inspector, so an error that reaches the root error screen
+(`RootErrorBoundary`) or the window's `error` / `unhandledrejection` events is sent one way to
+Go through the window-only `AppService.ReportClientError` (frontend helper
+`frontend/src/bridge/clientErrors.ts`; the log is `internal/clienterror`). Go writes one line,
+`webview: client error [label] message stack: ... componentStack: ...`, to the process log
+(Linux: `journalctl --user | grep 'webview: client error'`) and, with an RFC3339 UTC time
+prefix, to `client-errors.log` in the data directory (mode 0600, 256 KiB, one rotation to
+`client-errors.log.1`), which also covers macOS and Windows where stdout is not kept. Caps:
+label 60, message 400, stack 1500, component stack 800 runes, newlines joined as ` | `; at
+most 30 lines a minute in Go (the rest become one `N more client errors dropped` line, written
+by the next report after the minute); in the window 20 reports per page load, identical
+message+stack once. It records message and stack only, never props, state, DOM or store content;
+ResizeObserver loop and cross-origin "Script error." notifications are ignored.
+
 ### Tests / checks
 - Go (real code): `go test ./internal/... ./cmd/...`. Note: `go test ./...` will **fail** on
   the root `devkit` package (needs `frontend/dist` and gtk4/webkit for the default GUI

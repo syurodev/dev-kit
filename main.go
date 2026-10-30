@@ -21,6 +21,7 @@ import (
 	"devkit/internal/bridge"
 	"devkit/internal/capabilities"
 	"devkit/internal/checkpoint"
+	"devkit/internal/clienterror"
 	"devkit/internal/cloudconfig"
 	"devkit/internal/codegraph"
 	"devkit/internal/database"
@@ -143,6 +144,9 @@ func main() {
 	container.Notes.SetLinkIndex(notes.NewSQLLinkIndex(db))
 	container.Preferences = preferences.NewService(preferences.NewSQLRepository(db))
 	container.UIState = uistate.NewService(uistate.NewSQLRepository(db))
+	// The window's crash reports: a bounded line in the process log and in
+	// <dataDir>/client-errors.log, which survives where stdout is not kept.
+	container.ClientErrors = clienterror.New(clienterror.Options{Path: filepath.Join(dataDir, "client-errors.log")})
 	container.Workspace = workspace.NewService(workspace.NewSQLRepository(db))
 	container.WorkspaceMemory = workspacememory.NewService(workspacememory.NewSQLRepository(db))
 	// A board's tree in the sidebar is a live view, not a snapshot: an agent
