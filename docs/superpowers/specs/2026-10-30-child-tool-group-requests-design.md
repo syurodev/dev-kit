@@ -270,11 +270,16 @@ request, not the message; the reason is data). The root `AGENTS.md` only gets a 
   question to the person except the request's own mutex, which only serializes answers to that one request.
 - **Task children.** With `taskId`, a child whose planned groups are not confirmed live (grant failed, paused, staged, unknown commit,
   applied but not live) is not started on the task: it is closed, the task is never claimed, nothing is sent, and the answer is
-  `agenthub.childGroupsNotReady` (fixed sentence). The parent retries or passes `toolGroups: []`. The close runs on a context that keeps the caller's
-  identity but not its cancellation, with the handoff's own 5 s deadline (`context.WithoutCancel` + `WithTimeout`), so a request cancelled while the
-  groups were written still closes the child. The checkout is removed **only after** the close succeeded. If the close fails or times out the answer
-  is `agenthub.childNotClosed` (fixed sentence plus the child's id: it is still open, its checkout was left, the task was not claimed or sent), never
-  `childGroupsNotReady`; the cleanup is tried once, never retried, and no cause text is returned or logged. Without a task the child is kept and
+  `agenthub.childGroupsNotReady` (fixed sentence). The parent retries or passes `toolGroups: []`. Each cleanup step (the close, then the checkout removal) runs on its own context that keeps the caller's identity but not its
+  cancellation, with the handoff's 5 s deadline (`cleanupContext`: `WithoutCancel` + `WithTimeout`), so a request cancelled while the groups were
+  written still closes the child and removes its checkout, through the same gateway grant (`git:write` on `repo:worktree`) and never forced (a
+  dirty checkout is refused by Git). The answer says how far the cleanup got: close failed or timed out → `agenthub.childNotClosed` (child still
+  open, checkout not touched: a writer may be running in it); closed but the checkout could not be removed (gateway refusal, Git refusal, timeout)
+  → `agenthub.childCheckoutKept` (child **closed**, checkout left in place, names the child and the branch the caller asked for, points to
+  `git.worktree.remove`); closed and removed → `agenthub.childGroupsNotReady`, the only complete rollback. In every case the task was neither claimed
+  nor sent. Each step is tried once; nothing is retried, forced or replaced by another child; no path, stderr or cause is returned or logged.
+  Paths where no child was created (planning, approval or creation failed) remove the checkout on the same kind of context and keep returning the
+  original error; a failed removal there is only logged, without text. Without a task the child is kept and
   the `toolGroups` report says what is true (this replaces "the child is kept ... in every case").
 - **User question.** It is a hub selection (`KindHarnessGroupRequest`: allow, decline, decline and block) followed by the
   ordinary exact-change confirmation (`KindHarness`), so the person is asked twice on approval, like the existing scope flow.
