@@ -32,6 +32,12 @@ const (
 // agent can always ask for a group. It is a named exception, not a category.
 const ProposeTool = "harness.profile.propose"
 
+// RequestTool is the second named exception: the tool a session uses to ask its
+// parent or the person for more tool groups (harness.group.request). It is
+// served even when its group is off, for the same reason as ProposeTool: a
+// session must be able to ask. Serving it changes no group and grants nothing.
+const RequestTool = "harness.group.request"
+
 // CutMode is how an over-budget plain-text result is shortened.
 type CutMode string
 
@@ -186,7 +192,7 @@ func (e Effective) GroupOn(group string) bool { return e.groupOn[group] }
 // Served reports whether the MCP server lists and accepts a tool. ProposeTool
 // is always served; every other tool follows its group.
 func (e Effective) Served(tool string) bool {
-	if tool == ProposeTool {
+	if tool == ProposeTool || tool == RequestTool {
 		return true
 	}
 	_, known := e.budgets[tool]

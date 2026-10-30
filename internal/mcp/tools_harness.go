@@ -69,6 +69,7 @@ func (s *Server) registerHarness(ms *sdk.Server) {
 			"It never runs a tool, never grants permission and cannot target another session. If the result says the change was saved but access is paused, do not ask again: the person reconciles it.",
 		Annotations: &sdk.ToolAnnotations{DestructiveHint: boolPtr(false), IdempotentHint: false},
 	}), s.toolHarnessPropose)
+	s.registerHarnessGroups(ms)
 }
 
 func (s *Server) toolHarnessProfileGet(ctx context.Context, _ *sdk.CallToolRequest, in HarnessGetInput) (*sdk.CallToolResult, any, error) {

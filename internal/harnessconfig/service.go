@@ -63,6 +63,9 @@ type pendingProposal struct {
 	// repair is set for a stale-profile repair (PrepareRepair) and for nothing else:
 	// bound, req.Patch and the ordinary evaluation are not used for it.
 	repair *repairBinding
+	// grantor and requestID are set for a delegated change (delegate.go) and for
+	// nothing else; they only label the audit event.
+	grantor, requestID string
 }
 
 // View is the host-authored confirmation content. Everything but

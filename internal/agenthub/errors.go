@@ -44,6 +44,29 @@ var (
 	ErrUnavailableInServerMode = errors.New("agenthub.unavailableInServerMode")
 	ErrUnsupported             = errors.New("agenthub.unsupported")
 	ErrNotDescendant           = errors.New("agenthub.notDescendant")
+	// The child tool-group request ledger (group_request.go).
+	//
+	// ErrGroupNotGrantable: a group the parent does not serve (or the child's
+	// workspace turns off) cannot be handed to a child by the parent.
+	ErrGroupNotGrantable = errors.New("agenthub.groupNotGrantable")
+	// ErrGroupBlocked: the person locked that group for that session; no agent
+	// path can add it, and only the window lifts the lock.
+	ErrGroupBlocked = errors.New("agenthub.groupBlocked")
+	// ErrGroupRequestStale: the request changed since the revision the caller saw.
+	ErrGroupRequestStale = errors.New("agenthub.groupRequestStale")
+	// ErrGroupRequestResolved: the request is already finished, or is no longer
+	// waiting on the one answering it.
+	ErrGroupRequestResolved = errors.New("agenthub.groupRequestResolved")
+	// ErrGroupRequestNotFound: no such request is visible to the caller.
+	ErrGroupRequestNotFound = errors.New("agenthub.groupRequestNotFound")
+	// ErrGroupRequestInvalid: the groups or route asked for are malformed.
+	ErrGroupRequestInvalid = errors.New("agenthub.groupRequestInvalid")
+	// ErrGroupRequestLimit: the child already has the most open requests allowed.
+	ErrGroupRequestLimit = errors.New("agenthub.groupRequestLimit")
+	// ErrGroupRouteUnavailable: the parent route needs an open parent session.
+	ErrGroupRouteUnavailable = errors.New("agenthub.groupRouteUnavailable")
+	// ErrGroupRequestUnavailable: this build has no ledger or no harness host.
+	ErrGroupRequestUnavailable = errors.New("agenthub.groupRequestUnavailable")
 	ErrCwdOutsideParent        = errors.New("agenthub.cwdOutsideParent")
 	ErrInvalidCwd              = errors.New("agenthub.invalidCwd")
 	ErrWorkspaceAmbiguous      = errors.New("agenthub.workspaceAmbiguous")

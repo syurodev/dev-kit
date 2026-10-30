@@ -89,6 +89,17 @@ const (
 	// A call that needs a running process reached a session that is closed. Its own
 	// code so the window answers with a refresh of its stale row, not an error.
 	codeSessionClosed = "agenthub.sessionClosed"
+	// The child tool-group request ledger (agenthub/group_request.go). Each is a
+	// fixed sentence; none carries a group name, a reason or an id.
+	codeGroupNotGrantable       = "agenthub.groupNotGrantable"
+	codeGroupBlocked            = "agenthub.groupBlocked"
+	codeGroupRequestStale       = "agenthub.groupRequestStale"
+	codeGroupRequestResolved    = "agenthub.groupRequestResolved"
+	codeGroupRequestNotFound    = "agenthub.groupRequestNotFound"
+	codeGroupRequestInvalid     = "agenthub.groupRequestInvalid"
+	codeGroupRequestLimit       = "agenthub.groupRequestLimit"
+	codeGroupRouteUnavailable   = "agenthub.groupRouteUnavailable"
+	codeGroupRequestUnavailable = "agenthub.groupRequestUnavailable"
 	// A rewind put the files back and the conversation was proven not rewound
 	// (codeRewindFilesRestored), or it put the files back and what happened to
 	// the conversation could not be proven (codeRewindOutcomeUnknown). Neither is
@@ -491,6 +502,26 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.New(codeConnectionFailed, "Agent process failed.", true)
 		case errors.Is(err, agenthub.ErrNotDescendant):
 			return apperrors.New(codePermissionDenied, "Agent session is outside the caller's tree.", false)
+		case errors.Is(err, agenthub.ErrGroupNotGrantable):
+			return apperrors.New(codeGroupNotGrantable, "The parent does not serve one of those tool groups right now, so it cannot hand it over. It can deny the request or forward it to the person.", false)
+		case errors.Is(err, agenthub.ErrGroupBlocked):
+			return apperrors.New(codeGroupBlocked, "The person blocked one of those tool groups for this session. No agent can add it; the person lifts the block in the window.", false)
+		case errors.Is(err, agenthub.ErrGroupRequestStale):
+			return apperrors.New(codeGroupRequestStale, "That request changed since you read it. Read it again before answering.", true)
+		case errors.Is(err, agenthub.ErrGroupRequestResolved):
+			return apperrors.New(codeGroupRequestResolved, "That request is already finished, or is no longer waiting for you.", false)
+		case errors.Is(err, agenthub.ErrGroupRequestNotFound):
+			return apperrors.New(codeGroupRequestNotFound, "No such tool-group request is visible to you.", false)
+		case errors.Is(err, agenthub.ErrGroupRequestInvalid):
+			return apperrors.New(codeGroupRequestInvalid, "Name 1 to 8 existing tool groups and a route of parent or user.", true)
+		case errors.Is(err, agenthub.ErrGroupRequestLimit):
+			return apperrors.New(codeGroupRequestLimit, "This session already has the most open tool-group requests allowed. Wait for an answer.", true)
+		case errors.Is(err, agenthub.ErrGroupRouteUnavailable):
+			return apperrors.New(codeGroupRouteUnavailable, "The parent route needs an open parent session. Ask the person instead (route user).", true)
+		case errors.Is(err, agenthub.ErrGroupRequestUnavailable):
+			return apperrors.New(codeGroupRequestUnavailable, "Tool-group requests are not available in this build.", false)
+		case errors.Is(err, agenthub.ErrGroupNoChange):
+			return apperrors.New(harness.CodeNoChange, "Those tool groups are already available to this session.", false)
 		case errors.Is(err, agenthub.ErrCwdOutsideParent):
 			return apperrors.New(codeValidationFailed, "Agent cwd must be inside the parent session's project.", true)
 		case errors.Is(err, agenthub.ErrInvalidCwd):
@@ -880,6 +911,16 @@ var keptCodes = map[string]bool{
 	codeManagedTerminalNotReady: true,
 	codeManagedWriterBlocked:    true,
 	codeSessionClosed:           true, // the fixed sentence mapped in publicError
+	// The child tool-group request ledger: fixed sentences mapped in publicError.
+	codeGroupNotGrantable:       true,
+	codeGroupBlocked:            true,
+	codeGroupRequestStale:       true,
+	codeGroupRequestResolved:    true,
+	codeGroupRequestNotFound:    true,
+	codeGroupRequestInvalid:     true,
+	codeGroupRequestLimit:       true,
+	codeGroupRouteUnavailable:   true,
+	codeGroupRequestUnavailable: true,
 	"pdf.notFound":              true,
 	"pdf.sessionDenied":         true,
 	"pdf.pageRange":             true,

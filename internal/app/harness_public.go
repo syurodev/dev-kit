@@ -54,6 +54,16 @@ type harnessControls struct {
 
 	mu      sync.Mutex
 	targets map[string]harnessconfig.Target // prepared id → target (for the Outcome)
+	// revokes remembers which prepared ids are a window revoke of a session group,
+	// so confirming one also writes the lock (harness_group_requests.go).
+	revokes map[string]revokeLock
+	// asking marks the group requests whose question is on screen.
+	asking map[string]bool
+}
+
+type revokeLock struct {
+	session string
+	groups  []string
 }
 
 var _ harnessconfig.Controls = (*harnessControls)(nil)
@@ -218,6 +228,11 @@ func (c *harnessControls) Request(ctx context.Context, req harnessconfig.GroupRe
 		return harnessconfig.RequestResult{Discovery: true, Profile: view}, nil
 	}
 
+	// A group the person locked for this session is not asked about: no agent path
+	// adds it, and only the window lifts the lock.
+	if err := c.refuseLocked(ctx, sessionID, groups); err != nil {
+		return harnessconfig.RequestResult{}, err
+	}
 	// Nobody to ask: refuse before choosing anything, so a headless or server-mode
 	// host never even opens a selection.
 	if !c.hub.CanAsk() {
@@ -383,7 +398,16 @@ func (c *harnessControls) PrepareRevoke(ctx context.Context, workspaceID, sessio
 	if len(names) == 0 {
 		return harnessconfig.Review{}, harnessconfig.ErrInvalid
 	}
-	return c.prepare(ctx, harnessconfig.Request{WorkspaceID: workspaceID, SessionID: sessionID, Target: harnessconfig.TargetSession, Patch: harnessconfig.Patch{RevokeGroups: names}})
+	review, err := c.prepare(ctx, harnessconfig.Request{WorkspaceID: workspaceID, SessionID: sessionID, Target: harnessconfig.TargetSession, Patch: harnessconfig.Patch{RevokeGroups: names}})
+	if err == nil {
+		c.mu.Lock()
+		if c.revokes == nil {
+			c.revokes = map[string]revokeLock{}
+		}
+		c.revokes[review.ID] = revokeLock{session: sessionID, groups: names}
+		c.mu.Unlock()
+	}
+	return review, err
 }
 
 // prepareStaleOverrideRepair is PrepareRevoke for names the registry does not have.
@@ -473,9 +497,50 @@ func (c *harnessControls) Apply(ctx context.Context, id string) (harnessconfig.O
 	c.mu.Lock()
 	target := c.targets[id]
 	delete(c.targets, id)
+	revoke, isRevoke := c.revokes[id]
+	delete(c.revokes, id)
 	c.mu.Unlock()
+	// Revoking a session's group from the window is the person's explicit "not
+	// this one": the lock is written first, so no agent can add the group back
+	// between the revoke and the lock. A revoke that is then refused before it
+	// writes (declined, cancelled, stale) takes back only the locks it added.
+	var added []string
+	if isRevoke {
+		added = c.lockForRevoke(ctx, revoke)
+	}
 	res, err := c.svc.Apply(ctx, id)
+	if isRevoke && !revokeCommitted(res, err) {
+		for _, g := range added {
+			_ = c.agents.SetGroupLock(ctx, revoke.session, g, false)
+		}
+	}
 	return harnessconfig.OutcomeOf(target, res, err)
+}
+
+// lockForRevoke writes the locks of a confirmed revoke and returns the ones it
+// created (a lock the person already had is left alone, even if the revoke fails).
+func (c *harnessControls) lockForRevoke(ctx context.Context, r revokeLock) []string {
+	existing, _ := c.agents.GroupLocks(ctx, r.session)
+	var added []string
+	for _, g := range r.groups {
+		if slices.Contains(existing, g) {
+			continue
+		}
+		if err := c.agents.SetGroupLock(ctx, r.session, g, true); err == nil {
+			added = append(added, g)
+		}
+	}
+	return added
+}
+
+// revokeCommitted is true when the revoke wrote S, even if its publication did
+// not finish or its commit is unknown: the lock stays then.
+func revokeCommitted(res harnessconfig.Result, err error) bool {
+	var pe *harnessconfig.PublicationError
+	if errors.As(err, &pe) {
+		return true
+	}
+	return err == nil && res.Commit != ""
 }
 
 func (c *harnessControls) Cancel(ctx context.Context, id string) error {
@@ -484,6 +549,7 @@ func (c *harnessControls) Cancel(ctx context.Context, id string) error {
 	}
 	c.mu.Lock()
 	delete(c.targets, id)
+	delete(c.revokes, id)
 	c.mu.Unlock()
 	return c.svc.Cancel(ctx, id)
 }

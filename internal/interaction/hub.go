@@ -48,6 +48,20 @@ const (
 	// groups is saved: this session only, or the workspace. It is a selection, not
 	// an approval: the change is prepared and confirmed afterwards (KindHarness).
 	KindHarnessScope Kind = "harness_scope"
+	// KindHarnessGroupRequest is the person's answer to a session's request for
+	// more tool groups that waits on the person: approve it, decline this
+	// request, or decline it and block those groups for that session. Approving
+	// is followed by the exact-change confirmation (KindHarness); the two
+	// declines write nothing but the request's own state and, for a block, the
+	// lock.
+	KindHarnessGroupRequest Kind = "harness_group_request"
+)
+
+// The three answers of a KindHarnessGroupRequest selection.
+const (
+	GroupRequestApprove = "approve"
+	GroupRequestDecline = "decline"
+	GroupRequestBlock   = "block"
 )
 
 // The two answers of a KindHarnessScope selection.
@@ -393,6 +407,29 @@ func (h *Hub) SelectHarnessScope(ctx context.Context, summary string) (string, e
 	}
 	return h.wait(ctx, Pending{Type: TypeSelect, Kind: KindHarnessScope, Summary: summary, Options: options}, func(v string) (string, error) {
 		if v != HarnessScopeSession && v != HarnessScopeWorkspace {
+			return "", ErrConfirmationDenied
+		}
+		return v, nil
+	})
+}
+
+// SelectGroupRequestAnswer asks the person to answer a session's request for
+// tool groups. Only the three offered answers are accepted; anything else, a
+// cancel and a closed prompt are refusals. Headless is ErrSelectionRequired:
+// nobody can answer, and a prompt nobody can answer must not become a default.
+// summary is host-authored text (the session's own words, if shown, are labelled
+// by the caller).
+func (h *Hub) SelectGroupRequestAnswer(ctx context.Context, summary string) (string, error) {
+	if h == nil || h.Headless || h.prompter == nil {
+		return "", ErrSelectionRequired
+	}
+	options := []AccountOption{
+		{ID: GroupRequestApprove, Label: "Review and allow"},
+		{ID: GroupRequestDecline, Label: "Decline this request"},
+		{ID: GroupRequestBlock, Label: "Decline and block these groups for this session"},
+	}
+	return h.wait(ctx, Pending{Type: TypeSelect, Kind: KindHarnessGroupRequest, Summary: summary, Options: options}, func(v string) (string, error) {
+		if v != GroupRequestApprove && v != GroupRequestDecline && v != GroupRequestBlock {
 			return "", ErrConfirmationDenied
 		}
 		return v, nil

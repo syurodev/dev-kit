@@ -121,8 +121,8 @@ func TestThePublicToolsAreInTheInventoryBeforeItFreezesAndTheHandlerBindsOnce(t 
 	}
 	// The registry the resolver uses is the very inventory: the tools are a group of
 	// it, so a policy can hide get and still serve propose.
-	if got := rowOf(mustProfile(t, r, "x"), "harness"); got.Tools != 2 {
-		t.Fatalf("the harness group should hold both tools: %+v", got)
+	if got := rowOf(mustProfile(t, r, "x"), "harness"); got.Tools != 4 {
+		t.Fatalf("the harness group should hold its four tools (get, propose, group.request, group.requestStatus): %+v", got)
 	}
 	if err := r.port.Bind(r.asm.Controls()); !errors.Is(err, ErrHarnessPortBound) {
 		t.Fatalf("a second bind must be refused, got %v", err)

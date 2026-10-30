@@ -285,7 +285,11 @@ type MCPEndpoints interface {
 
 // Service orchestrates vendor adapters, session persistence, and live runtimes.
 type Service struct {
-	ToolMetrics  usagemetrics.Reader
+	ToolMetrics usagemetrics.Reader
+	// GroupHost answers the group-request ledger's questions about tool groups
+	// (group_request.go). Nil: the ledger is unavailable.
+	GroupHost    GroupRequestHost
+	groupReqs    groupRequests
 	runtimeUsage map[string]RuntimeUsageFacts
 	// harnessApplied is what each opened runtime was actually given (harness_runtime.go).
 	harnessApplied map[string]appliedHarness
@@ -733,6 +737,11 @@ func (s *Service) Shutdown(ctx context.Context) error {
 // Startup-only by contract, mirroring outbox.RecoverStaleSyncing: calling it
 // while turns are actually running would reset live sessions.
 func (s *Service) RecoverStaleSessions(ctx context.Context) error {
+	// An open tool-group request or its question did not survive the restart and
+	// is never restored as answerable (group_request.go). Locks stay.
+	if err := s.invalidateOpenGroupRequests(ctx); err != nil {
+		return err
+	}
 	pendingBySession := map[string]PendingRequestSummary{}
 	pendingStore, hasPendingStore := s.store.(PendingRequestStore)
 	if hasPendingStore {
@@ -1712,6 +1721,7 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	if s.OnSessionClosed != nil {
 		s.OnSessionClosed(id)
 	}
+	s.invalidateGroupRequestsOfSession(ctx, id)
 	// The close is committed: nothing can add an override to this session any
 	// more (the store refuses closed sessions), so removing it now cannot race a
 	// late approval. A failure is reported, never swallowed; closing again retries.

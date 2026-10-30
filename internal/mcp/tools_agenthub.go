@@ -210,6 +210,12 @@ type agentHubCreateInput struct {
 	// first message. See tools_agenthub_task.go.
 	TaskID   string `json:"taskId,omitempty"`
 	Worktree string `json:"worktree,omitempty"`
+	// ToolGroups names the tool groups the child starts with, beyond what the
+	// workspace profile gives it. Omitted: the child inherits the groups enabled
+	// for your own session. [] inherits nothing. Each name must be a group you
+	// serve yourself. It is a starting point; the child can ask for more later
+	// (harness.group.request).
+	ToolGroups *[]string `json:"toolGroups,omitempty" jsonschema:"Extra tool groups for the child, each one you serve. Omit to inherit those enabled for your session; [] for none. It can ask for more later."`
 }
 
 func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.CallToolRequest, in agentHubCreateInput) (*sdk.CallToolResult, any, error) {
@@ -227,6 +233,14 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 	}
 	profile := strings.TrimSpace(in.Profile)
 	taskID := strings.TrimSpace(in.TaskID)
+	// The child's starting tool groups are planned inside the gateway call and
+	// before anything exists (no worktree, no session), so a refusal (a group the
+	// caller does not serve, an unknown name) leaves nothing behind. They are
+	// written into the child's override right after it is created and before its
+	// first message.
+	var plannedGroups []string
+	groups, hasGroups := s.groupControls()
+	var groupsReport *childGroupsReport
 	// The audit line says which profile the choice came from and what was
 	// asked — names and values, never a prompt.
 	audit := map[string]any{"agent_type": in.AgentType}
@@ -253,6 +267,21 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 			in.Title = &title
 		}
 		v, err := s.deps.Caller.Call(ctx, "builtin.agenthub", "agenthub:execute", "session:new", meta("create_session", audit), func(callCtx context.Context) (any, error) {
+			switch {
+			case hasGroups:
+				given := in.ToolGroups != nil
+				var explicit []string
+				if given {
+					explicit = *in.ToolGroups
+				}
+				planned, err := groups.PlanChildGroups(callCtx, explicit, given)
+				if err != nil {
+					return nil, err
+				}
+				plannedGroups = planned
+			case in.ToolGroups != nil:
+				return nil, agenthub.ErrGroupRequestUnavailable
+			}
 			cwd := in.Cwd
 			var worktreeGit GitAPI
 			var worktreeRepo string
@@ -343,6 +372,9 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 		if !ok {
 			return agenthub.AgentSession{}, "", apperrors.New("internal_error", "Agent Hub did not return the new session.", true)
 		}
+		if hasGroups && len(plannedGroups) > 0 {
+			groupsReport = grantChildGroups(ctx, groups, sess.ID, plannedGroups)
+		}
 		branchName := ""
 		if createdWorktree != nil {
 			branchName = createdWorktree.Branch
@@ -354,7 +386,10 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 		if err != nil {
 			return nil, nil, err
 		}
-		return nil, structured(sess), nil
+		if groupsReport == nil {
+			return nil, structured(sess), nil
+		}
+		return nil, structured(childWithGroups{AgentSession: sess, ToolGroups: groupsReport}), nil
 	}
 	out, err := agentwork.Handoff(ctx, taskID, taskHandoffOps{server: s, create: createChild})
 	if err != nil {
@@ -369,6 +404,7 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 		Task:         taskRef{ID: out.Task.ID, Key: out.Task.Key, Title: oneLine(out.Task.Title)},
 		Delivery:     agenthub.PeerDelivery(out.Delivery.State),
 		Code:         out.Delivery.Code, Reason: out.Delivery.Reason, MessageID: out.Delivery.MessageID,
+		ToolGroups: groupsReport,
 	}), nil
 }
 
