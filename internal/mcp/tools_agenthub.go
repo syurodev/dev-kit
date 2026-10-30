@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"path/filepath"
 	"strings"
 	"time"
@@ -210,6 +211,12 @@ type agentHubCreateInput struct {
 	// first message. See tools_agenthub_task.go.
 	TaskID   string `json:"taskId,omitempty"`
 	Worktree string `json:"worktree,omitempty"`
+	// ToolGroups names the tool groups the child starts with, beyond what the
+	// workspace profile gives it. Omitted: the child inherits the groups enabled
+	// for your own session. [] inherits nothing. Each name must be a group you
+	// serve yourself. It is a starting point; the child can ask for more later
+	// (harness.group.request).
+	ToolGroups *[]string `json:"toolGroups,omitempty" jsonschema:"Extra tool groups for the child, each one you serve. Omit to inherit those enabled for your session; [] for none. It can ask for more later."`
 }
 
 func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.CallToolRequest, in agentHubCreateInput) (*sdk.CallToolResult, any, error) {
@@ -227,6 +234,14 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 	}
 	profile := strings.TrimSpace(in.Profile)
 	taskID := strings.TrimSpace(in.TaskID)
+	// The child's starting tool groups are planned inside the gateway call and
+	// before anything exists (no worktree, no session), so a refusal (a group the
+	// caller does not serve, an unknown name) leaves nothing behind. They are
+	// written into the child's override right after it is created and before its
+	// first message.
+	var plannedGroups []string
+	groups, hasGroups := s.groupControls()
+	var groupsReport *childGroupsReport
 	// The audit line says which profile the choice came from and what was
 	// asked — names and values, never a prompt.
 	audit := map[string]any{"agent_type": in.AgentType}
@@ -253,6 +268,21 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 			in.Title = &title
 		}
 		v, err := s.deps.Caller.Call(ctx, "builtin.agenthub", "agenthub:execute", "session:new", meta("create_session", audit), func(callCtx context.Context) (any, error) {
+			switch {
+			case hasGroups:
+				given := in.ToolGroups != nil
+				var explicit []string
+				if given {
+					explicit = *in.ToolGroups
+				}
+				planned, err := groups.PlanChildGroups(callCtx, explicit, given)
+				if err != nil {
+					return nil, err
+				}
+				plannedGroups = planned
+			case in.ToolGroups != nil:
+				return nil, agenthub.ErrGroupRequestUnavailable
+			}
 			cwd := in.Cwd
 			var worktreeGit GitAPI
 			var worktreeRepo string
@@ -294,13 +324,29 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 				createdWorktree = &wt
 				cwd = wt.Path
 			}
-			cleanupWorktree := func() {
+			// removeCheckout removes the checkout this call created, through the same
+			// gateway grant, on the context it is given: the caller passes one that
+			// is alive and bounded (cleanupContext), never the request's own, which
+			// may be the very reason a cleanup is needed. It never forces: a dirty
+			// checkout is refused by Git and the error is returned, not swallowed.
+			removeCheckout := func(ctx context.Context) error {
 				if createdWorktree == nil {
-					return
+					return nil
 				}
-				_, _ = s.deps.Caller.Call(callCtx, "builtin.git", "git:write", "repo:worktree", meta("worktree_remove", repoMeta(worktreeRepo, nil)), func(ctx context.Context) (any, error) {
+				_, err := s.deps.Caller.Call(ctx, "builtin.git", "git:write", "repo:worktree", meta("worktree_remove", repoMeta(worktreeRepo, nil)), func(ctx context.Context) (any, error) {
 					return nil, worktreeGit.WorktreeRemove(ctx, createdWorktree.Path)
 				})
+				return err
+			}
+			// dropCheckout is for the paths where no child exists (nothing can be
+			// writing in the checkout): the original error is what the caller gets, so
+			// a failed removal is only logged, without its text.
+			dropCheckout := func() {
+				cctx, cancel := cleanupContext(callCtx)
+				defer cancel()
+				if err := removeCheckout(cctx); err != nil {
+					log.Printf("mcp: the checkout of a child that was not created could not be removed")
+				}
 			}
 			create := agenthub.CreateInput{
 				AgentType:       agenthub.AgentType(in.AgentType),
@@ -315,7 +361,7 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 			// CreateSession repeats the check and refuses without this answer.
 			plan, err := s.deps.AgentHub.PlanModelChoice(callCtx, agenthub.ModelChoiceInput{Vendor: create.AgentType, Config: config, Profile: profile})
 			if err != nil {
-				cleanupWorktree()
+				dropCheckout()
 				return nil, err
 			}
 			if plan.NeedsApproval {
@@ -324,15 +370,29 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 				if err := mapInteractErr(effectiveHub(s.deps.Hub).Confirm(callCtx, interaction.ConfirmRequest{
 					Tool: "agenthub.createAgentSession", Summary: summary, Kind: interaction.KindAgent, EnvBlocks: true,
 				})); err != nil {
-					cleanupWorktree()
+					dropCheckout()
 					return nil, err
 				}
 				create.ModelChoiceApproved = true
 			}
 			sess, err := s.deps.AgentHub.CreateSession(callCtx, create)
 			if err != nil {
-				cleanupWorktree()
+				dropCheckout()
 				return nil, err
+			}
+			if hasGroups && len(plannedGroups) > 0 {
+				groupsReport = grantChildGroups(callCtx, groups, sess.ID, plannedGroups)
+				if taskID != "" && !groupsReport.ready() {
+					// A task is about to be claimed for this child and sent to it. Do
+					// not start it on a child whose groups are not confirmed: close the
+					// child (the task is never claimed) and say why. The caller can
+					// retry, or pass toolGroups: [] to start without them.
+					checkout := ""
+					if createdWorktree != nil {
+						checkout = createdWorktree.Branch
+					}
+					return nil, s.abandonNewChild(callCtx, sess.ID, checkout, removeCheckout)
+				}
 			}
 			return forAgent(sess), nil
 		})
@@ -354,7 +414,10 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 		if err != nil {
 			return nil, nil, err
 		}
-		return nil, structured(sess), nil
+		if groupsReport == nil {
+			return nil, structured(sess), nil
+		}
+		return nil, structured(childWithGroups{AgentSession: sess, ToolGroups: groupsReport}), nil
 	}
 	out, err := agentwork.Handoff(ctx, taskID, taskHandoffOps{server: s, create: createChild})
 	if err != nil {
@@ -369,6 +432,7 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 		Task:         taskRef{ID: out.Task.ID, Key: out.Task.Key, Title: oneLine(out.Task.Title)},
 		Delivery:     agenthub.PeerDelivery(out.Delivery.State),
 		Code:         out.Delivery.Code, Reason: out.Delivery.Reason, MessageID: out.Delivery.MessageID,
+		ToolGroups: groupsReport,
 	}), nil
 }
 
@@ -745,4 +809,65 @@ func hubSessionID(value string) string {
 		}
 	}
 	return value
+}
+
+// childCleanupTimeout bounds each step of abandoning a new child (closing it,
+// removing its checkout). It is the handoff's own rollback deadline
+// (agentwork.closeAfterFailure); a variable only so a test can shorten it.
+var childCleanupTimeout = 5 * time.Second
+
+// cleanupContext is the context a cleanup step runs on: the caller's identity and
+// scope (context values) but not its cancellation, and a finite deadline. A
+// request cancelled while a child was being set up must still be able to clean up
+// after itself, and a cleanup must not run for ever.
+func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), childCleanupTimeout)
+}
+
+// codeChildNotClosed is raised when a new child had to be abandoned and could not
+// be closed: the child is still open and the caller must deal with it. Its
+// sentence names the child (an id the caller was about to receive anyway) and
+// never a cause.
+const codeChildNotClosed = "agenthub.childNotClosed"
+
+// codeChildCheckoutKept is raised when a new child was closed but its checkout
+// could not be removed: the child is closed, the checkout is still there. Its
+// sentence names the child and the branch the caller itself asked for, never a
+// path or a cause.
+const codeChildCheckoutKept = "agenthub.childCheckoutKept"
+
+// abandonNewChild closes a child created for a task whose starting groups are not
+// confirmed, then removes the checkout made for it. Each step runs on its own
+// cleanup context (alive, bounded, the caller's identity) and the answer says
+// exactly how far it got:
+//
+//   - the close failed or timed out: agenthub.childNotClosed. The child is still
+//     open, so its checkout is not touched (a writer may be running in it);
+//   - closed, checkout not removed (the gateway refused it, Git refused a dirty
+//     checkout, or it timed out): agenthub.childCheckoutKept. The child is closed,
+//     the checkout is left for the caller or the person, and nothing is forced;
+//   - closed and removed: agenthub.childGroupsNotReady, the one case that is a
+//     complete rollback.
+//
+// In every case the task was neither claimed nor sent. Nothing is retried and no
+// other child is created.
+func (s *Server) abandonNewChild(ctx context.Context, childID, checkout string, removeCheckout func(context.Context) error) error {
+	closeCtx, cancelClose := cleanupContext(ctx)
+	defer cancelClose()
+	if err := s.deps.AgentHub.CloseSession(closeCtx, childID); err != nil {
+		log.Printf("mcp: session %s could not be closed after its tool groups were not confirmed", childID)
+		return apperrors.New(codeChildNotClosed,
+			"The child session "+childID+" was not started on the task because its tool groups were not confirmed, and it could not be closed either: it is still open, its checkout was left in place, and the task was not claimed or sent. "+
+				"Close it with agenthub.closeSession or tell the person.", true)
+	}
+	// Only now has the child's process stopped, so only now is its checkout touched.
+	removeCtx, cancelRemove := cleanupContext(ctx)
+	defer cancelRemove()
+	if err := removeCheckout(removeCtx); err != nil {
+		log.Printf("mcp: the checkout of closed session %s could not be removed", childID)
+		return apperrors.New(codeChildCheckoutKept,
+			"The child session "+childID+" was not started on the task because its tool groups were not confirmed. It is closed and the task was not claimed or sent, "+
+				"but its checkout for branch "+oneLine(clipText(checkout, 80))+" could not be removed and was left in place. Remove it with git.worktree.remove or tell the person.", true)
+	}
+	return agenthub.ErrChildGroupsNotReady
 }

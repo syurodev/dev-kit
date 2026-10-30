@@ -216,6 +216,16 @@ text bytes, not vendor request tokens, provider cost or subscription quota.
   (`registerAll` is the one declaration of the registry). Integration tests run the real H2 `Apply`, SQLite
   `HarnessStore`, Agent Hub service, `SessionHost` and SDK clients with a scripted vendor
   (`serving_integration_test.go`, `serving_live_test.go`, `serving_status_test.go`).
+- **Child tool-group requests** (`internal/mcp/tools_harness_groups.go`; design in `agent-hub-coordination.md` "Child tool groups"). Registered only
+  when `Deps.Harness` also implements `harnessconfig.GroupRequestControls` (the app's port does): `harness.group.request` (the child; grant
+  `harness:propose` on `profile:self`; the second always-served tool, `harness.RequestTool`), `harness.group.requestStatus` (`harness:read`
+  `profile:self`; without `requestId` it lists the caller's own open requests), `agenthub.listGroupRequests` (`agenthub:read` `session:list`) and `agenthub.resolveGroupRequest` (`agenthub:execute` on
+  `session:<child of the request>`, taken from the ledger row, never from an argument). `agenthub.createAgentSession` gains `toolGroups`; its
+  planning runs inside the gateway call and before any worktree or session. Public codes (all in `bridge.keptCodes`, fixed sentences):
+  `agenthub.groupNotGrantable`, `.groupBlocked`, `.groupRequestStale`, `.groupRequestResolved`, `.groupRequestNotFound`, `.groupRequestInvalid`,
+  `.groupRequestLimit`, `.groupRequestOverlap`, `.childGroupsNotReady`, `.childNotClosed` and `.childCheckoutKept` (the two with an id in them: the new child that could not be closed / that was closed but kept its checkout; the latter names the branch the caller asked for, never a path), `.groupRouteUnavailable`, `.groupRequestUnavailable`; "already served" reuses `harness.noChange`. A saved-but-unconfirmed answer
+  is a failure response with its structured outcome, like propose. The agenthub group's definition ceiling (`tool_budget_test.go`) still holds
+  because the two parent tools are registered only with the ledger.
 - **`harness.profile.get` / `harness.profile.propose` (H5a; active since R4)** (`internal/mcp/tools_harness.go`; facade and record in
   `harness-composition-activation.md` "H5a"). Registered only when `Deps.Harness` is set, which `main.go` now does (R4), so both exist in
   production once `app.StartHarness` has bound the port. `get` reads the caller's own groups (tool count, definition bytes, W/S, saved vs running;

@@ -28,6 +28,16 @@ type fakeGit struct {
 	worktrees     []gitservice.Worktree
 	removed       string
 	basePath      string
+
+	// What WorktreeRemove saw, and how a test makes it fail. The fake respects the
+	// context it is given, as the real Git service does: a removal on a cancelled
+	// context fails and removes nothing.
+	removeCalls    int
+	removeCtxErr   error
+	removeDeadline bool
+	removeCaller   string
+	removeErr      error
+	removeBlocks   bool
 }
 
 func (f *fakeGit) Status(context.Context) (gitservice.Status, error) {
@@ -94,8 +104,27 @@ func (f *fakeGit) WorktreeTarget(_ context.Context, branch string) (string, stri
 	return root, filepath.Join(root, ".superpowers", ".worktrees", strings.ReplaceAll(branch, "/", "-")), nil
 }
 func (f *fakeGit) Worktrees(context.Context) ([]gitservice.Worktree, error) { return f.worktrees, nil }
-func (f *fakeGit) WorktreeRemove(_ context.Context, name string) error      { f.removed = name; return nil }
-func (f *fakeGit) WorktreePrune(context.Context) ([]string, error)          { return nil, nil }
+func (f *fakeGit) WorktreeRemove(ctx context.Context, name string) error {
+	f.removeCalls++
+	f.removeCtxErr = ctx.Err()
+	_, f.removeDeadline = ctx.Deadline()
+	if c, ok := identity.FromContext(ctx); ok {
+		f.removeCaller = c.SessionID
+	}
+	if f.removeBlocks {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if f.removeErr != nil {
+		return f.removeErr
+	}
+	f.removed = name
+	return nil
+}
+func (f *fakeGit) WorktreePrune(context.Context) ([]string, error) { return nil, nil }
 
 // fakeRepos holds a repository per workspace folder; anything else is not one.
 type fakeRepos map[string]*fakeGit

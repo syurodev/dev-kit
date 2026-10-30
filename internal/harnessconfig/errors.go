@@ -19,14 +19,20 @@ var (
 	// ErrInvalidBudget: a size outside 2–64 KiB or an unknown cut mode.
 	ErrInvalidBudget = &harness.Error{Code: harness.CodeBudgetInvalid, Message: "A result budget must be between 2 KiB and 64 KiB, and its cut must be head or headTail."}
 	// ErrBudgetExempt: the edit names something whose result is never cut.
-	ErrBudgetExempt       = &harness.Error{Code: harness.CodeBudgetInvalid, Message: "That tool or group has no result budget to edit: its results are never cut."}
-	ErrStale              = &harness.Error{Code: harness.CodeProposalStale, Message: "The configuration changed after the proposal was prepared. Propose it again."}
-	ErrConflict           = &harness.Error{Code: harness.CodeProfileConflict, Message: "The workspace profile changed. Propose it again."}
-	ErrUnknownProposal    = &harness.Error{Code: harness.CodeProposalStale, Message: "That proposal is not pending."}
-	ErrBusy               = &harness.Error{Code: harness.CodeProposalStale, Message: "Too many proposals are waiting."}
-	ErrTooLargeToShow     = &harness.Error{Code: harness.CodeNotAvailable, Message: "This change is too large to show in full, so it cannot be offered for approval. Split it into smaller changes."}
-	ErrCancelled          = &harness.Error{Code: harness.CodeProposalStale, Message: "The proposal was cancelled."}
-	ErrTooLateToCancel    = &harness.Error{Code: harness.CodeProposalStale, Message: "The change is already being applied and can no longer be cancelled."}
+	ErrBudgetExempt    = &harness.Error{Code: harness.CodeBudgetInvalid, Message: "That tool or group has no result budget to edit: its results are never cut."}
+	ErrStale           = &harness.Error{Code: harness.CodeProposalStale, Message: "The configuration changed after the proposal was prepared. Propose it again."}
+	ErrConflict        = &harness.Error{Code: harness.CodeProfileConflict, Message: "The workspace profile changed. Propose it again."}
+	ErrUnknownProposal = &harness.Error{Code: harness.CodeProposalStale, Message: "That proposal is not pending."}
+	ErrBusy            = &harness.Error{Code: harness.CodeProposalStale, Message: "Too many proposals are waiting."}
+	ErrTooLargeToShow  = &harness.Error{Code: harness.CodeNotAvailable, Message: "This change is too large to show in full, so it cannot be offered for approval. Split it into smaller changes."}
+	ErrCancelled       = &harness.Error{Code: harness.CodeProposalStale, Message: "The proposal was cancelled."}
+	ErrTooLateToCancel = &harness.Error{Code: harness.CodeProposalStale, Message: "The change is already being applied and can no longer be cancelled."}
+	// ErrGroupLocked: a group the change adds is blocked for that session by the
+	// person; nothing was written.
+	ErrGroupLocked = &harness.Error{Code: harness.CodeProfileDenied, Message: "The person blocked one of those tool groups for this session, so it was not turned on."}
+	// ErrFenceLost: the session or the request that allowed this change was closed
+	// or answered before it could be written; nothing was written.
+	ErrFenceLost          = &harness.Error{Code: harness.CodeProposalStale, Message: "The request or session that allowed this change is no longer valid, so nothing was changed."}
 	ErrNotConfirmed       = &harness.Error{Code: harness.CodeProfileDenied, Message: "The change was not approved."}
 	ErrConfirmUnavailable = &harness.Error{Code: harness.CodeProfileDenied, Message: "No one can approve a harness change right now."}
 )

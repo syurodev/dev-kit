@@ -148,6 +148,8 @@ func (a *HarnessAssembly) Attach(agents *agenthub.Service) error {
 	}
 	agents.Harness = harnessSnapshots{provider: a.Provider}
 	agents.HarnessLifecycle = harnessLifecycle{store: a.Store}
+	// The child tool-group request ledger asks this assembly about groups.
+	agents.GroupHost = a.controls
 	return nil
 }
 

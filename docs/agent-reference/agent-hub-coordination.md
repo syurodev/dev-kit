@@ -112,6 +112,51 @@
     (`tools_agenthub_task_test.go`) and the real tasks service (`TestAssign…`, and `Assign`/`Assignable` are in the scope table
     `everyScopedMethod`).
 
+## Child tool groups: inheritance and requests
+
+Spec: `docs/superpowers/specs/2026-10-30-child-tool-group-requests-design.md` (see its "As built"). Code: `internal/agenthub/group_request*.go`
+(ledger, state machine, SQL; migration 57 `agent_group_requests`, `agent_session_group_locks`), `internal/harnessconfig/delegate.go`
+(`ApplyDelegated`), `internal/app/harness_group_requests.go` (the only place that joins them), `internal/mcp/tools_harness_groups.go`.
+
+- **Creation.** `agenthub.createAgentSession` takes optional `toolGroups`. Omitted: a snapshot of the parent's stored S groups. Given: each must
+  be a group the parent serves now (`agenthub.groupNotGrantable` otherwise, nothing created). It adds to the workspace profile and cannot
+  narrow below it (S is on-only). Written after creation and before the first message; the answer's `toolGroups` says `granted` or
+  `not_granted` and, for a group not yet confirmed live, says so.
+- **Requests.** `harness.group.request {groups, route, reason}` (route `parent` returns at once, `user` waits for the person),
+  `harness.group.requestStatus`, and for the direct parent `agenthub.listGroupRequests` / `agenthub.resolveGroupRequest {requestId, revision,
+  decision}` (approve | deny | forward). States: `pending_parent`, `pending_user`, `approved`, `denied`, `expired` (30 min on the parent
+  route, checked lazily), `invalidated` (session closed, parent closed for the parent route, **every open request at start**), `superseded`.
+  Every move is a compare-and-swap on the row's `revision`; forwarding changes the same row, so there is one approval. The reason is the
+  child's text (400 runes): shown only as untrusted, never in audit or metadata. Peer notices are doorbells only.
+- **Authority.** Only the direct parent recorded on the child's row now may resolve, and it may approve only groups it serves (confirmed
+  endpoint) that are not locked for that child; anything else is deny or forward. `ApplyDelegated` replaces only the person's question; the
+  evaluation, tier, V boundary, coordinator, compare-and-swap, publication and audit are the same as `Apply`, and its patch can only be
+  `EnableGroups` inside `Grantable`. Audit events carry `Grantor` and `RequestID`.
+- **Locks.** Written only by the person (window): "Decline and block" in the question, or a confirmed Revoke (the revoke and its lock are one
+  SQL transaction, `OverrideWrite.Lock`). No agent path adds a locked group (request, parent approval, creation, `harness.profile.propose`)
+  and the check is made where S is written: `OverrideWrite.Forbid` is read inside `HarnessStore.Apply`'s transaction, so a block written while
+  a question was open, or just before a commit, is not bypassed. Only the window lifts one (session card, `HarnessSetGroupLock`). A plain
+  decline closes that request only. A lock does not hide a group the workspace profile serves.
+- **One open request per child and group, at most four open (migration 58).** SQL-enforced (`agent_group_request_open_groups`, a quota trigger);
+  an identical set returns the existing request, an overlapping different set is `agenthub.groupRequestOverlap`, nothing is merged.
+- **Boundary revalidation.** `Delegation.Grantable` is re-read inside the commit (V boundary → child's coordinator → grantor's coordinator, read
+  only → SQL): the grantor must still be the child's open direct parent and serve the group through a tool that follows its group
+  (`harness.ServedWhateverItsGroup` tools prove nothing about their group). With `taskId`, a child whose groups are not confirmed live is closed
+  and the task is not claimed or sent (`agenthub.childGroupsNotReady`).
+- **Fenced write.** The grantor (still the open direct parent) and the request (still open at the revision read, in the state read) are checked
+  **inside the SQL transaction that writes S** (`harness.WriteFence`, `HarnessStore.Apply`), which also moves the request to `approved`; a lost
+  fence writes nothing (`agenthub.groupRequestResolved`). Linearization point: that commit (one SQLite connection). A grant committed before the
+  parent closed stays (snapshot, no cascade revoke). Lock order: request mutex → V boundary → child's coordinator → grantor's coordinator (read) → SQL.
+  A `taskId` child that must be abandoned is closed, then its checkout removed, each on `cleanupContext` (caller identity, no cancellation, 5 s):
+  close fails → `agenthub.childNotClosed` (checkout untouched); closed but the checkout stays → `agenthub.childCheckoutKept` (child closed, branch named);
+  both done → `agenthub.childGroupsNotReady`. Never forced, retried or replaced by another child.
+- **Integration gap.** C1 (`CheckActual`) refuses a managed child with an S (`harness_override_present`) while grants write S; managed dispatch
+  is not open and the preflight is not bypassed. Decide the rule before managed children get groups.
+- **Honesty.** `Live` only from an acknowledged endpoint; a saved-but-unpublished change is a failure response with its outcome (like propose).
+  Enabling a group never changes grants, workspace scope, sandbox, model gates or prod/unknown-environment confirmation, and a missing-tool
+  error never creates a request.
+- **Not verified.** Scripted vendors only; no real Claude/Codex/opencode session, no native window, no `tools/list_changed` measurement.
+
 ## Managed writer stop proof and admission barrier
 
 `OPT-b7e5f6` (plan slice B). Release of a managed writer lease asks the host for a fresh quiescence check

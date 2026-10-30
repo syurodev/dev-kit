@@ -174,6 +174,26 @@ export function InteractionHost() {
     );
   }
 
+  if (pending.type === "select" && pending.kind === "harness_group_request") {
+    return (
+      <Suspense fallback={null}>
+        <HarnessScopeDialog
+          key={pending.id}
+          pending={pending}
+          busy={busy}
+          error={error}
+          waiting={queue.length - 1}
+          title="A session asks for more tool groups"
+          fallbackSummary="A session asks to turn on tool groups for itself."
+          choiceLabel="Your answer"
+          confirmLabel="Continue"
+          onCancel={() => void run(() => denyInteraction(pending.id))}
+          onChoose={(answer) => void run(() => completeInteraction(pending.id, answer))}
+        />
+      </Suspense>
+    );
+  }
+
   if (pending.type === "select" && pending.kind === "git_account") {
     return (
       <Dialog open={open} onOpenChange={() => {}}>

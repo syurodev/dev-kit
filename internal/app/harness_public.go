@@ -54,6 +54,8 @@ type harnessControls struct {
 
 	mu      sync.Mutex
 	targets map[string]harnessconfig.Target // prepared id → target (for the Outcome)
+	// asking marks the group requests whose question is on screen.
+	asking map[string]bool
 }
 
 var _ harnessconfig.Controls = (*harnessControls)(nil)
@@ -218,6 +220,11 @@ func (c *harnessControls) Request(ctx context.Context, req harnessconfig.GroupRe
 		return harnessconfig.RequestResult{Discovery: true, Profile: view}, nil
 	}
 
+	// A group the person locked for this session is not asked about: no agent path
+	// adds it, and only the window lifts the lock.
+	if err := c.refuseLocked(ctx, sessionID, groups); err != nil {
+		return harnessconfig.RequestResult{}, err
+	}
 	// Nobody to ask: refuse before choosing anything, so a headless or server-mode
 	// host never even opens a selection.
 	if !c.hub.CanAsk() {
@@ -383,7 +390,11 @@ func (c *harnessControls) PrepareRevoke(ctx context.Context, workspaceID, sessio
 	if len(names) == 0 {
 		return harnessconfig.Review{}, harnessconfig.ErrInvalid
 	}
-	return c.prepare(ctx, harnessconfig.Request{WorkspaceID: workspaceID, SessionID: sessionID, Target: harnessconfig.TargetSession, Patch: harnessconfig.Patch{RevokeGroups: names}})
+	// The revoke carries its block: they are written in one transaction when the
+	// person confirms, so there is no moment with one and not the other and
+	// nothing to undo if the revoke is declined or loses.
+	return c.prepare(ctx, harnessconfig.Request{WorkspaceID: workspaceID, SessionID: sessionID, Target: harnessconfig.TargetSession,
+		Patch: harnessconfig.Patch{RevokeGroups: names, LockRevoked: true}})
 }
 
 // prepareStaleOverrideRepair is PrepareRevoke for names the registry does not have.

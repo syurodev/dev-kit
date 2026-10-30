@@ -64,6 +64,16 @@ export enum Kind {
      * an approval: the change is prepared and confirmed afterwards (KindHarness).
      */
     KindHarnessScope = "harness_scope",
+
+    /**
+     * KindHarnessGroupRequest is the person's answer to a session's request for
+     * more tool groups that waits on the person: approve it, decline this
+     * request, or decline it and block those groups for that session. Approving
+     * is followed by the exact-change confirmation (KindHarness); the two
+     * declines write nothing but the request's own state and, for a block, the
+     * lock.
+     */
+    KindHarnessGroupRequest = "harness_group_request",
 };
 
 export interface Pending {

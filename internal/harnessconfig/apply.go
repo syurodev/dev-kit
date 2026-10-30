@@ -83,8 +83,19 @@ func (s *Service) Apply(ctx context.Context, id string) (Result, error) {
 		}
 	}
 
+	return s.runCommit(ctx, caller, p)
+}
+
+// runCommit is everything Apply does once the question is settled: hold the V
+// boundary, coordinate the session, commit, publish and audit. ApplyDelegated
+// shares it, so a delegated change meets exactly the same checks.
+func (s *Service) runCommit(ctx context.Context, caller identity.Caller, p *pendingProposal) (Result, error) {
+	fail := func(err error) (Result, error) {
+		s.audit(p, harness.Applied{}, outcomeOf(err), "")
+		return Result{}, err
+	}
 	var out committed
-	err = s.cfg.Boundary.Hold(ctx, func() error {
+	err := s.cfg.Boundary.Hold(ctx, func() error {
 		// An S change on a session is coordinated with every other writer of S,
 		// every endpoint replacement and the session's close. Order: the V boundary
 		// (held here), then the session coordinator, then the host's own locks.
@@ -154,6 +165,13 @@ func (s *Service) commit(ctx context.Context, caller identity.Caller, p *pending
 	if txn != nil {
 		read = func(string) (LiveTarget, error) { return txn.Target(), nil }
 	}
+	if p.precommit != nil {
+		// What lets this change through is read again here, inside the boundary:
+		// an answer read before the boundary was taken is not authority now.
+		if err := p.precommit(ctx); err != nil {
+			return refusalFor(err)
+		}
+	}
 	ev, policy, err := s.evaluate(ctx, caller, p.req, read)
 	if err != nil {
 		return refusalFor(err)
@@ -163,6 +181,10 @@ func (s *Service) commit(ctx context.Context, caller identity.Caller, p *pending
 			return ErrExecutableDenied
 		}
 		return ErrExecutableNotReady
+	}
+	if p.req.Fence != nil && ev.write.Override != nil {
+		// The fence belongs to the proposal, not to what evaluate rebuilt.
+		ev.write.Override.Fence = p.req.Fence
 	}
 	if ev.W != p.bound.W {
 		return ErrConflict
@@ -337,6 +359,10 @@ func mapApplyErr(err error) error {
 		return ErrStale
 	case errors.Is(err, harness.ErrStoreScope):
 		return ErrScopeGone
+	case errors.Is(err, harness.ErrStoreGroupLocked):
+		return ErrGroupLocked
+	case errors.Is(err, harness.ErrStoreFenceLost):
+		return ErrFenceLost
 	}
 	return ErrStale
 }
@@ -355,7 +381,8 @@ func (s *Service) audit(p *pendingProposal, applied harness.Applied, outcome, pu
 	}
 	s.cfg.Audit(Event{Outcome: outcome, Tier: p.view.Tier, Target: p.view.Target, Caller: p.caller,
 		WorkspaceID: p.bound.WorkspaceID, SessionID: p.bound.SessionID,
-		Profile: applied.Profile.Revision, Override: applied.Override.Revision, Publication: publication})
+		Profile: applied.Profile.Revision, Override: applied.Override.Revision, Publication: publication,
+		Grantor: p.grantor, RequestID: p.requestID})
 }
 
 func (s *Service) wasCancelled(p *pendingProposal) bool {

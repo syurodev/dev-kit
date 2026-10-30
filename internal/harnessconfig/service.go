@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"slices"
 	"sort"
 	"sync"
 
@@ -63,6 +64,13 @@ type pendingProposal struct {
 	// repair is set for a stale-profile repair (PrepareRepair) and for nothing else:
 	// bound, req.Patch and the ordinary evaluation are not used for it.
 	repair *repairBinding
+	// grantor and requestID are set for a delegated change (delegate.go) and for
+	// nothing else; they only label the audit event.
+	grantor, requestID string
+	// precommit, when set, runs first inside commit, under the V boundary and
+	// the session coordinator, and can refuse the change with the facts read
+	// there (ApplyDelegated re-reads what the grantor may hand out).
+	precommit func(ctx context.Context) error
 }
 
 // View is the host-authored confirmation content. Everything but
@@ -194,7 +202,7 @@ func (s *Service) Prepare(ctx context.Context, req Request) (Prepared, error) {
 	if err != nil {
 		return Prepared{}, err
 	}
-	owned := Request{WorkspaceID: req.WorkspaceID, SessionID: req.SessionID, Target: req.Target, Patch: patch, Rationale: cleanRationale(req.Rationale)}
+	owned := Request{WorkspaceID: req.WorkspaceID, SessionID: req.SessionID, Target: req.Target, Patch: patch, Rationale: cleanRationale(req.Rationale), Fence: req.Fence}
 	ev, policy, err := s.evaluate(ctx, caller, owned, s.liveReaderFor(ctx))
 	if err != nil {
 		return Prepared{}, err
@@ -317,6 +325,11 @@ func (s *Service) evaluate(ctx context.Context, caller identity.Caller, req Requ
 	}
 	ev.WorkspaceID = scope.WorkspaceID
 	patch := req.Patch
+	if patch.LockRevoked && (caller.Kind != identity.KindUI || len(patch.RevokeGroups) == 0 || len(patch.EnableGroups) > 0 || req.Target != TargetSession) {
+		// Only the window's revoke writes a lock, and a lock is only ever the
+		// other half of a revoke.
+		return ev, none, ErrDenied
+	}
 	sessionEdit := len(patch.EnableGroups) > 0 || len(patch.RevokeGroups) > 0
 	switch {
 	case req.Target == TargetSession && (ev.SessionID == "" || patch.Workspace != nil || len(patch.BudgetEdits) > 0 || !sessionEdit):
@@ -456,7 +469,9 @@ func (s *Service) evaluate(ctx context.Context, caller identity.Caller, req Requ
 			}
 		}
 	}
-	if ev.Tier == harness.TierNone {
+	// A revoke the person confirmed with a block still writes (the block is the
+	// point) even when removing the group changes nothing that is served.
+	if ev.Tier == harness.TierNone && !(patch.LockRevoked && oChanged) {
 		return ev, none, ErrNoChange
 	}
 
@@ -466,7 +481,10 @@ func (s *Service) evaluate(ctx context.Context, caller identity.Caller, req Requ
 	}
 	if oChanged {
 		ev.write.SessionID = ev.SessionID
-		ev.write.Override = &harness.OverrideWrite{Expect: oStamp, Value: o2}
+		ev.write.Override = &harness.OverrideWrite{Expect: oStamp, Value: o2, Forbid: addedGroups(o, o2)}
+		if patch.LockRevoked {
+			ev.write.Override.Lock = removedGroups(o, o2)
+		}
 	}
 	// The person's opt-in lets an AGENT's narrowing budget edit skip the question,
 	// and nothing else: a window edit is always confirmed, widening, mixed and
@@ -600,3 +618,25 @@ func mergeClassification(a, b harness.Classification) harness.Classification {
 	})
 	return out
 }
+
+// addedGroups are the groups o2 has that o does not: what a write adds to S, and
+// so what the store must find unlocked when it commits.
+func addedGroups(o, o2 *harness.Override) []string {
+	var before []string
+	if o != nil {
+		before = o.Groups
+	}
+	var out []string
+	if o2 != nil {
+		for _, g := range o2.Groups {
+			if !slices.Contains(before, g) {
+				out = append(out, g)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// removedGroups are the groups o has that o2 does not.
+func removedGroups(o, o2 *harness.Override) []string { return addedGroups(o2, o) }

@@ -23,6 +23,9 @@ type childOnTask struct {
 	Code      string                `json:"code,omitempty"`
 	Reason    string                `json:"reason,omitempty"`
 	MessageID string                `json:"messageId,omitempty"`
+	// ToolGroups says what became of the child's starting tool groups, when any
+	// were planned.
+	ToolGroups *childGroupsReport `json:"toolGroups,omitempty"`
 }
 
 type taskRef struct {

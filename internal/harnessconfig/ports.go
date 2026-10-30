@@ -112,4 +112,9 @@ type Event struct {
 	// Publication is what became of the running endpoint ("installed", "pending"
 	// or empty); it never carries a tool, path or value.
 	Publication string
+	// Grantor and RequestID are set when a parent handed the groups to its child
+	// (ApplyDelegated): the parent's session id and the ledger request. The
+	// request's reason text never reaches an event.
+	Grantor   string
+	RequestID string
 }

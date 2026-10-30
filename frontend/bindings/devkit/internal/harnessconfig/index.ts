@@ -18,6 +18,8 @@ export type {
     BudgetPage,
     GroupBudgetRow,
     GroupEdit,
+    GroupRequestResult,
+    GroupRequestView,
     GroupRow,
     Outcome,
     ProfileView,

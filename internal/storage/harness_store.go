@@ -182,6 +182,29 @@ func (s *HarnessStore) Apply(ctx context.Context, w harness.StoreWrite) (harness
 		}
 	}
 
+	if w.Override != nil && len(w.Override.Forbid) > 0 {
+		// Inside this transaction, so a lock committed before it is seen here and
+		// one committed after cannot slip between this read and the write below
+		// (SQLite refuses the upgrade of a stale reader).
+		locked, err := lockedGroups(ctx, tx, w.SessionID, w.Override.Forbid)
+		if err != nil {
+			return harness.Applied{}, err
+		}
+		if len(locked) > 0 {
+			return harness.Applied{}, harness.ErrStoreGroupLocked
+		}
+	}
+
+	var fence *harness.WriteFence
+	if w.Override != nil {
+		fence = w.Override.Fence
+	}
+	if fence != nil {
+		if err := checkWriteFence(ctx, tx, w.SessionID, fence); err != nil {
+			return harness.Applied{}, err
+		}
+	}
+
 	now := s.now().Format(time.RFC3339Nano)
 	var applied harness.Applied
 	if w.Profile != nil {
@@ -205,6 +228,29 @@ func (s *HarnessStore) Apply(ctx context.Context, w harness.StoreWrite) (harness
 		})
 		if err != nil {
 			return harness.Applied{}, err
+		}
+	}
+	if fence != nil && fence.RequestID != "" {
+		// The grant and the approval of its request are one change: either both are
+		// durable or neither is, so a later close cannot find a written grant behind
+		// a request it invalidated.
+		res, err := tx.ExecContext(ctx, `UPDATE agent_group_requests SET state='approved',revision=revision+1,resolver=?,outcome=?,updated_at=?,resolved_at=? WHERE id=? AND revision=? AND state=?`,
+			fence.Resolver, fence.Outcome, now, now, fence.RequestID, fence.RequestRevision, fence.RequestState)
+		if err != nil {
+			return harness.Applied{}, err
+		}
+		if n, err := res.RowsAffected(); err != nil || n != 1 {
+			return harness.Applied{}, harness.ErrStoreFenceLost
+		}
+	}
+	if w.Override != nil {
+		for _, g := range w.Override.Lock {
+			if g == "" || len(g) > 128 {
+				return harness.Applied{}, harness.ErrStoreCorrupt
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO agent_session_group_locks(session_id,group_name,created_at) VALUES(?,?,?) ON CONFLICT(session_id,group_name) DO NOTHING`, w.SessionID, g, now); err != nil {
+				return harness.Applied{}, err
+			}
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -347,4 +393,54 @@ func (s *HarnessStore) ClearOverride(ctx context.Context, sessionID string) (har
 		return harness.Stamp{}, err
 	}
 	return harness.Stamp{Revision: next}, nil
+}
+
+// lockedGroups returns which of groups the session has locked.
+func lockedGroups(ctx context.Context, q interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}, sessionID string, groups []string) ([]string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT group_name FROM agent_session_group_locks WHERE session_id=?`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var g string
+		if err := rows.Scan(&g); err != nil {
+			return nil, err
+		}
+		if slices.Contains(groups, g) {
+			out = append(out, g)
+		}
+	}
+	return out, rows.Err()
+}
+
+// checkWriteFence reads the fenced facts inside the write's transaction. The
+// database has one connection, so no other statement runs between these reads and
+// the writes that follow in the same transaction.
+func checkWriteFence(ctx context.Context, tx *sql.Tx, sessionID string, f *harness.WriteFence) error {
+	if f.Grantor != "" {
+		var one int
+		err := tx.QueryRowContext(ctx, `SELECT 1 FROM agent_sessions c JOIN agent_sessions p ON p.id=c.parent_session_id WHERE c.id=? AND p.id=? AND p.status<>'closed'`, sessionID, f.Grantor).Scan(&one)
+		if errors.Is(err, sql.ErrNoRows) {
+			return harness.ErrStoreFenceLost
+		}
+		if err != nil {
+			return err
+		}
+	}
+	if f.RequestID != "" {
+		var child, state string
+		var revision int64
+		err := tx.QueryRowContext(ctx, `SELECT child_id,state,revision FROM agent_group_requests WHERE id=?`, f.RequestID).Scan(&child, &state, &revision)
+		if errors.Is(err, sql.ErrNoRows) || (err == nil && (child != sessionID || state != f.RequestState || revision != f.RequestRevision)) {
+			return harness.ErrStoreFenceLost
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

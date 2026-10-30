@@ -169,3 +169,61 @@ func (s *AppService) HarnessReconcile(workspaceID, sessionID string) (harnesscon
 	}
 	return result.(harnessconfig.Outcome), nil
 }
+
+// The window's side of the child tool-group request ledger. The facade refuses
+// anything but the window for the answer and the locks, so these are thin.
+
+// HarnessGroupRequests lists the requests for more tool groups that wait for the
+// person, with the revision each was read at. A request's reason is the session's
+// own words: show it as untrusted text.
+func (s *AppService) HarnessGroupRequests() ([]harnessconfig.GroupRequestView, error) {
+	result, err := s.call(context.Background(), "builtin.harness", "harness:read", "ui:profile", map[string]any{
+		"action": "group_requests",
+	}, func(ctx context.Context) (any, error) {
+		return s.container.Harness.ListGroupRequests(ctx)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]harnessconfig.GroupRequestView), nil
+}
+
+// HarnessAnswerGroupRequest answers a request that waits for the person:
+// "approve" (shows the exact change and asks again), "decline" (this request
+// only) or "block" (decline and lock those groups for that session). The answer
+// is bound to the revision the window showed.
+func (s *AppService) HarnessAnswerGroupRequest(id string, revision int64, answer string) (harnessconfig.GroupRequestResult, error) {
+	result, err := s.call(context.Background(), "builtin.harness", "harness:write", "ui:change", map[string]any{
+		"action": "answer_group_request", "answer": answer,
+	}, func(ctx context.Context) (any, error) {
+		return s.container.Harness.AnswerGroupRequest(ctx, id, revision, answer)
+	})
+	if err != nil {
+		return harnessconfig.GroupRequestResult{}, err
+	}
+	return result.(harnessconfig.GroupRequestResult), nil
+}
+
+// HarnessGroupLocks lists the tool groups the person blocked for a session.
+func (s *AppService) HarnessGroupLocks(sessionID string) ([]string, error) {
+	result, err := s.call(context.Background(), "builtin.harness", "harness:read", "ui:profile", map[string]any{
+		"action": "group_locks", "session_id": recordID(sessionID),
+	}, func(ctx context.Context) (any, error) {
+		return s.container.Harness.GroupLocks(ctx, sessionID)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]string), nil
+}
+
+// HarnessSetGroupLock blocks a tool group for a session (no agent can add it) or
+// lifts the block. Only the person writes a lock.
+func (s *AppService) HarnessSetGroupLock(sessionID, group string, locked bool) error {
+	_, err := s.call(context.Background(), "builtin.harness", "harness:write", "ui:change", map[string]any{
+		"action": "set_group_lock", "session_id": recordID(sessionID), "locked": locked,
+	}, func(ctx context.Context) (any, error) {
+		return nil, s.container.Harness.SetGroupLock(ctx, sessionID, group, locked)
+	})
+	return err
+}

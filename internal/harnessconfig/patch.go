@@ -26,9 +26,13 @@ const (
 // Patch is the requested change. It is data to apply to copies of W and S; it is
 // never classified itself (the effective before and after are).
 type Patch struct {
-	EnableGroups []string      `json:"enableGroups,omitempty"`
-	RevokeGroups []string      `json:"revokeGroups,omitempty"`
-	Workspace    *ProfilePatch `json:"workspace,omitempty"`
+	EnableGroups []string `json:"enableGroups,omitempty"`
+	RevokeGroups []string `json:"revokeGroups,omitempty"`
+	// LockRevoked, window only, also blocks the revoked groups for the session
+	// in the same transaction as the revoke: no agent, its parent included, can
+	// add them back until the person lifts the block.
+	LockRevoked bool          `json:"lockRevoked,omitempty"`
+	Workspace   *ProfilePatch `json:"workspace,omitempty"`
 	// BudgetEdits are partial edits of result budgets in W, translated over the
 	// current W before anything is classified. They never touch S.
 	BudgetEdits []BudgetEdit `json:"budgetEdits,omitempty"`
@@ -58,6 +62,10 @@ type Request struct {
 	SessionID   string
 	Target      Target
 	Patch       Patch
+	// Fence is set by host code only (the request ledger's appliers); no tool, no
+	// bridge method and no JSON field reaches it. The store checks it inside the
+	// write's transaction (harness.WriteFence).
+	Fence *harness.WriteFence
 	// Rationale is the agent's own words. It is shown labelled as untrusted and
 	// never decides a target, tier or any markup.
 	Rationale string

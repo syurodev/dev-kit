@@ -4,6 +4,8 @@ import type {
   BudgetPage,
   GroupBudgetRow,
   GroupEdit,
+  GroupRequestResult,
+  GroupRequestView,
   GroupRow,
   Outcome,
   ProfileView,
@@ -22,6 +24,8 @@ export type {
   BudgetPage,
   GroupBudgetRow,
   GroupEdit,
+  GroupRequestResult,
+  GroupRequestView,
   GroupRow,
   Outcome,
   ProfileView,
@@ -149,4 +153,24 @@ export function reconcileSession(
   sessionId: string,
 ): Promise<Outcome> {
   return callBridge(() => AppService.HarnessReconcile(workspaceId, sessionId)).finally(harnessChanged);
+}
+
+/** The tool groups the person blocked for a session: no agent can add them. */
+export function groupLocks(sessionId: string): Promise<string[]> {
+  return callBridge(async () => (await AppService.HarnessGroupLocks(sessionId)) ?? []);
+}
+
+/** Blocks a group for a session, or lifts the block. Only the person writes a lock. */
+export function setGroupLock(sessionId: string, group: string, locked: boolean): Promise<void> {
+  return callBridge(() => AppService.HarnessSetGroupLock(sessionId, group, locked) as Promise<void>);
+}
+
+/** Requests for more groups that wait for the person. The reason is the session's own, untrusted text. */
+export function groupRequests(): Promise<GroupRequestView[]> {
+  return callBridge(async () => (await AppService.HarnessGroupRequests()) ?? []);
+}
+
+/** "approve" (shows the exact change and asks again), "decline" (this request only) or "block". */
+export function answerGroupRequest(id: string, revision: number, answer: "approve" | "decline" | "block"): Promise<GroupRequestResult> {
+  return callBridge(() => AppService.HarnessAnswerGroupRequest(id, revision, answer));
 }

@@ -33,6 +33,41 @@ type ProfileWrite struct {
 type OverrideWrite struct {
 	Expect Stamp
 	Value  *Override
+	// Forbid names groups this write adds to S. The store reads the session's
+	// group locks inside the write's own transaction and refuses the whole write
+	// (ErrStoreGroupLocked, nothing written) if any is locked, so a block the
+	// person wrote before this commit is never bypassed by an earlier check.
+	Forbid []string
+	// Fence names facts that must still hold when this write commits. The store
+	// reads them inside the write's own transaction and, if any no longer holds,
+	// refuses the whole write (ErrStoreFenceLost, nothing written).
+	Fence *WriteFence
+	// Lock names groups written to the session's lock list in the SAME
+	// transaction as this write: a revoke the person confirmed and the rule that
+	// no agent adds the group back either both land or neither does.
+	Lock []string
+}
+
+// WriteFence is what lets a delegated or requested change through, checked at the
+// moment it is written rather than read earlier and trusted. Host code builds it
+// from the ledger and the session rows; nothing an agent says reaches it.
+//
+// Every fact is checked in the write's transaction, and the request is settled in
+// that same transaction, so the grant, the request's approval and the facts that
+// allowed it have one linearization point: the commit of the write. A close or an
+// invalidation that commits first makes the write fail; one that commits after it
+// finds a request that is already approved and a grant that already happened.
+type WriteFence struct {
+	// Grantor, when set, must be the open direct parent of the write's session.
+	Grantor string
+	// RequestID, when set, must be a request of the write's session that is in
+	// RequestState at RequestRevision. The same transaction moves it to approved,
+	// resolved by Resolver with Outcome.
+	RequestID       string
+	RequestState    string
+	RequestRevision int64
+	Resolver        string
+	Outcome         string
 }
 
 // StoreWrite is one atomic change. Profile and Override are each optional; when
@@ -57,6 +92,13 @@ var (
 	// ErrStoreScope means the workspace or session does not exist or the
 	// session does not belong to the workspace. Nothing is transferred silently.
 	ErrStoreScope = errors.New("harness scope not found")
+	// ErrStoreGroupLocked means a group the write adds is locked for the session.
+	// Nothing was written.
+	ErrStoreGroupLocked = errors.New("tool group is blocked for this session")
+	// ErrStoreFenceLost means a fact the write was fenced on no longer holds: the
+	// grantor closed, or the request is no longer open at the revision it was read
+	// at. Nothing was written.
+	ErrStoreFenceLost = errors.New("the change is no longer allowed")
 	// ErrStoreCommitUnknown means the final commit failed after every check
 	// passed, so the write may or may not be durable. Every other store error is a
 	// proven rollback. A caller reads the stamps back before it decides.

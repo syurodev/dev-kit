@@ -78,7 +78,7 @@ func TestManagedHarnessBindingsMigrationFreshAndUpgradeFrom55(t *testing.T) {
 	f := newHarnessFixture(t)
 	ctx := context.Background()
 	var version int
-	if err := f.db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil || version != 56 {
+	if err := f.db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil || version != 58 {
 		t.Fatalf("fresh version = %d, err = %v", version, err)
 	}
 	var packageHash string
@@ -103,7 +103,7 @@ func TestManagedHarnessBindingsMigrationFreshAndUpgradeFrom55(t *testing.T) {
 	if err := f.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name IN ('agent_work_harness_bindings','agent_work_harness_bindings_no_update')`).Scan(&tables); err != nil || tables != 2 {
 		t.Fatalf("table and trigger = %d, err = %v", tables, err)
 	}
-	if err := f.db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil || version != 56 {
+	if err := f.db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil || version != 58 {
 		t.Fatalf("upgraded version = %d, err = %v", version, err)
 	}
 	var after string
