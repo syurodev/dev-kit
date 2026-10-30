@@ -550,6 +550,13 @@ export interface LimitWindow {
     "usedPercent": number;
     "resetsAt"?: number;
     "status"?: string;
+
+    /**
+     * NoReading says UsedPercent is not a reading: Claude's rate-limit block
+     * names the window and its verdict and may carry no utilization. A merge
+     * keeps the percent it already had for the label; see mergeUsage.
+     */
+    "noReading"?: boolean;
 }
 
 /**

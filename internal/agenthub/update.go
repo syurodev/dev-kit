@@ -371,6 +371,10 @@ type LimitWindow struct {
 	UsedPercent float64 `json:"usedPercent"`
 	ResetsAt    int64   `json:"resetsAt,omitempty"`
 	Status      string  `json:"status,omitempty"`
+	// NoReading says UsedPercent is not a reading: Claude's rate-limit block
+	// names the window and its verdict and may carry no utilization. A merge
+	// keeps the percent it already had for the label; see mergeUsage.
+	NoReading bool `json:"noReading,omitempty"`
 }
 
 // Connector is an MCP server the vendor started for the session, and where it
@@ -995,7 +999,7 @@ func limitsOfRateLimit(r *RateLimit) []LimitWindow {
 	case "rejected":
 		status = "reached"
 	}
-	return []LimitWindow{{Label: claudeLimitLabel(r.LimitType), UsedPercent: r.Utilization, ResetsAt: r.ResetsAt, Status: status}}
+	return []LimitWindow{{Label: claudeLimitLabel(r.LimitType), UsedPercent: r.Utilization, ResetsAt: r.ResetsAt, Status: status, NoReading: r.Utilization == 0}}
 }
 
 // claudeLimitLabel names Claude's rate-limit types the way its own /usage does.
