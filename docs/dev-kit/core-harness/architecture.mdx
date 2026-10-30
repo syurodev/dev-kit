@@ -1,0 +1,135 @@
+---
+title: Kiến trúc và ranh giới
+description: Ownership, execution kernel và extension contracts của core harness.
+---
+
+# Kiến trúc và ranh giới
+
+Trạng thái: foundation design v0.2, chưa implementation. Phạm vi và bất biến chung ở [Core harness](index.mdx).
+
+## 1. Mô hình kiến trúc
+
+```mermaid
+flowchart TD
+    UI[React / native shell / CLI / MCP host] --> APP[Application API và identity boundary]
+    APP --> HOST[Session host và run coordinator]
+    HOST --> K[Execution kernel: decide / evolve]
+    HOST --> STORE[Execution repository: history + projections]
+    HOST --> CTX[Context strategy]
+    HOST --> MODEL[Model adapter]
+    HOST --> TOOL[Tool dispatch adapter]
+    TOOL --> GATE[Service / capability / approval gateway]
+    GATE --> DOMAIN[Git / DB / files / tasks / vault / services]
+    HOST --> EVENTS[Read model và event subscriptions]
+    EVENTS --> UI
+```
+
+Đây là ranh giới logic, không phải đề xuất tạo một package cho mỗi ô. `internal/app` tiếp tục là composition root. UI/transport chuyển đổi DTO và hiển thị; chúng không sở hữu loop, policy, transcript hoặc recovery.
+
+Provider adapter gọi model trực tiếp là năng lực mới của runtime tương lai. Việc đưa nó vào hệ thống MUST đi qua session lifecycle, account, scope, budget và activation path được review; không được xem là một đường gọi mạng ngoài quản lý của DevKit.
+
+## 2. Command, decision, event và effect
+
+| Khái niệm | Ví dụ | Semantics |
+| --- | --- | --- |
+| Command | Bắt đầu run, yêu cầu hủy, chấp nhận completion của một invocation | Ý định hoặc đầu vào; có thể bị từ chối hoặc nhận lại kết quả đã xử lý |
+| Decision | Được bắt đầu model request tiếp theo; phải chờ approval | Kết quả kiểm tra state và facts đầu vào |
+| Domain event | Run đã được nhận, invocation đã được lên lịch, kết quả đã được ghi nhận | Sự kiện đã commit trong execution history |
+| Effect intent | Yêu cầu gọi model hoặc dispatch tool có identity cụ thể | Công việc cần thực hiện, chưa chứng minh đã thực hiện |
+| Observation | Adapter báo nhận phản hồi hoàn chỉnh hoặc tool kết thúc | Bằng chứng đầu vào cần validate, fence và commit |
+
+Tên event MUST phản ánh điều host biết. `ToolDispatchStarted` chỉ chứng minh host đã bắt đầu dispatch; `ToolResultRecorded(outcome=success)` cần observation hợp lệ từ executor. “Model đã nói thành công” không đủ làm observation thành công của tool.
+
+Kernel có hai hợp đồng logic:
+
+```text
+decide(state, command, explicitFacts) → events / rejection
+evolve(state, committedEvent)        → nextState
+```
+
+Các hàm này MUST không gọi network/OS/SQL, không tự đọc đồng hồ, không sinh random ID, không đọc policy hiện tại. ID, time, policy observations và budget observations được host cung cấp tường minh. Model/context strategy có hành vi không xác định MUST có kết quả cần thiết được ghi nhận trước khi dùng làm cơ sở transition.
+
+`evolve` dùng dữ kiện lịch sử để dựng lại state. Nó không đánh giá lại quyền hiện tại để sửa quá khứ. Việc có được thực thi một bước tiếp theo hay không là command mới, đi qua kiểm tra hiện tại.
+
+## 3. Protocol một bước xử lý
+
+1. Host xác thực caller, đọc state/revision và thu thập facts từ owning services khi cần.
+2. Kernel kiểm tra command và tạo các event mô tả quyết định; event chỉ là dự kiến cho đến commit.
+3. Chỉ owner coordinator được yêu cầu repository append; Queued accept/cancel dùng queue-owner revision, mọi execution transition sau admit cần session admission token. Transaction kiểm tra revision/dedup/fence, append event batch và cập nhật projections: control state suy ra, native transcript, timer và execution intents. Intent không có đường ghi độc lập.
+4. Coordinator commit `ModelDispatchStarted` hoặc `ToolDispatchStarted` trước, rồi mới giao work item qua bounded in-memory channel cho worker; không có worker tự claim SQL row.
+5. Worker kiểm tra cancellation và đi qua gate hiện tại ở boundary thực thi, gọi adapter/service ngoài transaction, rồi trả observation.
+6. Observation trở về coordinator như command có invocation/attempt identity; coordinator validate và append kết quả theo cùng protocol. Worker, timer scheduler và UI không append stream.
+
+Không giữ transaction, coordinator lock hay mutex chuyển state trong thời gian chờ model, tool, approval hoặc child. Mỗi callback chỉ chiếm quyền xử lý đủ lâu để commit một transition.
+
+Commit không rõ kết quả MUST được read-back bằng command/event identity trước bước tiếp theo. Không dispatch từ kết quả commit chưa xác định và không tạo intent mới để “thử lại”. Xem [transaction và recovery](event-storage-recovery.mdx).
+
+Không dùng subscription của UI làm cơ chế duy nhất kích hoạt execution. Mất một notification không được làm mất intent đã commit.
+
+## 4. Ownership và nơi giữ sự thật
+
+| Thông tin | Owner / nguồn có thẩm quyền | Core được giữ |
+| --- | --- | --- |
+| State của run/model request/tool invocation | Execution repository của session host | Event history và projection cùng owner |
+| Identity, workspace, quan hệ cha/con, runtime incarnation | Agent Hub và identity/session services | Reference và observation có revision |
+| Capability, environment confirmation, sandbox | Owning gateway/service | Kết quả kiểm tra dùng cho một bước, không có quyền tái sử dụng vô hạn |
+| Approval/question | Interaction và service sở hữu yêu cầu | Reference, lifecycle observation và recovery metadata được phép |
+| Tool groups / effective configuration | `harness` / `harnessconfig` cùng host publication | Binding/version đã resolve; không thêm resolver thứ hai |
+| Task, acceptance, branch ownership | Tasks, Git và managed-work owners | Task/attempt IDs và evidence references |
+| Peer delivery | Peer outbox hiện hữu | Delivery reference và observation; không outbox song song |
+| Canonical transcript native | Projection cùng transaction với execution events | Responses/results được chọn và immutable payload refs |
+| Vendor transcript / attachments / artifacts | Store hiện hữu phù hợp trong session domain | Không tự migrate vendor history hoặc giả có native atomicity |
+
+Sự kiện lịch sử “approval đã được cấp” và quyền thực thi hiện tại có semantics khác nhau. Approval có thể đã hết hạn, bị consume, vault đã khóa hoặc scope đã đổi. Tool executor MUST dùng gateway hiện hành; không dựng một cache quyền từ journal.
+
+Các effect gọi task handoff hoặc gửi peer message MUST ủy quyền cho đường hiện hữu và tham chiếu identity của nó. Execution intent không được biến thành managed ledger, peer delivery queue hoặc approval ledger mới.
+
+## 5. Port và extension contracts
+
+Tên bên dưới là tên logic, chưa chốt Go interface signatures.
+
+| Port / strategy | Trách nhiệm | Ràng buộc |
+| --- | --- | --- |
+| Model adapter | Chuyển request chuẩn hóa sang provider; stream và chuẩn hóa completion/error/usage | Giữ khác biệt provider tại adapter; không tự chạy tool hoặc cập nhật state run |
+| Context builder | Chọn messages, references, compaction và tool declarations | Có budget; đầu vào/phiên bản có thể truy vết; không tự cấp tool/quyền |
+| Tool dispatcher | Resolve declaration, validate input và đi qua đường service/gateway được kiểm soát | Không gọi raw handler để né identity/gate/result budget |
+| Execution repository | Transaction adapter cho coordinator: append có revision/token, dedup, projections và recovery reads | Không tự schedule/claim; chỉ current coordinator ghi execution stream |
+| Interaction port | Kết nối câu hỏi/approval hiện hữu | Fail closed khi không có trusted responder; không tự duyệt |
+| Continuation strategy | Đề xuất tiếp tục/kết thúc sau một step hoàn chỉnh | Kernel vẫn cưỡng chế budget, cancellation và state legality |
+| Read model/event sink | Timeline, metrics và client updates | Không được thay state hoặc gây tác động chỉ từ việc replay UI |
+
+Strategy là nơi mở rộng hành vi, kernel là nơi giữ bất biến. Hooks MUST NOT bỏ validation, gỡ user block, đổi caller, nới scope hoặc chặn cancellation vô hạn. Hook không tin cậy hoặc có side effect cần được đặt sau một boundary phù hợp; chưa có plugin code chạy tùy ý trong kernel v1.
+
+## 6. Concurrency và scheduling
+
+Có một coordinator giữ quyền append cho active run. Pre-admission accept/cancel do cùng owner coordinator xử lý bằng queue/session revision, không chiếm hoặc clear admission của run khác. Session owner dùng admission row có `activeRunID`, `ownerIncarnation`, monotonic `admissionToken` và revision; admit/recover/finish cập nhật row cùng execution transaction. Admission không phải managed writer lease; không hết hạn tự động để suy ra process đã dừng. Xem [session admission](event-storage-recovery.mdx#3-session-admission-và-fencing).
+
+Worker, timer scheduler và interaction bridge chỉ gửi command/observation. Repository kiểm tra admission token và stream revision cho mọi append. `DispatchStarted` và stop intent được linearize bởi coordinator; dispatch đã commit trước stop là một effect có thể đã bắt đầu, dù chưa biết handoff. Không re-dispatch intent đang dispatching sau restart.
+
+Run lifecycle/phase/wait reasons được suy ra từ invocation và control facts, không là một máy có thể tự chuyển độc lập. Invariants giữa run/model/tool/approval/timer được đặc tả trong [state machine](state-machine.mdx#3-invariant-giữa-các-máy).
+
+V1 SHOULD thực thi tool tuần tự. Mô hình dữ liệu MUST có invocation ID, source position và attempt riêng ngay từ đầu. Khi mở song song, phải review conflict/resource rules, approval của từng invocation, cancellation và cách đưa tool results về transcript theo source order. Không đổi enum run thành mọi tổ hợp tool states.
+
+User prompt, peer message và steering là command có nguồn/provenance rõ ràng. Thứ tự ưu tiên và pause/queue policy thuộc session host; core không được tự drain recovered peer work trước khi có queue state hiện tại của người dùng.
+
+## 7. Backend và tools độc lập frontend
+
+Go sở hữu model/tool schemas, validation, budgets, lifecycle, authorization, domain services và persistence. Frontend sở hữu trình bày, form draft, selection và view state. Một host mới chuyển command vào cùng application/service contracts với identity được xác thực; các host không mặc nhiên có cùng quyền.
+
+Không đưa Wails types, React concepts hoặc UI callbacks vào kernel/domain contracts. Native UI tương lai dùng adapter khác, không port tool implementation sang ngôn ngữ UI. OS-specific execution vẫn ở adapter Go phù hợp.
+
+Unauthenticated loopback server hiện tại MUST tiếp tục fail closed với gated operations. Việc có HTTP/IPC adapter không tự làm cho approval từ local process thành đáng tin cậy. Một native host mới muốn trả lời approval cần thiết kế trust boundary riêng.
+
+## 8. Package placement và tích hợp
+
+Placement cụ thể là open decision trước implementation, không tạo scaffolding trong đợt tài liệu này. Phải giữ các contract đã enforce trong [architecture rules](../../agent-reference/architecture-rules.md):
+
+- `internal/harness` vẫn là định nghĩa effective configuration; không trở thành package chứa mọi runtime concern.
+- `harness`, `harnessconfig` và `agentwork` giữ stdlib-only theo allowlists hiện hành.
+- Task handoff/managed orchestration tiếp tục ở `internal/agentwork`; không thêm workflow engine hoặc managed ledger cạnh tranh.
+- `internal/app` wire dependencies; domain không import ngược host, bridge, MCP hoặc storage migration package.
+- Wails chỉ ở desktop shell; protected tables chỉ được truy cập bởi owner đã khai báo.
+
+Một thư viện FSM, nếu được chọn sau này, không được lọt vào stdlib-only leaf. Đổi boundary phải có ADR và sửa architecture tests có giải thích trong cùng thay đổi; không nới allowlist chỉ để implementation qua test.
+
+Vendor runtimes đang chạy không được phản chiếu thành native runs giả với bảo đảm không đo được. Cần adapter capability/observation contract nói rõ host biết gì. Chuyển sang native runtime là một activation slice riêng, có đường rollback và compatibility cho session lịch sử.

@@ -1,0 +1,158 @@
+---
+title: Event catalog và execution traces
+description: Danh mục command/event v0.2 và hai chuỗi thực thi hoàn chỉnh để review transitions.
+---
+
+# Event catalog và execution traces
+
+Trạng thái: foundation contract v0.2, tên/schema logic để review; chưa là public wire API. Đây là catalog tối thiểu của native execution. Event batch được append bởi coordinator; projection được cập nhật đồng bộ như [storage protocol](event-storage-recovery.mdx).
+
+## 1. Quy ước
+
+Command là yêu cầu/observation có thể bị từ chối, dedup hoặc no-op; event là fact đã commit. `TimerFired` là command; event được ghi khi nó hợp lệ là `TimerElapsed`. Không dùng cùng một tên để lẫn hai nghĩa.
+
+Envelope chung có run/sequence, command/causation, authenticated origin và writer/admission/executor fences. Pre-admission accept/cancel dùng queue-owner revision thay admission token; chỉ admitted execution mới bắt buộc active-run token. Các field bên dưới bổ sung envelope; nội dung nhạy cảm dùng protected refs. `origin=model` không phải authority; `origin=worker/timer/recovery` phải do host-bound ingress xác lập.
+
+`RunWaitEntered/Exited`, `PhaseChanged`, `IntentInserted` và `TranscriptAppended` không có trong catalog v1: chúng là projection/derived changes từ facts dưới đây, không là nguồn dữ liệu thứ hai.
+
+## 2. Run và step
+
+| Event | Fields/control facts chính | Guard / thay đổi projection |
+| --- | --- | --- |
+| `RunAccepted` | Input ref, session/queue item ref, protocol/config binding, initial budgets | Run ID mới; tạo `Queued`; chưa đưa queued input vào transcript đang chạy |
+| `RunAdmitted` | Admission token, owner incarnation, queue decision reference | CAS session admission thành công; materialize input trong canonical transcript |
+| `RunOwnershipAcquired` | Token mới, previous token, recovery receipt | Chỉ current session owner phục hồi cùng active run; không tạo dispatch |
+| `RunStopRequested` | Reason, mode terminal/suspend, actor, target, request time | Ghi stop intent; terminal primary reason không bị callback ghi đè |
+| `RunBlockAdded` | Blocker ID/kind/reference, resume condition | Thêm dependency có kiểu; lifecycle/wait reasons được suy ra |
+| `RunBlockCleared` | Blocker ID, resolving owner evidence | Chỉ đúng dependency/version và current authority; không tự dispatch |
+| `RunInterrupted` | Typed cause, affected attempt/payload refs | Ghi blocker thực sự cần đối soát/can thiệp; không phát chỉ vì run đang Queued lúc restart |
+| `RunRecoveryCleared` | Cause IDs, recovery evidence, authorized next action | Clear đúng interruption, không xóa unknown evidence cũ hoặc tự gỡ user/vault blocks |
+| `UnknownAccepted` | Exact target attempts/revisions, actor, accepted uncertainty, disposition `close` | Trusted user command v1; đặt terminal control dispositions; exposure vẫn unknown |
+| `RunFinished` | Outcome, primary/secondary stop refs, unresolved exposure refs nếu có | Mọi invocation đã có control disposition; cancel timers/dependencies, clear đúng control admission nếu run sở hữu nó; Queued finish không clear admission của run khác |
+| `StepStarted` | Step index, context/config refs | Step trước đã đóng; tạo model frontier, chưa gọi model |
+| `StepCompleted` | Response ref, ordered result refs, continuation decision/policy | Canonical response và tool pairs đủ; next action end/continue có budget/stop checks |
+| `StepAborted` | Typed reason và dispositions của batch đã xuất hiện | Dùng khi stop/fatal/unknown close trước normal completion; không giả có model response hoàn chỉnh |
+
+Ghim input/config phục vụ provenance, không ghim quyền. Admission guards và execution authorization vẫn đọc owner hiện tại. Host không đọc được schema thì không được ghi `RunInterrupted` vào stream đó để đoán state.
+
+`UnknownAccepted` không tự hoàn tất step/run. Coordinator cùng batch ghi synthetic tool results cần thiết, `StepAborted`, cancellation timers và `RunFinished(abandoned_unknown)` sau khi kiểm tra guards. Sự chấp nhận này chỉ đóng execution control, không chấp thuận chạy lại thao tác ghi.
+
+## 3. Model invocation và attempts
+
+| Event | Fields/control facts chính | Guard / thay đổi projection |
+| --- | --- | --- |
+| `ModelRequestPlanned` | Invocation ID, first attempt ID, model/context/tool declaration refs, budget reservation | Tạo logical model invocation ở step frontier; no side effect |
+| `ModelDispatchStarted` | Attempt ID, executor fence, reservation, selected provider settings ref | Coordinator sở hữu admission; không blocker/stop; chuyển attempt `Requesting` trước handoff |
+| `ModelStreamStarted` | Attempt ID, first chunk observation ref | Bound worker report; chuyển `Streaming`; các deltas sau không cần domain event từng token |
+| `ModelResponseRecorded` | Complete response ref, selected attempt, usage status | Valid final protocol record; chuyển `Completed`, chọn response và project canonical assistant message |
+| `ModelRequestFailed` | Stage, failure class/code, retry disposition, usage status, partial ref nếu có | Terminal error evidence; không chuyển transport uncertainty thành known failure |
+| `ModelRequestInterrupted` | Attempt, uncertainty class, partial ref, usage reservation | Thiếu completion/stop proof; giữ output gắn đúng attempt và chưa đưa vào canonical context |
+| `ModelRetryScheduled` | Previous attempt, policy version, retry number, timer ID | Known retryable failure hoặc attempt đã được abandon theo policy; ghi cùng `TimerScheduled` |
+| `ModelAttemptPlanned` | New attempt ID, previous attempt, same invocation, reservation | Timer đã elapsed, admission/budget/blockers hợp lệ; không sửa attempt cũ |
+| `ModelAttemptCancelled` | Pre-dispatch hoặc terminal/quiescence evidence | Không dùng request cancellation làm bằng chứng đã dừng |
+| `ModelAttemptAbandoned` | Uncertainty, policy/user receipt, next action retry/close, unknown cost | Có authority/policy hữu hạn; không ghi usage zero hoặc response giả |
+| `ModelInvocationFailed` | Final failure ref, exhausted/fatal decision | Không còn retry được phép; đóng logical invocation để abort step/finish run |
+| `ModelUsageReconciled` | Provider/accounting evidence, old reservation, observed usage | Cho phép bổ sung accounting sau finish; không mở lại loop hoặc sửa canonical response |
+
+`ModelRequestPlanned` tạo attempt đầu; `ModelAttemptPlanned` chỉ cho attempts sau. `ModelResponseRecorded` và các `ToolCallPlanned` từ response được chọn nằm cùng transaction để current step không bị lệch frontier. Tool arguments vẫn cần validate trước thực thi.
+
+## 4. Tool invocation và attempts
+
+| Event | Fields/control facts chính | Guard / thay đổi projection |
+| --- | --- | --- |
+| `ToolCallPlanned` | Tool call/source position, validated-or-raw input ref, descriptor/effect-class version, first attempt | Response đã complete/selected; tạo candidate, chưa cấp quyền |
+| `ToolCheckStarted` | Frontier cursor, invocation/attempt | Chỉ tool tại frontier; chuyển `Checking`, validate input và nối gateway qua adapter |
+| `ToolApprovalRequested` | Owner request/ref/revision, exact args ref, approver route, expiry | Owner receipt hợp lệ; tạo approval dependency đúng một tool |
+| `ToolApprovalResolved` | Owner resolution/evidence, approved/denied/expired/invalidated | Chỉ receipt đúng request; gỡ dependency và cập nhật approval observation |
+| `ToolReadyRecorded` | Validated args ref, gate observation | Sau check/approval đủ điều kiện scheduling; không là durable grant |
+| `ToolDispatchStarted` | Attempt/fence, current dispatch authorization ref | Coordinator append trước handoff; gateway vẫn kiểm tra tại thực thi |
+| `ToolResultRecorded` | Result/disposition ref, code, effect evidence, source position | Terminal result success/failure/denied/refused/cancelled; project đúng một canonical result |
+| `ToolOutcomeUnknown` | Attempt, cause class, possible exposure và evidence refs | Không có completion phù hợp; không tự chọn retry |
+| `ToolReconciled` | Operation receipt/proof, observed outcome | Owner/provider xác nhận; thêm evidence vào attempt cũ, không chạy lại tool |
+| `ToolAttemptAbandoned` | Class/policy hoặc user disposition ref, next action retry/close | Host chỉ tự abandon theo class contract; exposure unknown vẫn được giữ |
+| `ToolAttemptPlanned` | New attempt, previous attempt, same logical operation/input/key refs | Class/policy/window, current scope và budgets cho phép; không blind retry side effects |
+| `InvocationQuiesceRequested` | Target attempt, reason, cancellation/suspension command ref | Yêu cầu dừng, chưa là stop proof; áp dụng cả model/tool |
+
+Denied/refused/cancelled trước dispatch được kết thúc bằng `ToolResultRecorded` có outcome tương ứng. Approval resolve denied/expired phải cùng batch với terminal result/disposition; approved cùng batch với `ToolReadyRecorded` hoặc refusal nếu current checks thất bại. Không để tool chờ một request đã resolved.
+
+Interaction bridge phải có owner operation identity và read-back/ensure contract để không tạo hai câu hỏi nếu crash khi nối request. `ToolApprovalRequested` chỉ ghi receipt thật, không tự fabricate request ID. Chi tiết integration này là G-05; không suy ra execution transaction bao trùm interaction owner transaction.
+
+Retry/abandon trong bảng áp dụng cho attempt. Logical invocation chỉ đóng khi có selected terminal disposition; abandon để retry chưa đóng invocation, attempt mới cùng invocation được tạo theo policy/timer. Chấp nhận unknown để close thì không còn attempt mới.
+
+## 5. Timer, budget và dependency facts
+
+| Event | Fields/control facts chính | Guard / thay đổi projection |
+| --- | --- | --- |
+| `TimerScheduled` | ID/generation, purpose/target, absolute deadline, chosen backoff/policy | Không đọc clock trong reducer; thêm pending timer dependency |
+| `TimerElapsed` | Timer/generation, trusted observed time | Chỉ sau `TimerFired` hợp lệ; resolve timer dependency một lần |
+| `TimerCancelled` | Timer/generation, cause reference | Pending timer không được đánh thức execution sau stop/finish |
+| `BudgetObserved` | Usage/reservation counters, known/unknown coverage, source attempt | Không double-count, không đổi unknown thành zero |
+
+Vault/pause/dependency observations dùng `RunBlockAdded/Cleared` với kind/reference rõ ràng. Structured question cũng liên kết interaction owner bằng blocker `user_input`; không parse text assistant để tạo wait state.
+
+Timer expiry chỉ là fact thời gian; approval outcome cần owner receipt. `RunFinished` có thể cùng batch cancel các timers còn pending. Timer/accounting projection không có worker tự ghi DB.
+
+## 6. Command surface tối thiểu
+
+Tên là logic, chưa là tool/API mới. Mỗi command có authenticated origin, command ID, expected target revision/fences và protected content refs khi cần.
+
+| Command / observation | Nguồn | Events có thể tạo |
+| --- | --- | --- |
+| `AcceptRun`, `AdmitRun`, `AcquireRunOwnership` | User ingress / session owner | Run accepted/admitted/ownership facts |
+| `AdvanceRun`, `PrepareDispatch` | Coordinator scheduling | Step/model/tool planning, checks hoặc dispatch facts |
+| `ObserveModelStream/Response/Failure` | Bound model worker | Model attempt facts và usage; không do model body tự tạo provenance |
+| `ObserveToolCheck/Approval/Result` | Bound gateway/interaction/tool adapter | Tool readiness/approval/result facts |
+| `RequestStop` | Trusted user, authorized parent hoặc host policy | Stop intent, quiesce, cancellations và eventual finish |
+| `ObserveVault/HostPause/Dependency` | Owner-bound observation | Run blockers và quiesce requests nếu cần |
+| `TimerFired` | Owned scheduler với trusted clock input | `TimerElapsed`, hoặc reject/no-op nếu stale/early |
+| `RecoverRun`, `ReconcileInvocation` | Current coordinator + owner evidence | Unknown/interruption/reconciliation/recovery facts |
+| `AcceptUnknown` | Trusted user v1, exact preview/revision | Unknown accepted/dispositions và explicit close |
+| `ObserveAccounting` | Current owner/provider evidence | Budget/usage reconciliation, kể cả sau finish |
+
+Catalog không tự tạo permission cho caller. Parent session chỉ được gửi các command trong tree/scope contract hiện hữu; không có quyền tự xác nhận mọi unknown hoặc mọi approval.
+
+## 7. Trace A — model → tool → model → finish
+
+Giả định: vault mở, queue cho phép, một tool `pure_read` không cần approval, không có retry. Mỗi hàng là **một transaction event batch**; handoff diễn ra sau hàng dispatch đã commit. Sequence bên dưới là số event thực tế trong cùng run.
+
+| Seq | Events | Facts / lifecycle sau commit |
+| --- | --- | --- |
+| 1 | `RunAccepted(R1,inputRef)` | `Queued`; chưa có effect |
+| 2–4 | `RunAdmitted(token=7)`, `StepStarted(S1)`, `ModelRequestPlanned(M1,A1)` | `Running/preparing`; input được project vào transcript |
+| 5 | `ModelDispatchStarted(M1,A1,token=7)` | A1 `Requesting`; sau commit giao worker |
+| 6 | `ModelStreamStarted(M1,A1)` | `Running/calling_model`; deltas là attempt view |
+| 7–9 | `ModelResponseRecorded(M1,A1,responseRef)`, `BudgetObserved(A1)`, `ToolCallPlanned(T1,position=0)` | Response cùng tool call canonical; T1 `Planned` |
+| 10 | `ToolCheckStarted(T1)` | `Running/processing_tools`; gateway check ngoài transaction |
+| 11 | `ToolReadyRecorded(T1,argsRef)` | T1 `Ready`; không durable grant |
+| 12 | `ToolDispatchStarted(T1,TA1,token=7)` | T1 `Dispatching`; sau commit gọi service/gateway |
+| 13–16 | `ToolResultRecorded(T1,success,resultRef)`, `StepCompleted(S1,continue)`, `StepStarted(S2)`, `ModelRequestPlanned(M2,A2)` | Tool result cùng batch đóng S1, chuẩn bị S2 |
+| 17 | `ModelDispatchStarted(M2,A2,token=7)` | A2 `Requesting`; sau commit gọi provider |
+| 18 | `ModelStreamStarted(M2,A2)` | A2 `Streaming` |
+| 19–22 | `ModelResponseRecorded(M2,A2,finalRef)`, `BudgetObserved(A2)`, `StepCompleted(S2,end)`, `RunFinished(completed)` | `Finished`; control admission được clear, không tự task acceptance |
+
+Replay 22 events chỉ dựng facts/projections; số model calls và tool executions do replay bằng zero. Hai lần dispatch model và một lần tool của trace là tác động live sau commit, không phải event handlers tự chạy.
+
+## 8. Trace B — crash giữa tool dispatch và explicit close
+
+Giả định: T1 là `side_effecting`, cần approval user. Đây là một run riêng, sequence bắt đầu từ 1; mỗi hàng là một transaction batch. Run kết thúc bằng user chấp nhận uncertainty, không khẳng định external effect đã dừng.
+
+| Seq / mốc | Events / command | Facts sau commit |
+| --- | --- | --- |
+| 1 | `RunAccepted(R2,inputRef)` | `Queued` |
+| 2–4 | `RunAdmitted(token=7)`, `StepStarted(S1)`, `ModelRequestPlanned(M1,A1)` | Control admission của R2; model attempt `Planned` |
+| 5 | `ModelDispatchStarted(M1,A1,token=7)` | `Requesting`; sau commit giao worker |
+| 6 | `ModelStreamStarted(M1,A1)` | `Streaming` |
+| 7–9 | `ModelResponseRecorded(M1,A1,responseRef)`, `BudgetObserved(A1)`, `ToolCallPlanned(T1)` | Canonical assistant response có call T1; tool `Planned` |
+| 10 | `ToolCheckStarted(T1)` | Tool `Checking`; bridge nối owner ngoài transaction |
+| 11 | `ToolApprovalRequested(T1,ownerReceipt,argsRef)` | `Waiting(approval)`; chỉ request owner còn sống mới answerable |
+| 12–13 | `ToolApprovalResolved(approved)`, `ToolReadyRecorded(T1,argsRef)` | Tool `Ready`; `Running`, gateway còn phải kiểm tra lúc execute |
+| 14 | `ToolDispatchStarted(T1,TA1,token=7)` | Intent `dispatching`; có thể đã hoặc chưa handoff |
+| Crash | Tool có thể đã thay đổi hệ thống ngoài; chưa commit result | Không có completion evidence; không suy ra failed/chưa chạy |
+| 15 | `RunOwnershipAcquired(token=8)` | Token 7 mất quyền ghi/dispatch; không chứng minh tool đã dừng |
+| 16–17 | `ToolOutcomeUnknown(T1,TA1)`, `RunInterrupted(effect_unknown,T1)` | `Interrupted`; không handoff lại T1, giữ exposure |
+| User command | Trusted UI preview đúng attempt/revision và uncertainty; `AcceptUnknown(close)` | Đây là command, chưa là event hoặc permission chạy lại |
+| 18–22 | `UnknownAccepted(T1,TA1,close)`, `ToolResultRecorded(abandoned_unknown)`, `RunRecoveryCleared`, `StepAborted(unknown_close)`, `RunFinished(abandoned_unknown)` | Đóng control admission; canonical tool result nói unknown; exposure và writer/resource guards vẫn tồn tại ở owner |
+
+Nếu có receipt thật, một **nhánh thay thế** sau seq 17 là `ToolReconciled` + `ToolResultRecorded` + `RunRecoveryCleared`; sau queue/vault/scope revalidation có thể hoàn tất S1/tiếp tục loop. Không ghi `UnknownAccepted` trong nhánh đã đối soát xong. Result evidence và process-stop proof vẫn là hai facts khác nhau khi xét quyền dùng tài nguyên tiếp.
+
+Nếu T1 là `pure_read`, host policy có thể dùng `ToolAttemptAbandoned` rồi `ToolAttemptPlanned` sau revalidation, thay vì yêu cầu user xác nhận unknown của thao tác ghi. Attempt cũ và uncertainty vẫn trong history; policy không tự release write/resource ownership. Timer/approval/accounting sau restart không được tự chạy lại effect này.

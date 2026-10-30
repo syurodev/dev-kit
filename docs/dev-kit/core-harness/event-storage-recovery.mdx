@@ -1,0 +1,135 @@
+---
+title: Event storage và recovery
+description: Single-writer protocol, session admission, transcript projection và recovery.
+---
+
+# Event storage và recovery
+
+Trạng thái: foundation contract v0.2. V1 chốt semantics bên dưới; DDL/migration và protected-payload implementation vẫn cần storage/security review. [Event catalog](event-catalog.mdx) liệt kê các facts có thể xuất hiện.
+
+## 1. Source of truth và projections
+
+Run event stream là nguồn gốc của execution facts cho native runtime: run/step, model/tool attempts, blockers, stop intent, timers và budget observations. Các projection gồm current control state, derived lifecycle/phase, execution intents, timer index, command receipts và **canonical transcript native**.
+
+Projection được cập nhật cùng transaction với append. Execution intent là view/projection suy ra từ events, không có API ghi intent độc lập. Rebuild dựng dữ liệu, không dispatch. Các bảng domain về approval, task, Git ownership, peer outbox và vault vẫn thuộc owner cũ; event chỉ ghi references/observations có provenance.
+
+Không thêm persisted snapshots v1. Stream theo run và current projections đã đủ cho baseline; nếu run dài cần phân đoạn/history budgets hoặc snapshot sau này phải có evidence và quyết định riêng. UI “snapshot” trong tài liệu chỉ là consistent read của projection kèm sequence, không phải event-sourcing snapshot được lưu bền vững.
+
+## 2. Một quyền ghi stream
+
+**Chỉ session/run coordinator của owner được append execution stream.** Với run đã admitted, coordinator phải giữ admission token hiện tại. Với run còn Queued, chỉ allowlist pre-admission commands (accept/queue metadata/cancel) được ghi bằng queue-owner authority, expected run revision và session/queue revision; chúng không dispatch và không chiếm active admission. Repository là transaction adapter của coordinator, không là một writer/scheduler độc lập. Model/tool workers, timer scheduler, interaction bridge và UI chỉ gửi command/observation vào coordinator; không claim SQL row, append event hoặc sửa transcript trực tiếp.
+
+Dispatch protocol:
+
+1. Coordinator đọc facts/revision, kiểm tra blockers, stop intent, budget và facts từ owner.
+2. Trong transaction có fence, append `ModelDispatchStarted` hoặc `ToolDispatchStarted`; projection intent chuyển `dispatching`, cùng admission/executor token và attempt ID.
+3. Sau xác nhận commit, coordinator giao work item vào bounded in-memory worker channel đúng một lần trong incarnation đó. Worker kiểm tra cancellation/token hiện hành và gateway khi thực thi.
+4. Worker trả observation; coordinator validate identity, terminal evidence và expected state rồi append completion/result transaction.
+
+Không re-enqueue các intents đã `dispatching` khi restart. Crash giữa bước 2 và 3 không chứng minh đã ra ngoài; vì mất handoff evidence nên xử lý bảo thủ như unknown, hoặc dùng evidence cụ thể từ owner để đối soát. Nếu coordinator đang sống chứng minh chưa giao worker và channel nhận chưa thành công, có thể ghi cancellation pre-handoff; không suy rộng bằng chứng memory này qua restart.
+
+Commit unknown phải read-back bằng command/event identity trước giao worker. Nếu chưa xác định được, dừng dispatch; không tạo command ID mới để thử lại. Observation cũ có thể được current coordinator thu thập làm reconciliation evidence, nhưng không cho stale worker trực tiếp ghi đè state mới.
+
+## 3. Session admission và fencing
+
+V1 chọn **một admission row có fencing token cho mỗi session**, thuộc session/execution owner hiện hữu; không thêm session event stream thứ hai. Logical fields: `sessionID`, `activeRunID`, `ownerIncarnation`, monotonic `admissionToken`, `revision`. Đây là control ownership row, không là managed writer lease hoặc bằng chứng process dừng.
+
+- Nhận run mới có thể tạo `RunAccepted` và giữ `Queued`, chưa chiếm session. Queue/pause policy hiện hữu vẫn quyết định chọn run.
+- Admission transaction kiểm tra `activeRunID` còn trống hoặc recovery đúng cùng run, session còn hợp lệ và domain ownership guards cho phép; CAS admission row, tăng token và append `RunAdmitted`/`RunOwnershipAcquired` cùng projection trong transaction của owner.
+- Sau admission, mọi append/dispatch authorization/completion phải khớp active run, current owner incarnation và admission token. Cạnh tranh admission chỉ một bên commit. Pre-admission accept/cancel dùng queue-owner fence, không đòi Queued run là active run và không được sửa admission của run khác.
+- Restart có thể lấy token mới để **phục hồi cùng active run**. Token cũ mất quyền ghi/dispatch; không tự clear active run hoặc chạy một run khác chỉ vì lease/time đã hết.
+- `RunFinished` của run đã admitted có thể clear đúng active control admission của chính run đó trong cùng transaction. Finish/cancel một Queued run không được clear admission đang thuộc run khác. Managed writer/resource ownership là kiểm tra riêng; unknown exposure hoặc process chưa được chứng minh dừng vẫn có thể chặn run mới xung đột.
+- Session close/parent close và các change có ảnh hưởng authority cần fence ở owner boundary phù hợp; kiểm tra row admission không thay current capability/workspace checks.
+
+Coordinator serialization giảm tranh chấp trong process; CAS và token vẫn là correctness boundary. Một external process không tuân thủ token không bị dừng bằng fencing; sandbox/owning service phải tiếp tục quản lý nó.
+
+## 4. Event envelope và provenance
+
+| Field logic | Semantics |
+| --- | --- |
+| `eventID`, `runID`, `sequence` | Event identity và total commit order trong run |
+| `eventType`, `schemaVersion`, `executionProtocolVersion` | Decode và semantics tương thích |
+| `commandID`, `causationID`, `correlationID` | Dedup và quan hệ nhân quả; command có thể tạo một event batch |
+| `sessionID`, `stepID`, `invocationID`, `attemptID` | Typed references phù hợp loại event |
+| `writerIncarnation`, `admissionToken` / `queueRevision` | Quyền coordinator ghi event hiện tại; admission token bắt buộc sau admit, pre-admission dùng queue-owner revision |
+| `executorIncarnation`, `attemptFence` | Attempt đang được mô tả; có thể là attempt trước restart khi đối soát |
+| `origin` | Typed initiator/provenance do trusted host xác lập |
+| `recordedAt` | Trusted host observation time; sequence vẫn là ordering |
+| `data`, `payloadRef` | Allowlisted control fields và protected immutable content refs |
+
+`origin.kind` gồm `user`, `parent_session`, `session`, `model`, `worker`, `timer`, `recovery`, `system`. Kèm principal/session/adapter/timer reference khi áp dụng, ingress/trust classification, và initiating command reference. `model` nghĩa model-origin proposal, không phải principal có quyền. `timer`/`recovery` là host actor với correlation tới facts gốc, không giả làm user.
+
+Host MUST tạo origin từ authenticated caller, bound worker channel hoặc owned scheduler; không copy một object origin do client/model tự nhận. Khi system thực thi thay một user request, giữ cả initiator reference và executor provenance; không gộp thành một actor giả. User/parent authority vẫn phải được service xác thực lúc command/execute.
+
+Không có metadata tùy ý: raw prompt/args/query/stdout/error cause, request reason và secrets không nằm trong envelope/audit. Human reason nếu cần nằm ở protected payload ref. Public error codes giữ publication/redaction contract hiện hữu.
+
+## 5. Transaction và dedup equality
+
+Một transaction coordinator thực hiện:
+
+1. Kiểm tra command receipt, run revision và session admission fence; pre-admission allowlist dùng queue-owner authority/session-queue revision thay vì active-run token.
+2. Kiểm tra các owner conditions cần linearize trong cùng DB boundary; ngoài owner phải dùng receipt/reconciliation contract.
+3. Append event batch; cập nhật invocation/control/intent/timer projections và **native transcript projection** từ cùng events.
+4. Ghi command receipt; cập nhật admission row nếu đây là admit/recover/finish.
+
+Không giữ transaction/lock khi gọi network, worker, interaction hoặc chờ người dùng. Publish cho client chỉ sau commit. Không có transaction xuyên mọi domain hoặc external API; receipt bridge phải mô tả ambiguity nếu domain commit rồi execution observation chưa commit.
+
+V1 chọn **so sánh trực tiếp protected canonical input**, không thêm digest hoặc HMAC/KDF mới:
+
+- Command body được validate thành typed canonical representation; codec phải quy định field order, default/omitted, number encoding và reject duplicate JSON keys/unknown fields. Không normalize tùy tiện string/query/path làm thay nghĩa.
+- Lưu canonical content trong protected payload store với immutable ref. Receipt gắn command kind, authenticated principal, target và input ref.
+- Khi trùng command ID, trusted host mở protected input cũ và so byte canonical input, kind, principal và target. Khớp thì trả receipt cũ; khác thì typed conflict, không side effect.
+- Không so ciphertext vì encryption nonce có thể khác. Khi vault khóa và cần mở input để so, trả `vault_required`/wait; không mặc định hai nội dung bằng nhau. Metadata-only commands như cancel có thể dedup nếu đầy đủ fields được phép lưu và so trực tiếp mà không mở secret payload.
+- Approval gắn immutable validated args ref cùng request/target/revision; owner xác minh exact canonical args khi execute. Không chỉ so tên tool hoặc ID do model gửi.
+
+HMAC là phương án có thể review sau nếu equality reads thành bottleneck, nhưng cần crypto/key-lifecycle/security ADR riêng. Không để implementation tự chọn hash plaintext không khóa hoặc đưa fingerprint vào metadata công khai.
+
+## 6. Native transcript là projection
+
+`RunAdmitted` đưa accepted input ref vào transcript theo admission order. `ModelResponseRecorded` đưa đúng response được chọn vào canonical assistant message; `ToolResultRecorded`/known disposition đưa kết quả tương ứng vào đúng tool-call ID/source position. Tất cả được projected trong transaction append tương ứng, không ở callback riêng.
+
+`StepCompleted` chỉ hợp lệ khi projection đủ model/tool pairs của step; stop/deny/refusal/abandon dùng synthetic result có code/provenance trung thực, không giả tool success. Partial stream là attempt draft ngoài canonical transcript; retry không trộn output cũ vào response mới.
+
+Payload có thể là artifact ngoài DB nhưng reference chỉ được commit khi content đã finalize trong protected store. Orphan artifact sau crash có thể thu gom; dangling ref không được coi là response rỗng. Xóa payload theo retention làm context unavailable dù lifecycle metadata còn rebuild được.
+
+Đây là contract của **native runtime tương lai**. Không chuyển vendor transcript cũ thành event projection hoặc khẳng định vendor có atomicity này khi chưa có migration/adapter evidence. Native rewind/branching phải có view/event contract riêng; không sửa projection rows trực tiếp để rewrite execution history.
+
+## 7. Timers và restart
+
+Timer projection được dựng từ `TimerScheduled/TimerCancelled/TimerElapsed`. Scheduler chỉ đọc/re-arm timer và gửi command `TimerFired(timerID,generation,observedNow)` về coordinator. Deadline và jitter đã được ghi; kernel không đọc clock hoặc random lại.
+
+Coordinator kiểm tra trusted clock input, generation, current token, target còn đợi và command dedup. Quá sớm thì từ chối, timer cũ/cancelled thì no-op/conflict có receipt. Timer quá hạn sau restart có thể được fire, nhưng không bypass vault, pause, budget hoặc current scope.
+
+Lifetime approval vẫn do owner xác nhận. Startup invalidates request cũ; không re-arm một approval cũ để người dùng trả lời lại. Timer để expiry không tự là authority giải quyết approval nếu owner chưa xác nhận.
+
+Recovery phân loại, không dùng một lệnh “mark all active interrupted”:
+
+| Facts đã commit | Hành vi |
+| --- | --- |
+| `Queued`, chưa admitted | Giữ `Queued`; không dispatch |
+| Chỉ intents chưa `DispatchStarted` | Chưa có ambiguous effect; lấy ownership mới và chờ current admission/queue policy |
+| Chờ input/approval | Owner invalidates token cũ; nhận observation, tạo request mới nếu hợp lệ |
+| Attempt đã dispatch nhưng thiếu completion | Unknown/interrupted theo model/tool class; đối soát hoặc disposition riêng |
+| Vault khóa nhưng dữ liệu còn | Block `vault_locked`; quiesce nếu cần; chờ unlock/revalidation |
+| Protected payload mất/corrupt | Interruption `payload_unavailable`; không dùng dữ liệu rỗng |
+| Schema không decode được | Host báo unavailable; không append hay đoán lifecycle của stream |
+
+## 8. Unknown disposition và recovery theo class
+
+`OutcomeUnknown` là fact, `UnknownAccepted`/`ToolAttemptAbandoned` là disposition mới, không xóa fact cũ. User có thể chấp nhận đóng run bằng outcome `abandoned_unknown`; host policy có thể abandon pure-read/model attempt trong phạm vi contract để không khóa control progress vô hạn. Chi tiết ở [state machine](state-machine.mdx).
+
+Disposition không có nghĩa external operation chưa xảy ra hoặc process đã dừng. Original invocation projection vẫn giữ `exposure=unknown`, result evidence và reconciliation status. Managed writer/resource owner tiếp tục giữ guards cần thiết; không tạo bảng exposure ledger thứ hai để thay owner.
+
+Retry `idempotent` dùng cùng logical operation/input/key khi provider contract còn hiệu lực. Side-effecting unknown không auto retry. Unknown model usage tiếp tục reserve/đối soát budget, không ghi zero chỉ vì abandon response.
+
+Run đã finished vẫn có thể nhận **reconciliation/accounting commands được allowlist** từ current owner để bổ sung evidence của attempt cũ. Không sửa outcome đã commit, transcript đã dùng, hoặc mở lại dispatch; thay đổi business disposition cần command mới có authority. Late worker callback thông thường vẫn bị fence.
+
+## 9. Payload security, compatibility và client delivery
+
+Event envelope SHOULD đủ để dựng control lifecycle không mở raw payload; tiếp tục execution cần payload/credentials phải chờ vault. Không suy ra transcript/outbox hiện hữu đã encrypted: peer outbox có contract transcript-level plaintext riêng, không được nhân bản vào event metadata/logs.
+
+Trước lưu payload thật phải chốt encryption-at-rest, bounded sizes, key lifecycle, deletion/export và backup trong G-03. Append-only không có nghĩa giữ dữ liệu nhạy cảm vĩnh viễn. Deletion có thể làm context replay không khả dụng; không hứa tái tạo model/world state từ metadata.
+
+Event schema và execution protocol có version riêng. Unknown required event/protocol làm stream unavailable, không silently skip hoặc dùng projection cũ để chạy. Upcaster phải thuần; upgrade policy chọn drain/compatible resume/interruption. V1 không persisted snapshots; tính tương thích projection rebuild vẫn phải kiểm chứng.
+
+Client lấy consistent projection view kèm sequence rồi catch-up events; không có khoảng trống snapshot/subscribe. Deltas có thể coalesce; durable control events không mất do UI backpressure. UI chậm không giữ transaction hoặc chặn cancellation. Security audit, execution journal và transcript có access/retention riêng; export ra ngoài cần explicit scope/redaction.

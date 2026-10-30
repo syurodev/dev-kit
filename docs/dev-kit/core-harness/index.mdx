@@ -1,0 +1,83 @@
+---
+title: Core harness
+description: Thiết kế kỹ thuật nền tảng cho runtime agent do DevKit sở hữu.
+---
+
+# Core harness
+
+| Thuộc tính | Giá trị |
+| --- | --- |
+| Trạng thái | Foundation design v0.2 — để tiếp tục thiết kế và review; chưa triển khai hoặc kích hoạt runtime mới |
+| Ngày | 2026-10-30, Asia/Ho_Chi_Minh |
+| Baseline repository | `main` tại `1c977c7d`; nhánh thiết kế `feat/harness-core` đã rebase lên baseline này |
+| Ngôn ngữ thực thi | Go cho runtime, application services và hệ thống tool; frontend là adapter |
+| Hướng kiến trúc | State machine tường minh + event sourcing giới hạn cho execution + thực thi tác động qua service/gateway hiện hữu |
+
+Tài liệu này đặc tả nền tảng để DevKit sở hữu vòng gọi model và điều khiển tool. Đây không phải mô tả tính năng đã có, hướng dẫn sử dụng, hoặc kế hoạch chuyển toàn bộ hệ thống sang event sourcing. Các trạng thái, event và port trong bộ tài liệu là hợp đồng logic đề xuất, chưa phải API, package hay schema SQL đã được phát hành.
+
+## Cách đọc
+
+| Tài liệu | Nội dung |
+| --- | --- |
+| [Kiến trúc và ranh giới](architecture.mdx) | Phân lớp Go, command/decision/effect, ownership, extension points và độc lập frontend |
+| [State machine thực thi](state-machine.mdx) | Model/tool lifecycle, run state suy ra, cross-machine invariants, timers, vault và stop intent |
+| [Event catalog và execution traces](event-catalog.mdx) | Command/event catalog, guards và hai chuỗi thực thi hoàn chỉnh |
+| [Event storage và recovery](event-storage-recovery.mdx) | Nguồn dữ liệu gốc, transaction, replay, ambiguity, bảo vệ payload và compatibility |
+| [Quyết định và kiểm chứng](decisions-and-validation.mdx) | Phương án thay thế, so sánh Pi/Harness², rollout gates, failure scenarios và các điểm còn mở |
+
+## Mục tiêu
+
+1. Sở hữu scheduling của loop: khi nào gọi model, khi nào chạy tool, khi nào chờ và vì sao dừng.
+2. Giữ toàn bộ logic nghiệp vụ và authorization trong Go, có thể thay React/Wails bằng native shell hoặc host khác mà không viết lại runtime và tools.
+3. Biểu diễn được lịch sử thực thi và sự không chắc chắn sau crash; không đồng nhất replay dữ liệu với thực thi lại tác động.
+4. Hỗ trợ nhiều session có context riêng; team orchestration tiếp tục dùng các hợp đồng task, ownership và delivery của DevKit.
+5. Cho phép phát triển context strategy, provider adapter và cải tiến cấu hình harness mà không cho chúng thay đổi các bất biến an toàn của kernel.
+6. Cho phép kiểm chứng loop và recovery bằng test headless, không cần UI hoặc vendor thật cho mọi trường hợp.
+
+## Phạm vi
+
+Foundation bao gồm lifecycle của run, model request và tool invocation; commit boundary của execution history; thứ tự xử lý; budget/cancellation; kết nối với approval, task và session hiện hữu; extension contracts và tiêu chí kiểm chứng.
+
+Chưa bao gồm implementation loop, provider SDK cụ thể, migration SQL, API frontend/MCP mới, role/team UI, tự dispatch managed team, hoặc triển khai lớp tự cải tiến. Mỗi phần đó cần thiết kế và review tương ứng trước activation.
+
+Không đưa Jev hoặc một dịch vụ quyết định bên ngoài vào loop. Quyết định xác định dùng quy tắc local; tác vụ cần suy luận dùng model của run qua adapter được cấu hình. Gọi API model vẫn là tác động ra ngoài cần được cấu hình; “local-first” không có nghĩa model inference tự động chạy offline.
+
+## Mức độ ràng buộc
+
+Trong bộ tài liệu:
+
+- **MUST / MUST NOT** là yêu cầu của thiết kế. Implementation tương lai phải đáp ứng hoặc sửa thiết kế bằng quyết định được review.
+- **SHOULD** là mặc định; ngoại lệ phải có lý do và evidence.
+- **Đề xuất** là lựa chọn kỹ thuật cần tiếp tục đối chiếu trước implementation.
+- **Open decision / gate** là vấn đề chưa được giải quyết; không được ngầm chọn bằng code.
+
+Hướng sản phẩm đã thống nhất: DevKit sở hữu runtime; backend và tools độc lập frontend; state machine cùng execution history được thiết kế ngay từ đầu. Việc ghi hướng này không xác nhận các chi tiết schema, số state, thư viện hoặc hành vi resume đã được chấp nhận để phát hành.
+
+## Bất biến nền tảng
+
+| ID | Hợp đồng |
+| --- | --- |
+| INV-01 | Dựng lại state từ event MUST NOT gọi model, chạy tool, trả lời approval hoặc gửi peer message. |
+| INV-02 | Quyền thực thi MUST được kiểm tra tại owning service/gateway với identity và scope hiện tại. Event, role và model output không tạo quyền. |
+| INV-03 | Bắt đầu dispatch và biết kết quả là hai sự kiện khác nhau. Thiếu kết quả không chứng minh chưa có tác động. |
+| INV-04 | Chỉ owner coordinator được append mỗi run stream: queue fence trước admit, admission token sau admit. Worker/timer chỉ gửi command; callback cũ hoặc trùng không ghi đè tiến trình mới. |
+| INV-05 | Execution events và projections (derived state, native transcript, intents, timers) MUST được commit nhất quán trước dispatch; không có intent/state writer độc lập. |
+| INV-06 | Một session MUST NOT có hai loop cùng sửa transcript chính. Team tạo concurrency bằng các session/attempt riêng và ownership được kiểm tra. |
+| INV-07 | `completed` của run không chứng minh task được nghiệm thu; cancellation không chứng minh process đã dừng hoặc writer đã được giải phóng. |
+| INV-08 | Approval cũ MUST NOT được dựng lại thành yêu cầu còn trả lời được sau restart; recovered work vẫn chịu queue/pause và scope hiện tại. |
+| INV-09 | Không lưu secrets, raw model/tool payload hoặc nội dung người dùng trong event metadata, audit metadata và mô tả tool. |
+| INV-10 | Thay strategy/cấu hình không được thay authority, history hoặc kernel semantics của run đang thực thi. |
+| INV-11 | Run lifecycle/phase được suy ra theo một precedence duy nhất từ committed control/invocation facts; không có máy run chuyển độc lập. |
+| INV-12 | `UnknownAccepted`/abandonment là disposition có provenance, không phải bằng chứng effect chưa xảy ra hoặc writer đã dừng. |
+
+## Quan hệ với kiến trúc hiện tại
+
+Hợp đồng hiện hữu tiếp tục có hiệu lực: [architecture rules](../../agent-reference/architecture-rules.md), [MCP tools](../../agent-reference/mcp-tools.md), [coordination](../../agent-reference/agent-hub-coordination.md), [customization/recovery](../../agent-reference/agent-customization-recovery.md) và [harness composition/activation](../../agent-reference/harness-composition-activation.md).
+
+Trong phạm vi runtime tương lai, bộ tài liệu này thay hướng “chỉ dùng vendor loop” và “Jev tùy chọn” trong [thiết kế team/Jev cũ](../../superpowers/specs/2026-10-30-devkit-harness-team-jev-design.md). Tài liệu cũ vẫn là lịch sử thiết kế; các hợp đồng role, task, quyền và ownership liên quan không tự bị thay thế. Các giới hạn tích hợp đã ghi trong reference guides vẫn là gate, không được suy ra là đã giải quyết vì có core mới.
+
+Các vendor runtime hiện hữu tiếp tục hoạt động qua adapter hiện tại cho đến khi có migration/activation được review. Không tạo runner tạm để né service/gateway.
+
+## Kết quả cần có trước implementation
+
+Bộ foundation cho phép review semantics và failure cases. Trước khi viết production core phải giải quyết các gate trong [quyết định và kiểm chứng](decisions-and-validation.mdx#open-decisions-trước-implementation), bao gồm placement theo architecture rules, lưu trữ payload, quyền của host mới và transaction protocol cụ thể.

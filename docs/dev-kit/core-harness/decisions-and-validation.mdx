@@ -1,0 +1,192 @@
+---
+title: Quyết định và kiểm chứng
+description: Lý do chọn kiến trúc, phương án thay thế và gates trước implementation/activation.
+---
+
+# Quyết định và kiểm chứng
+
+Trạng thái: foundation decisions v0.2 để review. Hướng đã thống nhất không đồng nghĩa từng interface, schema và state đã được duyệt để phát hành. Các lựa chọn dưới đây phải được đối chiếu lại khi có implementation evidence.
+
+## D-01 — Go cho runtime và hệ thống tools
+
+**Lựa chọn:** Go sở hữu execution, policy integration, tool registry/schema/validation, domain services và persistence. Frontend/native shell chỉ là host adapter.
+
+**Lý do:** DevKit đã có service/gateway và permission boundaries trong Go. Chỉ giữ agent loop bằng Go nhưng để tool/policy logic trong TypeScript vẫn buộc viết lại khi đổi frontend. Độc lập UI là một thuộc tính dependency, không chỉ lựa chọn ngôn ngữ.
+
+**Không chọn:** viết lại tools trong runtime JavaScript của frontend, hoặc gọi provider SDK từ UI để tránh bridge. Hai cách đó làm identity, cancellation, recovery và secrets phụ thuộc shell.
+
+**Chi phí chấp nhận:** cần provider adapters và DTO/stream transport rõ ràng. Go không tự làm backend độc lập; architecture tests tiếp tục cưỡng chế hướng dependency. Không yêu cầu mọi UI/extension đều viết bằng Go.
+
+## D-02 — State machine tường minh và event sourcing có phạm vi
+
+**Lựa chọn:** execution control state được dựng từ history; projection cập nhật đồng bộ để đọc nhanh. Các domain khác giữ persistence hiện hữu.
+
+| Phương án | Lợi ích | Vì sao không dùng làm nền tảng được đề xuất |
+| --- | --- | --- |
+| Flags + lifecycle events | Loop ít cấu trúc, linh hoạt | Recovery, quan hệ giữa các flags và transition legality phải bổ sung phân tán nếu không có contract khác |
+| Current state + diagnostic journal | Dễ triển khai/vận hành; thường đủ cho resume đơn giản | Journal không mặc định đầy đủ để tái dựng control state hoặc kiểm chứng mọi transition |
+| Event sourcing cho execution | History và current state có cùng semantics; phù hợp điều tra, recovery và harness experiments | Được chọn, với phạm vi và chi phí bảo trì được giới hạn |
+| Event sourcing toàn DevKit | Một mô hình persistence rộng | Buộc đổi nhiều domain ổn định, tăng schema/retention complexity mà không phục vụ trực tiếp core loop |
+
+**Chi phí chấp nhận:** schema compatibility, projection rebuild, deletion và migration phải được thiết kế. Event sourcing không tự tạo exactly-once effects, tự chứng minh task đúng hoặc làm model reproducible.
+
+**Điều kiện xem xét lại:** nếu review chứng minh chỉ cần state persistence và audit history, không cần history làm nguồn tái dựng, có thể chọn current state + journal trước implementation. Khi đó phải sửa rõ source-of-truth contract; không gọi mô hình đó là event sourcing hoặc giữ hai nguồn có thẩm quyền cạnh tranh.
+
+Trade-offs về schema, concurrency và migration của pattern được mô tả trong [Microsoft Event Sourcing pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/event-sourcing).
+
+## D-03 — Kernel chuyển trạng thái thuần; không phụ thuộc framework FSM ở baseline
+
+**Lựa chọn:** typed commands/events và hàm `decide/evolve` do DevKit sở hữu. Không xây framework state machine tổng quát; chỉ đặc tả và triển khai transition rules cần cho execution domain.
+
+**Lý do:** những vấn đề khó là semantics commit, current authority và ambiguous effects. Một DSL FSM không thay thế các phần này. Kernel thuần giúp replay không kích hoạt `OnEntry` effects và giữ stdlib-only boundaries hiện hữu.
+
+**Phương án thư viện:** [qmuntal/stateless](https://github.com/qmuntal/stateless) có hierarchical states, guards, external state storage và graph export. [looplab/fsm](https://github.com/looplab/fsm) cung cấp transition/callback API gọn. Có thể đánh giá chúng ở một spike riêng nếu bảng state phát triển đủ phức tạp; không chọn chỉ vì muốn “có framework từ đầu”.
+
+**Điều kiện nhận thư viện:** giảm độ phức tạp đo được của transition rules; replay không side effects; không tạo state owner thứ hai; vẫn giữ command/event/storage contracts của DevKit; đáp ứng architecture allowlists hoặc có ADR thay boundary. Không nhúng thư viện vào leaf đang yêu cầu stdlib-only.
+
+**Không chọn:** gọi model/tool trong entry/exit callbacks, serialize đối tượng nội bộ của thư viện làm persisted schema, hoặc để UI/plugins chỉnh graph thực thi tùy ý.
+
+**Chi phí chấp nhận:** DevKit phải tự viết transition validation và test bảng transitions; thư viện không giúp giảm trách nhiệm về domain semantics.
+
+## D-04 — Chưa dùng durable workflow engine
+
+**Lựa chọn:** tận dụng session/service/store ownership trong ứng dụng hiện tại; chưa thêm Temporal hoặc một scheduler độc lập.
+
+**Lý do:** DevKit hiện là desktop local-first. Thêm workflow platform đưa vào yêu cầu service/worker lifecycle, vận hành và semantics replay riêng; không loại bỏ việc phải nối identity, gates, tasks và ambiguity của tools.
+
+**Khi xem xét lại:** có yêu cầu execution kéo dài xuyên nhiều máy, remote workers, failover host và distributed orchestration. Khi đó phải so sánh engine với chi phí tự mở rộng execution substrate, không mặc định giữ local design bằng mọi giá.
+
+[Temporal](https://docs.temporal.io/workflow-execution) có durable workflow execution và replay event history. Đây là phương án kiến trúc có năng lực thực, không nên mô tả chỉ là thư viện FSM nặng hơn.
+
+## D-05 — Replay không dispatch; không có retry toàn cục
+
+**Lựa chọn:** recovery phân loại pending, known result và unknown outcome; từng operation owner quyết định retry/reconciliation phù hợp. Không dùng generic “retry N lần” cho mọi tool.
+
+**Lý do:** crash sau external effect nhưng trước completion record không thể phân biệt với chưa effect chỉ bằng local state. Retry có thể nhân đôi ghi, gửi message hoặc chi phí model.
+
+**Không chọn:** replay history để chạy lại callbacks; suy ra timeout là effect chưa xảy ra; tạo outbox/ledger cạnh tranh với peer/managed owners.
+
+**Chi phí chấp nhận:** side-effecting unknown có thể cần đối soát hoặc user `AcceptUnknown(close)`. Pure-read/model có thể abandon/retry theo policy hữu hạn và budget; disposition không xóa uncertainty hoặc release writer. Recovery an toàn không đồng nghĩa luôn tự động tiếp tục.
+
+## D-06 — Lifecycle riêng cho run, invocation và approval
+
+**Lựa chọn:** run lifecycle/phase/wait reasons là projection suy ra từ invocation và control facts theo precedence duy nhất, không là máy state writable thứ hai. Model/tool attempts có lifecycle riêng; approval/task tiếp tục thuộc owner. V1 tool tuần tự, invariant liên kết chờ approval, retries, stop intent và terminal dispositions. Identity/source ordering hỗ trợ thiết kế song song về sau.
+
+**Lý do:** một enum năm trạng thái dễ học nhưng không biểu diễn đủ cancellation đang chờ dừng, ambiguity sau crash, hoặc nhiều tool có tiến trình khác nhau. Mở rộng bằng mọi tổ hợp state làm graph phình nhanh.
+
+**Không chọn:** dùng một state machine toàn cục cho cả team hoặc xem `Done` của agent là task accepted. Role mô tả trách nhiệm, không phải authorization.
+
+**Chi phí chấp nhận:** read model phải tổng hợp các lifecycle thành trạng thái người dùng hiểu được; không đưa mọi chi tiết nội bộ lên UI.
+
+## D-07 — Cấu hình ghim theo run; cải tiến ở lớp ngoài
+
+**Lựa chọn:** run ghim execution protocol, harness/context strategy, tool declaration binding và model configuration cần thiết để giải thích hành vi. Thay đổi authority hiện tại vẫn có hiệu lực qua gateway; ghim cấu hình không ghim quyền vĩnh viễn.
+
+Lớp cải tiến tương lai có thể đề xuất cấu hình, chạy thử trong môi trường cô lập, đánh giá và tạo version mới. Kernel, history, grants và pending approval không được sửa trực tiếp bởi model tự cải tiến.
+
+**Không chọn:** để model tự thay transition graph hoặc hot-patch core của run đang chạy. Không đưa Jev hoặc một external decision API vào scheduling cơ bản.
+
+**Chi phí chấp nhận:** thay strategy giữa một nhiệm vụ có thể cần run/attempt mới. Trials cần ngân sách, môi trường cô lập và thước đo; lịch sử tốt không chứng minh cấu hình mới sẽ tốt hơn.
+
+## D-08 — Coordinator là stream writer duy nhất; admission fence ở session
+
+**Lựa chọn:** workers/scheduler/interaction bridge chỉ gửi commands. Coordinator giữ token session admission cho admitted run và append `DispatchStarted` trước handoff trong memory; accept/cancel Queued run dùng queue-owner revision, không đụng admission của run khác. Intents, timers và native transcript là projections cùng transaction. Session owner dùng admission row có active run/token thay vì thêm session event stream.
+
+**Lý do:** bỏ race worker claim revision với coordinator; stream theo run không tự ngăn hai run chiếm cùng session. Token chặn old callbacks/dispatch nhưng không chứng minh process cũ đã dừng.
+
+**Chi phí chấp nhận:** crash sau dispatch commit nhưng trước handoff có thể tạo unknown dù chưa có external call. Thiết kế chọn bảo thủ thay vì lặp effect; admission/control release vẫn tách khỏi managed writer/resource release.
+
+## D-09 — Timer bền vững; không persisted snapshot v1
+
+**Lựa chọn:** `TimerScheduled/Cancelled/Elapsed` dựng timer projection; host re-arm và đưa `TimerFired` command có trusted time/generation. Replay thuần không đọc clock hoặc khởi tạo timers. V1 rebuild từ run stream, chưa có persisted snapshots.
+
+**Lý do:** retry/timeout phải tồn tại xuyên restart và kiểm tra được; run-local histories cùng đồng bộ projections chưa có evidence cần snapshot complexity. Client consistent view vẫn có sequence để catch-up.
+
+**Chi phí chấp nhận:** phải giới hạn run/history growth và kiểm tra rebuild time; nếu cần snapshot sau này phải thiết kế compatibility/integrity riêng. Timer không thay authority/lifetime của approval owner.
+
+## D-10 — So sánh canonical input trong protected store
+
+**Lựa chọn:** dedup/approval equality dùng typed canonical input, mở protected payload và so trực tiếp; không hash plaintext hoặc thêm crypto primitive ở baseline.
+
+**Lý do:** giải quyết exact content equality mà không tạo fingerprint nhạy cảm trong metadata hoặc KDF/key-rotation semantics mới. Ciphertext equality không đủ vì nonce khác nhau.
+
+**Chi phí chấp nhận:** khi vault khóa, command cần so payload phải chờ hoặc trả vault-required; reads có thêm chi phí. HMAC chỉ được thêm sau crypto/security review có lý do đo được.
+
+## So sánh với Pi và Harness²
+
+Các nhận xét dưới đây dựa trên nguồn được đọc ngày 2026-10-30, tập trung vào Pi agent core và mô hình Harness²; không phải đánh giá toàn bộ hệ sinh thái hoặc benchmark cho DevKit.
+
+| Khía cạnh | Pi agent core | Harness² | DevKit foundation đề xuất |
+| --- | --- | --- | --- |
+| Trọng tâm | Loop model/tool nhỏ, state và lifecycle events, extension hooks | Cải tiến harness qua Propose–Probe–Compose và tích lũy bài học | Kiểm soát execution, quyền và recovery trong backend sở hữu bởi DevKit |
+| Điều học | Ranh giới gọi model, tool execution và continuation rõ | Tách lớp chạy tác vụ và lớp cải tiến cấu hình | Kernel ổn định, strategy có version, evidence có provenance |
+| Điều bổ sung | Không suy ra bộ năm state chuẩn từ event API của Pi | Không suy ra cần viết loop native mới có thể cải tiến harness | Explicit lifecycle, commit protocol, ambiguous outcome và integration với owners |
+| Mặc định tool execution | Có sequential/parallel modes | Phụ thuộc executor được dùng | Sequential v1; parallel là gate riêng |
+| Authority | Ứng dụng phải thiết kế theo integration của mình | Không thay policy của DevKit | Go owning service/gateway là nơi cưỡng chế |
+
+Pi khai báo `AgentState` với các trường như `isStreaming`, `streamingMessage`, `pendingToolCalls` và `errorMessage`, cùng lifecycle events; đây không phải enum năm state. `isStreaming` bao phủ quá trình xử lý prompt/continuation, không chỉ provider stream. Xem [types](https://github.com/earendil-works/pi/blob/main/packages/agent/src/types.ts), [loop](https://github.com/earendil-works/pi/blob/main/packages/agent/src/agent-loop.ts) và [Agent wrapper](https://github.com/earendil-works/pi/blob/main/packages/agent/src/agent.ts).
+
+Harness² kết nối task-level refinement với persistent improvement harness, giữ model weights cố định và hỗ trợ các executor hiện hữu. DevKit học cách tách lớp cải tiến; không nhập deployment policy hoặc giả định benchmark của nghiên cứu sẽ áp dụng cho mình. Xem [repository Harness²](https://github.com/google-research/harness2).
+
+Tài liệu [Agent Harness Engineering Patterns](https://ashishpatel26.github.io/agent-harness-engineering-pattern/) là nguồn học pattern. Ví dụ trong tài liệu không thay contract hiện hữu, evidence test hoặc quyết định authorization của DevKit.
+
+## Open decisions trước implementation
+
+| Gate | Cần chốt | Điều kiện để đóng |
+| --- | --- | --- |
+| G-01 Package và owner | Kernel/execution store đặt ở đâu; dependencies nào được phép | Dependency diagram đối chiếu architecture tests; không thêm resolver/managed ledger/outbox cạnh tranh |
+| G-02 Transition protocol | Catalog v0.2, derived-state rules, admission row và invocation fences | Review transition completeness, SM-01–SM-12, duplicate/conflicting completion, stop reason precedence và traces; chưa có implementation evidence |
+| G-03 Storage/security | DDL cho admission/projections/receipts, canonical codec và protected payload store | Chứng minh append/transcript/intent atomicity, read-back unknown, exact equality và encryption/retention/deletion |
+| G-04 Model/tool integration | Provider/account path và canonical tool execution path dùng chung với hosts hiện hữu | Chứng minh identity, gates, budgets, result/error contracts và không bypass MCP-owned behavior |
+| G-05 Interaction semantics | Owner operation identity/read-back khi nối question/approval, lifetime và vault/pause | Không double question khi bridge crash; request mới sau restart; headless fail closed; current authority khi execute |
+| G-06 Compatibility | Session cũ, native/vendor coexistence, protocol upgrades và rollback | Không giả lập native guarantees cho vendor; không chuyển runtime giữa run; đọc được lịch sử sau nâng cấp |
+| G-07 Activation | Opt-in, failure UX và tiêu chí evidence | Headless/recovery tests đạt; native/provider evidence phù hợp; còn giới hạn phải ghi rõ |
+
+G-01 đến G-03 phải đóng trước persistence/core production implementation. G-04 đến G-06 phải đóng trước tích hợp thực thi tương ứng. G-07 phải đóng trước bật tính năng cho người dùng. Spike dùng dữ liệu giả không tự đóng gate hoặc cho phép activation.
+
+Parallel tools, remote workers, configurable transition graph, runtime self-modification và managed auto-dispatch không thuộc activation v1. Nếu cần chúng, phải mở quyết định riêng, không coi đã được duyệt do foundation có extension points.
+
+## Tiêu chí kiểm chứng
+
+Đây là tiêu chí test tương lai, không phải kết quả đã chạy cho một core chưa tồn tại.
+
+| Nhóm | Scenario bắt buộc | Bằng chứng cần có |
+| --- | --- | --- |
+| Pure replay | Cùng history trên hai state instances; replay nhiều lần | Facts và derived lifecycle/transcript/intent/timer projections giống nhau; zero dispatch |
+| Cross-machine invariants | Event batches approval/stop/retry/vault và finish | SM-01–SM-12 luôn đúng; không có independent state writer |
+| Model lifecycle | 429/5xx/auth/partial stream/crash/retry exhausted | Đúng failure class, attempt separation, retry timer/reservation và run outcome |
+| Stop provenance | Budget hết khi tool chạy; parent cancel; shutdown rồi user cancel | Giữ primary/secondary reasons và outcome đúng; không biến budget thành cancelled |
+| Transition legality | Command ở state không hợp lệ; completion sai attempt | Từ chối có kiểu; state/history không bị sửa ngoài quyết định hợp lệ |
+| Atomicity | Inject lỗi giữa append, projection và intent write | Không có trạng thái commit một phần |
+| Commit unknown | Commit thực tế thành công nhưng caller nhận unknown | Read-back tìm đúng command; không dispatch/append trùng |
+| Single writer | Hai host/hai run admission; worker cố append; cancel Queued run khi run khác active | Admission token chỉ cho một owner; stale callbacks bị fence; Queued cancel không clear active admission của run khác |
+| Dedup | Gửi lại start/approval/completion cùng identity | Không thêm model/tool call hoặc transcript result lần hai |
+| Approval race | Revoke/block/parent close trong lúc chờ hoặc trước commit | Gateway/owner hiện tại từ chối; không side effect hoặc authority giả |
+| Restart | Chết ở queued, waiting approval, model stream, tool dispatch | Phân loại đúng; approval cũ không answerable; không auto-replay effect chưa rõ |
+| External ambiguity | Tool gây tác động rồi mất completion; crash trước memory handoff | Giữ unknown; không blind retry; phân biệt pure_read/idempotent/side_effecting |
+| Unknown disposition | User close unknown; host abandon pure_read; late reconciliation | Outcome abandoned_unknown trung thực; không release writer; vẫn thêm evidence không mở lại loop |
+| Durable timers | Early/duplicate/stale TimerFired, restart sau deadline, pause | Timer elapsed một lần, đúng generation/deadline; không bypass blockers |
+| Canonical equality | Cùng command ID với content khác; cùng args khác JSON field order | Conflict đúng hoặc cùng receipt theo codec; không dùng ciphertext/plain digest; vault-locked fail closed |
+| Transcript atomicity | Lỗi giữa append và native transcript/result/intent projection | Không partial commit hoặc orphan call/result; retry draft không thành canonical response |
+| Cancellation | Cancel trước dispatch, giữa stream, giữa tool, sát completion | Không dispatch mới; không báo đã dừng khi chưa có evidence |
+| Ownership | Hủy child nhưng process/descendant chưa được chứng minh dừng | Không release writer dựa trên state hoặc lease expiry |
+| Context integrity | Partial response/tool JSON, thiếu payload hoặc result | Không thực thi partial args; không gửi transcript sai protocol |
+| Budgets | Retry/context builder không dừng; unknown usage | Kernel giữ giới hạn hữu hạn; unknown không bị ghi zero |
+| UI delivery | Disconnect, lost notification, consistent-view/subscribe race | Catch-up đúng sequence; không nhân đôi effects; UI chậm không chặn core |
+| Compatibility | Event cũ, projection rebuild, schema tương lai, protocol không hỗ trợ | Rebuild khi supported; host báo unavailable khi unsupported; không append domain state đoán |
+| Security | Payload nhạy cảm, vault lock giữa stream/tool, nil responder/server mode | Không rò metadata; quiesce rồi Waiting(vault_locked) hoặc interrupted khi unknown; gated effects fail closed |
+| Host independence | Chạy cùng kịch bản bằng test host không import Wails | Semantics core/domain không phụ thuộc frontend |
+| Team boundary | Child báo completion bằng text hoặc callback cũ | Không tự acceptance/release/integration; owner vẫn kiểm tra evidence |
+
+Ưu tiên tests bằng deterministic clock, barriers và fault injection; không dùng sleep để tạo race. Cần mutation/probe cho các guard quan trọng: bỏ CAS, bỏ current-authority check, dispatch khi replay, retry unknown và coi cancellation là stop proof.
+
+## Trình tự triển khai sau khi chốt thiết kế
+
+1. Chốt các gate foundation; review state/event examples và failure matrix trước khi tạo packages/schema.
+2. Làm một vertical slice headless bằng fake model và read-only fake tool: start → model → tool → model → finish, có persistent history và replay không side effects.
+3. Thêm crash/commit-unknown/cancellation/recovery tests trước side-effectful tool integration.
+4. Kết nối một provider adapter và canonical tool/gateway path, kiểm chứng quyền và budgets bằng đường thật.
+5. Tích hợp UI bằng read model; kiểm chứng native host, opt-in, compatibility và rollback trước activation.
+6. Chỉ sau đó mở parallel scheduling, team automation hoặc harness experiments bằng các slice độc lập.
+
+Việc học pattern, chọn thư viện hoặc có tài liệu này không phải evidence các gate đã đạt. Trạng thái implementation và test results phải được ghi trong record riêng gắn revision cụ thể.
