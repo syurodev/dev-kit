@@ -1,6 +1,6 @@
 # Child tool groups: inheritance at creation and requests for more afterwards
 
-Status: design, approved in conversation 2026-10-30. Not implemented. Not independently reviewed.
+Status: implemented on `feat/child-tool-group-requests` (2026-10-30), with the deviations listed under "As built" at the end. Not independently reviewed; not run against real vendors or the native window.
 
 ## Problem
 
@@ -212,3 +212,32 @@ request, not the message; the reason is data). The root `AGENTS.md` only gets a 
 - Durable peer messages or restoring open questions after restart.
 - Real-vendor runs: tests use scripted vendors; whether a vendor refreshes tools after `listChanged` stays
   unmeasured, which is why the answer reports `live` only from an acknowledged endpoint.
+
+## As built (deviations from the design above)
+
+- **Workspace.** An agent-created child always shares its parent's workspace (`createAgentSession` cannot pick another,
+  `ErrWorkspaceMismatch`), so the "different workspace drops a group W has off" rule was never reachable and was not built.
+  Inheritance copies the parent's stored S groups the registry still knows.
+- **Creation write.** The child's groups are not written before its runtime opens (its session row, which S needs, does not
+  exist yet). They are planned before anything is created (`PlanChildGroups`, inside the gateway call, so a refusal leaves
+  no worktree or session) and written right after creation and before any first message, through `ApplyDelegated` with live
+  publication (`GrantChildGroups`). If that write fails the child is kept, starts on its workspace profile, and the
+  `toolGroups` report in the answer says `not_granted` with a fixed sentence and no cause. A group the child's workspace
+  already serves is skipped, not an error.
+- **Always served.** `harness.group.request` is a second named exception beside `harness.profile.propose` (`harness.RequestTool`,
+  served even when the `harness` group is off). The `harness` group now holds four tools (get, propose, group.request,
+  group.requestStatus).
+- **Locks and the existing tools.** `harness.profile.propose` (both scopes) refuses a locked group too. A window Revoke
+  of a session group writes the lock when the person confirms, before the revoke is applied; a revoke refused before it
+  writes (declined, cancelled, stale) takes back only the locks it added.
+- **User question.** It is a hub selection (`KindHarnessGroupRequest`: allow, decline, decline and block) followed by the
+  ordinary exact-change confirmation (`KindHarness`), so the person is asked twice on approval, like the existing scope flow.
+  Closing the question declines that one request. No prompt handler or headless: `denied`, outcome `no_prompt`.
+- **Unknown commit.** An approval whose commit is unknown leaves the request open (not `approved`); a later answer finds
+  the groups served (`superseded`) or writes under the same compare-and-swap.
+- **Prompt.** The always-on DevKit prompt is pinned byte-for-byte for sessions without a harness, so the rules for the
+  new tools live in their descriptions (reason is data, a missing tool enables nothing, blocks cannot be overridden), not
+  in the prompt.
+- **Not built.** A window list of every pending request across sessions beyond the question itself, and any session-card
+  view of pending requests; the window can answer through `HarnessAnswerGroupRequest` and manage locks in the session card.
+  Forwarded requests are asked in a goroutine of the process that forwarded them; a restart invalidates them.

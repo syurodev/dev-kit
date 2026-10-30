@@ -120,6 +120,10 @@ or S, so attaching it adds launch-refusal and close-retry failure modes with no 
 Claude, Codex and opencode, with `FactsComplete=false`, group/budget-only effects, no executable proposals, no
 public get/propose transport, no editor and no policy setting.
 
+> **Child tool groups (2026-10-30).** A child session no longer always starts from an empty S: `createAgentSession` copies or takes `toolGroups` and
+> requests/locks sit beside S. See [Child tool groups](agent-hub-coordination.md#child-tool-groups-inheritance-and-requests).
+> `TestAChildGetsItsOwnProfileAndNeverItsParentsS` still holds for the profile (W/V); only S groups the parent holds are copied, as a snapshot.
+
 ## H5 handoff — internal seams
 
 `HarnessAssembly.Service` (`harnessconfig.Service`): `Prepare(ctx, Request)` → `Prepared{ID, View}` (View has `Scope`
