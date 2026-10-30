@@ -63,6 +63,13 @@ var (
 	ErrGroupRequestInvalid = errors.New("agenthub.groupRequestInvalid")
 	// ErrGroupRequestLimit: the child already has the most open requests allowed.
 	ErrGroupRequestLimit = errors.New("agenthub.groupRequestLimit")
+	// ErrGroupRequestOverlap: another open request of the same session already
+	// asks for one of those groups. Wait for its answer; nothing is merged or
+	// dropped.
+	ErrGroupRequestOverlap = errors.New("agenthub.groupRequestOverlap")
+	// ErrChildGroupsNotReady: a child was created on a task but its starting tool
+	// groups could not be confirmed, so it was closed and the task never claimed.
+	ErrChildGroupsNotReady = errors.New("agenthub.childGroupsNotReady")
 	// ErrGroupRouteUnavailable: the parent route needs an open parent session.
 	ErrGroupRouteUnavailable = errors.New("agenthub.groupRouteUnavailable")
 	// ErrGroupRequestUnavailable: this build has no ledger or no harness host.

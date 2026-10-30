@@ -98,6 +98,8 @@ const (
 	codeGroupRequestNotFound    = "agenthub.groupRequestNotFound"
 	codeGroupRequestInvalid     = "agenthub.groupRequestInvalid"
 	codeGroupRequestLimit       = "agenthub.groupRequestLimit"
+	codeGroupRequestOverlap     = "agenthub.groupRequestOverlap"
+	codeChildGroupsNotReady     = "agenthub.childGroupsNotReady"
 	codeGroupRouteUnavailable   = "agenthub.groupRouteUnavailable"
 	codeGroupRequestUnavailable = "agenthub.groupRequestUnavailable"
 	// A rewind put the files back and the conversation was proven not rewound
@@ -516,6 +518,10 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.New(codeGroupRequestInvalid, "Name 1 to 8 existing tool groups and a route of parent or user.", true)
 		case errors.Is(err, agenthub.ErrGroupRequestLimit):
 			return apperrors.New(codeGroupRequestLimit, "This session already has the most open tool-group requests allowed. Wait for an answer.", true)
+		case errors.Is(err, agenthub.ErrGroupRequestOverlap):
+			return apperrors.New(codeGroupRequestOverlap, "Another open request of this session already asks for one of those tool groups. Wait for its answer (harness.group.requestStatus lists your open requests); nothing was merged or dropped.", true)
+		case errors.Is(err, agenthub.ErrChildGroupsNotReady):
+			return apperrors.New(codeChildGroupsNotReady, "The child was not started on the task: its starting tool groups could not be confirmed, so it was closed and the task was not claimed. Retry, or pass toolGroups: [] to start without them.", true)
 		case errors.Is(err, agenthub.ErrGroupRouteUnavailable):
 			return apperrors.New(codeGroupRouteUnavailable, "The parent route needs an open parent session. Ask the person instead (route user).", true)
 		case errors.Is(err, agenthub.ErrGroupRequestUnavailable):
@@ -919,6 +925,8 @@ var keptCodes = map[string]bool{
 	codeGroupRequestNotFound:    true,
 	codeGroupRequestInvalid:     true,
 	codeGroupRequestLimit:       true,
+	codeGroupRequestOverlap:     true,
+	codeChildGroupsNotReady:     true,
 	codeGroupRouteUnavailable:   true,
 	codeGroupRequestUnavailable: true,
 	"pdf.notFound":              true,

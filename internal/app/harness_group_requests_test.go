@@ -1,8 +1,10 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -421,5 +423,267 @@ func TestTheRequestToolIsServedEvenWhenTheHarnessGroupIsOff(t *testing.T) {
 	}
 	if !contains(names, harness.ProposeTool) || !contains(names, harness.RequestTool) {
 		t.Fatalf("a session must always be able to ask: %v", names)
+	}
+}
+
+// ---- regressions from the review of the first implementation ---------------
+
+// beforeApplyStore runs a hook once, just before the next S/W write reaches SQL,
+// which is inside the V boundary and the session's coordinator.
+type beforeApplyStore struct {
+	harnessPersistence
+	before *func()
+}
+
+func (s *beforeApplyStore) Apply(ctx context.Context, w harness.StoreWrite) (harness.Applied, error) {
+	if f := *s.before; f != nil {
+		*s.before = nil
+		f()
+	}
+	return s.harnessPersistence.Apply(ctx, w)
+}
+
+func (g *groupRig) locks() []string {
+	l, _ := g.port.GroupLocks(g.ui(), g.child.ID)
+	return l
+}
+
+// A request the child made before any block, approved by the person after one:
+// the block written while the question was open is found at the commit.
+func TestABlockWrittenWhileAProposalIsOpenIsNotBypassed(t *testing.T) {
+	g := newGroupRig(t, compOptions{})
+	g.prompter.mu.Lock()
+	g.prompter.answers = answers("session")
+	var once atomic.Bool
+	g.prompter.during = func() {
+		if once.CompareAndSwap(false, true) {
+			if err := g.port.SetGroupLock(g.ui(), g.child.ID, "vault", true); err != nil {
+				panic(err)
+			}
+		}
+	}
+	g.prompter.mu.Unlock()
+	_, err := g.port.Request(g.agentCtx(g.child.ID), harnessconfig.GroupRequest{Groups: []string{"vault"}})
+	if err == nil {
+		t.Fatal("a proposal approved after the person blocked the group reported success")
+	}
+	if g.served(g.child.ID) {
+		t.Fatalf("the group was enabled despite the block: locks=%v", g.locks())
+	}
+	if o, _ := g.override(g.child.ID); o != nil && contains(o.Groups, "vault") {
+		t.Fatalf("S holds the blocked group: %+v", o)
+	}
+}
+
+// The block lands between the parent's check and the S write.
+func TestABlockWrittenJustBeforeAParentsGrantCommitsIsNotBypassed(t *testing.T) {
+	var before func()
+	g := newGroupRig(t, compOptions{wrapStore: func(s harnessPersistence) harnessPersistence {
+		return &beforeApplyStore{harnessPersistence: s, before: &before}
+	}})
+	asked, err := g.port.CreateGroupRequest(g.agentCtx(g.child.ID), []string{"vault"}, "parent", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before = func() {
+		if err := g.port.SetGroupLock(g.ui(), g.child.ID, "vault", true); err != nil {
+			panic(err)
+		}
+	}
+	res, err := g.port.ResolveGroupRequest(g.agentCtx(g.parent.ID), asked.Request.ID, asked.Request.Revision, "approve")
+	if !errors.Is(err, agenthub.ErrGroupBlocked) {
+		t.Fatalf("err = %v, want ErrGroupBlocked", err)
+	}
+	if g.served(g.child.ID) || res.Request.State == "approved" {
+		t.Fatalf("the parent's grant bypassed the block: state=%s locks=%v", res.Request.State, g.locks())
+	}
+	// The request ends as blocked: it can no longer be answered yes.
+	got, err := g.port.GroupRequestStatus(g.ui(), asked.Request.ID)
+	if err != nil || got.State != "denied" || got.Outcome != agenthub.GroupOutcomeBlocked {
+		t.Fatalf("status = %+v %v", got, err)
+	}
+	if o, _ := g.override(g.child.ID); o != nil && contains(o.Groups, "vault") {
+		t.Fatalf("S holds the blocked group: %+v", o)
+	}
+}
+
+// The same for a request waiting on the person: blocking while reviewing the
+// exact change ends the request as blocked.
+func TestABlockWrittenWhileThePersonReviewsAUserRouteRequestEndsItAsBlocked(t *testing.T) {
+	g := newGroupRig(t, compOptions{})
+	g.answers("approve", "allow")
+	g.prompter.mu.Lock()
+	var once atomic.Bool
+	g.prompter.during = func() {
+		// The first prompt is the selection; the block lands during the confirmation.
+		if len(kinds(g.prompter)) == 2 && once.CompareAndSwap(false, true) {
+			if err := g.port.SetGroupLock(g.ui(), g.child.ID, "vault", true); err != nil {
+				panic(err)
+			}
+		}
+	}
+	g.prompter.mu.Unlock()
+	res, err := g.port.CreateGroupRequest(g.agentCtx(g.child.ID), []string{"vault"}, "user", "")
+	if !errors.Is(err, agenthub.ErrGroupBlocked) {
+		t.Fatalf("err = %v, want ErrGroupBlocked", err)
+	}
+	if g.served(g.child.ID) || res.Request.State != "denied" || res.Request.Outcome != agenthub.GroupOutcomeBlocked {
+		t.Fatalf("request = %+v served=%v", res.Request, g.served(g.child.ID))
+	}
+}
+
+// Creating a child with groups meets the same boundary.
+func TestTheGrantAtCreationRefusesABlockedGroupBeforeAndAtTheCommit(t *testing.T) {
+	var before func()
+	g := newGroupRig(t, compOptions{wrapStore: func(s harnessPersistence) harnessPersistence {
+		return &beforeApplyStore{harnessPersistence: s, before: &before}
+	}})
+	ctx := g.agentCtx(g.parent.ID)
+	before = func() {
+		if err := g.port.SetGroupLock(g.ui(), g.child.ID, "vault", true); err != nil {
+			panic(err)
+		}
+	}
+	if _, err := g.port.GrantChildGroups(ctx, g.child.ID, []string{"vault"}); !errors.Is(err, agenthub.ErrGroupBlocked) {
+		t.Fatalf("a block written at the commit: %v", err)
+	}
+	if g.served(g.child.ID) {
+		t.Fatal("the creation grant bypassed the block")
+	}
+	if _, err := g.port.GrantChildGroups(ctx, g.child.ID, []string{"vault"}); !errors.Is(err, agenthub.ErrGroupBlocked) {
+		t.Fatalf("a block already in place: %v", err)
+	}
+}
+
+// A revoke is the person's "not this one": if its block cannot be saved, the
+// revoke does not happen either.
+func TestARevokeWhoseBlockCannotBeSavedDoesNotRevoke(t *testing.T) {
+	g := newGroupRig(t, compOptions{})
+	g.answers("approve", "allow")
+	asked, err := g.port.CreateGroupRequest(g.agentCtx(g.child.ID), []string{"vault"}, "parent", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.port.ResolveGroupRequest(g.agentCtx(g.parent.ID), asked.Request.ID, asked.Request.Revision, "approve"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.db.Exec(`CREATE TRIGGER review_fail_lock BEFORE INSERT ON agent_session_group_locks BEGIN SELECT RAISE(FAIL, 'injected lock failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	rev, err := g.port.PrepareRevoke(g.ui(), g.wsID, g.child.ID, []string{"vault"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.port.Apply(g.ui(), rev.ID); err == nil {
+		t.Fatal("a revoke whose durable block could not be saved reported success")
+	}
+	if len(g.locks()) != 0 {
+		t.Fatalf("locks = %v", g.locks())
+	}
+	if o, _ := g.override(g.child.ID); o == nil || !contains(o.Groups, "vault") {
+		t.Fatalf("S = %+v: the revoke happened without its block", o)
+	}
+	if !g.served(g.child.ID) {
+		t.Fatal("the child lost the group although the revoke failed")
+	}
+}
+
+// A block the person wrote by another operation is not undone by a revoke that is
+// declined, and a confirmed revoke keeps it.
+func TestARevokeNeverRemovesABlockItDidNotWrite(t *testing.T) {
+	g := newGroupRig(t, compOptions{})
+	g.answers("approve", "allow")
+	if _, err := g.port.CreateGroupRequest(g.agentCtx(g.child.ID), []string{"vault"}, "user", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.port.SetGroupLock(g.ui(), g.child.ID, "vault", true); err != nil {
+		t.Fatal(err)
+	}
+	g.answers("approve", "deny")
+	rev, err := g.port.PrepareRevoke(g.ui(), g.wsID, g.child.ID, []string{"vault"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.port.Apply(g.ui(), rev.ID); err == nil {
+		t.Fatal("a declined revoke reported success")
+	}
+	if l := g.locks(); len(l) != 1 || l[0] != "vault" {
+		t.Fatalf("a declined revoke removed another operation's block: %v", l)
+	}
+	g.answers("approve", "allow")
+	rev, err = g.port.PrepareRevoke(g.ui(), g.wsID, g.child.ID, []string{"vault"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.port.Apply(g.ui(), rev.ID); err != nil {
+		t.Fatal(err)
+	}
+	if l := g.locks(); len(l) != 1 {
+		t.Fatalf("locks after a confirmed revoke = %v", l)
+	}
+}
+
+// An always-served tool does not prove its group is on: with the harness group
+// off the endpoint still serves propose and request, and that is not a group a
+// parent can hand over. Asking stays possible.
+func TestAnAlwaysServedToolDoesNotMakeItsWholeGroupGrantable(t *testing.T) {
+	r := newCompRig(t, compOptions{controls: true})
+	r.workspaceOff("harness")
+	parent, pspec := r.create(agenthub.AgentTypeClaude)
+	pcs := r.connect(pspec)
+	if contains(r.listed(pcs), "harness.profile.get") || !contains(r.listed(pcs), harness.RequestTool) {
+		t.Fatalf("setup: expected only the exceptions: %v", r.listed(pcs))
+	}
+	if served, err := r.asm.controls.ServedGroups(r.ctx, parent.ID); err != nil || contains(served, "harness") {
+		t.Fatalf("served groups = %v %v: the harness group is off", served, err)
+	}
+	ctx := r.agentCtx(parent.ID)
+	// Creation: an explicit group the parent does not really serve.
+	if _, err := r.port.PlanChildGroups(ctx, []string{"harness"}, true); !errors.Is(err, agenthub.ErrGroupNotGrantable) {
+		t.Fatalf("explicit harness at creation: %v", err)
+	}
+	child, err := r.agents.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentTypeClaude, Cwd: r.root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ccs := r.connect(r.vendors[agenthub.AgentTypeClaude].LastSpec())
+	// The child can still ask, on either route.
+	asked, err := r.port.CreateGroupRequest(r.agentCtx(child.ID), []string{"harness"}, "parent", "")
+	if err != nil {
+		t.Fatalf("a session whose harness group is off must still be able to ask: %v", err)
+	}
+	// Parent approval: out of the parent's real scope.
+	if _, err := r.port.ResolveGroupRequest(ctx, asked.Request.ID, asked.Request.Revision, "approve"); !errors.Is(err, agenthub.ErrGroupNotGrantable) {
+		t.Fatalf("approve harness: %v", err)
+	}
+	// tools/list and tools/call on the child agree: nothing of the group appeared.
+	if names := r.listed(ccs); contains(names, "harness.profile.get") || !contains(names, harness.ProposeTool) || !contains(names, harness.RequestTool) {
+		t.Fatalf("child tools = %v", names)
+	}
+	if res, err := ccs.CallTool(r.ctx, &sdk.CallToolParams{Name: "harness.profile.get", Arguments: map[string]any{}}); err == nil && !res.IsError {
+		t.Fatalf("a hidden tool answered: %+v", res)
+	}
+
+	// Positive control: once the parent really serves the group (the person
+	// enabled it for that session), it can hand it over, and the child's tools
+	// list and calls agree.
+	r.prompter.mu.Lock()
+	r.prompter.answers = map[interaction.Kind]string{interaction.KindHarness: "allow"}
+	r.prompter.mu.Unlock()
+	if _, err := r.apply(parent.ID, []string{"harness"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if served, _ := r.asm.controls.ServedGroups(r.ctx, parent.ID); !contains(served, "harness") {
+		t.Fatalf("setup: the parent still does not serve harness: %v", served)
+	}
+	res, err := r.port.ResolveGroupRequest(ctx, asked.Request.ID, asked.Request.Revision, "approve")
+	if err != nil || res.Outcome == nil || !res.Outcome.Live {
+		t.Fatalf("approve with the group really served: %+v %v", res, err)
+	}
+	if !contains(r.listed(ccs), "harness.profile.get") {
+		t.Fatalf("child tools after the grant = %v", r.listed(ccs))
+	}
+	if out, err := ccs.CallTool(r.ctx, &sdk.CallToolParams{Name: "harness.profile.get", Arguments: map[string]any{}}); err != nil || out.IsError {
+		t.Fatalf("the granted tool did not answer: %+v %v", out, err)
 	}
 }

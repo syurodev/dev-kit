@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -63,14 +64,44 @@ func scanGroupRequest(scan func(dest ...any) error) (GroupRequest, error) {
 	return r, nil
 }
 
+// InsertGroupRequest writes a request and, while it is open, the rows that claim
+// its groups for the child. Both go in one transaction; the one-open-request-per-
+// child-and-group rule and the four-open-requests quota are enforced by SQL
+// (migration 58), so two creators racing cannot both succeed:
+// ErrGroupRequestOverlap names the first, ErrGroupRequestLimit the second.
 func (st *SQLStore) InsertGroupRequest(ctx context.Context, r GroupRequest) error {
 	groups, err := json.Marshal(r.Groups)
 	if err != nil {
 		return err
 	}
-	_, err = st.db.ExecContext(ctx, `INSERT INTO agent_group_requests(`+groupRequestColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	tx, err := st.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO agent_group_requests(`+groupRequestColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		r.ID, r.ChildID, r.ParentID, string(groups), r.Reason, string(r.Route), string(r.State), r.Revision, r.Resolver, r.Outcome,
-		formatStoreTime(r.CreatedAt), formatStoreTime(r.UpdatedAt), formatResolved(r.ResolvedAt))
+		formatStoreTime(r.CreatedAt), formatStoreTime(r.UpdatedAt), formatResolved(r.ResolvedAt)); err != nil {
+		return mapGroupRequestInsertErr(err)
+	}
+	if r.Open() {
+		for _, g := range r.Groups {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO agent_group_request_open_groups(request_id,child_id,group_name) VALUES(?,?,?)`, r.ID, r.ChildID, g); err != nil {
+				return mapGroupRequestInsertErr(err)
+			}
+		}
+	}
+	return tx.Commit()
+}
+
+func mapGroupRequestInsertErr(err error) error {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "agenthub.groupRequestLimit"):
+		return ErrGroupRequestLimit
+	case strings.Contains(msg, "agent_group_request_open_groups.child_id"):
+		return ErrGroupRequestOverlap
+	}
 	return err
 }
 

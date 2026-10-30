@@ -32,8 +32,12 @@ var errNoConfirmedEndpoint = errors.New("no confirmed endpoint")
 // KnownGroup implements agenthub.GroupRequestHost.
 func (c *harnessControls) KnownGroup(name string) bool { return c.groupSet()[name] }
 
-// ServedGroups implements agenthub.GroupRequestHost: the groups of the tools the
-// session's endpoint serves now, and only while that endpoint is acknowledged.
+// ServedGroups implements agenthub.GroupRequestHost: the groups the session's
+// acknowledged endpoint serves now, and nothing while it is not acknowledged. A
+// group counts only through a tool that follows its group: the named exceptions
+// (propose, request) are served whatever their group does, so they prove nothing
+// about it, and a parent whose harness group is off is not thereby able to hand
+// that group over.
 func (c *harnessControls) ServedGroups(_ context.Context, sessionID string) ([]string, error) {
 	tools, live := c.agents.ServedTools(sessionID)
 	if !live {
@@ -42,6 +46,9 @@ func (c *harnessControls) ServedGroups(_ context.Context, sessionID string) ([]s
 	seen := map[string]bool{}
 	out := []string{}
 	for _, t := range tools {
+		if harness.ServedWhateverItsGroup(t) {
+			continue
+		}
 		g := harness.Group(t)
 		if !seen[g] {
 			seen[g] = true
@@ -199,6 +206,10 @@ func (c *harnessControls) userApply(ctx context.Context, req agenthub.GroupReque
 func (c *harnessControls) groupApplyResult(req agenthub.GroupRequest, scope harnessconfig.SessionScope, res harnessconfig.Result, err error) (agenthub.GroupApplyResult, error) {
 	out, oerr := harnessconfig.OutcomeOf(harnessconfig.TargetSession, res, err)
 	if oerr != nil {
+		if errors.Is(oerr, harnessconfig.ErrGroupLocked) {
+			// The person's block was found at the commit; the ledger ends the request as blocked.
+			return agenthub.GroupApplyResult{}, agenthub.ErrGroupBlocked
+		}
 		return agenthub.GroupApplyResult{}, oerr
 	}
 	if out.Live {
@@ -242,13 +253,15 @@ func (c *harnessControls) ResolveGroupRequest(ctx context.Context, id string, re
 	if !ok || !caller.IsAgent() {
 		return harnessconfig.GroupRequestResult{}, harnessconfig.ErrDenied
 	}
-	apply := func(actx context.Context, req agenthub.GroupRequest, grantable []string) (agenthub.GroupApplyResult, error) {
+	apply := func(actx context.Context, req agenthub.GroupRequest, _ []string) (agenthub.GroupApplyResult, error) {
 		scope, err := c.dir.SessionScope(actx, req.ChildID)
 		if err != nil {
 			return agenthub.GroupApplyResult{}, harnessconfig.ErrScopeGone
 		}
+		// The set read before this call is not carried in: ApplyDelegated asks for
+		// it again inside its boundary.
 		res, err := c.svc.ApplyDelegated(actx, harnessconfig.Delegation{WorkspaceID: scope.WorkspaceID, ChildSessionID: req.ChildID,
-			Groups: req.Groups, GrantorSessionID: caller.SessionID, RequestID: req.ID, Grantable: grantable})
+			Groups: req.Groups, GrantorSessionID: caller.SessionID, RequestID: req.ID, Grantable: c.grantableAtCommit(caller.SessionID, req.ChildID)})
 		return c.groupApplyResult(req, scope, res, err)
 	}
 	next, payload, err := c.agents.ResolveGroupRequestAsParent(ctx, id, revision, agenthub.GroupDecision(decision), apply)
@@ -372,8 +385,7 @@ func (c *harnessControls) GrantChildGroups(ctx context.Context, childID string, 
 	if len(groups) == 0 {
 		return nil, nil
 	}
-	grantable, err := c.agents.GrantableGroups(ctx, child)
-	if err != nil {
+	if err := c.agents.RefuseBlockedGroups(ctx, childID, groups); err != nil {
 		return nil, err
 	}
 	scope, err := c.dir.SessionScope(ctx, childID)
@@ -381,9 +393,12 @@ func (c *harnessControls) GrantChildGroups(ctx context.Context, childID string, 
 		return nil, harnessconfig.ErrScopeGone
 	}
 	res, err := c.svc.ApplyDelegated(ctx, harnessconfig.Delegation{WorkspaceID: scope.WorkspaceID, ChildSessionID: childID,
-		Groups: groups, GrantorSessionID: parentID, RequestID: "create:" + childID, Grantable: grantable})
+		Groups: groups, GrantorSessionID: parentID, RequestID: "create:" + childID, Grantable: c.grantableAtCommit(parentID, childID)})
 	if errors.Is(err, harnessconfig.ErrNoChange) {
 		return nil, nil
+	}
+	if errors.Is(err, harnessconfig.ErrGroupLocked) {
+		return nil, agenthub.ErrGroupBlocked
 	}
 	req := agenthub.GroupRequest{ChildID: childID, Groups: groups}
 	applied, err := c.groupApplyResult(req, scope, res, err)
@@ -392,4 +407,24 @@ func (c *harnessControls) GrantChildGroups(ctx context.Context, childID string, 
 	}
 	out, _ := applied.Payload.(*harnessconfig.Outcome)
 	return out, nil
+}
+
+// grantableAtCommit is read by ApplyDelegated twice, the second time inside the
+// V boundary and the child's coordinator: what the grantor may hand this child
+// is whatever its confirmed endpoint serves now, for the child it is the direct
+// parent of now, minus the groups the person blocked for that child. Lock order
+// is V boundary, then the child's coordinator, then the grantor's coordinator
+// (a short read of its served set; no path takes them the other way round, since
+// a session is below its parent only), then the SQL transaction.
+func (c *harnessControls) grantableAtCommit(grantor, childID string) func(context.Context) ([]string, error) {
+	return func(ctx context.Context) ([]string, error) {
+		child, err := c.agents.GetStatus(ctx, childID)
+		if err != nil {
+			return nil, err
+		}
+		if child.Status == agenthub.SessionStatusClosed || child.ParentSessionID == nil || *child.ParentSessionID != grantor {
+			return nil, agenthub.ErrGroupNotGrantable
+		}
+		return c.agents.GrantableGroups(ctx, child)
+	}
 }

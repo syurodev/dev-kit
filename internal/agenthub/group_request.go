@@ -2,6 +2,7 @@ package agenthub
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"slices"
@@ -54,6 +55,8 @@ const (
 const (
 	maxGroupRequestGroups = 8
 	maxGroupName          = 128
+	// maxOpenGroupRequests documents the quota; SQL enforces it (migration 58's
+	// agent_group_requests_quota trigger must say the same number).
 	maxOpenGroupRequests  = 4
 	maxGroupRequestReason = 400
 	groupRequestTTL       = 30 * time.Minute
@@ -255,17 +258,13 @@ func (s *Service) CreateGroupRequest(ctx context.Context, groups []string, route
 		return GroupRequest{}, ErrGroupNoChange
 	}
 
-	open, err := s.openGroupRequests(ctx, st, child.ID)
-	if err != nil {
+	// Asking again for exactly the same groups is the same request, not a second
+	// one. This read only avoids a needless insert and the quota error for an
+	// idempotent ask; the rules themselves are enforced by the insert.
+	if same, ok, err := s.openRequestWithGroups(ctx, st, child.ID, names); err != nil {
 		return GroupRequest{}, err
-	}
-	for _, r := range open {
-		if slices.Equal(r.Groups, names) {
-			return r, nil // asked already: the same request, not a second one
-		}
-	}
-	if len(open) >= maxOpenGroupRequests {
-		return GroupRequest{}, ErrGroupRequestLimit
+	} else if ok {
+		return same, nil
 	}
 
 	now := time.Now().UTC()
@@ -281,12 +280,34 @@ func (s *Service) CreateGroupRequest(ctx context.Context, groups []string, route
 		r.ParentID = child.ID // a root session has no parent; the column is never read for the user route
 	}
 	if err := st.InsertGroupRequest(ctx, r); err != nil {
+		if errors.Is(err, ErrGroupRequestOverlap) {
+			// A twin that raced this call may have claimed exactly these groups:
+			// then it is the request. Anything else overlaps and is refused whole.
+			if same, ok, rerr := s.openRequestWithGroups(ctx, st, child.ID, names); rerr == nil && ok {
+				return same, nil
+			}
+		}
 		return GroupRequest{}, err
 	}
 	if route == GroupRouteParent {
 		s.noticeGroupRequest(child, r)
 	}
 	return r, nil
+}
+
+// openRequestWithGroups finds the child's open request that names exactly these
+// groups, after closing the parent-route ones that waited too long.
+func (s *Service) openRequestWithGroups(ctx context.Context, st GroupRequestStore, childID string, names []string) (GroupRequest, bool, error) {
+	open, err := s.openGroupRequests(ctx, st, childID)
+	if err != nil {
+		return GroupRequest{}, false, err
+	}
+	for _, r := range open {
+		if slices.Equal(r.Groups, names) {
+			return r, true, nil
+		}
+	}
+	return GroupRequest{}, false, nil
 }
 
 // ErrGroupNoChange: every requested group is served already.
@@ -549,6 +570,16 @@ func (s *Service) applyAndSettle(ctx context.Context, st GroupRequestStore, r Gr
 	}
 	res, aerr := apply(ctx, r, grantable)
 	if !res.Committed {
+		if errors.Is(aerr, ErrGroupBlocked) {
+			// The person blocked a group after this request was read and before the
+			// write could commit: nothing was written, and the request ends as
+			// blocked rather than waiting for an answer that can no longer be yes.
+			next, ok, err := s.settleGroupRequest(ctx, st, r, GroupRequestDenied, r.Route, by, GroupOutcomeBlocked)
+			if err != nil || !ok {
+				return r, res.Payload, aerr
+			}
+			return next, res.Payload, aerr
+		}
 		if aerr == nil {
 			aerr = ErrGroupRequestUnavailable
 		}
@@ -645,6 +676,26 @@ func (s *Service) GroupLocks(ctx context.Context, sessionID string) ([]string, e
 		return nil, ErrPermissionDenied
 	}
 	return st.GroupLocks(ctx, sessionID)
+}
+
+// RefuseBlockedGroups is a host check: ErrGroupBlocked if the person blocked any
+// of groups for the session. It is the early, friendly refusal; the write itself
+// is refused again by the store inside its transaction.
+func (s *Service) RefuseBlockedGroups(ctx context.Context, sessionID string, groups []string) error {
+	st, err := s.groupStore()
+	if err != nil {
+		return err
+	}
+	locks, err := st.GroupLocks(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	for _, g := range groups {
+		if slices.Contains(locks, g) {
+			return ErrGroupBlocked
+		}
+	}
+	return nil
 }
 
 // SetGroupLock is the window's: only the person writes or lifts a lock.

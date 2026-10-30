@@ -363,6 +363,18 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 				cleanupWorktree()
 				return nil, err
 			}
+			if hasGroups && len(plannedGroups) > 0 {
+				groupsReport = grantChildGroups(callCtx, groups, sess.ID, plannedGroups)
+				if taskID != "" && !groupsReport.ready() {
+					// A task is about to be claimed for this child and sent to it. Do
+					// not start it on a child whose groups are not confirmed: close
+					// the child (the task is never claimed) and say why. The caller
+					// can retry, or pass toolGroups: [] to start without them.
+					_ = s.deps.AgentHub.CloseSession(callCtx, sess.ID)
+					cleanupWorktree()
+					return nil, agenthub.ErrChildGroupsNotReady
+				}
+			}
 			return forAgent(sess), nil
 		})
 		if err != nil {
@@ -371,9 +383,6 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 		sess, ok := v.(agenthub.AgentSession)
 		if !ok {
 			return agenthub.AgentSession{}, "", apperrors.New("internal_error", "Agent Hub did not return the new session.", true)
-		}
-		if hasGroups && len(plannedGroups) > 0 {
-			groupsReport = grantChildGroups(ctx, groups, sess.ID, plannedGroups)
 		}
 		branchName := ""
 		if createdWorktree != nil {

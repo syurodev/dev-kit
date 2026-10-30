@@ -41,6 +41,7 @@ type fakeGroups struct {
 		route, reason string
 	}
 	status    harnessconfig.GroupRequestView
+	listOut   []harnessconfig.GroupRequestView
 	resolveIn struct {
 		id       string
 		revision int64
@@ -74,6 +75,9 @@ func (f *fakeGroups) GroupRequestStatus(context.Context, string) (harnessconfig.
 	return f.status, nil
 }
 func (f *fakeGroups) ListGroupRequests(context.Context) ([]harnessconfig.GroupRequestView, error) {
+	if f.listOut != nil {
+		return f.listOut, nil
+	}
 	return []harnessconfig.GroupRequestView{f.status}, nil
 }
 func (f *fakeGroups) ResolveGroupRequest(_ context.Context, id string, revision int64, decision string) (harnessconfig.GroupRequestResult, error) {
@@ -288,5 +292,110 @@ func TestWithoutTheLedgerNoneOfTheRequestToolsIsRegistered(t *testing.T) {
 		if !inv.Has(name) {
 			t.Errorf("%s is missing with the ledger", name)
 		}
+	}
+}
+
+func taskGroupFixture(t *testing.T) (*Server, *fakeAgentHub, *childTasks, *fakeGroups, context.Context) {
+	t.Helper()
+	srv, hub, board, ctx := childTaskFixture()
+	groups := &fakeGroups{hub: hub, plan: []string{"vault"}}
+	srv.deps.Harness = groups
+	return srv, hub, board, groups, ctx
+}
+
+// A child created on a task must not be started on groups that are not confirmed:
+// nothing is claimed, nothing is sent, and the child is closed.
+func TestATaskChildWhoseGroupsAreNotConfirmedIsNotStartedOnTheTask(t *testing.T) {
+	cases := map[string]func(*fakeGroups){
+		"grant failed": func(g *fakeGroups) { g.grantErr = errors.New("store failure /home/x/db") },
+		"paused": func(g *fakeGroups) {
+			g.grantOut = &harnessconfig.Outcome{Status: harnessconfig.OutcomePaused, Live: false}
+		},
+		"staged, not live": func(g *fakeGroups) {
+			g.grantOut = &harnessconfig.Outcome{Status: harnessconfig.OutcomeStaged, Live: false}
+		},
+		"unknown commit": func(g *fakeGroups) {
+			g.grantOut = &harnessconfig.Outcome{Status: harnessconfig.OutcomeUnknown, Live: false}
+		},
+		"applied but silent": func(g *fakeGroups) {
+			g.grantOut = &harnessconfig.Outcome{Status: harnessconfig.OutcomeApplied, Live: false}
+		},
+	}
+	for name, setup := range cases {
+		t.Run(name, func(t *testing.T) {
+			srv, hub, board, groups, ctx := taskGroupFixture(t)
+			setup(groups)
+			_, out, err := srv.toolAgentHubCreateAgentSession(ctx, &sdk.CallToolRequest{}, agentHubCreateInput{AgentType: "mock", Cwd: "/tmp/p", TaskID: "t1"})
+			if !errors.Is(err, agenthub.ErrChildGroupsNotReady) {
+				t.Fatalf("err = %v, out = %v", err, out)
+			}
+			if board.assignCalls != 0 {
+				t.Fatalf("the task was claimed %d times for a child that is not ready", board.assignCalls)
+			}
+			if hub.sendCalled {
+				t.Fatal("the task was sent to a child whose groups are not confirmed")
+			}
+			if hub.closeID != "child-1" {
+				t.Fatalf("closed %q, want the new child closed", hub.closeID)
+			}
+			if err != nil && (strings.Contains(err.Error(), "store failure") || strings.Contains(err.Error(), "/home")) {
+				t.Fatalf("the cause reached the agent: %v", err)
+			}
+		})
+	}
+}
+
+// Confirmed groups, nothing to grant, and an explicit empty list all start the task.
+func TestATaskChildWithConfirmedOrNoGroupsIsStarted(t *testing.T) {
+	for name, setup := range map[string]func(*fakeGroups, *agentHubCreateInput){
+		"confirmed live": func(g *fakeGroups, _ *agentHubCreateInput) {
+			g.grantOut = &harnessconfig.Outcome{Status: harnessconfig.OutcomeApplied, Live: true}
+		},
+		"already had them": func(g *fakeGroups, _ *agentHubCreateInput) { g.grantOut = nil },
+		"explicit none": func(g *fakeGroups, in *agentHubCreateInput) {
+			g.plan = nil
+			empty := []string{}
+			in.ToolGroups = &empty
+			g.grantErr = errors.New("must not be called")
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv, hub, board, groups, ctx := taskGroupFixture(t)
+			in := agentHubCreateInput{AgentType: "mock", Cwd: "/tmp/p", TaskID: "t1"}
+			setup(groups, &in)
+			if _, _, err := srv.toolAgentHubCreateAgentSession(ctx, &sdk.CallToolRequest{}, in); err != nil {
+				t.Fatal(err)
+			}
+			if board.assignCalls != 1 || !hub.sendCalled || hub.closeID != "" {
+				t.Fatalf("assign=%d sent=%v closed=%q", board.assignCalls, hub.sendCalled, hub.closeID)
+			}
+		})
+	}
+}
+
+// Without a task the child is kept and the report says what is true.
+func TestAChildWithoutATaskKeepsItsReportWhenTheGroupsAreNotLive(t *testing.T) {
+	srv, hub, groups, _, ctx := groupFixture(t)
+	groups.grantOut = &harnessconfig.Outcome{Status: harnessconfig.OutcomePaused, Live: false}
+	_, out, err := srv.toolAgentHubCreateAgentSession(ctx, &sdk.CallToolRequest{}, agentHubCreateInput{AgentType: "mock", Cwd: "/tmp/p"})
+	if err != nil || hub.closeID != "" {
+		t.Fatalf("err=%v closed=%q", err, hub.closeID)
+	}
+	if tg := decodeMap(t, out)["toolGroups"].(map[string]any); tg["status"] != "granted" {
+		t.Fatalf("report = %v", tg)
+	}
+}
+
+func TestTheStatusToolWithoutAnIdListsOnlyTheCallersOwnRequests(t *testing.T) {
+	srv, _, groups, _, _ := groupFixture(t)
+	ctx := identity.WithCaller(context.Background(), identity.Agent("child-9"))
+	groups.listOut = []harnessconfig.GroupRequestView{{ID: "mine", ChildID: "child-9"}, {ID: "kids", ChildID: "child-10"}}
+	_, out, err := srv.toolHarnessGroupStatus(ctx, &sdk.CallToolRequest{}, HarnessGroupStatusInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(out)
+	if !strings.Contains(string(raw), `"mine"`) || strings.Contains(string(raw), `"kids"`) {
+		t.Fatalf("out = %s", raw)
 	}
 }

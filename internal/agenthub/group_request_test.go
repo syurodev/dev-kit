@@ -3,6 +3,7 @@ package agenthub
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -410,5 +411,161 @@ func TestWhoSeesWhat(t *testing.T) {
 	u := f.ask(t, GroupRouteUser, "db")
 	if list, _ := f.svc.ListGroupRequests(ui); len(list) != 1 || list[0].ID != u.ID {
 		t.Errorf("window list = %v", list)
+	}
+}
+
+// barrierRequestStore holds every caller of the pre-insert read until all of them
+// have read, so each sees an empty list: the interleaving a read-then-write
+// check loses.
+type barrierRequestStore struct {
+	Store
+	GroupRequestStore
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s *barrierRequestStore) ListGroupRequestsOfChild(ctx context.Context, id string, open bool) ([]GroupRequest, error) {
+	rows, err := s.GroupRequestStore.ListGroupRequestsOfChild(ctx, id, open)
+	s.entered <- struct{}{}
+	<-s.release
+	return rows, err
+}
+
+func TestTwoRequestsRacingForTheSameGroupsAreOneRequest(t *testing.T) {
+	f := newGroupFixture(t)
+	wrap := &barrierRequestStore{Store: f.svc.store, GroupRequestStore: f.svc.store.(GroupRequestStore), entered: make(chan struct{}, 2), release: make(chan struct{})}
+	f.svc.store = wrap
+	type result struct {
+		r   GroupRequest
+		err error
+	}
+	done := make(chan result, 2)
+	for range 2 {
+		go func() {
+			r, err := f.svc.CreateGroupRequest(f.childCtx, []string{"git"}, GroupRouteParent, "")
+			done <- result{r, err}
+		}()
+	}
+	for range 2 {
+		<-wrap.entered
+	}
+	close(wrap.release)
+	x, y := <-done, <-done
+	if x.err != nil || y.err != nil {
+		t.Fatalf("errors %v %v", x.err, y.err)
+	}
+	if x.r.ID != y.r.ID {
+		t.Fatalf("two open requests for the same child and group: %s and %s", x.r.ID, y.r.ID)
+	}
+	if open, _ := f.svc.store.(GroupRequestStore).ListGroupRequestsOfChild(context.Background(), f.child.ID, true); len(open) != 1 {
+		t.Fatalf("%d open requests, want 1", len(open))
+	}
+}
+
+// Requests that share a group but are not the same set are refused whole: nothing
+// is merged and no group is asked for twice.
+func TestARequestThatOverlapsAnOpenOneIsRefusedWhole(t *testing.T) {
+	f := newGroupFixture(t)
+	first := f.ask(t, GroupRouteParent, "git")
+	for name, groups := range map[string][]string{"superset": {"git", "web"}, "subset-of-superset": {"git", "db"}} {
+		if _, err := f.svc.CreateGroupRequest(f.childCtx, groups, GroupRouteUser, ""); !errors.Is(err, ErrGroupRequestOverlap) {
+			t.Errorf("%s: %v, want ErrGroupRequestOverlap", name, err)
+		}
+	}
+	// The refused asks left nothing behind: only the first request is open, and a
+	// disjoint ask is fine.
+	if open, _ := f.svc.store.(GroupRequestStore).ListGroupRequestsOfChild(context.Background(), f.child.ID, true); len(open) != 1 || open[0].ID != first.ID {
+		t.Fatalf("open = %+v", open)
+	}
+	if _, err := f.svc.CreateGroupRequest(f.childCtx, []string{"web"}, GroupRouteParent, ""); err != nil {
+		t.Fatalf("disjoint ask: %v", err)
+	}
+	// Once the first is answered its groups are free again.
+	a := &applier{committed: true}
+	if _, _, err := f.svc.ResolveGroupRequestAsParent(f.ctx, first.ID, first.Revision, GroupDeny, a.fn); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.CreateGroupRequest(f.childCtx, []string{"git", "db"}, GroupRouteParent, ""); err != nil {
+		t.Fatalf("ask after the first was answered: %v", err)
+	}
+}
+
+// Many callers at once, a mix of equal, overlapping and disjoint sets: whatever
+// the order, a group is claimed by one open request and the quota holds.
+func TestConcurrentRequestsNeverClaimAGroupTwiceNorExceedTheQuota(t *testing.T) {
+	f := newGroupFixture(t)
+	for _, g := range []string{"g1", "g2", "g3", "g4", "g5", "g6"} {
+		f.host.known[g] = true
+	}
+	sets := [][]string{{"git"}, {"git", "web"}, {"web"}, {"g1"}, {"g2"}, {"g3"}, {"g4"}, {"g5"}, {"g6"}, {"git"}, {"g1", "g2"}}
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for _, set := range sets {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, _ = f.svc.CreateGroupRequest(f.childCtx, set, GroupRouteUser, "")
+		}()
+	}
+	close(start)
+	wg.Wait()
+	open, err := f.svc.store.(GroupRequestStore).ListGroupRequestsOfChild(context.Background(), f.child.ID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(open) > maxOpenGroupRequests {
+		t.Fatalf("%d open requests, quota is %d", len(open), maxOpenGroupRequests)
+	}
+	claimed := map[string]string{}
+	for _, r := range open {
+		for _, g := range r.Groups {
+			if other, dup := claimed[g]; dup {
+				t.Fatalf("group %s is asked for by two open requests: %s and %s", g, other, r.ID)
+			}
+			claimed[g] = r.ID
+		}
+	}
+}
+
+// The rows that claim groups follow the request's state: any way a request
+// closes frees its groups, including expiry and invalidation.
+func TestAClosedRequestFreesItsGroups(t *testing.T) {
+	f := newGroupFixture(t)
+	r := f.ask(t, GroupRouteUser, "git")
+	if _, _, err := f.svc.AnswerGroupRequestAsUser(context.Background(), r.ID, r.Revision, UserAnswer{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.CreateGroupRequest(f.childCtx, []string{"git", "web"}, GroupRouteUser, ""); err != nil {
+		t.Fatalf("a declined request kept its group: %v", err)
+	}
+	if err := f.svc.RecoverStaleSessions(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.CreateGroupRequest(f.childCtx, []string{"git"}, GroupRouteUser, ""); err != nil {
+		t.Fatalf("an invalidated request kept its group: %v", err)
+	}
+}
+
+// The quota is checked in the same statement that inserts, so a fifth open
+// request is refused whatever the callers read first.
+func TestTheQuotaIsEnforcedByTheStore(t *testing.T) {
+	f := newGroupFixture(t)
+	st := f.svc.store.(GroupRequestStore)
+	for i, g := range []string{"git", "web", "db", "g1"} {
+		now := time.Now().UTC()
+		if err := st.InsertGroupRequest(context.Background(), GroupRequest{ID: fmt.Sprintf("r%d", i), ChildID: f.child.ID, ParentID: f.parent.ID, Groups: []string{g},
+			Route: GroupRouteUser, State: GroupRequestPendingUser, Revision: 1, CreatedAt: now, UpdatedAt: now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now().UTC()
+	err := st.InsertGroupRequest(context.Background(), GroupRequest{ID: "r5", ChildID: f.child.ID, ParentID: f.parent.ID, Groups: []string{"g2"},
+		Route: GroupRouteUser, State: GroupRequestPendingUser, Revision: 1, CreatedAt: now, UpdatedAt: now})
+	if !errors.Is(err, ErrGroupRequestLimit) {
+		t.Fatalf("fifth insert: %v, want ErrGroupRequestLimit", err)
+	}
+	if _, found, _ := st.GetGroupRequest(context.Background(), "r5"); found {
+		t.Fatal("a refused insert left a row")
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"devkit/internal/apperrors"
 	"devkit/internal/harness"
 	"devkit/internal/harnessconfig"
+	"devkit/internal/identity"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -36,7 +37,7 @@ type HarnessGroupRequestInput struct {
 
 // HarnessGroupStatusInput names one of your requests.
 type HarnessGroupStatusInput struct {
-	RequestID string `json:"requestId" jsonschema:"The id harness.group.request returned."`
+	RequestID string `json:"requestId,omitempty" jsonschema:"The id harness.group.request returned. Omit to list your own open requests."`
 }
 
 // AgentHubResolveGroupInput is a parent's answer to a child's request.
@@ -53,6 +54,14 @@ type childGroupsReport struct {
 	Status  string                 `json:"status"` // granted | not_granted
 	Outcome *harnessconfig.Outcome `json:"outcome,omitempty"`
 	Note    string                 `json:"note"`
+}
+
+// ready is true when the child can be treated as having its starting groups:
+// they were written and the endpoint confirmed them, or there was nothing to
+// write. A write that failed, or one the endpoint has not confirmed (paused,
+// staged, unknown), is not ready.
+func (r *childGroupsReport) ready() bool {
+	return r != nil && r.Status == "granted" && (r.Outcome == nil || r.Outcome.Live)
 }
 
 // childWithGroups is a new child with the report of its starting groups.
@@ -155,7 +164,22 @@ func (s *Server) toolHarnessGroupStatus(ctx context.Context, _ *sdk.CallToolRequ
 		return nil, nil, agenthub.ErrGroupRequestUnavailable
 	}
 	v, err := s.deps.Caller.Call(ctx, "builtin.harness", "harness:read", "profile:self", meta("harness_group_status", nil), func(callCtx context.Context) (any, error) {
-		return g.GroupRequestStatus(callCtx, in.RequestID)
+		if in.RequestID != "" {
+			return g.GroupRequestStatus(callCtx, in.RequestID)
+		}
+		// No id: the caller's own open requests (not its children's).
+		caller, _ := identity.FromContext(callCtx)
+		all, err := g.ListGroupRequests(callCtx)
+		if err != nil {
+			return nil, err
+		}
+		own := []harnessconfig.GroupRequestView{}
+		for _, r := range all {
+			if r.ChildID == caller.SessionID {
+				own = append(own, r)
+			}
+		}
+		return own, nil
 	})
 	if err != nil {
 		return nil, nil, err
