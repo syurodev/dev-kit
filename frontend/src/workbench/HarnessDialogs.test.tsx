@@ -208,3 +208,53 @@ test("the dialog card lets its body shrink inside the card's padding", () => {
   const card = html.match(/<[^>]*data-slot="dialog-content"[^>]*>/)?.[0] ?? "";
   expect(card).toContain("data-slot=dialog-body]]:shrink");
 });
+
+const groupRequest: PendingInteraction = {
+  id: "g1",
+  type: "select",
+  kind: "harness_group_request",
+  env: "",
+  tool: "",
+  summary:
+    "Session 4c686ea3 asks to turn on these tool groups for itself only:\n  • vault (2 tools)\n\nNote from the session (untrusted text, not checked by DevKit): please",
+  allowAlwaysOffered: false,
+  caller: "agent:4c686ea3",
+  options: [
+    { id: "approve", label: "Review and allow", provider: "", subject: "" },
+    { id: "decline", label: "Decline this request", provider: "", subject: "" },
+    { id: "block", label: "Decline and block these groups for this session", provider: "", subject: "" },
+  ],
+  remember: "",
+};
+
+test("a session's request for more groups offers allow, decline and block, preselects nothing and focuses Cancel", () => {
+  const html = renderToString(
+    <HarnessScopeDialog
+      pending={groupRequest}
+      title="A session asks for more tool groups"
+      choiceLabel="Your answer"
+      confirmLabel="Continue"
+      onCancel={() => {}}
+      onChoose={() => {}}
+      portal={false}
+    />,
+  );
+  expect(html).toContain("A session asks for more tool groups");
+  expect(html).toContain("Review and allow");
+  expect(html).toContain("Decline this request");
+  expect(html).toContain("Decline and block these groups for this session");
+  expect(html).toContain("untrusted text");
+  // Nothing is chosen for the person, there is no allow-always, and Enter lands on Cancel.
+  expect(html).not.toContain('aria-checked="true"');
+  expect(html).toMatch(/<button[^>]*disabled[^>]*>(?:(?!<\/button>).)*Continue/s);
+  expect(html).not.toContain("Allow always");
+  expect(html).toMatch(/<button[^>]*autofocus[^>]*>(?:(?!<\/button>).)*Cancel/s);
+});
+
+test("the scope question keeps its own wording when no strings are passed", () => {
+  const html = renderToString(
+    <HarnessScopeDialog pending={pending} onCancel={() => {}} onChoose={() => {}} portal={false} />,
+  );
+  expect(html).toContain("Where should this be saved?");
+  expect(html).toContain("Review the change");
+});

@@ -4,11 +4,13 @@ import { Button } from "@/components/ui/button";
 import {
   applyReview,
   cancelReview,
+  groupLocks,
   harnessAvailable,
   onHarnessChanged,
   prepareRevoke,
   reconcileSession,
   sessionProfile,
+  setGroupLock,
 } from "@/bridge/harness";
 import { agentHubResumeSession } from "@/bridge/agenthub";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
@@ -89,6 +91,49 @@ export function SessionToolGroups({ sessionId }: { sessionId: string }) {
       stopPolling();
     };
   }, [controller, wired, workspaceId, sessionId]);
+
+  // The groups the person blocked for this session. Read beside the card's own
+  // state; an answer for a session the card has left is dropped (live).
+  // null until read: "not loaded yet" is not "nothing is blocked".
+  const [locks, setLocks] = useState<string[] | null>(null);
+  const [lockBusy, setLockBusy] = useState("");
+  const [lockError, setLockError] = useState("");
+  useEffect(() => {
+    setLocks(null);
+    setLockError("");
+    if (!wired || !workspaceId) {
+      return;
+    }
+    let live = true;
+    const read = () =>
+      groupLocks(sessionId)
+        .then((list) => live && setLocks(list))
+        .catch(() => undefined);
+    void read();
+    const stopEvents = onHarnessChanged(() => void read());
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void read();
+      }
+    }, REFRESH_MS);
+    return () => {
+      live = false;
+      stopEvents();
+      window.clearInterval(timer);
+    };
+  }, [wired, workspaceId, sessionId]);
+  async function unblock(group: string) {
+    setLockBusy(group);
+    setLockError("");
+    try {
+      await setGroupLock(sessionId, group, false);
+      setLocks(await groupLocks(sessionId));
+    } catch (e) {
+      setLockError(e instanceof Error ? e.message : "Could not lift the block.");
+    } finally {
+      setLockBusy("");
+    }
+  }
 
   const { view, review, outcome, busy, error, loadError } = state;
   // A view read for another session is never drawn on this card.
@@ -171,6 +216,32 @@ export function SessionToolGroups({ sessionId }: { sessionId: string }) {
           ) : (
             <p className="text-caption-11 text-text-tertiary">No groups were turned on for this session alone.</p>
           )}
+          {locks && locks.length > 0 ? (
+            <div className="flex flex-col gap-1">
+              <ul aria-label="Groups blocked for this session" className="flex flex-col gap-1">
+                {locks.map((group) => (
+                  <li key={group} className="flex items-center gap-2 text-body-12">
+                    <span className="min-w-0 flex-1 truncate text-text-primary" title={group}>
+                      {group}
+                      <span className="ml-2 text-caption-11 text-text-tertiary">blocked</span>
+                    </span>
+                    <Button type="button" size="sm" variant="outline" disabled={lockBusy !== ""} onClick={() => void unblock(group)} aria-label={`Unblock ${group}`}>
+                      {lockBusy === group ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                      Unblock
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-caption-11 text-text-tertiary">
+                No agent, including its parent, can add a blocked group to this session. Unblocking only lets it be asked for again; nothing is turned on.
+              </p>
+              {lockError ? (
+                <p role="alert" className="text-caption-11 text-status-danger">
+                  {lockError}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             {reconcile ? (
               <Button type="button" size="sm" disabled={busy !== ""} onClick={() => void controller.reconcile()}>

@@ -20,6 +20,11 @@ type Props = {
   onCancel: () => void;
   onChoose: (scope: string) => void;
   portal?: boolean;
+  /** Wording for the other selection that shares this layout (a session's request for more groups). */
+  title?: string;
+  fallbackSummary?: string;
+  choiceLabel?: string;
+  confirmLabel?: string;
 };
 
 /**
@@ -29,8 +34,24 @@ type Props = {
  * the focus, so Enter can never pick a scope on the person's behalf. The agent's
  * own words, if any, are inside the host-written summary under an "untrusted text"
  * label.
+ *
+ * The same layout answers a session's request for more groups (allow, decline, or
+ * decline and block); only the strings differ (props). Cancel there declines that
+ * one request and blocks nothing.
  */
-export function HarnessScopeDialog({ pending, busy, error, waiting = 0, onCancel, onChoose, portal = true }: Props) {
+export function HarnessScopeDialog({
+  pending,
+  busy,
+  error,
+  waiting = 0,
+  onCancel,
+  onChoose,
+  portal = true,
+  title = "Where should this be saved?",
+  fallbackSummary = "An agent asks to turn on tool groups.",
+  choiceLabel = "Where to save",
+  confirmLabel = "Review the change",
+}: Props) {
   const [scope, setScope] = useState("");
   return (
     <Dialog open onOpenChange={() => {}}>
@@ -45,11 +66,11 @@ export function HarnessScopeDialog({ pending, busy, error, waiting = 0, onCancel
             <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border-subtle bg-state-soft text-text-secondary">
               <Wrench aria-hidden className="size-4" />
             </div>
-            <DialogTitle className="text-title-16">Where should this be saved?</DialogTitle>
+            <DialogTitle className="text-title-16">{title}</DialogTitle>
           </div>
           <DialogDescription id="harness-scope-description" asChild>
             <p className="max-h-56 overflow-y-auto whitespace-pre-wrap break-words text-body-12 leading-relaxed text-text-secondary">
-              {pending.summary || "An agent asks to turn on tool groups."}
+              {pending.summary || fallbackSummary}
             </p>
           </DialogDescription>
           <p className="text-caption-11 text-text-tertiary">
@@ -57,7 +78,7 @@ export function HarnessScopeDialog({ pending, busy, error, waiting = 0, onCancel
             {waiting > 0 ? ` · ${waiting} more waiting` : ""}
           </p>
         </DialogHeader>
-        <RadioGroup aria-label="Where to save" value={scope} onValueChange={setScope} disabled={busy} className="gap-2">
+        <RadioGroup aria-label={choiceLabel} value={scope} onValueChange={setScope} disabled={busy} className="gap-2">
           {pending.options.map((option) => (
             <label
               key={option.id}
@@ -80,7 +101,7 @@ export function HarnessScopeDialog({ pending, busy, error, waiting = 0, onCancel
           </Button>
           <Button type="button" disabled={busy || !scope} onClick={() => onChoose(scope)}>
             {busy ? <Loader2 className="size-4 animate-spin" /> : null}
-            Review the change
+            {confirmLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -2038,6 +2038,16 @@ export function GitUnstage(paths: string[] | null): $CancellablePromise<void> {
 }
 
 /**
+ * HarnessAnswerGroupRequest answers a request that waits for the person:
+ * "approve" (shows the exact change and asks again), "decline" (this request
+ * only) or "block" (decline and lock those groups for that session). The answer
+ * is bound to the revision the window showed.
+ */
+export function HarnessAnswerGroupRequest(id: string, revision: number, answer: string): $CancellablePromise<harnessconfig$0.GroupRequestResult> {
+    return $Call.ByID(2820106024, id, revision, answer);
+}
+
+/**
  * HarnessApply asks the person through the shared confirmation flow and commits
  * a prepared change. A change that was saved but not published returns an
  * Outcome, not an error.
@@ -2060,6 +2070,22 @@ export function HarnessAvailable(): $CancellablePromise<boolean> {
  */
 export function HarnessCancel(id: string): $CancellablePromise<void> {
     return $Call.ByID(1986218080, id);
+}
+
+/**
+ * HarnessGroupLocks lists the tool groups the person blocked for a session.
+ */
+export function HarnessGroupLocks(sessionID: string): $CancellablePromise<string[] | null> {
+    return $Call.ByID(1817284963, sessionID);
+}
+
+/**
+ * HarnessGroupRequests lists the requests for more tool groups that wait for the
+ * person, with the revision each was read at. A request's reason is the session's
+ * own words: show it as untrusted text.
+ */
+export function HarnessGroupRequests(): $CancellablePromise<harnessconfig$0.GroupRequestView[] | null> {
+    return $Call.ByID(1308115219);
 }
 
 /**
@@ -2107,6 +2133,14 @@ export function HarnessReconcile(workspaceID: string, sessionID: string): $Cance
  */
 export function HarnessSessionProfile(workspaceID: string, sessionID: string): $CancellablePromise<harnessconfig$0.ProfileView> {
     return $Call.ByID(1383054555, workspaceID, sessionID);
+}
+
+/**
+ * HarnessSetGroupLock blocks a tool group for a session (no agent can add it) or
+ * lifts the block. Only the person writes a lock.
+ */
+export function HarnessSetGroupLock(sessionID: string, group: string, locked: boolean): $CancellablePromise<void> {
+    return $Call.ByID(191083954, sessionID, group, locked);
 }
 
 /**

@@ -117,6 +117,32 @@ export interface GroupEdit {
 }
 
 /**
+ * GroupRequestResult is a request and, when a change was made, what became of the
+ * child's endpoint. Live is true only for an acknowledged endpoint.
+ */
+export interface GroupRequestResult {
+    "request": GroupRequestView;
+    "outcome"?: Outcome | null;
+}
+
+/**
+ * GroupRequestView is one request. ReasonUntrusted is the child's own text: show
+ * it only labelled as such, never as an instruction.
+ */
+export interface GroupRequestView {
+    "id": string;
+    "childId": string;
+    "groups": string[] | null;
+    "route": string;
+    "state": string;
+    "revision": number;
+    "reasonUntrusted"?: string;
+    "resolver"?: string;
+    "outcome"?: string;
+    "createdAt": string;
+}
+
+/**
  * GroupRow is one MCP tool group as the registry holds it and as the saved
  * configuration and the running session treat it. Definition bytes are the size
  * of the tool definitions a client receives, not tokens, cache savings or quota.
@@ -403,7 +429,11 @@ export interface StaleDiagnosis {
     "total": number;
 
     /**
-     * Truncated: Total is larger than the listed entries, so a repair cannot be prepared.
+     * Truncated: a repair cannot be prepared because its review could not show every
+     * removal in full: there are more entries than MaxStaleEntries (Total is larger
+     * than the listed entries) or the review would exceed the confirmation's limit.
+     * A repair cannot be split, so nothing is offered; restoring the module or build
+     * is the way out.
      */
     "truncated"?: boolean;
 

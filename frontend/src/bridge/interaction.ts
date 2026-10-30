@@ -11,6 +11,8 @@ export type InteractionKind =
   | "harness"
   /** Where an agent's request for tool groups is saved: this session or the workspace. */
   | "harness_scope"
+  /** A session's request for more tool groups that waits for the person: allow, decline or block. */
+  | "harness_group_request"
   | "";
 
 export type AccountOption = {
@@ -37,6 +39,9 @@ export type PendingInteraction = {
 
 export type ScopedApproval = { id: string; caller: string; tool: string; profileId: string; env: string; fingerprint: string; createdAt: string; lastUsedAt?: string; expiresAt: string; remaining: number };
 
+/** Every interaction kind toPending recognises; a kind not listed here is dropped. */
+export const interactionKinds: InteractionKind[] = ["ssh", "database", "kafka", "git_account", "harness", "harness_scope", "harness_group_request"];
+
 function toPending(raw: {
   id: string;
   type: string;
@@ -53,15 +58,7 @@ function toPending(raw: {
     return null;
   }
   const type: InteractionType = raw.type === "confirm" ? "confirm" : "select";
-  const kind =
-    raw.kind === "ssh" ||
-    raw.kind === "database" ||
-    raw.kind === "kafka" ||
-    raw.kind === "git_account" ||
-    raw.kind === "harness" ||
-    raw.kind === "harness_scope"
-      ? raw.kind
-      : "";
+  const kind: InteractionKind = interactionKinds.find((k) => k !== "" && k === raw.kind) ?? "";
   return {
     id: raw.id,
     type,
