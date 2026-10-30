@@ -673,3 +673,126 @@ func TestARevokeAndItsLockLandTogetherOrNotAtAll(t *testing.T) {
 		t.Fatalf("S = %+v, want the group revoked", o)
 	}
 }
+
+// fenceFixture: s1 is the parent of c1 (workspace w1); r1 is an open parent-route
+// request of c1 at revision 1.
+func fenceFixture(t *testing.T) (*HarnessStore, context.Context) {
+	t.Helper()
+	s, ctx := harnessFixture(t)
+	for _, q := range []string{
+		`INSERT INTO agent_sessions(id,agent_type,project_path,status,depth,created_at,updated_at,workspace_id,parent_session_id) VALUES('c1','mock','/one','idle',1,'x','x','w1','s1')`,
+		`INSERT INTO agent_group_requests(id,child_id,parent_id,groups,reason,route,state,revision,created_at,updated_at) VALUES('r1','c1','s1','["vault"]','','parent','pending_parent',1,'t','t')`,
+		`INSERT INTO agent_group_request_open_groups(request_id,child_id,group_name) VALUES('r1','c1','vault')`,
+	} {
+		if _, err := s.db.ExecContext(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return s, ctx
+}
+
+func fencedWrite(f *harness.WriteFence) harness.StoreWrite {
+	return harness.StoreWrite{WorkspaceID: "w1", SessionID: "c1", Override: &harness.OverrideWrite{Value: ho("vault"), Forbid: []string{"vault"}, Fence: f}}
+}
+
+func parentFence() *harness.WriteFence {
+	return &harness.WriteFence{Grantor: "s1", RequestID: "r1", RequestState: "pending_parent", RequestRevision: 1, Resolver: "parent:s1", Outcome: "applied"}
+}
+
+func requestRow(t *testing.T, s *HarnessStore, id string) (state string, revision int64, resolver, outcome string, claims int) {
+	t.Helper()
+	if err := s.db.QueryRow(`SELECT state,revision,resolver,outcome FROM agent_group_requests WHERE id=?`, id).Scan(&state, &revision, &resolver, &outcome); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT count(*) FROM agent_group_request_open_groups WHERE request_id=?`, id).Scan(&claims); err != nil {
+		t.Fatal(err)
+	}
+	return
+}
+
+// The grant and the approval of its request are one transaction.
+func TestAFencedWriteApprovesItsRequestInTheSameTransaction(t *testing.T) {
+	s, ctx := fenceFixture(t)
+	if _, err := s.Apply(ctx, fencedWrite(parentFence())); err != nil {
+		t.Fatal(err)
+	}
+	if o, _ := overrideState(t, s, ctx, "c1", "w1"); o == nil || len(o.Groups) != 1 {
+		t.Fatalf("S = %+v", o)
+	}
+	state, rev, resolver, outcome, claims := requestRow(t, s, "r1")
+	if state != "approved" || rev != 2 || resolver != "parent:s1" || outcome != "applied" || claims != 0 {
+		t.Fatalf("request = %s rev %d by %q outcome %q claims %d", state, rev, resolver, outcome, claims)
+	}
+}
+
+// Every fact the fence names, lost before the write, refuses the whole write.
+func TestAFenceThatNoLongerHoldsWritesNothing(t *testing.T) {
+	cases := map[string]struct {
+		break_ string
+		fence  func() *harness.WriteFence
+	}{
+		"the grantor closed":            {`UPDATE agent_sessions SET status='closed' WHERE id='s1'`, parentFence},
+		"the grantor is not a parent":   {``, func() *harness.WriteFence { f := parentFence(); f.Grantor = "s2"; return f }},
+		"the request was invalidated":   {`UPDATE agent_group_requests SET state='invalidated',revision=2,resolved_at='t' WHERE id='r1'`, parentFence},
+		"the request moved on":          {`UPDATE agent_group_requests SET revision=2 WHERE id='r1'`, parentFence},
+		"the request is the user's now": {`UPDATE agent_group_requests SET state='pending_user',route='user',revision=1 WHERE id='r1'`, parentFence},
+		"another child's request":       {`UPDATE agent_group_requests SET child_id='s2' WHERE id='r1'`, parentFence},
+		"no such request":               {``, func() *harness.WriteFence { f := parentFence(); f.RequestID = "nope"; return f }},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			s, ctx := fenceFixture(t)
+			if c.break_ != "" {
+				if _, err := s.db.ExecContext(ctx, c.break_); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before, brev, _, _, bclaims := requestRow(t, s, "r1")
+			if _, err := s.Apply(ctx, fencedWrite(c.fence())); !errors.Is(err, harness.ErrStoreFenceLost) {
+				t.Fatalf("err = %v, want ErrStoreFenceLost", err)
+			}
+			if o, st := overrideState(t, s, ctx, "c1", "w1"); o != nil || st.Present {
+				t.Fatalf("a refused write left S: %+v %+v", o, st)
+			}
+			after, arev, _, _, aclaims := requestRow(t, s, "r1")
+			if after != before || arev != brev || aclaims != bclaims {
+				t.Fatalf("a refused write changed the request: %s/%d/%d -> %s/%d/%d", before, brev, bclaims, after, arev, aclaims)
+			}
+		})
+	}
+}
+
+// If approving the request fails, the grant is rolled back with it.
+func TestAGrantIsRolledBackWhenItsRequestCannotBeApproved(t *testing.T) {
+	s, ctx := fenceFixture(t)
+	if _, err := s.db.ExecContext(ctx, `CREATE TRIGGER fail_settle BEFORE UPDATE ON agent_group_requests BEGIN SELECT RAISE(FAIL, 'injected'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Apply(ctx, fencedWrite(parentFence())); err == nil {
+		t.Fatal("a write whose request could not be approved reported success")
+	}
+	if o, _ := overrideState(t, s, ctx, "c1", "w1"); o != nil {
+		t.Fatalf("S = %+v, want nothing written", o)
+	}
+	if state, _, _, _, _ := requestRow(t, s, "r1"); state != "pending_parent" {
+		t.Fatalf("request = %s", state)
+	}
+}
+
+// A grant that committed first is not undone by a later close; the close finds a
+// request that is already approved and leaves it.
+func TestACloseAfterAFencedGrantLeavesTheGrantAndTheApproval(t *testing.T) {
+	s, ctx := fenceFixture(t)
+	if _, err := s.Apply(ctx, fencedWrite(parentFence())); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE agent_sessions SET status='closed' WHERE id='s1'`); err != nil {
+		t.Fatal(err)
+	}
+	if o, _ := overrideState(t, s, ctx, "c1", "w1"); o == nil || len(o.Groups) != 1 {
+		t.Fatalf("S = %+v: closing the parent must not revoke the snapshot", o)
+	}
+	if state, _, _, _, _ := requestRow(t, s, "r1"); state != "approved" {
+		t.Fatalf("request = %s", state)
+	}
+}

@@ -347,3 +347,65 @@ func TestARevokeWhoseBlockCannotBeSavedFailsAndChangesNothing(t *testing.T) {
 		t.Fatalf("the revoke landed without its block: %+v", o)
 	}
 }
+
+// The grantor closes between the right being read inside the boundary and the
+// write: the store's fence, not the earlier read, decides.
+func TestAGrantorClosedAfterTheBoundaryReadIsStoppedByTheWritesFence(t *testing.T) {
+	a := newApplyEnv(t)
+	gitOff(a.env, "w1")
+	calls := 0
+	d := delegation()
+	d.Grantable = func(context.Context) ([]string, error) {
+		calls++
+		if calls == 2 { // inside the boundary, after the right was read as valid
+			if _, err := a.db.Exec(`UPDATE agent_sessions SET status='closed' WHERE id='s1'`); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return []string{"git"}, nil
+	}
+	if _, err := a.svc.ApplyDelegated(agent("s1"), d); !errors.Is(err, ErrFenceLost) {
+		t.Fatalf("err = %v, want ErrFenceLost", err)
+	}
+	if o, _ := a.override("w1", "s1b"); o != nil && len(o.Groups) != 0 {
+		t.Fatalf("S = %+v", o)
+	}
+}
+
+// A grant that answers a request is fenced on that request and approves it in
+// the write's own transaction.
+func TestAGrantThatAnswersARequestApprovesItInTheSameWriteAndNeedsItOpen(t *testing.T) {
+	a := newApplyEnv(t)
+	gitOff(a.env, "w1")
+	insert := func(id string) {
+		t.Helper()
+		if _, err := a.db.Exec(`INSERT INTO agent_group_requests(id,child_id,parent_id,groups,reason,route,state,revision,created_at,updated_at) VALUES(?,'s1b','s1','["git"]','','parent','pending_parent',1,'t','t')`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert("open")
+	d := delegation()
+	d.Request = &DelegationRequest{ID: "open", State: "pending_parent", Revision: 1, Outcome: "applied"}
+	if _, err := a.svc.ApplyDelegated(agent("s1"), d); err != nil {
+		t.Fatal(err)
+	}
+	var state, resolver string
+	var rev int64
+	if err := a.db.QueryRow(`SELECT state,revision,resolver FROM agent_group_requests WHERE id='open'`).Scan(&state, &rev, &resolver); err != nil || state != "approved" || rev != 2 || resolver != "parent:s1" {
+		t.Fatalf("request = %s rev %d by %s (%v)", state, rev, resolver, err)
+	}
+	// A request closed before the write is no grant.
+	a2 := newApplyEnv(t)
+	gitOff(a2.env, "w1")
+	if _, err := a2.db.Exec(`INSERT INTO agent_group_requests(id,child_id,parent_id,groups,reason,route,state,revision,created_at,updated_at,resolved_at) VALUES('closed','s1b','s1','["git"]','','parent','invalidated',2,'t','t','t')`); err != nil {
+		t.Fatal(err)
+	}
+	d2 := delegation()
+	d2.Request = &DelegationRequest{ID: "closed", State: "pending_parent", Revision: 1, Outcome: "applied"}
+	if _, err := a2.svc.ApplyDelegated(agent("s1"), d2); !errors.Is(err, ErrFenceLost) {
+		t.Fatalf("err = %v, want ErrFenceLost", err)
+	}
+	if o, _ := a2.override("w1", "s1b"); o != nil && len(o.Groups) != 0 {
+		t.Fatalf("S = %+v", o)
+	}
+}

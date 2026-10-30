@@ -17,12 +17,27 @@ type Delegation struct {
 	Groups           []string
 	GrantorSessionID string
 	RequestID        string
+	// Request, when the grant answers a ledger request, is the request as the
+	// grantor read it. The write is fenced on it: it must still be open in that
+	// state at that revision when S is written, and it becomes approved in the
+	// same transaction. Nil for a grant that answers no request (a new child's
+	// starting groups).
+	Request *DelegationRequest
 	// Grantable reads the set the grantor may hand out. It is called once to
 	// refuse early and again inside the commit, under the V boundary and the
 	// child's coordinator, so a grantor that lost a group or a child that was
 	// blocked or closed meanwhile is not carried over from an earlier read. A
 	// nil Grantable grants nothing.
 	Grantable func(ctx context.Context) ([]string, error)
+}
+
+// DelegationRequest is the ledger row a grant answers.
+type DelegationRequest struct {
+	ID       string
+	State    string
+	Revision int64
+	// Outcome is the fixed word recorded when the grant is written.
+	Outcome string
 }
 
 // ApplyDelegated enables Groups in the child's session override without asking
@@ -68,7 +83,15 @@ func (s *Service) ApplyDelegated(ctx context.Context, d Delegation) (Result, err
 	if s.cfg.Boundary == nil {
 		return Result{}, ErrConfirmUnavailable
 	}
-	req := Request{WorkspaceID: d.WorkspaceID, SessionID: d.ChildSessionID, Target: TargetSession, Patch: Patch{EnableGroups: groups}}
+	// The grantor must still be the child's open direct parent, and the request (if
+	// any) still open at the revision it was read at, when S is written; the store
+	// checks both inside the write's transaction and approves the request there.
+	fence := &harness.WriteFence{Grantor: d.GrantorSessionID}
+	if d.Request != nil {
+		fence.RequestID, fence.RequestState, fence.RequestRevision = d.Request.ID, d.Request.State, d.Request.Revision
+		fence.Resolver, fence.Outcome = "parent:"+d.GrantorSessionID, d.Request.Outcome
+	}
+	req := Request{WorkspaceID: d.WorkspaceID, SessionID: d.ChildSessionID, Target: TargetSession, Patch: Patch{EnableGroups: groups}, Fence: fence}
 	host := identity.UI() // the evaluation names a session the grantor does not own; the host does.
 	p := &pendingProposal{id: "delegated:" + d.RequestID, caller: caller.String(), req: req, taken: true,
 		grantor: d.GrantorSessionID, requestID: d.RequestID, precommit: within}

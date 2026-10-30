@@ -62,6 +62,10 @@ type Request struct {
 	SessionID   string
 	Target      Target
 	Patch       Patch
+	// Fence is set by host code only (the request ledger's appliers); no tool, no
+	// bridge method and no JSON field reaches it. The store checks it inside the
+	// write's transaction (harness.WriteFence).
+	Fence *harness.WriteFence
 	// Rationale is the agent's own words. It is shown labelled as untrusted and
 	// never decides a target, tier or any markup.
 	Rationale string

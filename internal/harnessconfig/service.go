@@ -202,7 +202,7 @@ func (s *Service) Prepare(ctx context.Context, req Request) (Prepared, error) {
 	if err != nil {
 		return Prepared{}, err
 	}
-	owned := Request{WorkspaceID: req.WorkspaceID, SessionID: req.SessionID, Target: req.Target, Patch: patch, Rationale: cleanRationale(req.Rationale)}
+	owned := Request{WorkspaceID: req.WorkspaceID, SessionID: req.SessionID, Target: req.Target, Patch: patch, Rationale: cleanRationale(req.Rationale), Fence: req.Fence}
 	ev, policy, err := s.evaluate(ctx, caller, owned, s.liveReaderFor(ctx))
 	if err != nil {
 		return Prepared{}, err

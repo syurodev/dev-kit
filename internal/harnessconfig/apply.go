@@ -182,6 +182,10 @@ func (s *Service) commit(ctx context.Context, caller identity.Caller, p *pending
 		}
 		return ErrExecutableNotReady
 	}
+	if p.req.Fence != nil && ev.write.Override != nil {
+		// The fence belongs to the proposal, not to what evaluate rebuilt.
+		ev.write.Override.Fence = p.req.Fence
+	}
 	if ev.W != p.bound.W {
 		return ErrConflict
 	}
@@ -357,6 +361,8 @@ func mapApplyErr(err error) error {
 		return ErrScopeGone
 	case errors.Is(err, harness.ErrStoreGroupLocked):
 		return ErrGroupLocked
+	case errors.Is(err, harness.ErrStoreFenceLost):
+		return ErrFenceLost
 	}
 	return ErrStale
 }

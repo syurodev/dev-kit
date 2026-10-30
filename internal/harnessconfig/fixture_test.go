@@ -132,7 +132,9 @@ func newEnv(t *testing.T) *env {
 	for _, q := range []string{
 		`INSERT INTO workspaces(id,name,root) VALUES('w1','one','/one'),('w2','two','/two')`,
 		`INSERT INTO agent_sessions(id,agent_type,project_path,status,depth,created_at,updated_at,workspace_id) VALUES
- ('s1','claude','/one','idle',0,'x','x','w1'),('s1b','claude','/one','idle',0,'x','x','w1'),('s2','codex','/two','idle',0,'x','x','w2')`,
+ ('s1','claude','/one','idle',0,'x','x','w1'),('s2','codex','/two','idle',0,'x','x','w2')`,
+		// s1b is a child of s1: a delegated grant is fenced on the grantor being the open direct parent.
+		`INSERT INTO agent_sessions(id,agent_type,project_path,status,depth,created_at,updated_at,workspace_id,parent_session_id) VALUES('s1b','claude','/one','idle',1,'x','x','w1','s1')`,
 	} {
 		if _, err = db.ExecContext(ctx, q); err != nil {
 			t.Fatal(err)

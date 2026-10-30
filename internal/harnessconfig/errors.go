@@ -29,7 +29,10 @@ var (
 	ErrTooLateToCancel = &harness.Error{Code: harness.CodeProposalStale, Message: "The change is already being applied and can no longer be cancelled."}
 	// ErrGroupLocked: a group the change adds is blocked for that session by the
 	// person; nothing was written.
-	ErrGroupLocked        = &harness.Error{Code: harness.CodeProfileDenied, Message: "The person blocked one of those tool groups for this session, so it was not turned on."}
+	ErrGroupLocked = &harness.Error{Code: harness.CodeProfileDenied, Message: "The person blocked one of those tool groups for this session, so it was not turned on."}
+	// ErrFenceLost: the session or the request that allowed this change was closed
+	// or answered before it could be written; nothing was written.
+	ErrFenceLost          = &harness.Error{Code: harness.CodeProposalStale, Message: "The request or session that allowed this change is no longer valid, so nothing was changed."}
 	ErrNotConfirmed       = &harness.Error{Code: harness.CodeProfileDenied, Message: "The change was not approved."}
 	ErrConfirmUnavailable = &harness.Error{Code: harness.CodeProfileDenied, Message: "No one can approve a harness change right now."}
 )
