@@ -14,6 +14,7 @@ import (
 	"devkit/internal/auth"
 	"devkit/internal/buildinfo"
 	"devkit/internal/capabilities"
+	"devkit/internal/clienterror"
 	"devkit/internal/codegraph"
 	"devkit/internal/codexsessions"
 	"devkit/internal/commands"
@@ -90,6 +91,9 @@ type Container struct {
 	Environments *environments.Service
 	Preferences  *preferences.Service
 	UIState      *uistate.Service
+	// ClientErrors keeps the window's crash reports (bridge.ReportClientError).
+	// Nil in ephemeral tests; main roots its file at <dataDir>/client-errors.log.
+	ClientErrors *clienterror.Log
 	Database     *database.Service
 	SSH          *sshservice.Service
 	CodeGraph    *codegraph.Service
@@ -500,6 +504,9 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.apiclient", Capability: "api:send", Scope: "request:*"},
 		{SubjectID: "builtin.uistate", Capability: "ui:read", Scope: "key:*"},
 		{SubjectID: "builtin.uistate", Capability: "ui:write", Scope: "key:*"},
+		// The window's crash reports: one bounded line to the log. The bridge
+		// refuses any caller but the window, and no MCP tool reaches it.
+		{SubjectID: "builtin.diagnostics", Capability: "diagnostics:write", Scope: "client_error"},
 		// codexhook:report is the MCP tool an external Codex CLI's own hooks
 		// call; codex:read/write are the UI's read-only view onto what was
 		// recorded. Two different capabilities for one feature because they

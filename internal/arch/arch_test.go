@@ -235,6 +235,12 @@ func TestLayering(t *testing.T) {
 		t.Errorf("layering violation: agentwork must be a standard-library-only leaf, imports %v", imports)
 	}
 
+	// clienterror is the window's crash log: a standard-library-only leaf. The
+	// caller check and the grant stay in the bridge.
+	if imports := graph[pkg("clienterror")]; len(imports) != 0 {
+		t.Errorf("layering violation: clienterror must be a standard-library-only leaf, imports %v", imports)
+	}
+
 	// harness is the single definition of a session's effective configuration:
 	// a pure leaf with the registry, vendor customization and path resolution
 	// injected, so no service can end up with a second resolver.

@@ -425,5 +425,6 @@
   "WorkspaceUpdate",
   "WorkspaceWatchDocuments",
   "HarnessPrepareStaleRepair",
-  "HarnessStaleProfile"
+  "HarnessStaleProfile",
+  "ReportClientError"
 ]
