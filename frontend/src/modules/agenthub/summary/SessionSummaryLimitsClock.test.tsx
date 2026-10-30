@@ -95,3 +95,30 @@ test("a section that held only a plan window draws nothing once it resets", asyn
   await act(async () => tick?.());
   expect(container.querySelector("[data-testid=summary-context]")).toBeNull();
 });
+
+// The 30 s timer is for a window that can still expire: with none left (all
+// already reset, or none at all) a mounted card has nothing to count down.
+test("the summary starts no clock when no plan window can still expire", async () => {
+  const t0 = Date.UTC(2026, 9, 29, 12, 0, 0);
+  Date.now = () => t0;
+  let started = 0;
+  window.setInterval = (() => {
+    started++;
+    return 1;
+  }) as unknown as typeof window.setInterval;
+  const render = async (limits: Usage["limits"]) => {
+    const props = { sessionId: "s", items: [] as TranscriptItem[], checkpoints: EMPTY_CHECKPOINTS, usage: { used: 10, size: 100, amount: 0, limits }, turnCount: 1, live: false };
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <SummaryBody {...props} />
+        </QueryClientProvider>,
+      ),
+    );
+  };
+  await render([{ label: "5-hour", usedPercent: 99, resetsAt: t0 / 1000 - 60 }]);
+  await render([]);
+  expect(started).toBe(0);
+  await render([{ label: "5-hour", usedPercent: 99, resetsAt: t0 / 1000 + 60 }]);
+  expect(started).toBe(1);
+});

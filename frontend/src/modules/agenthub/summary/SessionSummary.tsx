@@ -754,7 +754,8 @@ function ContextSection({ usage, turnCount }: { usage: Usage; turnCount: number 
   if (percent !== null) parts.unshift(`${percent}%`);
   if (usage.amount > 0) parts.push(formatCost(usage.amount, usage.currency));
   const tokens = tokenRows(usage.tokens);
-  const now = useNow(Boolean(usage.limits?.length));
+  // Ticks only for a window that can still expire.
+  const now = useNow(liveLimits(usage.limits).length > 0);
   const limits = limitRows(usage.limits, now);
   if (percent === null && tokens.length === 0 && limits.length === 0) return null;
   return (

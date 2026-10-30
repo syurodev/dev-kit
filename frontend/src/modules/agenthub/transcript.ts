@@ -15,7 +15,7 @@ import type {
   Subagent,
   AsyncTask,
 } from "./types";
-import { mergeUsage } from "./usageLimits";
+import { mergeSubagentUsage, mergeUsage } from "./usageLimits";
 
 export type {
   AvailableCommand,
@@ -302,10 +302,10 @@ export function applySessionUpdates(
       continue;
     }
 
-    // A subagent's usage is its own context window, not the session's.
+    // A subagent's usage is its own context window, not the session's; only its plan windows count.
     if (kind === UpdateKind.UpdateUsage || kind === "usage_update") {
-      if (update.usage && !update.origin) {
-        usage = mergeUsage(usage, update.usage);
+      if (update.usage) {
+        usage = update.origin ? mergeSubagentUsage(usage, update.usage) : mergeUsage(usage, update.usage);
         changed = true;
       }
       continue;
@@ -643,10 +643,10 @@ export function initTranscript(
     const seqRaw = asEntry.Seq ?? rec.seq;
     const seq = typeof seqRaw === "number" && seqRaw > 0 ? seqRaw : undefined;
 
-    // A subagent's usage is its own context window, not the session's.
+    // A subagent's usage is its own context window, not the session's; only its plan windows count.
     if (kind === UpdateKind.UpdateUsage || kind === "usage_update") {
-      if (payload.usage && !payload.origin) {
-        model.usage = mergeUsage(model.usage, payload.usage);
+      if (payload.usage) {
+        model.usage = payload.origin ? mergeSubagentUsage(model.usage, payload.usage) : mergeUsage(model.usage, payload.usage);
       }
       continue;
     }

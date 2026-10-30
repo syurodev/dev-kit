@@ -340,6 +340,39 @@ describe("Agent Hub Transcript Reducer & Coalescing", () => {
     expect(loaded.usage?.used).toBe(500);
   });
 
+  it("takes a subagent's plan windows but not its context numbers, live and on reload", () => {
+    const resetsAt = Math.round(Date.now() / 1000) + 3600;
+    const own = { used: 500, size: 1000000, amount: 0 };
+    const sub = { used: 3, size: 200000, amount: 0, limits: [{ label: "5-hour", usedPercent: 61, resetsAt }] };
+    const subContextOnly = { used: 4, size: 200000, amount: 0 };
+
+    let model = createInitialTranscriptModel();
+    model = applySessionUpdate(model, { kind: UpdateKind.UpdateUsage, usage: own });
+    model = applySessionUpdate(model, { kind: UpdateKind.UpdateUsage, origin: "a0549d", usage: sub });
+    model = applySessionUpdate(model, { kind: UpdateKind.UpdateUsage, origin: "a0549d", usage: subContextOnly });
+    expect(model.usage).toEqual({ ...own, limits: sub.limits });
+
+    const row = (id: string, seq: number, usage: object, origin?: string) => ({
+      ID: id,
+      Seq: seq,
+      Kind: UpdateKind.UpdateUsage,
+      Payload: { kind: UpdateKind.UpdateUsage, usage, ...(origin ? { origin } : {}) },
+    });
+    const loaded = initTranscript([row("u1", 1, own), row("u2", 2, sub, "a0549d"), row("u3", 3, subContextOnly, "a0549d")]);
+    expect(loaded.usage).toEqual({ ...own, limits: sub.limits });
+  });
+
+  it("keeps the percent of a window a rate-limit-only update names without a reading", () => {
+    const resetsAt = Math.round(Date.now() / 1000) + 3600;
+    let model = createInitialTranscriptModel();
+    model = applySessionUpdate(model, { kind: UpdateKind.UpdateUsage, usage: { used: 1, size: 100, amount: 0, limits: [{ label: "5-hour", usedPercent: 73, resetsAt, status: "ok" }] } });
+    model = applySessionUpdate(model, {
+      kind: UpdateKind.UpdateUsage,
+      usage: { used: 2, size: 100, amount: 0, limits: [{ label: "5-hour", usedPercent: 0, resetsAt, status: "warning", noReading: true }] },
+    });
+    expect(model.usage?.limits).toEqual([{ label: "5-hour", usedPercent: 73, resetsAt, status: "warning" }]);
+  });
+
   it("updates session-level commands and mode without adding transcript rows", () => {
     let model = createInitialTranscriptModel();
 
