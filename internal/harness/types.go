@@ -189,10 +189,15 @@ type Effective struct {
 // GroupOn reports whether a registry group is on. An unknown group is off.
 func (e Effective) GroupOn(group string) bool { return e.groupOn[group] }
 
-// Served reports whether the MCP server lists and accepts a tool. ProposeTool
-// is always served; every other tool follows its group.
+// ServedWhateverItsGroup reports whether a tool is one of the named exceptions
+// the server lists and accepts even when its group is off. Such a tool says
+// nothing about whether its group is on.
+func ServedWhateverItsGroup(tool string) bool { return tool == ProposeTool || tool == RequestTool }
+
+// Served reports whether the MCP server lists and accepts a tool. The named
+// exceptions are always served; every other tool follows its group.
 func (e Effective) Served(tool string) bool {
-	if tool == ProposeTool || tool == RequestTool {
+	if ServedWhateverItsGroup(tool) {
 		return true
 	}
 	_, known := e.budgets[tool]

@@ -586,3 +586,90 @@ func TestCloseAndApplyNeverLeaveAnOverrideOnAClosedSession(t *testing.T) {
 		}
 	}
 }
+
+func lockRows(t *testing.T, s *HarnessStore, session string) []string {
+	t.Helper()
+	rows, err := s.db.Query(`SELECT group_name FROM agent_session_group_locks WHERE session_id=? ORDER BY group_name`, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var g string
+		if err := rows.Scan(&g); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, g)
+	}
+	return out
+}
+
+// A group the person locked cannot be added to S: the check is inside the write's
+// transaction, so a lock written before the commit is never bypassed.
+func TestAnOverrideWriteThatAddsALockedGroupIsRefusedAndWritesNothing(t *testing.T) {
+	s, ctx := harnessFixture(t)
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO agent_session_group_locks(session_id,group_name,created_at) VALUES('s1','vault','x')`); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.Apply(ctx, harness.StoreWrite{WorkspaceID: "w1", SessionID: "s1",
+		Override: &harness.OverrideWrite{Value: ho("git", "vault"), Forbid: []string{"git", "vault"}}})
+	if !errors.Is(err, harness.ErrStoreGroupLocked) {
+		t.Fatalf("err = %v, want ErrStoreGroupLocked", err)
+	}
+	if o, st := overrideState(t, s, ctx, "s1", "w1"); o != nil || st.Present {
+		t.Fatalf("a refused write left S: %+v %+v", o, st)
+	}
+	// The same write without the locked group commits, and an unrelated lock does not stop it.
+	if _, err := s.Apply(ctx, harness.StoreWrite{WorkspaceID: "w1", SessionID: "s1",
+		Override: &harness.OverrideWrite{Value: ho("git"), Forbid: []string{"git"}}}); err != nil {
+		t.Fatalf("an unlocked group: %v", err)
+	}
+	// A lock on another session does not apply.
+	if _, err := s.Apply(ctx, harness.StoreWrite{WorkspaceID: "w2", SessionID: "s2",
+		Override: &harness.OverrideWrite{Value: ho("vault"), Forbid: []string{"vault"}}}); err != nil {
+		t.Fatalf("another session's lock applied: %v", err)
+	}
+}
+
+// A confirmed revoke writes S and the lock in one transaction: both land or neither.
+func TestARevokeAndItsLockLandTogetherOrNotAtAll(t *testing.T) {
+	s, ctx := harnessFixture(t)
+	first, err := s.Apply(ctx, harness.StoreWrite{WorkspaceID: "w1", SessionID: "s1", Override: &harness.OverrideWrite{Value: ho("vault")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A stale revoke loses the compare-and-swap: no lock is left behind.
+	_, err = s.Apply(ctx, harness.StoreWrite{WorkspaceID: "w1", SessionID: "s1",
+		Override: &harness.OverrideWrite{Expect: harness.Stamp{Revision: first.Override.Revision + 5}, Value: ho(), Lock: []string{"vault"}}})
+	if !errors.Is(err, harness.ErrStoreConflict) {
+		t.Fatalf("stale revoke: %v", err)
+	}
+	if got := lockRows(t, s, "s1"); len(got) != 0 {
+		t.Fatalf("a lost compare-and-swap left locks %v", got)
+	}
+	// A failing lock insert rolls the revoke back too.
+	if _, err := s.db.ExecContext(ctx, `CREATE TRIGGER fail_lock BEFORE INSERT ON agent_session_group_locks BEGIN SELECT RAISE(FAIL, 'injected'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Apply(ctx, harness.StoreWrite{WorkspaceID: "w1", SessionID: "s1",
+		Override: &harness.OverrideWrite{Expect: first.Override, Value: ho(), Lock: []string{"vault"}}}); err == nil {
+		t.Fatal("a revoke whose lock could not be saved reported success")
+	}
+	if o, st := overrideState(t, s, ctx, "s1", "w1"); o == nil || len(o.Groups) != 1 || st != first.Override {
+		t.Fatalf("the revoke landed without its lock: %+v %+v", o, st)
+	}
+	if _, err := s.db.ExecContext(ctx, `DROP TRIGGER fail_lock`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Apply(ctx, harness.StoreWrite{WorkspaceID: "w1", SessionID: "s1",
+		Override: &harness.OverrideWrite{Expect: first.Override, Value: ho(), Lock: []string{"vault"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := lockRows(t, s, "s1"); len(got) != 1 || got[0] != "vault" {
+		t.Fatalf("locks = %v", got)
+	}
+	if o, _ := overrideState(t, s, ctx, "s1", "w1"); o == nil || len(o.Groups) != 0 {
+		t.Fatalf("S = %+v, want the group revoked", o)
+	}
+}

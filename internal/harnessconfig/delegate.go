@@ -17,9 +17,12 @@ type Delegation struct {
 	Groups           []string
 	GrantorSessionID string
 	RequestID        string
-	// Grantable is the set the grantor may hand out right now. Every group must
-	// be in it.
-	Grantable []string
+	// Grantable reads the set the grantor may hand out. It is called once to
+	// refuse early and again inside the commit, under the V boundary and the
+	// child's coordinator, so a grantor that lost a group or a child that was
+	// blocked or closed meanwhile is not carried over from an earlier read. A
+	// nil Grantable grants nothing.
+	Grantable func(ctx context.Context) ([]string, error)
 }
 
 // ApplyDelegated enables Groups in the child's session override without asking
@@ -44,10 +47,23 @@ func (s *Service) ApplyDelegated(ctx context.Context, d Delegation) (Result, err
 	if len(groups) == 0 || len(groups) > maxPatchList {
 		return Result{}, ErrInvalid
 	}
-	for _, g := range groups {
-		if !slices.Contains(d.Grantable, g) {
-			return Result{}, ErrDenied
+	within := func(ctx context.Context) error {
+		if d.Grantable == nil {
+			return ErrDenied
 		}
+		grantable, err := d.Grantable(ctx)
+		if err != nil {
+			return ErrDenied
+		}
+		for _, g := range groups {
+			if !slices.Contains(grantable, g) {
+				return ErrDenied
+			}
+		}
+		return nil
+	}
+	if err := within(ctx); err != nil {
+		return Result{}, err
 	}
 	if s.cfg.Boundary == nil {
 		return Result{}, ErrConfirmUnavailable
@@ -55,7 +71,7 @@ func (s *Service) ApplyDelegated(ctx context.Context, d Delegation) (Result, err
 	req := Request{WorkspaceID: d.WorkspaceID, SessionID: d.ChildSessionID, Target: TargetSession, Patch: Patch{EnableGroups: groups}}
 	host := identity.UI() // the evaluation names a session the grantor does not own; the host does.
 	p := &pendingProposal{id: "delegated:" + d.RequestID, caller: caller.String(), req: req, taken: true,
-		grantor: d.GrantorSessionID, requestID: d.RequestID}
+		grantor: d.GrantorSessionID, requestID: d.RequestID, precommit: within}
 	refuse := func(err error) (Result, error) {
 		s.audit(p, harness.Applied{}, outcomeOf(err), "")
 		return Result{}, err

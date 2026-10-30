@@ -102,6 +102,9 @@ func buildView(ev evaluation, policy Policy) (View, error) {
 		}
 		b.WriteString("\nTools turned on become usable only after the agent refreshes its tool list or the session is reloaded; this does not pre-approve them.")
 	}
+	if ev.Patch.LockRevoked && len(ev.Patch.RevokeGroups) > 0 {
+		b.WriteString("\nThese groups are also blocked for this session: no agent, including its parent, can add them back until you unblock them. Nothing is turned on by unblocking.")
+	}
 	if b.Len() > maxSummaryBytes {
 		return View{}, ErrTooLargeToShow
 	}

@@ -33,6 +33,15 @@ type ProfileWrite struct {
 type OverrideWrite struct {
 	Expect Stamp
 	Value  *Override
+	// Forbid names groups this write adds to S. The store reads the session's
+	// group locks inside the write's own transaction and refuses the whole write
+	// (ErrStoreGroupLocked, nothing written) if any is locked, so a block the
+	// person wrote before this commit is never bypassed by an earlier check.
+	Forbid []string
+	// Lock names groups written to the session's lock list in the SAME
+	// transaction as this write: a revoke the person confirmed and the rule that
+	// no agent adds the group back either both land or neither does.
+	Lock []string
 }
 
 // StoreWrite is one atomic change. Profile and Override are each optional; when
@@ -57,6 +66,9 @@ var (
 	// ErrStoreScope means the workspace or session does not exist or the
 	// session does not belong to the workspace. Nothing is transferred silently.
 	ErrStoreScope = errors.New("harness scope not found")
+	// ErrStoreGroupLocked means a group the write adds is locked for the session.
+	// Nothing was written.
+	ErrStoreGroupLocked = errors.New("tool group is blocked for this session")
 	// ErrStoreCommitUnknown means the final commit failed after every check
 	// passed, so the write may or may not be durable. Every other store error is a
 	// proven rollback. A caller reads the stamps back before it decides.

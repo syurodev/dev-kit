@@ -165,6 +165,13 @@ func (s *Service) commit(ctx context.Context, caller identity.Caller, p *pending
 	if txn != nil {
 		read = func(string) (LiveTarget, error) { return txn.Target(), nil }
 	}
+	if p.precommit != nil {
+		// What lets this change through is read again here, inside the boundary:
+		// an answer read before the boundary was taken is not authority now.
+		if err := p.precommit(ctx); err != nil {
+			return refusalFor(err)
+		}
+	}
 	ev, policy, err := s.evaluate(ctx, caller, p.req, read)
 	if err != nil {
 		return refusalFor(err)
@@ -348,6 +355,8 @@ func mapApplyErr(err error) error {
 		return ErrStale
 	case errors.Is(err, harness.ErrStoreScope):
 		return ErrScopeGone
+	case errors.Is(err, harness.ErrStoreGroupLocked):
+		return ErrGroupLocked
 	}
 	return ErrStale
 }

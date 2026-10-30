@@ -182,6 +182,19 @@ func (s *HarnessStore) Apply(ctx context.Context, w harness.StoreWrite) (harness
 		}
 	}
 
+	if w.Override != nil && len(w.Override.Forbid) > 0 {
+		// Inside this transaction, so a lock committed before it is seen here and
+		// one committed after cannot slip between this read and the write below
+		// (SQLite refuses the upgrade of a stale reader).
+		locked, err := lockedGroups(ctx, tx, w.SessionID, w.Override.Forbid)
+		if err != nil {
+			return harness.Applied{}, err
+		}
+		if len(locked) > 0 {
+			return harness.Applied{}, harness.ErrStoreGroupLocked
+		}
+	}
+
 	now := s.now().Format(time.RFC3339Nano)
 	var applied harness.Applied
 	if w.Profile != nil {
@@ -205,6 +218,16 @@ func (s *HarnessStore) Apply(ctx context.Context, w harness.StoreWrite) (harness
 		})
 		if err != nil {
 			return harness.Applied{}, err
+		}
+	}
+	if w.Override != nil {
+		for _, g := range w.Override.Lock {
+			if g == "" || len(g) > 128 {
+				return harness.Applied{}, harness.ErrStoreCorrupt
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO agent_session_group_locks(session_id,group_name,created_at) VALUES(?,?,?) ON CONFLICT(session_id,group_name) DO NOTHING`, w.SessionID, g, now); err != nil {
+				return harness.Applied{}, err
+			}
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -347,4 +370,26 @@ func (s *HarnessStore) ClearOverride(ctx context.Context, sessionID string) (har
 		return harness.Stamp{}, err
 	}
 	return harness.Stamp{Revision: next}, nil
+}
+
+// lockedGroups returns which of groups the session has locked.
+func lockedGroups(ctx context.Context, q interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}, sessionID string, groups []string) ([]string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT group_name FROM agent_session_group_locks WHERE session_id=?`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var g string
+		if err := rows.Scan(&g); err != nil {
+			return nil, err
+		}
+		if slices.Contains(groups, g) {
+			out = append(out, g)
+		}
+	}
+	return out, rows.Err()
 }
