@@ -77,7 +77,9 @@ export function AgentRunningCommand({ item }: { item: TranscriptItem }) {
   const call = item.toolCall!;
   // A command the transcript still has running, in a turn that is over or a session
   // nothing works on: no clock.
-  const running = isRunningCommand(item) && !cannotFinish(useSettleFacts(item.origin, item.sessionId));
+  // The hook runs on every render, not only while the command runs (see AgentToolActivity).
+  const settle = useSettleFacts(item.origin, item.sessionId);
+  const running = isRunningCommand(item) && !cannotFinish(settle);
   const elapsed = useElapsed(item.createdAt, running);
   if (!running || elapsed < SLOW_COMMAND_MS) return null;
   const command = commandText(call);

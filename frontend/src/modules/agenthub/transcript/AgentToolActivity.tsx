@@ -74,7 +74,10 @@ export const AgentToolActivity = React.memo(function AgentToolActivity({
   const state = toolActivityState(call.status);
   // Still pending or in progress in the stored transcript, but its turn is
   // over, or its session is quiet (toolSettle.tsx): the card says so instead of spinning.
-  const stopped = state === "running" && cannotFinish(useSettleFacts(origin, sessionId));
+  // The hook runs on every render, not only while the call runs: a hook behind a
+  // condition changes the hook count when the call's status changes, and React throws.
+  const settle = useSettleFacts(origin, sessionId);
+  const stopped = state === "running" && cannotFinish(settle);
   // Fixed at mount: whether this card is news or history.
   const bornLive = React.useRef(state === "running" && !stopped).current;
 
