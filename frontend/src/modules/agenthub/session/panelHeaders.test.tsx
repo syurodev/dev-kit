@@ -112,6 +112,11 @@ test("following a session puts the feed in the pane with the session's title; st
   expect(feed.header?.title).toBe("Following Fix login");
   expect(feed.header?.actions).toBeDefined();
   expect(opens).toBeLessThanOrEqual(3);
+  // The tab rendering again for a reason of its own (another session's subagent opened) reopens nothing.
+  await act(async () => useSubagentPanel.getState().show("other", "x"));
+  expect(renders).toBeGreaterThan(1);
+  expect(Object.is(seen.agenthub, feed)).toBe(true);
+  await act(async () => useSubagentPanel.getState().close());
   await act(async () => feed.onClose());
   expect(useAgentPinsStore.getState().following).toEqual([]);
 });
