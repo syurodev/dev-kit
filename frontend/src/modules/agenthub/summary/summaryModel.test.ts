@@ -6,6 +6,7 @@ import {
   splitFileName,
   latestPlan,
   limitRows,
+  liveLimits,
   linkHosts,
   resetsIn,
   sessionChanges,
@@ -298,6 +299,20 @@ describe("limitRows", () => {
       ["Weekly", "91% · resets in 20m", "warning"],
       ["Spark · Plan", "100%", "danger"],
     ]);
+  });
+  test("a window whose reset has passed is not a row: its usage started over", () => {
+    const rows = limitRows(
+      [
+        { label: "5-hour", usedPercent: 99, resetsAt: now / 1000 - 1 },
+        { label: "Weekly", usedPercent: 10, resetsAt: now / 1000 + 600 },
+        { label: "Spark", usedPercent: 30 },
+      ],
+      now,
+    );
+    expect(rows.map((r) => r.label)).toEqual(["Weekly", "Spark"]);
+    // The same windows a minute later: the next one has gone too.
+    expect(limitRows([{ label: "Weekly", usedPercent: 10, resetsAt: now / 1000 + 600 }], now + 601_000)).toEqual([]);
+    expect(liveLimits([{ label: "Weekly", usedPercent: 10, resetsAt: now / 1000 + 600 }], now + 600_000)).toEqual([]);
   });
   test("none when the vendor reports none", () => {
     expect(limitRows(undefined)).toEqual([]);

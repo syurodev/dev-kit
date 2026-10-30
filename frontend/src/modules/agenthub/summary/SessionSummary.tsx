@@ -40,6 +40,7 @@ import {
   isTaskRunning,
   latestPlan,
   limitRows,
+  liveLimits,
   linkHosts,
   sessionChanges,
   splitFileName,
@@ -160,8 +161,24 @@ export function useSessionSummaryData({ sessionId, items, checkpoints, live }: S
 }
 
 /** What a session's usage has to show: the context window, a token split, plan limits. */
-function usageShows(usage: Usage | null | undefined): boolean {
-  return Boolean(usage?.size) || Boolean(usage?.tokens && usage.tokens.session.total > 0) || Boolean(usage?.limits?.length);
+function usageShows(usage: Usage | null | undefined, now = Date.now()): boolean {
+  return Boolean(usage?.size) || Boolean(usage?.tokens && usage.tokens.session.total > 0) || liveLimits(usage?.limits, now).length > 0;
+}
+
+/**
+ * The clock for what counts down on screen. A popover can stay open past a
+ * window's reset, and nothing re-renders it then, so while `active` it ticks:
+ * "resets in 3m" and the window's own disappearance follow within the minute.
+ */
+function useNow(active: boolean, everyMs = 30_000): number {
+  const [now, setNow] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    if (!active) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), everyMs);
+    return () => window.clearInterval(timer);
+  }, [active, everyMs]);
+  return now;
 }
 
 /** Whether any section has something. A card with nothing in it is not drawn. */
@@ -737,7 +754,10 @@ function ContextSection({ usage, turnCount }: { usage: Usage; turnCount: number 
   if (percent !== null) parts.unshift(`${percent}%`);
   if (usage.amount > 0) parts.push(formatCost(usage.amount, usage.currency));
   const tokens = tokenRows(usage.tokens);
-  const limits = limitRows(usage.limits);
+  // Ticks only for a window that can still expire.
+  const now = useNow(liveLimits(usage.limits).length > 0);
+  const limits = limitRows(usage.limits, now);
+  if (percent === null && tokens.length === 0 && limits.length === 0) return null;
   return (
     <SectionShell name="context" title="Context" hint={percent !== null ? `${percent}% used` : undefined}>
       {percent !== null ? (

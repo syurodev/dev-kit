@@ -329,12 +329,20 @@ func (r *Recorder) Record(ctx context.Context, sessionID string, update SessionU
 		// A subagent announcing its own settings or mode on the parent's
 		// connection. The session has one row of each, and it is the session's.
 		return nil
+	case update.Origin != "" && update.Kind == UpdateUsage:
+		// Its context numbers are the subagent's own, its plan windows the
+		// session's: only those are kept (mergeSubagentUsage).
+		if update.Usage == nil || (len(update.Usage.Limits) == 0 && update.Usage.RateLimit == nil) {
+			return nil
+		}
+		windows := SessionUpdate{Kind: UpdateUsage, Usage: &Usage{Limits: update.Usage.Limits, RateLimit: update.Usage.RateLimit}}
+		return r.recordSessionState(ctx, sessionID, windows, true)
 	case update.IsChunk():
 		return r.recordChunk(ctx, sessionID, update)
 	case update.ToolCall != nil && update.ToolCall.ID != "":
 		return r.recordToolCall(ctx, sessionID, update)
 	case isSessionState(update.Kind):
-		return r.recordSessionState(ctx, sessionID, update)
+		return r.recordSessionState(ctx, sessionID, update, false)
 	default:
 		return r.recordPlain(ctx, sessionID, update)
 	}
@@ -398,7 +406,8 @@ func isSessionState(kind UpdateKind) bool {
 // session: the settings and the mode. A subagent's update of either names the
 // subagent's own (measured: its model "sonnet" and a single choice replaced the
 // Opus session's), so the recorder keeps only the session's. The window's
-// reducer applies the same rule, by the update's origin.
+// reducer applies the same rule, by the update's origin. A subagent's usage is
+// split instead: see Record.
 func isOwnState(kind UpdateKind) bool {
 	return kind == UpdateConfigOptions || kind == UpdateCurrentMode
 }
@@ -407,7 +416,8 @@ var sessionStateKinds = []UpdateKind{UpdateCurrentMode, UpdateConfigOptions, Upd
 
 // recordSessionState keeps exactly one row per session-level kind so a reload
 // can restore the value without the transcript carrying its whole history.
-func (r *Recorder) recordSessionState(ctx context.Context, sessionID string, update SessionUpdate) error {
+// windowsOnly marks a subagent's usage, reduced to its plan windows.
+func (r *Recorder) recordSessionState(ctx context.Context, sessionID string, update SessionUpdate, windowsOnly bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	s := r.sessionLocked(sessionID)
@@ -434,6 +444,25 @@ func (r *Recorder) recordSessionState(ctx context.Context, sessionID string, upd
 		var stored SessionUpdate
 		if json.Unmarshal(prev.Payload, &stored) == nil {
 			update.AvailableModes = stored.AvailableModes
+		}
+	}
+	if update.Kind == UpdateUsage && update.Usage != nil {
+		// A usage_update that carries no plan windows does not withdraw the
+		// ones the row holds; see mergeUsage.
+		var stored SessionUpdate
+		unmarshalErr := json.Unmarshal(prev.Payload, &stored)
+		switch {
+		case windowsOnly:
+			// A subagent's: a row that cannot be read is left alone, not
+			// replaced by windows without the session's context.
+			merged, applies := mergeSubagentUsage(stored.Usage, *update.Usage, r.now())
+			if unmarshalErr != nil || !applies {
+				return flushErr
+			}
+			update.Usage = &merged
+		case unmarshalErr == nil:
+			merged := mergeUsage(stored.Usage, *update.Usage, r.now())
+			update.Usage = &merged
 		}
 	}
 	payload, err := json.Marshal(update)

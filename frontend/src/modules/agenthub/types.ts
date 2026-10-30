@@ -122,6 +122,11 @@ export type LimitWindow = {
   resetsAt?: number;
   /** "ok", "warning" or "reached". */
   status?: string;
+  /**
+   * usedPercent is not a reading (a rate-limit block with no utilization): a
+   * merge keeps the percent it already had for the label. See mergeUsage.
+   */
+  noReading?: boolean;
 };
 
 /**

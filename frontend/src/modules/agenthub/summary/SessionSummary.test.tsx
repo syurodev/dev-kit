@@ -15,6 +15,7 @@ import {
   SessionSummaryButton as Button,
   SessionSummaryCard as Card,
   documentAttachmentCount,
+  hasSummary,
   summarySubagents,
   useSessionSummaryData,
   type SessionSummaryInput,
@@ -277,6 +278,23 @@ describe("vendor-driven sections", () => {
     expect(html).toContain('data-testid="summary-context"');
     expect(html).toContain('data-testid="summary-limit-row"');
     expect(html).not.toContain('role="meter"');
+  });
+
+  test("plan windows that have all reset draw no section and no row", () => {
+    const reset = [{ label: "5-hour", usedPercent: 99, resetsAt: 1 }];
+    const alone = render(<SessionSummaryBody {...base} usage={{ used: 0, size: 0, amount: 0, limits: reset }} />);
+    expect(alone).not.toContain('data-testid="summary-context"');
+    const withContext = render(<SessionSummaryBody {...base} usage={{ used: 5, size: 100, amount: 0, limits: reset }} />);
+    expect(withContext).toContain('data-testid="summary-context"');
+    expect(withContext).not.toContain('data-testid="summary-limit-row"');
+    expect(withContext).not.toContain("Plan limits");
+  });
+
+  test("a session whose only content is plan windows that have reset has no summary to draw", () => {
+    const data = { plan: [], changes: [], tools: [], links: [], docs: [], subagents: [], background: [] } as never;
+    const reset = [{ label: "5-hour", usedPercent: 99, resetsAt: 1 }];
+    expect(hasSummary(data, { used: 0, size: 0, amount: 0, limits: reset })).toBe(false);
+    expect(hasSummary(data, { used: 0, size: 0, amount: 0, limits: [{ label: "5-hour", usedPercent: 9, resetsAt: Date.now() / 1000 + 3600 }] })).toBe(true);
   });
 
   test("environment and goal are drawn when given, and the changes carry their total", () => {
