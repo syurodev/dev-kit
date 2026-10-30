@@ -143,6 +143,12 @@ Spec: `docs/superpowers/specs/2026-10-30-child-tool-group-requests-design.md` (s
   only → SQL): the grantor must still be the child's open direct parent and serve the group through a tool that follows its group
   (`harness.ServedWhateverItsGroup` tools prove nothing about their group). With `taskId`, a child whose groups are not confirmed live is closed
   and the task is not claimed or sent (`agenthub.childGroupsNotReady`).
+- **Fenced write.** The grantor (still the open direct parent) and the request (still open at the revision read, in the state read) are checked
+  **inside the SQL transaction that writes S** (`harness.WriteFence`, `HarnessStore.Apply`), which also moves the request to `approved`; a lost
+  fence writes nothing (`agenthub.groupRequestResolved`). Linearization point: that commit (one SQLite connection). A grant committed before the
+  parent closed stays (snapshot, no cascade revoke). Lock order: request mutex → V boundary → child's coordinator → grantor's coordinator (read) → SQL.
+  A `taskId` child that must be abandoned is closed on `WithoutCancel` + 5 s; if that fails, `agenthub.childNotClosed` names the still-open child and
+  its checkout is kept.
 - **Integration gap.** C1 (`CheckActual`) refuses a managed child with an S (`harness_override_present`) while grants write S; managed dispatch
   is not open and the preflight is not bypassed. Decide the rule before managed children get groups.
 - **Honesty.** `Live` only from an acknowledged endpoint; a saved-but-unpublished change is a failure response with its outcome (like propose).

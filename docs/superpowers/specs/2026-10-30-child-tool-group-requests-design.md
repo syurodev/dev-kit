@@ -252,9 +252,29 @@ request, not the message; the reason is data). The root `AGENTS.md` only gets a 
   (`agenthub.groupRequestOverlap`, nothing merged or dropped); a closed request frees its groups. `harness.group.requestStatus` without an
   id lists the caller's own open requests so it can find the one in the way. Migration 58 closes requests still open at upgrade
   (they never survive a restart anyway); migration 57 is unchanged.
+- **The grantor and the request are fenced at the write (`harness.WriteFence`).** Re-reading the grantor's right inside the boundary
+  was not enough: the parent could close, or the request be invalidated, between that read and the SQL write, leaving a granted
+  group behind a request the close had invalidated (and the caller told "stale" after the side effect). Now the write itself carries
+  the fence (`Request.Fence`, set by host code only; `ApplyDelegated` builds it from `Delegation.Request`, the user-route applier from the
+  request it was asked about). Inside the write's transaction `HarnessStore.Apply` checks that the grantor is the **open direct parent** of
+  the written session and that the request is in the state and at the revision it was read at, writes S, and **moves the request to
+  `approved` in the same transaction** (resolver `parent:<id>` or `user`, outcome `applied`). A failed fence writes nothing
+  (`ErrStoreFenceLost` → `harnessconfig.ErrFenceLost` → `agenthub.groupRequestResolved`; the creation grant maps it to
+  `groupNotGrantable`). The ledger reads the row back after a committed write instead of settling it by compare-and-swap; the
+  compare-and-swap remains only for an applier that does not fence (unit tests).
+  **Linearization point:** the commit of that transaction. `storage.Open` uses one SQLite connection, so no other statement runs between
+  the fence reads and the writes; a close or invalidation that commits first makes the write fail, one that commits after finds a
+  request already `approved` and a grant already written. **A grant that committed before the parent closed stays** (snapshot semantics,
+  no cascade revoke); the close leaves the approved request alone. **Lock order:** request mutex → V boundary → child's coordinator →
+  grantor's coordinator (short read of its served set) → the SQL transaction, in which nothing calls out. No lock is held across the
+  question to the person except the request's own mutex, which only serializes answers to that one request.
 - **Task children.** With `taskId`, a child whose planned groups are not confirmed live (grant failed, paused, staged, unknown commit,
   applied but not live) is not started on the task: it is closed, the task is never claimed, nothing is sent, and the answer is
-  `agenthub.childGroupsNotReady` (fixed sentence). The parent retries or passes `toolGroups: []`. Without a task the child is kept and
+  `agenthub.childGroupsNotReady` (fixed sentence). The parent retries or passes `toolGroups: []`. The close runs on a context that keeps the caller's
+  identity but not its cancellation, with the handoff's own 5 s deadline (`context.WithoutCancel` + `WithTimeout`), so a request cancelled while the
+  groups were written still closes the child. The checkout is removed **only after** the close succeeded. If the close fails or times out the answer
+  is `agenthub.childNotClosed` (fixed sentence plus the child's id: it is still open, its checkout was left, the task was not claimed or sent), never
+  `childGroupsNotReady`; the cleanup is tried once, never retried, and no cause text is returned or logged. Without a task the child is kept and
   the `toolGroups` report says what is true (this replaces "the child is kept ... in every case").
 - **User question.** It is a hub selection (`KindHarnessGroupRequest`: allow, decline, decline and block) followed by the
   ordinary exact-change confirmation (`KindHarness`), so the person is asked twice on approval, like the existing scope flow.

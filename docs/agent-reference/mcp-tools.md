@@ -223,7 +223,7 @@ text bytes, not vendor request tokens, provider cost or subscription quota.
   `session:<child of the request>`, taken from the ledger row, never from an argument). `agenthub.createAgentSession` gains `toolGroups`; its
   planning runs inside the gateway call and before any worktree or session. Public codes (all in `bridge.keptCodes`, fixed sentences):
   `agenthub.groupNotGrantable`, `.groupBlocked`, `.groupRequestStale`, `.groupRequestResolved`, `.groupRequestNotFound`, `.groupRequestInvalid`,
-  `.groupRequestLimit`, `.groupRequestOverlap`, `.childGroupsNotReady`, `.groupRouteUnavailable`, `.groupRequestUnavailable`; "already served" reuses `harness.noChange`. A saved-but-unconfirmed answer
+  `.groupRequestLimit`, `.groupRequestOverlap`, `.childGroupsNotReady`, `.childNotClosed` (the one with an id in it: the new child that could not be closed), `.groupRouteUnavailable`, `.groupRequestUnavailable`; "already served" reuses `harness.noChange`. A saved-but-unconfirmed answer
   is a failure response with its structured outcome, like propose. The agenthub group's definition ceiling (`tool_budget_test.go`) still holds
   because the two parent tools are registered only with the ledger.
 - **`harness.profile.get` / `harness.profile.propose` (H5a; active since R4)** (`internal/mcp/tools_harness.go`; facade and record in
