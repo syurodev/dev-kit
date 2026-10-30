@@ -58,8 +58,7 @@ describe("following a session", () => {
   });
 
   it("says so when nothing has changed yet", () => {
-    const html = renderToString(<AgentActivityPanel sessionId="s-empty" title="Fix login" onStop={() => {}} />);
-    expect(html).toContain("Following Fix login");
+    const html = renderToString(<AgentActivityPanel sessionId="s-empty" />);
     expect(html).toContain("Nothing changed yet");
   });
 

@@ -11,6 +11,25 @@ export type AgentStatus =
   | "closed";
 
 /**
+ * The bridge's SessionStatus and Figma's Agent / State are two vocabularies:
+ * the backend says `awaiting_permission`, the design says `awaiting`.
+ */
+export function toAgentStatus(status: string): AgentStatus {
+  switch (status) {
+    case "running":
+      return "running";
+    case "awaiting_permission":
+      return "awaiting";
+    case "error":
+      return "error";
+    case "closed":
+      return "closed";
+    default:
+      return "idle";
+  }
+}
+
+/**
  * The status to draw for a session: its stored one, except that an idle session
  * whose agent runs a turn of its own is running. Waiting, failed and closed are not
  * overridden.

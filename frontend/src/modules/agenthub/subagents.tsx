@@ -1,15 +1,13 @@
 import * as React from "react";
 import { create } from "zustand";
-import { Bot, X } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
 import { isSessionQuiet } from "./sessionActivity";
 import { runningSubagents, type LiveSubagent } from "./turns";
 import type { Subagent, TranscriptItem } from "./types";
-import { AgentState, type AgentStatus } from "./surfaces/AgentState";
+import type { AgentStatus } from "./surfaces/AgentState";
 import { SubagentActivity } from "./surfaces/AgentTurn";
 import { EarlierTurnProvider } from "./transcript/toolSettle";
 
@@ -18,7 +16,8 @@ export function isSubagentRunning(state: string | undefined): boolean {
   return !state || state === "running";
 }
 
-function toStatus(state: string | undefined): AgentStatus {
+/** A subagent's state as the design's Agent / State says it. */
+export function subagentStatus(state: string | undefined): AgentStatus {
   if (isSubagentRunning(state)) return "running";
   return state === "failed" ? "error" : "closed";
 }
@@ -72,7 +71,7 @@ export const useSubagentPanel = create<{
 }));
 
 /** Every row a subagent appears in, folded into one: its name, task and latest state. */
-function findSubagent(items: readonly TranscriptItem[], id: string): Subagent | null {
+export function findSubagent(items: readonly TranscriptItem[], id: string): Subagent | null {
   let found: Subagent | null = null;
   for (const item of items) {
     const row = item.subagent;
@@ -89,8 +88,11 @@ function findSubagent(items: readonly TranscriptItem[], id: string): Subagent | 
  *
  * Read from the owning session's transcript, so it is the pages loaded for
  * that session: a subagent from an older page shows once that page is loaded.
+ *
+ * The body only: the name, state, Stop and close are the shell's one header for
+ * the pane (subagentHeader.tsx, handed to `openPanel`).
  */
-export function SubagentPanel({ sessionId, subagentId, onClose }: { sessionId: string; subagentId: string; onClose: () => void }) {
+export function SubagentPanel({ sessionId, subagentId }: { sessionId: string; subagentId: string }) {
   const items = useAgentSessionsStore((s) => s.transcriptsById[sessionId]?.items ?? EMPTY_ARRAY);
   const tracked = useAgentSessionsStore((s) => s.subagents[sessionId]?.find((a) => a.id === subagentId));
   const activityById = React.useMemo(() => runningSubagents(items).activity, [items]);
@@ -105,16 +107,6 @@ export function SubagentPanel({ sessionId, subagentId, onClose }: { sessionId: s
 
   return (
     <section data-testid="subagent-panel" aria-label="Subagent" className="flex h-full min-h-0 w-full min-w-0 flex-col">
-      <header className="flex h-9 shrink-0 items-center gap-2 border-b border-border-subtle px-3">
-        <Bot className="size-3.5 shrink-0 text-icon-secondary" aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate text-label-12 text-text-secondary" title={subagent.task || undefined}>
-          {subagent.name || "Subagent"}
-        </span>
-        <AgentState status={toStatus(subagent.state)} />
-        <Button variant="ghost" size="icon-xs" aria-label="Close" title="Close" onClick={onClose}>
-          <X />
-        </Button>
-      </header>
       {activity.length === 0 ? (
         <EmptyState
           size="rail"

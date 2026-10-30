@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/context-menu";
 import { TreeRowAction, TreeView, type TreeNodeData } from "@/components/tree-view";
 import { Shimmer } from "@/components/ui/shimmer";
-import { AgentState, agentStatusOf, type AgentStatus } from "./AgentState";
+import { AgentState, agentStatusOf, toAgentStatus, type AgentStatus } from "./AgentState";
 import { heldChoice } from "./AgentComposer";
 import { VendorIcon } from "./VendorIcon";
 import type { AgentSession } from "@/bridge/agenthub";
@@ -131,25 +131,6 @@ export type AgentSidebarTreeProps = {
  * The waiting count lives in the footer: one number for the whole tree, where
  * you look when deciding whether anything needs you at all.
  */
-
-/**
- * The bridge's SessionStatus and Figma's Agent / State are two vocabularies:
- * the backend says `awaiting_permission`, the design says `awaiting`.
- */
-function toAgentStatus(status: string): AgentStatus {
-  switch (status) {
-    case "running":
-      return "running";
-    case "awaiting_permission":
-      return "awaiting";
-    case "error":
-      return "error";
-    case "closed":
-      return "closed";
-    default:
-      return "idle";
-  }
-}
 
 /**
  * A subagent reports four end states and nothing at all while it works, since

@@ -1,7 +1,6 @@
 import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  agentHubCancel,
   agentHubChooseFiles,
   agentHubGetStatus,
   agentHubListContextFiles,
@@ -22,6 +21,7 @@ import { commandName, promptWithCommand, promptWithoutCommand } from "../slashCo
 import { setSessionConfigOption, setSessionMode } from "../transcriptControls";
 import { openFileRef, refContextOf } from "../transcript/openReference";
 import { dismissSessionFailure } from "../sidebar/dismissFailure";
+import { cancelSessionTurn } from "./cancelTurn";
 import { failureKey, retryTurnFor, shouldSteer, type TurnInput } from "./sessionModel";
 import type { AgentDraft } from "./useAgentDraft";
 import type { AgentSessionReads } from "./useAgentSessionReads";
@@ -252,15 +252,7 @@ export function useAgentSessionActions({
 
   async function handleCancel() {
     if (!activeSession) return;
-    try {
-      await agentHubCancel(activeSession.id);
-      const store = useAgentSessionsStore.getState();
-      store.dequeuePendingForSession(activeSession.id);
-      store.dequeueElicitationForSession(activeSession.id);
-      store.upsertSession(await agentHubGetStatus(activeSession.id));
-    } catch (e) {
-      status.reportError(e);
-    }
+    await cancelSessionTurn(activeSession.id, status.reportError);
   }
 
   /** The files the person picked, for the composer to put at the caret; none when cancelled or when the dialog failed. */

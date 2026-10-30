@@ -40,7 +40,7 @@ async function draw(opts: { tracked?: string; inFlight?: boolean }) {
     turnInFlightBySession: opts.inFlight ? { sp: true } : {},
     subagents: { sp: opts.tracked ? [{ id: "a1", name: "Review", state: opts.tracked }] : [] } as never,
   });
-  await act(async () => root.render(<SubagentPanel sessionId="sp" subagentId="a1" onClose={() => {}} />));
+  await act(async () => root.render(<SubagentPanel sessionId="sp" subagentId="a1" />));
   return container.querySelector("[data-testid=agent-tool-call]")?.getAttribute("data-state");
 }
 

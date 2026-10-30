@@ -1,15 +1,18 @@
 import * as React from "react";
-import { Eye, X } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { EmptyState } from "@/components/ui/empty-state";
+import type { PanelHeader } from "@/components/ui/split-panel";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 import { useAgentPinsStore } from "@/stores/agentPins";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
 import { dispatchIntent, type EntityRef } from "@/workbench/intents";
 import { hasEntityPreview, renderEntityPreview, toolActivityOf } from "@/workbench/toolActivity";
 import { isSessionQuiet } from "./sessionActivity";
+import { AgentState, agentStatusOf, toAgentStatus } from "./surfaces/AgentState";
 import type { ToolCall, TranscriptItem } from "./types";
 import { AgentToolActivity, activityTargetOf, isToolActivity } from "./transcript/AgentToolActivity";
 import { toolNameOf } from "@/workbench/toolPayload";
@@ -78,6 +81,40 @@ export function feedWindow<T>(feed: readonly T[], limit: number): { drawn: reado
   return { drawn, hidden: feed.length - drawn.length };
 }
 
+function ActivityStatus({ sessionId }: { sessionId: string }) {
+  const status = useAgentSessionsStore((s) => {
+    const session = s.sessionsById[sessionId];
+    return session ? agentStatusOf(session, toAgentStatus(session.status)) : null;
+  });
+  return status ? <AgentState status={status} /> : null;
+}
+
+/**
+ * What the shell's one header says for the follow feed (openPanel's `header`):
+ * the followed session's title, its state as the sidebar card reads it, and
+ * the control that stops following. The state reads the store itself, so the
+ * header handed to the shell changes only with the title.
+ */
+export function useActivityHeader(sessionId: string, title: string, onStop: () => void): PanelHeader {
+  return React.useMemo(
+    () => ({
+      title: title ? `Following ${title}` : "Following session",
+      // All of the title, which the row may cut, and what this pane is.
+      titleHint: `${title ? `Following ${title}` : "Following session"}\nWhat the session changes in DevKit shows here`,
+      icon: <Eye className="text-icon-secondary" />,
+      status: <ActivityStatus sessionId={sessionId} />,
+      actions: (
+        <ActionTooltip label="Stop following">
+          <Button variant="ghost" size="icon-xs" aria-label="Stop following" onClick={onStop}>
+            <EyeOff />
+          </Button>
+        </ActionTooltip>
+      ),
+    }),
+    [sessionId, title, onStop],
+  );
+}
+
 /**
  * Agent Hub's activity panel, in the module's own right-hand pane while the
  * person follows a session: what the agent is changing in DevKit as it happens
@@ -88,8 +125,11 @@ export function feedWindow<T>(feed: readonly T[], limit: number): { drawn: reado
  *
  * It reads the transcript itself, so the pane is handed one element per
  * session rather than a new one on every streamed token.
+ *
+ * The body only: the session's title and state and the stop-following control
+ * are the shell's one header for the pane (useActivityHeader, handed to `openPanel`).
  */
-export function AgentActivityPanel({ sessionId, title, onStop }: { sessionId: string; title: string; onStop: () => void }) {
+export function AgentActivityPanel({ sessionId }: { sessionId: string }) {
   const items = useAgentSessionsStore((s) => s.transcriptsById[sessionId]?.items ?? EMPTY_ARRAY);
   const feed = React.useMemo(() => activityFeed(items), [items]);
   // The cards stand outside any turn here: which of them belong to one that is over.
@@ -112,15 +152,6 @@ export function AgentActivityPanel({ sessionId, title, onStop }: { sessionId: st
 
   return (
     <section data-testid="agent-activity-panel" aria-label="Agent activity" className="flex h-full min-h-0 w-full min-w-0 flex-col">
-      <header className="flex h-9 shrink-0 items-center gap-2 border-b border-border-subtle px-3">
-        <Eye className="size-3.5 shrink-0 text-icon-secondary" aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate text-label-12 text-text-secondary" title={title}>
-          {`Following ${title}`}
-        </span>
-        <Button variant="ghost" size="icon-xs" aria-label="Stop following" title="Stop following" onClick={onStop}>
-          <X />
-        </Button>
-      </header>
       {feed.length === 0 ? (
         <EmptyState
           size="rail"
