@@ -3,6 +3,7 @@ version: "3"
 vars:
   APP_NAME: "dev-kit"
   BIN_DIR: "bin"
+  BUF_VERSION: "1.75.0"
   PACKAGE_MANAGER: '{{.PACKAGE_MANAGER | default "bun"}}'
   VITE_PORT: "{{.WAILS_VITE_PORT | default 9245}}"
 
@@ -15,6 +16,46 @@ includes:
   android: ./build/android/Taskfile.yml
 
 tasks:
+  proto:install:
+    desc: Installs the pinned Buf CLI used for protobuf schema work
+    cmds:
+      - mkdir -p "{{.ROOT_DIR}}/{{.BIN_DIR}}"
+      - GOBIN="{{.ROOT_DIR}}/{{.BIN_DIR}}" go install github.com/bufbuild/buf/cmd/buf@v{{.BUF_VERSION}}
+
+  proto:lint:
+    desc: Lints and formats the versioned Host API schema
+    cmds:
+      - task: proto:install
+      - ./{{.BIN_DIR}}/buf lint
+      - ./{{.BIN_DIR}}/buf format --diff --exit-code
+
+  proto:generate:
+    desc: Generates Go and TypeScript protobuf code from proto/
+    cmds:
+      - task: proto:install
+      - PATH="{{.ROOT_DIR}}/{{.BIN_DIR}}:$PATH" "{{.ROOT_DIR}}/scripts/buf-generate.sh"
+
+  proto:test-generation-script:
+    desc: Tests staged generation failure and stale-output handling without BSR
+    cmds:
+      - "{{.ROOT_DIR}}/scripts/test-buf-generate.sh"
+
+  proto:breaking:
+    desc: Checks schema compatibility against a baseline that has a Buf module
+    vars:
+      BASE_REF: '{{.BASE_REF | default "main"}}'
+    cmds:
+      - task: proto:install
+      - PATH="{{.ROOT_DIR}}/{{.BIN_DIR}}:$PATH" "{{.ROOT_DIR}}/scripts/buf-breaking.sh" "{{.BASE_REF}}"
+
+  proto:check:
+    desc: Lints, generates and checks proto compatibility against main
+    cmds:
+      - task: proto:test-generation-script
+      - task: proto:lint
+      - task: proto:generate
+      - task: proto:breaking
+
   build:
     summary: Builds the application
     cmds:
