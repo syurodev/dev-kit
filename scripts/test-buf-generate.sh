@@ -25,7 +25,7 @@ fi
 mkdir -p "$out/internal/hostapi/gen/pkg" "$out/frontend/src/generated/hostapi/pkg"
 printf 'new go output\n' > "$out/internal/hostapi/gen/pkg/new.pb.go"
 printf 'plugin must not replace authored docs\n' > "$out/internal/hostapi/gen/pkg/doc.go"
-printf 'new ts output\n' > "$out/frontend/src/generated/hostapi/pkg/new_pb.ts"
+printf 'new ts output\n\n\n' > "$out/frontend/src/generated/hostapi/pkg/new_pb.ts"
 FAKE_BUF
 chmod +x bin/buf
 
@@ -44,4 +44,5 @@ grep -q 'handwritten docs' internal/hostapi/gen/pkg/doc.go
 [[ ! -e frontend/src/generated/hostapi/pkg/old_pb.ts ]]
 grep -q 'new go output' internal/hostapi/gen/pkg/new.pb.go
 grep -q 'new ts output' frontend/src/generated/hostapi/pkg/new_pb.ts
+[[ "$(tail -c 2 frontend/src/generated/hostapi/pkg/new_pb.ts | od -An -t x1 | tr -d ' \n')" == 740a ]]
 printf 'staged generation preserves outputs on failure and replaces stale outputs on success\n'

@@ -26,7 +26,13 @@ replace_generated() {
       esac
       local relative=${file#"$source_dir"/}
       mkdir -p "$destination_dir/$(dirname "$relative")"
-      cp "$file" "$destination_dir/$relative"
+      if [[ "$kind" == ts ]]; then
+        # Generator output may end in several blank lines; normalize only the
+        # trailing newline run so checked-in generated TS is stable.
+        printf '%s\n' "$(<"$file")" > "$destination_dir/$relative"
+      else
+        cp "$file" "$destination_dir/$relative"
+      fi
     done < <(find "$source_dir" -type f -print0)
   fi
 }

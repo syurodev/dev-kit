@@ -10,4 +10,3 @@ import { fileDesc } from "@bufbuild/protobuf/codegenv2";
  */
 export const file_fugue_host_v1_host: GenFile = /*@__PURE__*/
   fileDesc("ChhmdWd1ZS9ob3N0L3YxL2hvc3QucHJvdG8SDWZ1Z3VlLmhvc3QudjFCMlowZGV2a2l0L2ludGVybmFsL2hvc3RhcGkvZ2VuL2Z1Z3VlL2hvc3QvdjE7aG9zdHYxYgZwcm90bzM");
-

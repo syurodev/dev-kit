@@ -14,7 +14,8 @@ steps are available as `task proto:lint`, `task proto:generate`, and
 generated files, preserves handwritten Go package documentation, and leaves
 existing outputs intact if generation fails. `scripts/test-buf-generate.sh`
 verifies failure and successful stale-file replacement with a local fake Buf
-executable.
+executable. It also normalizes generated TypeScript to exactly one trailing
+newline for stable diffs.
 
 The generator config pins `buf.build/protocolbuffers/go:v1.36.12` and
 `buf.build/bufbuild/es:v2.16.0`; runtime dependencies are pinned to
