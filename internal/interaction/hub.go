@@ -171,9 +171,10 @@ type Hub struct {
 	// permission popup stays until the person answers it or the caller's
 	// context is cancelled (the session is stopped), the way the agent's own
 	// turn waits. A positive value is for tests and embedders that want one.
-	Timeout     time.Duration
-	Headless    bool
-	vaultLocked bool
+	Timeout          time.Duration
+	Headless         bool
+	vaultLocked      bool
+	vaultLockedCheck func() bool
 	// ConfirmAgent routes an identity-bound Agent Hub caller to the shared
 	// agent permission broker. Other callers keep the popup transport.
 	ConfirmAgent          func(context.Context, ConfirmRequest) (string, error)
@@ -317,6 +318,18 @@ func (h *Hub) SetVaultLocked(locked bool) {
 	if locked {
 		h.approvals = map[string]*approvalRecord{}
 	}
+}
+
+// SetVaultLockCheck installs the vault owner's synchronous lock-state check
+// used at scoped approval consumption. The callback must be a bounded in-memory
+// owner read and must not call back into this Hub.
+func (h *Hub) SetVaultLockCheck(check func() bool) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	h.vaultLockedCheck = check
+	h.mu.Unlock()
 }
 
 func (h *Hub) invalidatePending(id string) {
@@ -556,7 +569,7 @@ func (h *Hub) createScopedApproval(scope approvalScope, uses int, lifetime time.
 	now := time.Now().UTC()
 	r := &approvalRecord{ScopedApproval: ScopedApproval{ID: newID, Caller: scope.caller, Tool: scope.tool, ProfileID: scope.profile, Env: scope.env, Fingerprint: scope.fingerprint, CreatedAt: now, ExpiresAt: now.Add(lifetime), Remaining: uses}, fingerprint: scope.fingerprint, targetRevision: scope.targetRevision, envRevision: scope.envRevision, reservations: map[string]struct{}{}}
 	h.mu.Lock()
-	if h.vaultLocked {
+	if h.vaultLockedNowLocked() {
 		h.mu.Unlock()
 		return ScopedApproval{}, ErrConfirmationRequired
 	}
@@ -592,7 +605,7 @@ func (h *Hub) RevokeScopedApproval(id string) error {
 		return ErrConfirmationRequired
 	}
 	h.mu.Lock()
-	if h.vaultLocked {
+	if h.vaultLockedNowLocked() {
 		h.mu.Unlock()
 		return ErrConfirmationRequired
 	}
@@ -624,7 +637,7 @@ func (h *Hub) consumeApproval(scope approvalScope, token string) bool {
 		return false
 	}
 	h.mu.Lock()
-	if h.vaultLocked {
+	if h.vaultLockedNowLocked() {
 		h.mu.Unlock()
 		return false
 	}
@@ -657,7 +670,7 @@ func (h *Hub) reserveApproval(scope approvalScope) (string, bool) {
 		return "", false
 	}
 	h.mu.Lock()
-	if h.vaultLocked {
+	if h.vaultLockedNowLocked() {
 		h.mu.Unlock()
 		return "", false
 	}
@@ -684,7 +697,15 @@ func (h *Hub) emitApproval(event ScopedApprovalEvent) {
 	}
 }
 
-func (h *Hub) isVaultLocked() bool { h.mu.Lock(); defer h.mu.Unlock(); return h.vaultLocked }
+func (h *Hub) vaultLockedNowLocked() bool {
+	return h.vaultLocked || (h.vaultLockedCheck != nil && h.vaultLockedCheck())
+}
+
+func (h *Hub) isVaultLocked() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.vaultLockedNowLocked()
+}
 
 // StartScopedApproval atomically rechecks revocation/expiry and consumes one
 // reserved use at the external side-effect boundary.

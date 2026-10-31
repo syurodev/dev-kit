@@ -1046,7 +1046,6 @@ func main() {
 	// NoopPrompter is enough: InteractionHost polls InteractionPending every 500ms
 	// and Completes via the bridge. Share one Hub between MCP and bridge.
 	hub := interaction.NewHub(interaction.NoopPrompter{})
-	hub.SetVaultLocked(container.Vault.IsLocked())
 	approvalAudit := audit.NewTee(container.Audit, auditSQL)
 	hub.OnScopedApprovalEvent = func(e interaction.ScopedApprovalEvent) {
 		approvalAudit.Record(audit.Event{Caller: e.Caller, At: time.Now().UTC(), SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "approval:" + e.ID, Outcome: audit.OutcomeAllowed, Metadata: map[string]any{
@@ -1089,7 +1088,7 @@ func main() {
 		}
 		return id
 	}
-	container.Interaction = hub
+	container.SetInteraction(hub)
 	agentSvc.OnSessionClosed = func(id string) { hub.ForgetCaller(identity.Agent(id).String()) }
 	// Accounts, Tasks, Git and the API client need the database, the vault and
 	// this hub — none of which an ephemeral container has. Wired in one place

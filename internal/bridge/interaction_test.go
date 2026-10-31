@@ -30,7 +30,7 @@ func TestInteractionPendingNilWithoutHub(t *testing.T) {
 func TestInteractionBridgeSelectComplete(t *testing.T) {
 	container := app.NewContainer()
 	hub := interaction.NewHub(interaction.NoopPrompter{})
-	container.Interaction = hub
+	container.SetInteraction(hub)
 	service := NewAppService(container)
 
 	pending, err := service.InteractionPending()
@@ -85,7 +85,7 @@ func TestInteractionBridgeSelectComplete(t *testing.T) {
 func TestInteractionDenySelectUsesEmptyValue(t *testing.T) {
 	container := app.NewContainer()
 	hub := interaction.NewHub(interaction.NoopPrompter{})
-	container.Interaction = hub
+	container.SetInteraction(hub)
 	service := NewAppService(container)
 
 	errCh := make(chan error, 1)
@@ -127,7 +127,7 @@ func TestInteractionDenySelectUsesEmptyValue(t *testing.T) {
 func TestInteractionDenyConfirmUsesDeny(t *testing.T) {
 	container := app.NewContainer()
 	hub := interaction.NewHub(interaction.NoopPrompter{})
-	container.Interaction = hub
+	container.SetInteraction(hub)
 	service := NewAppService(container)
 
 	errCh := make(chan error, 1)

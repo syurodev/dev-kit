@@ -100,7 +100,7 @@ func e2eRelayMain(args []string) int {
 	}()
 	cmd := exec.Command(cmdline[0], cmdline[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL}
+	cmd.SysProcAttr = e2eChildSysProcAttr()
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, "relay: start:", err)
 		return 127
@@ -205,7 +205,7 @@ func e2eTapMain(args []string) int {
 	}
 	cmd := exec.Command(real, rest...)
 	cmd.Stderr = os.Stderr
-	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL}
+	cmd.SysProcAttr = e2eChildSysProcAttr()
 	toChild, err := cmd.StdinPipe()
 	if err != nil {
 		return 2
@@ -406,6 +406,9 @@ func (r *e2eRunner) Launches() []e2eLaunch {
 // anything real: the real home, a provider variable, a proxy.
 func e2eRequireIsolation(t *testing.T) {
 	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("R2 runtime fixture requires the Linux bwrap NetworkNone jail")
+	}
 	home := os.Getenv("HOME")
 	if u, err := user.Current(); err == nil && home == u.HomeDir {
 		t.Skip("R2 evidence runs only with a temporary HOME (use env -i with HOME=<tmp>); the real home is never used")

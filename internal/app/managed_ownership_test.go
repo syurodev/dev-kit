@@ -21,7 +21,7 @@ func TestManagedOwnershipHostResolvesRealTaskScopeAndPinsUnknownWriter(t *testin
 	c, _, ledger, _, ws, _, parent, child, baseHub := managedTeamFixture(t)
 	initTestGitRepository(t, ws.Root)
 	c.Git = git.NewService(context.Background())
-	c.Interaction = interaction.NewHub(nil)
+	c.SetInteraction(interaction.NewHub(nil))
 	group, err := c.ManagedTeams.CreateGroup(managedTeamContext(), parent.ID, managedStatuses())
 	if err != nil {
 		t.Fatal(err)

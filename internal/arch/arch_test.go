@@ -257,8 +257,9 @@ func TestLayering(t *testing.T) {
 		}
 	}
 
-	// Nothing but main may import the bridge; nothing but the bridge (and main)
-	// may import app. main is the module-root package "devkit".
+	// Nothing but main may import the bridge; app is imported by main, bridge,
+	// and the new Host API adapter (not MCP). main is the module-root package
+	// "devkit". The accepted harness policy keeps app's runtime edge contracts-only.
 	for from, imports := range graph {
 		for _, imp := range imports {
 			// app derives default grants at the composition root.
@@ -268,8 +269,8 @@ func TestLayering(t *testing.T) {
 			if imp == pkg("bridge") && from != "devkit" {
 				t.Errorf("layering violation: %s must not import bridge (top boundary)", short(from))
 			}
-			if imp == pkg("app") && from != "devkit" && from != pkg("bridge") {
-				t.Errorf("layering violation: %s must not import app (only bridge/main may)", short(from))
+			if imp == pkg("app") && !appImporterAllowed(from) {
+				t.Errorf("layering violation: %s must not import app (only main, bridge, and hostapi adapters may)", short(from))
 			}
 		}
 	}
