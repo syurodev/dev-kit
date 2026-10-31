@@ -241,7 +241,7 @@ func TestManagedTeamEnableNeedsInteractiveExactGuardAndAgentsStillCannotClose(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.Interaction = interaction.NewHub(nil)
+	c.SetInteraction(interaction.NewHub(nil))
 	c.Interaction.Headless = true
 	if _, err := c.ManagedTeams.ConfigureGroup(managedTeamContext(), group.ID, group.Revision, group.PolicyRevision+1, managedStatuses(), true, false); !errors.Is(err, agentwork.ErrManagedIneligible) {
 		t.Fatalf("headless enable = %v, want fail closed", err)

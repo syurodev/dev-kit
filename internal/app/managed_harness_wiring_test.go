@@ -63,7 +63,7 @@ func TestManagedHarnessPreservesPackageLeaseAndSeal(t *testing.T) {
 	c, _, ledger, db, ws, _, parent, child, baseHub := managedTeamFixture(t)
 	initTestGitRepository(t, ws.Root)
 	c.Git = git.NewService(context.Background())
-	c.Interaction = interaction.NewHub(nil)
+	c.SetInteraction(interaction.NewHub(nil))
 	ctx := context.Background()
 	group, err := c.ManagedTeams.CreateGroup(managedTeamContext(), parent.ID, managedStatuses())
 	if err != nil {

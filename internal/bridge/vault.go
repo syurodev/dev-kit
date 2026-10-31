@@ -47,9 +47,6 @@ func (s *AppService) SetupVault(masterPassword string) (string, error) {
 		s.vaultLifecycleMu.Lock()
 		defer s.vaultLifecycleMu.Unlock()
 		recoveryKey, err := s.container.Vault.Setup(masterPassword)
-		if err == nil && s.container.Interaction != nil {
-			s.container.Interaction.SetVaultLocked(false)
-		}
 		return recoveryKey, err
 	})
 	if err != nil {
@@ -67,9 +64,6 @@ func (s *AppService) UnlockVault(masterPassword string) error {
 		s.vaultLifecycleMu.Lock()
 		defer s.vaultLifecycleMu.Unlock()
 		err := s.container.Vault.Unlock(masterPassword)
-		if err == nil && s.container.Interaction != nil {
-			s.container.Interaction.SetVaultLocked(false)
-		}
 		return nil, err
 	})
 	if err == nil {
@@ -86,9 +80,6 @@ func (s *AppService) UnlockVaultWithRecovery(recoveryKey string) error {
 		s.vaultLifecycleMu.Lock()
 		defer s.vaultLifecycleMu.Unlock()
 		err := s.container.Vault.UnlockWithRecovery(recoveryKey)
-		if err == nil && s.container.Interaction != nil {
-			s.container.Interaction.SetVaultLocked(false)
-		}
 		return nil, err
 	})
 	if err == nil {
@@ -118,9 +109,6 @@ func (s *AppService) LockVault() error {
 		defer s.vaultLifecycleMu.Unlock()
 		if s.container.Telegram != nil {
 			s.container.Telegram.Suspend()
-		}
-		if s.container.Interaction != nil {
-			s.container.Interaction.SetVaultLocked(true)
 		}
 		s.container.Vault.Lock()
 		return nil, nil
