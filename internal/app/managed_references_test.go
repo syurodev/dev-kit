@@ -25,7 +25,7 @@ type referenceFixture struct {
 func newReferenceFixture(t *testing.T) *referenceFixture {
 	t.Helper()
 	c, _, ledger, _, ws, board, parent, child, hub := managedTeamFixture(t)
-	c.Interaction = interaction.NewHub(nil)
+	c.SetInteraction(interaction.NewHub(nil))
 	ctx := managedTeamContext()
 	dep, err := c.Tasks.Create(tasks.Caller{}, tasks.CreateInput{BoardID: board.ID, ParentID: parent.ID, Title: "Dep", Description: "Produce the dependency"})
 	if err != nil {

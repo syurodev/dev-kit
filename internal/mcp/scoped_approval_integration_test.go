@@ -68,8 +68,7 @@ func TestScopedApprovalUsesLiveAgentHubCardAndMCPGateway(t *testing.T) {
 	hub := interaction.NewHub(interaction.NoopPrompter{})
 	// Mirror the desktop host's startup: a persisted or unconfigured vault
 	// begins locked, while first-run setup itself unlocks the vault.
-	hub.SetVaultLocked(true)
-	container.Interaction = hub
+	container.SetInteraction(hub)
 	appService := bridge.NewAppService(container)
 	if _, err := appService.SetupVault("integration-test-master-password"); err != nil {
 		t.Fatal(err)
@@ -180,8 +179,7 @@ func TestScopedApprovalIssuerRefusesServerModeAndLockedVault(t *testing.T) {
 		t.Helper()
 		container := app.NewContainer()
 		hub := interaction.NewHub(interaction.NoopPrompter{})
-		hub.SetVaultLocked(true)
-		container.Interaction = hub
+		container.SetInteraction(hub)
 		service := bridge.NewAppServiceWithMode(container, nil, serverMode)
 		if _, err := service.SetupVault("integration-test-master-password"); err != nil {
 			t.Fatal(err)

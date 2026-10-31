@@ -77,20 +77,22 @@ type SyncConflictService interface {
 }
 
 type Container struct {
-	Telegram     *telegramcontrol.Service
-	Commands     *commands.Registry
-	Modules      *modules.Registry
-	Audit        *audit.MemorySink
-	Permissions  *permissions.Policy
-	Capabilities *capabilities.Gateway
-	Vault        *vault.Service
-	HashTools    *tools.HashService
-	UtilTools    *tools.UtilService
-	Items        *vaultitem.Store
-	Notes        *notes.Service
-	Environments *environments.Service
-	Preferences  *preferences.Service
-	UIState      *uistate.Service
+	vaultWiringMu         sync.Mutex
+	vaultInteractionGuard func()
+	Telegram              *telegramcontrol.Service
+	Commands              *commands.Registry
+	Modules               *modules.Registry
+	Audit                 *audit.MemorySink
+	Permissions           *permissions.Policy
+	Capabilities          *capabilities.Gateway
+	Vault                 *vault.Service
+	HashTools             *tools.HashService
+	UtilTools             *tools.UtilService
+	Items                 *vaultitem.Store
+	Notes                 *notes.Service
+	Environments          *environments.Service
+	Preferences           *preferences.Service
+	UIState               *uistate.Service
 	// ClientErrors keeps the window's crash reports (bridge.ReportClientError).
 	// Nil in ephemeral tests; main roots its file at <dataDir>/client-errors.log.
 	ClientErrors *clienterror.Log
@@ -216,6 +218,40 @@ type Container struct {
 	mu          sync.Mutex
 	auth        AuthService
 	syncBlocked error
+}
+
+// SetInteraction composes the shared interaction owner with vault lifecycle
+// observation. Call it during host composition before exposing the Container;
+// the Interaction field is read directly by existing services. A missing vault
+// is fail-closed, and replacing a hub invalidates its outstanding approvals.
+func (c *Container) SetInteraction(hub *interaction.Hub) {
+	c.vaultWiringMu.Lock()
+	defer c.vaultWiringMu.Unlock()
+	oldHub := c.Interaction
+	if oldHub != nil {
+		oldHub.SetVaultLocked(true)
+	}
+	if c.vaultInteractionGuard != nil {
+		c.vaultInteractionGuard()
+		c.vaultInteractionGuard = nil
+	}
+	if oldHub != nil {
+		// A lifecycle callback copied before unregister may have run while
+		// cancellation waited for the lifecycle fence. Leave the detached hub
+		// locked and independent of the Vault owner after the fence completes.
+		oldHub.SetVaultLocked(true)
+		oldHub.SetVaultLockCheck(nil)
+	}
+	c.Interaction = hub
+	if hub != nil {
+		hub.SetVaultLocked(true)
+	}
+	if c.Vault != nil && hub != nil {
+		hub.SetVaultLockCheck(c.Vault.IsLocked)
+		c.vaultInteractionGuard = c.Vault.RegisterLockGuard(func(snapshot vault.Snapshot) {
+			hub.SetVaultLocked(snapshot.State != vault.StateUnlocked)
+		})
+	}
 }
 
 // Auth returns the current auth service, if wired.

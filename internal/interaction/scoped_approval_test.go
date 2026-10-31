@@ -86,6 +86,32 @@ func TestScopedApprovalRevocationExpiryAndLockAreRecheckedAtStart(t *testing.T) 
 	_ = approval
 }
 
+func TestScopedApprovalConsumeChecksVaultOwnerInsideCriticalSection(t *testing.T) {
+	h := NewHub(NoopPrompter{})
+	h.ConfirmAgent = func(context.Context, ConfirmRequest) (string, error) { return "allow", nil }
+	var ownerLocked atomic.Bool
+	h.SetVaultLockCheck(ownerLocked.Load)
+	req := scopedRequest("select 1", "target-v1")
+	ctx := identity.WithCaller(context.Background(), identity.Agent("session-1"))
+	if _, err := h.CreateScopedApprovalForAgent("session-1", req, 1, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	ownerLocked.Store(true)
+	matched, _, err := h.ConfirmDecision(ctx, req)
+	if err != nil || matched {
+		t.Fatalf("locked owner reserved approval=(%v,%v)", matched, err)
+	}
+	ownerLocked.Store(false)
+	matched, token, err := h.ConfirmDecision(ctx, req)
+	if err != nil || !matched {
+		t.Fatalf("ConfirmDecision=(%v,%v)", matched, err)
+	}
+	ownerLocked.Store(true) // model Lock's owner boundary before Hub notification
+	if h.StartScopedApproval(ctx, req, token) {
+		t.Fatal("consume passed after the vault owner entered locking state")
+	}
+}
+
 func TestScopedApprovalOneUseIsReservedAtomically(t *testing.T) {
 	h := NewHub(NoopPrompter{})
 	var prompted atomic.Int32
