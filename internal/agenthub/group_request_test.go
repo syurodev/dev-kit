@@ -62,6 +62,13 @@ func newGroupFixture(t *testing.T) *groupFixture {
 	f.child = child
 	f.childCtx = identity.WithCaller(context.Background(), identity.Agent(child.ID))
 	f.host.serve(f.parent.ID, "git", "web")
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := f.svc.WaitQuiet(ctx); err != nil {
+			t.Errorf("group fixture service did not become quiet before database cleanup: %v", err)
+		}
+	})
 	return f
 }
 
