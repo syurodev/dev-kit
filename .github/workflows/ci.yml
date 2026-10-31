@@ -136,6 +136,14 @@ jobs:
       - name: go test
         run: go test ./internal/... ./cmd/... -count=1
 
+      # The SDK control spikes are nested Go modules and are not reached by the
+      # root-module package patterns above. Keep their test and vet gates explicit.
+      - name: Test and vet standalone SDK spikes
+        run: |
+          set -e
+          (cd tools/spikes/anthropic-sdk-control && go test ./... && go vet ./...)
+          (cd tools/spikes/openai-sdk && go test ./... && go vet ./...)
+
   go-lint:
     name: golangci-lint
     # only-new-issues needs a PR to diff against; existing debt is real
