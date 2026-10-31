@@ -20,6 +20,56 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  proto:
+    name: protobuf schema
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Install pinned Buf CLI
+        run: |
+          mkdir -p "$RUNNER_TEMP/buf-bin"
+          GOBIN="$RUNNER_TEMP/buf-bin" go install github.com/bufbuild/buf/cmd/buf@v1.75.0
+          echo "$RUNNER_TEMP/buf-bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/buf-bin:$PATH"
+          buf --version
+
+      - name: Lint schema
+        run: buf lint
+
+      - name: Check protobuf formatting
+        run: buf format --diff --exit-code
+
+      - name: Test generator staging failure behavior
+        run: scripts/test-buf-generate.sh
+
+      - name: Generate Go and TypeScript bindings
+        run: scripts/buf-generate.sh
+
+      - name: Check generated files are current
+        run: |
+          if [ -n "$(git status --porcelain --untracked-files=all -- internal/hostapi/gen frontend/src/generated/hostapi)" ]; then
+            echo "::error::Generated protobuf files are stale; run 'task proto:generate' and commit the outputs."
+            git status --short -- internal/hostapi/gen frontend/src/generated/hostapi
+            exit 1
+          fi
+
+      - name: Compile generated Go package
+        run: go test ./internal/hostapi/gen/...
+
+      - name: Check breaking changes when a baseline module exists
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: scripts/buf-breaking.sh "$BASE_REF"
+
   go:
     name: go test
     runs-on: ubuntu-24.04
