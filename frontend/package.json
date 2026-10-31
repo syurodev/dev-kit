@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@ariakit/react": "^0.4.37",
+    "@bufbuild/protobuf": "2.16.0",
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/commands": "6.11.0",
     "@codemirror/lang-go": "^6.0.1",
