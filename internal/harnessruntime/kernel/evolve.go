@@ -158,23 +158,25 @@ func validateAtomicEventPairs(events []Event, closureAlreadyConfirmed bool) erro
 				return reject(RejectInvalid)
 			}
 		case EventToolResultRecorded:
-			if e.Disposition == ResultAbandonedUnknown {
-				accepted, closure, cleared := false, false, false
+			switch e.Disposition {
+			case ResultAbandonedUnknown:
+				closure, cleared := false, false
+				abandonClose := hasAbandonClose(events, e.ToolID, e.AttemptID, e.CauseRef, e.ReceiptRef)
 				for _, candidate := range events {
-					accepted = accepted || (candidate.Kind == EventUnknownAccepted && candidate.ToolID == e.ToolID && candidate.AttemptID == e.AttemptID)
 					closure = closure || (candidate.Kind == EventRunClosureConfirmed && candidate.RecoveryDisposition == RecoveryDispositionAcceptedUnknown && candidate.ToolID == e.ToolID && candidate.AttemptID == e.AttemptID && candidate.ReceiptRef == e.ReceiptRef)
 					cleared = cleared || (candidate.Kind == EventRunRecoveryCleared && candidate.ToolID == e.ToolID && candidate.AttemptID == e.AttemptID && candidate.CauseRef == e.CauseRef && candidate.RecoveryDisposition == RecoveryDispositionAcceptedUnknown)
 				}
-				if !accepted && !(closure && cleared) {
+				accepted := hasUnknownAcceptanceResultPair(events, e)
+				if !accepted && (!closure || !cleared) && !abandonClose {
 					return reject(RejectInvalid)
 				}
 			}
 		case EventUnknownAccepted:
-			if !e.IsModel && !find(EventToolResultRecorded, e.ToolID, e.AttemptID, "") {
+			if !e.IsModel && !hasUnknownAcceptanceResultPair(events, e) {
 				return reject(RejectInvalid)
 			}
 		case EventToolAttemptAbandoned:
-			if e.Next == NextEnd && !find(EventToolResultRecorded, e.ToolID, e.AttemptID, "") {
+			if e.Next == NextEnd && !hasAbandonedUnknownResultPair(events, e) {
 				return reject(RejectInvalid)
 			}
 		case EventTimeBudgetWindowClosed:
@@ -184,7 +186,7 @@ func validateAtomicEventPairs(events []Event, closureAlreadyConfirmed bool) erro
 				charge = charge || (candidate.Kind == EventBudgetObserved && candidate.WindowID == e.WindowID)
 				cancelled = cancelled || (candidate.Kind == EventTimerCancelled && candidate.TimerID == e.TimerID && candidate.Generation == e.Generation)
 			}
-			if !(elapsed && charge || cancelled) {
+			if (!elapsed || !charge) && !cancelled {
 				return reject(RejectInvalid)
 			}
 		case EventRunClosureConfirmed:
@@ -246,11 +248,48 @@ func approvalResultPair(events []Event, approval Event) bool {
 	return false
 }
 
-func hasAbandonClose(events []Event, toolID, attemptID ID) bool {
+func hasAbandonClose(events []Event, toolID, attemptID, causeRef, receiptRef ID) bool {
 	for _, e := range events {
-		if e.Kind == EventToolAttemptAbandoned && e.ToolID == toolID && e.AttemptID == attemptID && e.Next == NextEnd {
+		if e.Kind == EventToolAttemptAbandoned && e.ToolID == toolID && e.AttemptID == attemptID && e.CauseRef == causeRef && e.ReceiptRef == receiptRef && e.Next == NextEnd {
 			return true
 		}
+	}
+	return false
+}
+
+func hasAbandonedUnknownResultPair(events []Event, abandon Event) bool {
+	for _, event := range events {
+		if event.Kind == EventToolResultRecorded && event.ToolID == abandon.ToolID && event.AttemptID == abandon.AttemptID && event.CauseRef == abandon.CauseRef && event.ReceiptRef == abandon.ReceiptRef && event.Disposition == ResultAbandonedUnknown && event.Exposure == ExposureUnknown {
+			return true
+		}
+	}
+	return false
+}
+
+func hasUnknownAcceptanceResultPair(events []Event, accepted Event) bool {
+	var acceptance, result *Event
+	if accepted.Kind == EventUnknownAccepted {
+		acceptance = &accepted
+		for i := range events {
+			if events[i].Kind == EventToolResultRecorded {
+				result = &events[i]
+				break
+			}
+		}
+	} else if accepted.Kind == EventToolResultRecorded {
+		result = &accepted
+		for i := range events {
+			if events[i].Kind == EventUnknownAccepted && !events[i].IsModel {
+				acceptance = &events[i]
+				break
+			}
+		}
+	}
+	if acceptance == nil || result == nil {
+		return false
+	}
+	if acceptance.ToolID == result.ToolID && acceptance.AttemptID == result.AttemptID && acceptance.CauseRef == result.CauseRef && acceptance.ReceiptRef == result.ReceiptRef && result.Disposition == ResultAbandonedUnknown && result.Exposure == ExposureUnknown && validID(result.Ref) && acceptance.Actor == ActorUser && acceptance.Disposition == ResultAbandonedUnknown && validID(acceptance.Ref) && validID(acceptance.ReceiptRef) {
+		return true
 	}
 	return false
 }
@@ -553,14 +592,15 @@ func applyEvent(s *State, e Event) error {
 			return reject(RejectStale)
 		}
 		delete(s.Blockers, blocker.ID)
-		if e.Disposition == ResultSucceeded {
+		switch e.Disposition {
+		case ResultSucceeded:
 			tool.ApprovalRef = e.ReceiptRef
 			tool.State = ToolChecking
-		} else if e.Disposition == ResultDenied || e.Disposition == ResultRefused {
+		case ResultDenied, ResultRefused:
 			tool.Disposition = e.Disposition
 			tool.State = toolStateFor(e.Disposition)
 			tool.ResolutionRef = e.ReceiptRef
-		} else {
+		default:
 			return reject(RejectInvalid)
 		}
 		s.Tools[e.ToolID] = tool
@@ -598,8 +638,11 @@ func applyEvent(s *State, e Event) error {
 		if !ok || !aok || att.ToolID != tool.ID || att.StepID != tool.StepID || !contains(tool.AttemptIDs, att.ID) || (!predispatchCancel && !predispatchRefusal && !acceptedClose && !reconciledResult && tool.SelectedAttempt != att.ID) || (!acceptedClose && !predispatchCancel && !predispatchRefusal && !reconciledResult && (!callbackMatchesTool(*s, att, e) || att.State != AttemptRequesting)) || !validID(e.Ref) || !validResultDisposition(e.Disposition) || !validExposure(e.Exposure) || tool.ResultRef != "" {
 			return reject(RejectStale)
 		}
-		if e.Disposition == ResultAbandonedUnknown && !acceptedUnknownFor(*s, tool.ID) && !closureMatchesUnknown(*s, e) {
-			return reject(RejectConflict)
+		switch e.Disposition {
+		case ResultAbandonedUnknown:
+			if !acceptedUnknownFor(*s, tool.ID) && !closureMatchesUnknown(*s, e) {
+				return reject(RejectConflict)
+			}
 		}
 		att.State = AttemptCompleted
 		if predispatchCancel || predispatchRefusal {
@@ -665,13 +708,18 @@ func applyEvent(s *State, e Event) error {
 		if !ok || !aok || att.ToolID != tool.ID || !contains(tool.AttemptIDs, att.ID) || tool.SelectedAttempt != att.ID || tool.State != ToolUnknown || att.State != AttemptInterrupted || e.Exposure != ExposureUnknown || !validID(e.Ref) || !validID(e.ReceiptRef) || (e.Next != NextContinue && e.Next != NextEnd) || e.Next == NextContinue && tool.EffectClass != EffectPureRead {
 			return reject(RejectConflict)
 		}
-		att.State, att.TerminalRef = AttemptAbandoned, e.Ref
-		tool.Exposure = ExposureUnknown
 		if e.Next == NextEnd {
-			resolveInterruptionTarget(s, tool.ID, true)
+			intr, found := s.Interruptions[e.CauseRef]
+			if !found || intr.TargetID != tool.ID || intr.Resolved || e.Actor != ActorUser || !validID(e.CauseRef) {
+				return reject(RejectStale)
+			}
+			intr.Accepted, intr.Disposition = true, RecoveryDispositionAcceptedUnknown
+			s.Interruptions[e.CauseRef] = intr
 		} else {
 			resolveInterruptionTarget(s, tool.ID, false)
 		}
+		att.State, att.TerminalRef = AttemptAbandoned, e.Ref
+		tool.Exposure = ExposureUnknown
 		s.ToolAttempts[att.ID], s.Tools[tool.ID] = att, tool
 	case EventToolAttemptPlanned:
 		tool, ok := s.Tools[e.ToolID]
@@ -829,7 +877,7 @@ func applyEvent(s *State, e Event) error {
 		s.Interruptions[e.CauseRef] = intr
 	case EventStepCompleted:
 		st := currentStep(s)
-		if st == nil || !st.Open || st.ModelID == "" || st.ResponseRef == "" || (e.Next != NextContinue && e.Next != NextEnd && e.Next != NextWait) || !validContinuation(e.Continuation) || !stepToolsTerminal(*s, *st) {
+		if st == nil || !st.Open || st.ModelID == "" || st.ResponseRef == "" || hasPendingUnknownClose(*s) || (e.Next != NextContinue && e.Next != NextEnd && e.Next != NextWait) || !validContinuation(e.Continuation) || !stepToolsTerminal(*s, *st) {
 			return reject(RejectConflict)
 		}
 		if continuationNext(e.Continuation) != e.Next {

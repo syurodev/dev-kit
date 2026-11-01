@@ -135,7 +135,24 @@ func canAdvance(s *State) bool {
 }
 
 func dispatchable(s *State) bool {
-	return s.Admitted && !s.Finished && s.PrimaryStop.Mode != StopTerminal && len(s.Blockers) == 0 && !hasUnresolvedInterruption(*s) && !stepBudgetWaiting(*s)
+	return s.Admitted && !s.Finished && !hasPendingUnknownClose(*s) && s.PrimaryStop.Mode != StopTerminal && len(s.Blockers) == 0 && !hasUnresolvedInterruption(*s) && !stepBudgetWaiting(*s)
+}
+
+func hasPendingUnknownClose(s State) bool {
+	if s.Finished {
+		return false
+	}
+	for _, tool := range s.Tools {
+		if tool.Disposition == ResultAbandonedUnknown && tool.ResultRef != "" {
+			return true
+		}
+	}
+	for _, invocation := range s.Models {
+		if invocation.Disposition == ResultAbandonedUnknown {
+			return true
+		}
+	}
+	return false
 }
 
 func effectiveStepLimit(s State) uint64 {
@@ -547,6 +564,9 @@ func deriveLifecycle(s State) Lifecycle {
 	if s.PrimaryStop.Mode == StopTerminal {
 		return Cancelling
 	}
+	if hasPendingUnknownClose(s) {
+		return Cancelling
+	}
 	if !s.Admitted {
 		return Queued
 	}
@@ -563,7 +583,7 @@ func deriveLifecycle(s State) Lifecycle {
 }
 
 func derivePhase(s State) Phase {
-	if s.Finished || s.PrimaryStop.Mode == StopTerminal || s.Outcome == OutcomeAbandoned || s.Outcome == OutcomeAbandonedUnknown {
+	if s.Finished || s.PrimaryStop.Mode == StopTerminal || hasPendingUnknownClose(s) || s.Outcome == OutcomeAbandoned || s.Outcome == OutcomeAbandonedUnknown {
 		return PhaseFinalizing
 	}
 	st := currentStep(&s)

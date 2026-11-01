@@ -127,6 +127,9 @@ func canonicalTransition(k CommandKind, x TransitionInput) (TransitionInput, err
 		n.TargetID, n.AttemptID, n.CauseRef, n.Fence, n.ExecutorToken, n.ExecutorIncarnation, n.Exposure = x.TargetID, x.AttemptID, x.CauseRef, x.Fence, x.ExecutorToken, x.ExecutorIncarnation, x.Exposure
 	case CommandAbandonTool:
 		n.TargetID, n.AttemptID, n.Ref, n.ReceiptRef, n.Exposure, n.Next = x.TargetID, x.AttemptID, x.Ref, x.ReceiptRef, x.Exposure, x.Next
+		if x.Next == NextEnd {
+			n.CauseRef, n.ResultRef, n.Actor = x.CauseRef, x.ResultRef, x.Actor
+		}
 	case CommandReconcileTool:
 		n.TargetID, n.AttemptID, n.ReceiptRef, n.ResultRef, n.Disposition, n.Exposure = x.TargetID, x.AttemptID, x.ReceiptRef, x.ResultRef, x.Disposition, x.Exposure
 	case CommandPlanToolRetry:
@@ -358,11 +361,22 @@ func commandEvents(state State, c Command) ([]Event, error) {
 		out = append(out, r)
 	case CommandAbandonTool:
 		x := c.Transition
-		if x.Next != NextContinue {
+		if x.Next != NextContinue && x.Next != NextEnd {
 			return nil, reject(RejectInvalid)
 		}
 		e := newEvent(1, EventToolAttemptAbandoned)
 		e.ToolID, e.AttemptID, e.Ref, e.ReceiptRef, e.Exposure, e.Next = x.TargetID, x.AttemptID, x.Ref, x.ReceiptRef, x.Exposure, x.Next
+		if x.Next == NextEnd {
+			if x.Actor != ActorUser || !validID(x.CauseRef) || !validID(x.ResultRef) {
+				return nil, reject(RejectInvalid)
+			}
+			e.CauseRef, e.Actor = x.CauseRef, x.Actor
+			r := newEvent(2, EventToolResultRecorded)
+			r.ToolID, r.AttemptID, r.CauseRef, r.Ref, r.ReceiptRef = x.TargetID, x.AttemptID, x.CauseRef, x.ResultRef, x.ReceiptRef
+			r.Disposition, r.Exposure = ResultAbandonedUnknown, ExposureUnknown
+			out = append(out, e, r)
+			break
+		}
 		out = append(out, e)
 	case CommandReconcileTool:
 		x := c.Transition
@@ -475,7 +489,7 @@ func commandEvents(state State, c Command) ([]Event, error) {
 		e.ToolID, e.AttemptID, e.Ref, e.CauseRef, e.ReceiptRef, e.Actor, e.Disposition = x.TargetID, x.AttemptID, x.Ref, x.CauseRef, x.ReceiptRef, x.Actor, x.Disposition
 		out = append(out, e)
 		r := newEvent(2, EventToolResultRecorded)
-		r.ToolID, r.AttemptID, r.Ref, r.ReceiptRef, r.Disposition, r.Exposure = x.TargetID, x.AttemptID, x.ResultRef, x.ReceiptRef, ResultAbandonedUnknown, ExposureUnknown
+		r.ToolID, r.AttemptID, r.CauseRef, r.Ref, r.ReceiptRef, r.Disposition, r.Exposure = x.TargetID, x.AttemptID, x.CauseRef, x.ResultRef, x.ReceiptRef, ResultAbandonedUnknown, ExposureUnknown
 		out = append(out, r)
 	case CommandAcceptUnknownModelOutcome:
 		x := c.Transition
