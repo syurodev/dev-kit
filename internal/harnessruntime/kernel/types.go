@@ -380,6 +380,7 @@ type Command struct {
 	Stop              StopInput
 	BudgetExtension   BudgetExtensionInput
 	Transition        TransitionInput
+	Closure           ClosureInput
 }
 
 // TransitionInput carries allowlisted facts for non-happy-path commands. It is
@@ -565,6 +566,7 @@ type Event struct {
 	CauseRef             ID
 	RequestRef           ID
 	ReceiptRef           ID
+	OwnerEvidenceRef     ID
 	TimerID              ID
 	WindowID             ID
 	BlockerID            ID
@@ -616,7 +618,8 @@ type Event struct {
 	Actor                   ActorKind
 	InitialStepLimit        uint64
 
-	Candidates []ToolCandidate
+	Candidates     []ToolCandidate
+	ClosureTargets []ClosureTargetFact
 }
 
 type ToolCandidate struct {
@@ -659,6 +662,7 @@ type ModelInvocation struct {
 	Usage           UsageFact
 	CandidateIDs    []ID
 	FailureRef      ID
+	DispositionRef  ID
 	Candidates      []ToolCandidate
 	Disposition     ResultDisposition
 }
@@ -804,6 +808,7 @@ type State struct {
 	ClosurePreviewMode       ClosurePreviewMode
 	ClosurePreviewVersion    uint32
 	ClosureUnavailableReason UnavailableReason
+	ClosureTargets           []ClosureTargetFact
 	ContextRevision          uint64
 	ContextRequirement       ContextRequirement
 	PrimaryStop              StopIntent

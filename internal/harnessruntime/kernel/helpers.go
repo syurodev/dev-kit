@@ -29,6 +29,9 @@ func cloneEvent(ev Event) Event {
 	if ev.Candidates != nil {
 		ev.Candidates = append(make([]ToolCandidate, 0, len(ev.Candidates)), ev.Candidates...)
 	}
+	if ev.ClosureTargets != nil {
+		ev.ClosureTargets = append(make([]ClosureTargetFact, 0, len(ev.ClosureTargets)), ev.ClosureTargets...)
+	}
 	return ev
 }
 
@@ -36,6 +39,9 @@ func cloneBatch(b Batch) Batch {
 	b.Events = cloneEvents(b.Events)
 	if b.Intent.ModelResponse.Candidates != nil {
 		b.Intent.ModelResponse.Candidates = append(make([]ToolCandidate, 0, len(b.Intent.ModelResponse.Candidates)), b.Intent.ModelResponse.Candidates...)
+	}
+	if b.Intent.Closure.Targets != nil {
+		b.Intent.Closure.Targets = append(make([]ClosureTargetFact, 0, len(b.Intent.Closure.Targets)), b.Intent.Closure.Targets...)
 	}
 	if b.Intent.Transition.Recoveries != nil {
 		b.Intent.Transition.Recoveries = append(make([]RecoveryFact, 0, len(b.Intent.Transition.Recoveries)), b.Intent.Transition.Recoveries...)
@@ -48,6 +54,11 @@ func cloneBatch(b Batch) Batch {
 
 func cloneState(s State) State {
 	n := s
+	if s.ClosureTargets == nil {
+		n.ClosureTargets = nil
+	} else {
+		n.ClosureTargets = append(make([]ClosureTargetFact, 0, len(s.ClosureTargets)), s.ClosureTargets...)
+	}
 	n.SecondaryStops = append([]StopIntent(nil), s.SecondaryStops...)
 	n.Steps = append([]Step(nil), s.Steps...)
 	for i := range n.Steps {
@@ -481,7 +492,7 @@ func finishAllowed(s State, outcome Outcome) bool {
 		}
 	}
 	if outcome == OutcomeAbandonedUnknown {
-		if !s.ClosureConfirmed {
+		if !s.ClosureConfirmed && !hasAcceptedUnknownInterruption(s) {
 			return false
 		}
 		if !hasUnknownClosureFact(s) {
@@ -519,6 +530,15 @@ func finishAllowed(s State, outcome Outcome) bool {
 	return true
 }
 
+func hasAcceptedUnknownInterruption(s State) bool {
+	for _, intr := range s.Interruptions {
+		if intr.Accepted && intr.Disposition == RecoveryDispositionAcceptedUnknown {
+			return true
+		}
+	}
+	return false
+}
+
 func hasUnknownClosureFact(s State) bool {
 	for _, exposure := range s.Exposures {
 		if exposure == ExposureUnknown {
@@ -526,7 +546,7 @@ func hasUnknownClosureFact(s State) bool {
 		}
 	}
 	for _, attempt := range s.ModelAttempts {
-		if attempt.State != AttemptPlanned && (attempt.Usage.Status == UsageUnknown || attempt.Usage.Status == UsageReserved) {
+		if (attempt.Token != 0 || attempt.Exposure != ExposureNone) && (attempt.Usage.Status == UsageUnknown || attempt.Usage.Status == UsageReserved) {
 			return true
 		}
 	}
@@ -619,7 +639,22 @@ func acceptedUnknownFor(s State, target ID) bool {
 }
 
 func closureMatchesUnknown(s State, e Event) bool {
-	return s.ClosureConfirmed && s.ClosureAcceptedUnknown && s.ClosureToolID == e.ToolID && s.ClosureAttemptID == e.AttemptID && s.ClosureReceipt == e.ReceiptRef && e.Disposition == ResultAbandonedUnknown
+	if !s.ClosureConfirmed || s.ClosureReceipt != e.ReceiptRef || e.Disposition != ResultAbandonedUnknown {
+		return false
+	}
+	return closureManifestHas(s.ClosureTargets, e.ToolID, e.AttemptID, e.CauseRef, ClosureTargetUnknownTool)
+}
+
+func closureModelMatches(s State, e Event) bool {
+	if !s.ClosureConfirmed || s.ClosureReceipt != e.ReceiptRef {
+		return false
+	}
+	for _, fact := range s.ClosureTargets {
+		if fact.Kind == ClosureTargetUnknownModel && fact.TargetID == e.InvocationID && fact.AttemptID == e.AttemptID && fact.CauseRef == e.CauseRef {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveInterruptionTarget(s *State, target ID, accept bool) {

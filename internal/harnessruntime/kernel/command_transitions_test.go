@@ -443,16 +443,16 @@ func TestDecideTimeWindowOpensAndClosesWithDeadlineTimer(t *testing.T) {
 	if window.Open || !window.Covered || h.state.Timers["budget-window-timer"].Pending {
 		t.Fatal("closed window or timer projection remains active")
 	}
-	closure := h.issue(Command{Kind: CommandConfirmRunClosure, Transition: TransitionInput{
-		Ref: "closure-ref", ReceiptRef: "closure-receipt", Actor: ActorUser, Revision: h.state.Revision, Outcome: OutcomeAbandoned,
-		PreviewMode: ClosurePreviewMetadataOnly, PreviewVersion: 1, UnavailableReason: UnavailablePayloadMissing,
-		PreviousContextRevision: h.state.ContextRevision, ContextRevision: h.state.ContextRevision + 1, ContextRequirement: ContextRequirementFreshRequired,
-		CauseRef: "window-close-ref", CauseEventRef: closed.Events[1].ID, RecoveryDisposition: RecoveryDispositionClosedUnavailable,
-	}})
+	closure := h.issue(closureCommandFor(h.state, "closure-ref", CommandConfirmRunClosure, ClosureInput{
+		PreviewRef: "closure-preview", ReceiptRef: "closure-receipt", Actor: ActorUser, Revision: h.state.Revision,
+		PreviewVersion: CurrentClosurePreviewVersion, UnavailableReason: UnavailablePayloadMissing,
+		PreviousContextRevision: h.state.ContextRevision, ContextRevision: h.state.ContextRevision + 1,
+		ContextRequirement: ContextRequirementFreshRequired, CauseEventRef: closed.Events[1].ID,
+	}))
 	if len(closure.Events) != 2 || closure.Events[0].Kind != EventRunClosureConfirmed || closure.Events[1].Kind != EventRunFinished || closure.Events[1].Outcome != OutcomeAbandoned || !h.state.Finished || !h.state.ClosureConfirmed {
 		t.Fatal("closure command did not produce one atomic terminal batch")
 	}
-	if closure.Events[0].PreviewMode != ClosurePreviewMetadataOnly || closure.Events[0].PreviewVersion != 1 || closure.Events[0].UnavailableReason != UnavailablePayloadMissing || closure.Events[0].ContextRequirement != ContextRequirementFreshRequired || closure.Events[0].CauseRef != "window-close-ref" || closure.Events[0].CauseEventRef != closed.Events[1].ID || closure.Events[0].RecoveryDisposition != RecoveryDispositionClosedUnavailable {
+	if closure.Events[0].PreviewMode != ClosurePreviewMetadataOnly || closure.Events[0].PreviewVersion != CurrentClosurePreviewVersion || closure.Events[0].UnavailableReason != UnavailablePayloadMissing || closure.Events[0].ContextRequirement != ContextRequirementFreshRequired || closure.Events[0].CauseEventRef != closed.Events[1].ID || len(closure.Events[0].ClosureTargets) != 0 {
 		t.Fatal("closure confirmation omitted its versioned metadata-only preview and unavailable-context evidence")
 	}
 }
@@ -601,18 +601,14 @@ func TestDecideToolReconciliationAndUnknownOutcomeClosure(t *testing.T) {
 		toolID, attemptID := h.toolDispatching()
 		transcript := append([]TranscriptItem(nil), h.state.Transcript...)
 		unknown := h.issue(Command{Kind: CommandObserveUnknownTool, Transition: TransitionInput{TargetID: toolID, AttemptID: attemptID, CauseRef: "unknown-close-cause", Exposure: ExposureUnknown, ExecutorToken: 7, ExecutorIncarnation: "writer-inc-1", Fence: 2}})
-		accepted := h.issue(Command{Kind: CommandAcceptUnknownOutcome, Transition: TransitionInput{TargetID: toolID, AttemptID: attemptID, CauseRef: "unknown-close-cause", Ref: "user-acceptance-proof", ReceiptRef: "user-acceptance-receipt", ResultRef: "abandoned-result", Actor: ActorUser, Disposition: ResultAbandonedUnknown}})
-		if len(accepted.Events) != 2 || accepted.Events[0].Kind != EventUnknownAccepted || accepted.Events[1].Kind != EventToolResultRecorded || accepted.Events[1].Disposition != ResultAbandonedUnknown || !h.state.Interruptions["unknown-close-cause"].Accepted || h.state.Tools[toolID].Disposition != ResultAbandonedUnknown || h.state.ToolAttempts[attemptID].State != AttemptAbandoned {
+		accepted := h.issue(closureCommandFor(h.state, "unknown-close", CommandAcceptUnknownOutcome, ClosureInput{
+			PreviewRef: "user-acceptance-proof", ReceiptRef: "user-acceptance-receipt", Revision: h.state.Revision, Actor: ActorUser, PreviewVersion: CurrentClosurePreviewVersion,
+			Targets: []ClosureTargetFact{{Kind: ClosureTargetUnknownTool, TargetID: toolID, AttemptID: attemptID, CauseRef: "unknown-close-cause", CauseEventRef: unknown.Events[1].ID, ResultRef: "abandoned-result"}},
+		}))
+		if len(accepted.Events) != 5 || accepted.Events[0].Kind != EventUnknownAccepted || accepted.Events[1].Kind != EventToolResultRecorded || accepted.Events[1].Disposition != ResultAbandonedUnknown || !h.state.Interruptions["unknown-close-cause"].Accepted || h.state.Tools[toolID].Disposition != ResultAbandonedUnknown || h.state.ToolAttempts[attemptID].State != AttemptAbandoned {
 			t.Fatal("unknown acceptance did not atomically pair user decision with its explicit terminal result")
 		}
-		h.issue(Command{Kind: CommandAbortStep, Transition: TransitionInput{Ref: "close-abort-step"}})
-		closed := h.issue(Command{Kind: CommandConfirmRunClosure, Transition: TransitionInput{
-			Ref: "closure-ref", ReceiptRef: "closure-proof", Actor: ActorUser, Revision: h.state.Revision, Outcome: OutcomeAbandonedUnknown,
-			PreviewMode: ClosurePreviewMetadataOnly, PreviewVersion: 1, UnavailableReason: UnavailablePayloadMissing,
-			PreviousContextRevision: h.state.ContextRevision, ContextRevision: h.state.ContextRevision + 1, ContextRequirement: ContextRequirementFreshRequired,
-			CauseRef: "unknown-close-cause", CauseEventRef: unknown.Events[1].ID, RecoveryDisposition: RecoveryDispositionAcceptedUnknown,
-		}})
-		if len(closed.Events) != 2 || !h.state.Finished || h.state.Outcome != OutcomeAbandonedUnknown || h.state.Exposures[toolID] != ExposureUnknown || h.state.ToolAttempts[attemptID].State != AttemptAbandoned || len(h.state.Transcript) != len(transcript)+1 || !reflect.DeepEqual(h.state.Transcript[:len(transcript)], transcript) || h.state.Transcript[len(transcript)].ResultRef != "abandoned-result" || !h.state.Steps[h.state.CurrentStep].Aborted || h.state.Models[h.state.Steps[h.state.CurrentStep].ModelID].Disposition != ResultSucceeded {
+		if !h.state.Finished || h.state.Outcome != OutcomeAbandonedUnknown || h.state.Exposures[toolID] != ExposureUnknown || h.state.ToolAttempts[attemptID].State != AttemptAbandoned || len(h.state.Transcript) != len(transcript)+1 || !reflect.DeepEqual(h.state.Transcript[:len(transcript)], transcript) || h.state.Transcript[len(transcript)].ResultRef != "abandoned-result" || !h.state.Steps[h.state.CurrentStep].Aborted || h.state.Models[h.state.Steps[h.state.CurrentStep].ModelID].Disposition != ResultSucceeded {
 			t.Fatalf("user closure did not preserve model history and explicit unknown exposure: finished=%v outcome=%v exposure=%v transcript=%#v step=%#v", h.state.Finished, h.state.Outcome, h.state.Exposures[toolID], h.state.Transcript, h.state.Steps[h.state.CurrentStep])
 		}
 	})
@@ -622,14 +618,11 @@ func TestDecideClosureCanAtomicallyResolveAcceptedUnknownOutcome(t *testing.T) {
 	h := newTransitionHarness(t)
 	toolID, attemptID := h.toolDispatching()
 	unknown := h.issue(Command{Kind: CommandObserveUnknownTool, Transition: TransitionInput{TargetID: toolID, AttemptID: attemptID, CauseRef: "closure-interruption", Exposure: ExposureUnknown, ExecutorToken: 7, ExecutorIncarnation: "writer-inc-1", Fence: 2}})
-	batch := h.issue(Command{Kind: CommandConfirmRunClosure, Transition: TransitionInput{
-		Ref: "closure-ack-ref", ReceiptRef: "closure-receipt", Actor: ActorUser, Revision: h.state.Revision, Outcome: OutcomeAbandonedUnknown,
-		PreviewMode: ClosurePreviewMetadataOnly, PreviewVersion: 1, UnavailableReason: UnavailablePayloadMissing,
-		PreviousContextRevision: h.state.ContextRevision, ContextRevision: h.state.ContextRevision + 1, ContextRequirement: ContextRequirementFreshRequired,
-		CauseRef: "closure-interruption", CauseEventRef: unknown.Events[1].ID, RecoveryDisposition: RecoveryDispositionAcceptedUnknown,
-		UnknownOutcomes: []UnknownOutcomeFact{{ToolID: toolID, AttemptID: attemptID, CauseRef: "closure-interruption", ResultRef: "closure-result-ref"}},
-	}})
-	want := []EventKind{EventRunClosureConfirmed, EventToolResultRecorded, EventRunRecoveryCleared, EventStepAborted, EventRunFinished}
+	batch := h.issue(closureCommandFor(h.state, "closure-ack-ref", CommandAcceptUnknownOutcome, ClosureInput{
+		PreviewRef: "closure-preview", ReceiptRef: "closure-receipt", Actor: ActorUser, Revision: h.state.Revision, PreviewVersion: CurrentClosurePreviewVersion,
+		Targets: []ClosureTargetFact{{Kind: ClosureTargetUnknownTool, TargetID: toolID, AttemptID: attemptID, CauseRef: "closure-interruption", CauseEventRef: unknown.Events[1].ID, ResultRef: "closure-result-ref"}},
+	}))
+	want := []EventKind{EventUnknownAccepted, EventToolResultRecorded, EventRunRecoveryCleared, EventStepAborted, EventRunFinished}
 	if len(batch.Events) != len(want) {
 		t.Fatalf("unknown closure batch has %d events, want %d: %#v", len(batch.Events), len(want), batch.Events)
 	}
@@ -638,7 +631,7 @@ func TestDecideClosureCanAtomicallyResolveAcceptedUnknownOutcome(t *testing.T) {
 			t.Fatalf("unknown closure event %d is %v, want %v", i, batch.Events[i].Kind, kind)
 		}
 	}
-	if batch.Events[0].PreviewMode != ClosurePreviewMetadataOnly || batch.Events[0].PreviewVersion != 1 || batch.Events[0].UnavailableReason != UnavailablePayloadMissing || batch.Events[0].ContextRequirement != ContextRequirementFreshRequired || batch.Events[0].CauseEventRef != unknown.Events[1].ID || batch.Events[0].RecoveryDisposition != RecoveryDispositionAcceptedUnknown || batch.Events[1].AttemptID != attemptID || batch.Events[1].Ref != "closure-result-ref" || batch.Events[1].Disposition != ResultAbandonedUnknown || batch.Events[2].CauseRef != "closure-interruption" || batch.Events[2].RecoveryDisposition != RecoveryDispositionAcceptedUnknown || !h.state.Interruptions["closure-interruption"].Accepted || !h.state.Steps[h.state.CurrentStep].Aborted || h.state.Outcome != OutcomeAbandonedUnknown || h.state.ToolAttempts[attemptID].State != AttemptAbandoned || h.state.Models[h.state.Steps[h.state.CurrentStep].ModelID].Disposition != ResultSucceeded {
+	if batch.Events[0].PreviewMode != ClosurePreviewExact || batch.Events[0].PreviewVersion != CurrentClosurePreviewVersion || batch.Events[0].Ref != "closure-preview" || batch.Events[1].AttemptID != attemptID || batch.Events[1].Ref != "closure-result-ref" || batch.Events[1].Disposition != ResultAbandonedUnknown || batch.Events[2].CauseRef != "closure-interruption" || batch.Events[2].RecoveryDisposition != RecoveryDispositionAcceptedUnknown || !h.state.Interruptions["closure-interruption"].Accepted || !h.state.Steps[h.state.CurrentStep].Aborted || h.state.Outcome != OutcomeAbandonedUnknown || h.state.ToolAttempts[attemptID].State != AttemptAbandoned || h.state.Models[h.state.Steps[h.state.CurrentStep].ModelID].Disposition != ResultSucceeded {
 		t.Fatalf("atomic unknown closure lost exact attempt, interruption, or aborted-step provenance: events=%#v intr=%#v step=%#v outcome=%v attempt=%#v model=%#v", batch.Events, h.state.Interruptions["closure-interruption"], h.state.Steps[h.state.CurrentStep], h.state.Outcome, h.state.ToolAttempts[attemptID], h.state.Models[h.state.Steps[h.state.CurrentStep].ModelID])
 	}
 }
@@ -660,11 +653,11 @@ func TestDecideModelUnknownAcceptanceAndPostFinishUsageReconciliation(t *testing
 	t.Run("accept unknown", func(t *testing.T) {
 		h := newTransitionHarness(t)
 		invocationID, attemptID := h.modelInFlight()
-		h.issue(Command{Kind: CommandAcquireOwnership, Transition: TransitionInput{ExecutorToken: 8, ExecutorIncarnation: "writer-inc-2", ReceiptRef: "model-recovery-receipt", Recoveries: []RecoveryFact{{TargetID: invocationID, AttemptID: attemptID, CauseRef: "model-unknown-cause", PartialRef: "partial-response", Usage: UsageUnknown, BlockerID: "model-recovery-blocker", PreviousToken: 7, PreviousIncarnation: "writer-inc-1", Fence: 1}}}})
-		h.issue(Command{Kind: CommandClearRunBlock, Transition: TransitionInput{BlockerID: "model-recovery-blocker", CauseRef: "block-clear", Ref: "block-clear-receipt"}})
-		cmd := Command{Kind: CommandAcceptUnknownModelOutcome, Transition: TransitionInput{TargetID: invocationID, AttemptID: attemptID, CauseRef: "model-unknown-cause", Ref: "model-user-acceptance", ReceiptRef: "model-user-receipt", Actor: ActorUser, Disposition: ResultAbandonedUnknown}}
+		recovery := h.issue(Command{Kind: CommandAcquireOwnership, Transition: TransitionInput{ExecutorToken: 8, ExecutorIncarnation: "writer-inc-2", ReceiptRef: "model-recovery-receipt", Recoveries: []RecoveryFact{{TargetID: invocationID, AttemptID: attemptID, CauseRef: "model-unknown-cause", PartialRef: "partial-response", Usage: UsageUnknown, BlockerID: "model-recovery-blocker", PreviousToken: 7, PreviousIncarnation: "writer-inc-1", Fence: 1}}}})
+		causeEvent := recovery.Events[2].ID
+		cmd := closureCommandFor(h.state, "model-user-acceptance", CommandAcceptUnknownOutcome, ClosureInput{PreviewRef: "model-preview", ReceiptRef: "model-user-receipt", PreviewVersion: CurrentClosurePreviewVersion, Revision: h.state.Revision, Actor: ActorUser, Targets: []ClosureTargetFact{{Kind: ClosureTargetUnknownModel, TargetID: invocationID, AttemptID: attemptID, CauseRef: "model-unknown-cause", CauseEventRef: causeEvent}}})
 		batch := h.issue(cmd)
-		if len(batch.Events) != 1 || batch.Events[0].Kind != EventUnknownAccepted || !batch.Events[0].IsModel || h.state.Models[invocationID].State != InvocationAbandoned || h.state.Exposures[attemptID] != ExposureUnknown {
+		if batch.Events[0].Kind != EventUnknownAccepted || !batch.Events[0].IsModel || !h.state.Finished || h.state.Outcome != OutcomeAbandonedUnknown || h.state.Models[invocationID].State != InvocationAbandoned || h.state.Exposures[attemptID] != ExposureUnknown {
 			t.Fatal("typed model unknown acceptance lost user acknowledgement or exposure state")
 		}
 	})
