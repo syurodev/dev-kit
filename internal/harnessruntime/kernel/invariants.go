@@ -4,6 +4,16 @@ package kernel
 // state. It never inspects an intermediate prefix inside a batch.
 func CheckInvariants(s State) error {
 	fail := func() error { return reject(RejectInvariant) }
+	if s.RetriesUsed > s.RetryBudgetLimit || (s.RetryBudgetLimit == 0) != (s.ModelRetryPolicyVersion == 0) {
+		return fail()
+	}
+	var retrySum uint64
+	for _, invocation := range s.Models {
+		retrySum += uint64(invocation.RetryCount)
+	}
+	if retrySum != uint64(s.RetriesUsed) {
+		return fail()
+	}
 
 	// SM-01: one active model/tool attempt at the execution frontier.
 	active := 0
@@ -195,6 +205,20 @@ func CheckInvariants(s State) error {
 				return fail()
 			}
 		}
+		ordinals := map[uint32]bool{}
+		for _, attemptID := range inv.AttemptIDs {
+			a := s.ModelAttempts[attemptID]
+			if a.RetryOrdinal == 0 {
+				continue
+			}
+			if a.RetryOrdinal > inv.RetryCount || ordinals[a.RetryOrdinal] {
+				return fail()
+			}
+			ordinals[a.RetryOrdinal] = true
+		}
+		if uint32(len(ordinals)) != inv.RetryCount || (inv.RetryCount > 0 && (inv.RetryLimit != s.RetryBudgetLimit || inv.RetryPolicyVersion != s.ModelRetryPolicyVersion)) {
+			return fail()
+		}
 	}
 	for id, tool := range s.Tools {
 		if id != tool.ID || len(tool.AttemptIDs) == 0 || len(tool.AttemptIDs) != len(uniqueIDs(tool.AttemptIDs)) {
@@ -221,6 +245,12 @@ func CheckInvariants(s State) error {
 	for id, a := range s.ModelAttempts {
 		if id != a.ID || (a.Exposure == ExposureUnknown && s.Exposures[id] != ExposureUnknown) {
 			return fail()
+		}
+		if a.RetryTimerID != "" {
+			t, ok := s.Timers[a.RetryTimerID]
+			if !ok || t.TargetID != a.InvocationID || t.Purpose != TimerModelRetry || t.Generation != a.RetryGeneration || (a.State == AttemptPlanned && !t.Pending && !t.Elapsed && !t.Cancelled) || (a.State != AttemptPlanned && !a.RetryCancelled && (t.Pending || !t.Elapsed)) || (a.RetryCancelled && (!t.Cancelled || a.State != AttemptCancelled)) {
+				return fail()
+			}
 		}
 	}
 

@@ -51,7 +51,7 @@ func (h *transitionHarness) issue(cmd Command) Batch {
 func (h *transitionHarness) modelInFlight() (invocationID, attemptID ID) {
 	h.t.Helper()
 	h.issue(Command{Kind: CommandAcceptRun, AcceptRun: AcceptRunInput{
-		InputRef: "protected-input-ref", Origin: OriginUser, InitialStepLimit: 4,
+		InputRef: "protected-input-ref", Origin: OriginUser, InitialStepLimit: 4, RetryBudgetLimit: 5, ModelRetryPolicyVersion: 1,
 	}})
 	h.issue(Command{Kind: CommandAdmitRun, Admission: AdmissionInput{Token: 7, Incarnation: "writer-inc-1"}})
 	h.issue(Command{Kind: CommandStartStep, Step: StepInput{StepID: "step-1"}})
@@ -192,7 +192,7 @@ func TestDecideModelFailureAndCancellationUseAttemptProvenance(t *testing.T) {
 		invocationID, attemptID := h.modelInFlight()
 		batch := h.issue(Command{Kind: CommandObserveModelFailure, Transition: TransitionInput{
 			TargetID: invocationID, AttemptID: attemptID, Ref: "failure-ref", CauseRef: "partial-response-ref",
-			Usage: UsageKnown, ExecutorToken: 7, ExecutorIncarnation: "writer-inc-1", Fence: 1,
+			Usage: UsageKnown, ExecutorToken: 7, ExecutorIncarnation: "writer-inc-1", Fence: 1, FailureStage: ModelFailureStream, FailureClass: ModelFailureServer, RetryDisposition: RetryDispositionRetry,
 		}})
 		if len(batch.Events) != 1 || batch.Events[0].Kind != EventModelRequestFailed || batch.Events[0].AttemptID != attemptID || batch.Events[0].InvocationID != invocationID || batch.Events[0].Ref != "failure-ref" || batch.Events[0].CauseRef != "partial-response-ref" {
 			t.Fatal("model failure did not retain attempt and protected-ref provenance")
@@ -360,36 +360,26 @@ func TestDecideRetryPreservesPreviousModelAttemptAndTimerPair(t *testing.T) {
 	invocationID, oldAttemptID := h.modelInFlight()
 	h.issue(Command{Kind: CommandObserveModelFailure, Transition: TransitionInput{
 		TargetID: invocationID, AttemptID: oldAttemptID, Ref: "model-failure-ref", CauseRef: "partial-model-response-ref",
-		Usage: UsageUnknown, ExecutorToken: 7, ExecutorIncarnation: "writer-inc-1", Fence: 1,
+		Usage: UsageUnknown, ExecutorToken: 7, ExecutorIncarnation: "writer-inc-1", Fence: 1, FailureStage: ModelFailureStream, FailureClass: ModelFailureServer, RetryDisposition: RetryDispositionRetry,
 	}})
 	scheduled := h.issue(Command{Kind: CommandScheduleModelRetry, Transition: TransitionInput{
-		TargetID: invocationID, PreviousAttemptID: oldAttemptID, TimerID: "retry-timer-id", BlockerID: "retry-blocker-id",
-		Ref: "retry-policy-ref", Generation: 1,
+		TargetID: invocationID, PreviousAttemptID: oldAttemptID, AttemptID: "model-attempt-2", TimerID: "retry-timer-id", BlockerID: "retry-blocker-id",
+		Ref: "retry-policy-ref", Generation: 1, RetryOrdinal: 1, RetryLimit: 5, PolicyVersion: 1, DeadlineUnixMilli: 1000,
 	}})
-	if len(scheduled.Events) != 1 || scheduled.Events[0].Kind != EventModelRetryScheduled || scheduled.Events[0].PreviousAttemptID != oldAttemptID || scheduled.Events[0].InvocationID != invocationID || scheduled.Events[0].TimerID != "retry-timer-id" {
-		t.Fatal("retry timer lost invocation/previous-attempt provenance")
+	if len(scheduled.Events) != 3 || scheduled.Events[0].Kind != EventModelRetryScheduled || scheduled.Events[1].Kind != EventModelAttemptPlanned || scheduled.Events[2].Kind != EventTimerScheduled || scheduled.Events[0].PreviousAttemptID != oldAttemptID || scheduled.Events[0].InvocationID != invocationID || scheduled.Events[0].TimerID != "retry-timer-id" {
+		t.Fatal("retry schedule was not an atomic intent/attempt/timer batch")
 	}
 	elapsed := h.issue(Command{Kind: CommandObserveTimerElapsed, Transition: TransitionInput{
-		TimerID: "retry-timer-id", Generation: 1, Ref: "retry-elapsed-ref",
+		TimerID: "retry-timer-id", Generation: 1, Ref: "retry-elapsed-ref", ObservedUnixMilli: 1000,
 	}})
 	if len(elapsed.Events) != 1 || elapsed.Events[0].Kind != EventTimerElapsed || elapsed.Events[0].CauseRef != "retry-elapsed-ref" {
 		t.Fatal("timer elapsed observation did not match the scheduled retry")
 	}
-	plan := h.issue(Command{Kind: CommandPlanModelRetry, Transition: TransitionInput{
-		TargetID: invocationID, PreviousAttemptID: oldAttemptID, AttemptID: "model-attempt-2",
-		TimerID: "retry-timer-id", Generation: 1,
-	}})
-	if len(plan.Events) != 1 || plan.Events[0].Kind != EventModelAttemptPlanned {
-		t.Fatalf("retry plan emitted unexpected transition: %#v", plan.Events)
-	}
-	if plan.Events[0].PreviousAttemptID != oldAttemptID || plan.Events[0].AttemptID != "model-attempt-2" || plan.Events[0].TimerID != "retry-timer-id" {
-		t.Fatal("retry plan lost timer or previous-attempt evidence")
-	}
 	if len(h.state.Models[invocationID].AttemptIDs) != 2 || h.state.Models[invocationID].AttemptIDs[0] != oldAttemptID || h.state.Models[invocationID].AttemptIDs[1] != "model-attempt-2" || h.state.ModelAttempts[oldAttemptID].State != AttemptFailed || h.state.ModelAttempts["model-attempt-2"].State != AttemptPlanned {
 		t.Fatal("retry projection overwrote or detached the prior failed attempt")
 	}
-	if h.state.Timers["retry-timer-id"].Pending || h.state.Timers["retry-timer-id"].Elapsed {
-		t.Fatal("retry did not consume its scheduled timer exactly once")
+	if h.state.Timers["retry-timer-id"].Pending || !h.state.Timers["retry-timer-id"].Elapsed {
+		t.Fatal("elapsed retry timer must remain available until dispatch")
 	}
 	if _, exists := h.state.Blockers["retry-blocker-id"]; exists {
 		t.Fatal("retry timer blocker remained after typed plan")
@@ -576,7 +566,7 @@ func TestDecideAbandonModelAndObserveAttemptUsageThroughTypedCommands(t *testing
 func TestDecideTerminalModelFailureAndInvocationFailureAreSeparateFacts(t *testing.T) {
 	h := newTransitionHarness(t)
 	invocationID, attemptID := h.modelInFlight()
-	failed := h.issue(Command{Kind: CommandObserveModelFailure, Transition: TransitionInput{TargetID: invocationID, AttemptID: attemptID, Ref: "terminal-attempt-failure", CauseRef: "partial-body", Usage: UsageUnknown, ExecutorToken: 7, ExecutorIncarnation: "writer-inc-1", Fence: 1, Terminal: true}})
+	failed := h.issue(Command{Kind: CommandObserveModelFailure, Transition: TransitionInput{TargetID: invocationID, AttemptID: attemptID, Ref: "terminal-attempt-failure", CauseRef: "partial-body", Usage: UsageUnknown, ExecutorToken: 7, ExecutorIncarnation: "writer-inc-1", Fence: 1, Terminal: true, FailureStage: ModelFailureStream, FailureClass: ModelFailureServer, RetryDisposition: RetryDispositionFatal}})
 	if len(failed.Events) != 1 || h.state.Models[invocationID].State != InvocationFailed {
 		t.Fatal("terminal transport failure did not close the invocation")
 	}
@@ -664,7 +654,7 @@ func TestDecideModelUnknownAcceptanceAndPostFinishUsageReconciliation(t *testing
 	t.Run("reconcile usage after finish", func(t *testing.T) {
 		h := newTransitionHarness(t)
 		invocationID, attemptID := h.modelInFlight()
-		h.issue(Command{Kind: CommandObserveModelFailure, Transition: TransitionInput{TargetID: invocationID, AttemptID: attemptID, Ref: "model-failed", CauseRef: "partial", Usage: UsageUnknown, ExecutorToken: 7, ExecutorIncarnation: "writer-inc-1", Fence: 1, Terminal: true}})
+		h.issue(Command{Kind: CommandObserveModelFailure, Transition: TransitionInput{TargetID: invocationID, AttemptID: attemptID, Ref: "model-failed", CauseRef: "partial", Usage: UsageUnknown, ExecutorToken: 7, ExecutorIncarnation: "writer-inc-1", Fence: 1, Terminal: true, FailureStage: ModelFailureStream, FailureClass: ModelFailureServer, RetryDisposition: RetryDispositionFatal}})
 		h.issue(Command{Kind: CommandFailModelInvocation, Transition: TransitionInput{TargetID: invocationID, Ref: "invocation-failed"}})
 		h.issue(Command{Kind: CommandAbortStep, Transition: TransitionInput{Ref: "failed-step-abort"}})
 		h.issue(Command{Kind: CommandRequestStop, Stop: StopInput{Reason: StopFatalError, Mode: StopTerminal, Ref: "fatal-stop", Actor: ActorSystem}})

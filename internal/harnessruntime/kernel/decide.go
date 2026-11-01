@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"reflect"
+	"sort"
 	"strconv"
 )
 
@@ -117,6 +118,7 @@ func canonicalTransition(k CommandKind, x TransitionInput) (TransitionInput, err
 		n.Ref = x.Ref
 	case CommandObserveModelFailure:
 		n.TargetID, n.AttemptID, n.Ref, n.CauseRef, n.ReceiptRef, n.Fence, n.ExecutorToken, n.ExecutorIncarnation, n.Usage, n.Terminal = x.TargetID, x.AttemptID, x.Ref, x.CauseRef, x.ReceiptRef, x.Fence, x.ExecutorToken, x.ExecutorIncarnation, x.Usage, x.Terminal
+		n.FailureStage, n.FailureClass, n.RetryDisposition = x.FailureStage, x.FailureClass, x.RetryDisposition
 	case CommandCancelModel:
 		n.TargetID, n.AttemptID, n.Ref, n.Fence, n.ExecutorToken, n.ExecutorIncarnation, n.Terminal = x.TargetID, x.AttemptID, x.Ref, x.Fence, x.ExecutorToken, x.ExecutorIncarnation, x.Terminal
 	case CommandCancelTool:
@@ -141,7 +143,8 @@ func canonicalTransition(k CommandKind, x TransitionInput) (TransitionInput, err
 	case CommandPlanToolRetry:
 		n.TargetID, n.PreviousAttemptID, n.AttemptID, n.ReceiptRef, n.TimerID, n.Generation = x.TargetID, x.PreviousAttemptID, x.AttemptID, x.ReceiptRef, x.TimerID, x.Generation
 	case CommandScheduleModelRetry:
-		n.TargetID, n.PreviousAttemptID, n.TimerID, n.BlockerID, n.Ref, n.Generation = x.TargetID, x.PreviousAttemptID, x.TimerID, x.BlockerID, x.Ref, x.Generation
+		n.TargetID, n.PreviousAttemptID, n.AttemptID, n.TimerID, n.BlockerID, n.Ref, n.Generation = x.TargetID, x.PreviousAttemptID, x.AttemptID, x.TimerID, x.BlockerID, x.Ref, x.Generation
+		n.RetryOrdinal, n.RetryLimit, n.PolicyVersion, n.DeadlineUnixMilli = x.RetryOrdinal, x.RetryLimit, x.PolicyVersion, x.DeadlineUnixMilli
 	case CommandPlanModelRetry:
 		n.TargetID, n.PreviousAttemptID, n.AttemptID, n.TimerID, n.Generation = x.TargetID, x.PreviousAttemptID, x.AttemptID, x.TimerID, x.Generation
 	case CommandFailModelInvocation:
@@ -149,9 +152,9 @@ func canonicalTransition(k CommandKind, x TransitionInput) (TransitionInput, err
 	case CommandScheduleTimer:
 		n.TargetID, n.RelatedID, n.TimerID, n.BlockerID, n.Ref, n.Purpose, n.Generation = x.TargetID, x.RelatedID, x.TimerID, x.BlockerID, x.Ref, x.Purpose, x.Generation
 	case CommandObserveTimerElapsed:
-		n.TimerID, n.Generation, n.Ref = x.TimerID, x.Generation, x.Ref
+		n.TimerID, n.Generation, n.Ref, n.ObservedUnixMilli = x.TimerID, x.Generation, x.Ref, x.ObservedUnixMilli
 	case CommandAcquireOwnership:
-		n.ExecutorToken, n.ExecutorIncarnation, n.ReceiptRef = x.ExecutorToken, x.ExecutorIncarnation, x.ReceiptRef
+		n.ExecutorToken, n.ExecutorIncarnation, n.ReceiptRef, n.BlockerID, n.Ref = x.ExecutorToken, x.ExecutorIncarnation, x.ReceiptRef, x.BlockerID, x.Ref
 		if x.Recoveries != nil {
 			n.Recoveries = make([]RecoveryFact, 0, len(x.Recoveries))
 			for _, fact := range x.Recoveries {
@@ -207,6 +210,7 @@ func commandEvents(state State, c Command) ([]Event, error) {
 	case CommandAcceptRun:
 		e := newEvent(1, EventRunAccepted)
 		e.InputRef, e.Origin, e.GoalID, e.GoalRound, e.InitialStepLimit = c.AcceptRun.InputRef, c.AcceptRun.Origin, c.AcceptRun.GoalID, c.AcceptRun.GoalRound, c.AcceptRun.InitialStepLimit
+		e.RetryBudgetLimit, e.ModelRetryPolicyVersion = c.AcceptRun.RetryBudgetLimit, c.AcceptRun.ModelRetryPolicyVersion
 		out = append(out, e)
 	case CommandAdmitRun:
 		e := newEvent(1, EventRunAdmitted)
@@ -283,6 +287,25 @@ func commandEvents(state State, c Command) ([]Event, error) {
 		e := newEvent(1, EventRunStopRequested)
 		e.StopReason, e.StopMode, e.Ref, e.BlockerID, e.Terminal, e.Actor, e.BudgetKind = c.Stop.Reason, c.Stop.Mode, c.Stop.Ref, c.Stop.BlockerID, c.Stop.Quiescing, c.Stop.Actor, c.Stop.BudgetKind
 		out = append(out, e)
+		if c.Stop.Mode == StopTerminal {
+			ids := make([]string, 0, len(state.ModelAttempts))
+			for id := range state.ModelAttempts {
+				ids = append(ids, string(id))
+			}
+			sort.Strings(ids)
+			for _, rawID := range ids {
+				attempt := state.ModelAttempts[ID(rawID)]
+				if attempt.State != AttemptPlanned || attempt.RetryTimerID == "" {
+					continue
+				}
+				cancel := newEvent(uint32(len(out)+1), EventModelAttemptCancelled)
+				cancel.InvocationID, cancel.AttemptID, cancel.Ref = attempt.InvocationID, attempt.ID, c.Stop.Ref
+				out = append(out, cancel)
+				timer := newEvent(uint32(len(out)+1), EventTimerCancelled)
+				timer.TimerID, timer.Generation, timer.CauseRef = attempt.RetryTimerID, attempt.RetryGeneration, c.Stop.Ref
+				out = append(out, timer)
+			}
+		}
 	case CommandExtendBudget:
 		e := newEvent(1, EventBudgetExtended)
 		e.BudgetKind, e.BudgetBy, e.Actor = c.BudgetExtension.Kind, c.BudgetExtension.By, c.BudgetExtension.Actor
@@ -296,6 +319,7 @@ func commandEvents(state State, c Command) ([]Event, error) {
 		e := newEvent(1, EventModelRequestFailed)
 		e.InvocationID, e.AttemptID, e.Ref, e.Usage, e.CauseRef, e.ReceiptRef = x.TargetID, x.AttemptID, x.Ref, x.Usage, x.CauseRef, x.ReceiptRef
 		e.Token, e.Incarnation, e.Fence, e.Terminal = x.ExecutorToken, x.ExecutorIncarnation, x.Fence, x.Terminal
+		e.FailureStage, e.FailureClass, e.RetryDisposition = x.FailureStage, x.FailureClass, x.RetryDisposition
 		out = append(out, e)
 	case CommandCancelModel:
 		x := c.Transition
@@ -401,8 +425,16 @@ func commandEvents(state State, c Command) ([]Event, error) {
 	case CommandScheduleModelRetry:
 		x := c.Transition
 		e := newEvent(1, EventModelRetryScheduled)
-		e.InvocationID, e.PreviousAttemptID, e.TimerID, e.BlockerID, e.Ref, e.Purpose, e.Generation = x.TargetID, x.PreviousAttemptID, x.TimerID, x.BlockerID, x.Ref, TimerModelRetry, x.Generation
+		e.InvocationID, e.PreviousAttemptID, e.AttemptID, e.TimerID, e.BlockerID, e.Ref, e.Purpose, e.Generation = x.TargetID, x.PreviousAttemptID, x.AttemptID, x.TimerID, x.BlockerID, x.Ref, TimerModelRetry, x.Generation
+		e.RetryOrdinal, e.RetryLimit, e.PolicyVersion, e.DeadlineUnixMilli = x.RetryOrdinal, x.RetryLimit, x.PolicyVersion, x.DeadlineUnixMilli
 		out = append(out, e)
+		p := newEvent(2, EventModelAttemptPlanned)
+		p.InvocationID, p.PreviousAttemptID, p.AttemptID, p.TimerID, p.Generation = x.TargetID, x.PreviousAttemptID, x.AttemptID, x.TimerID, x.Generation
+		p.RetryOrdinal, p.PolicyVersion = x.RetryOrdinal, x.PolicyVersion
+		out = append(out, p)
+		t := newEvent(3, EventTimerScheduled)
+		t.InvocationID, t.TimerID, t.BlockerID, t.Ref, t.Purpose, t.Generation, t.DeadlineUnixMilli = x.TargetID, x.TimerID, x.BlockerID, x.Ref, TimerModelRetry, x.Generation, x.DeadlineUnixMilli
+		out = append(out, t)
 	case CommandPlanModelRetry:
 		x := c.Transition
 		e := newEvent(1, EventModelAttemptPlanned)
@@ -422,6 +454,7 @@ func commandEvents(state State, c Command) ([]Event, error) {
 		x := c.Transition
 		e := newEvent(1, EventTimerElapsed)
 		e.TimerID, e.Generation, e.CauseRef = x.TimerID, x.Generation, x.Ref
+		e.ObservedUnixMilli = x.ObservedUnixMilli
 		out = append(out, e)
 	case CommandAcquireOwnership:
 		x := c.Transition
@@ -451,6 +484,32 @@ func commandEvents(state State, c Command) ([]Event, error) {
 			}
 			b := newEvent(n+2, EventRunBlockAdded)
 			b.BlockerID, b.BlockKind, b.Ref = fact.BlockerID, BlockRecoveryAdmission, x.ReceiptRef
+			out = append(out, b)
+		}
+		plannedRetry := false
+		for _, attempt := range state.ModelAttempts {
+			if attempt.State == AttemptPlanned && attempt.RetryTimerID != "" {
+				plannedRetry = true
+				break
+			}
+		}
+		hasRecoveryBlock := false
+		for _, block := range state.Blockers {
+			hasRecoveryBlock = hasRecoveryBlock || block.Kind == BlockRecoveryAdmission
+		}
+		for _, fact := range x.Recoveries {
+			hasRecoveryBlock = hasRecoveryBlock || fact.BlockerID != ""
+		}
+		needsRetryRecovery := plannedRetry && !hasRecoveryBlock
+		if !needsRetryRecovery && (x.BlockerID != "" || x.Ref != "") {
+			return nil, reject(RejectInvalid)
+		}
+		if needsRetryRecovery {
+			if !validID(x.BlockerID) || !validID(x.Ref) {
+				return nil, reject(RejectInvalid)
+			}
+			b := newEvent(uint32(len(out)+1), EventRunBlockAdded)
+			b.BlockerID, b.BlockKind, b.Ref = x.BlockerID, BlockRecoveryAdmission, x.Ref
 			out = append(out, b)
 		}
 	case CommandReconcileModelUsage:
