@@ -49,6 +49,12 @@ func Evolve(state State, batch Batch) (State, error) {
 	if err := validateAtomicEventPairs(batch.Events, state.ClosureConfirmed); err != nil {
 		return State{}, err
 	}
+	if err := validateRetryBatch(state, batch); err != nil {
+		return State{}, err
+	}
+	if err := validateRetryRecoveryOwnership(state, batch); err != nil {
+		return State{}, err
+	}
 	if err := validateClosureManifest(state, batch); err != nil {
 		return State{}, err
 	}
@@ -323,7 +329,11 @@ func applyEvent(s *State, e Event) error {
 			e.InitialStepLimit = 100
 		}
 		s.RunID, s.SessionID, s.InputRef, s.Accepted = e.RunID, e.SessionID, e.InputRef, true
+		if (e.RetryBudgetLimit == 0) != (e.ModelRetryPolicyVersion == 0) {
+			return reject(RejectInvalid)
+		}
 		s.Origin, s.GoalID, s.GoalRound, s.InitialStepLimit = e.Origin, e.GoalID, e.GoalRound, e.InitialStepLimit
+		s.RetryBudgetLimit, s.ModelRetryPolicyVersion = e.RetryBudgetLimit, e.ModelRetryPolicyVersion
 		return nil
 	}
 	if !s.Accepted || e.RunID != s.RunID || (e.SessionID != "" && e.SessionID != s.SessionID) {
@@ -377,7 +387,14 @@ func applyEvent(s *State, e Event) error {
 		if !ok || att.State != AttemptPlanned || att.InvocationID != inv.ID || att.StepID != inv.StepID || !contains(inv.AttemptIDs, e.AttemptID) || hasActiveAttempt(*s) {
 			return reject(RejectConflict)
 		}
+		if att.RetryTimerID != "" {
+			timer, exists := s.Timers[att.RetryTimerID]
+			if !exists || timer.Pending || !timer.Elapsed || timer.Generation != att.RetryGeneration {
+				return reject(RejectStale)
+			}
+		}
 		att.State, att.Fence, att.Token, att.Incarnation = AttemptRequesting, e.Fence, e.Token, e.Incarnation
+		att.Usage = UsageFact{Status: UsageReserved}
 		s.ModelAttempts[e.AttemptID] = att
 		inv.State = InvocationActive
 		s.Models[e.InvocationID] = inv
@@ -425,9 +442,19 @@ func applyEvent(s *State, e Event) error {
 		if !validUsageFact(e.Usage) {
 			return reject(RejectInvalid)
 		}
+		if e.Kind == EventModelRequestFailed && !validModelFailure(e.FailureStage, e.FailureClass, e.RetryDisposition) {
+			return reject(RejectInvalid)
+		}
+		if e.Kind == EventModelRequestFailed {
+			if e.FailureStage == ModelFailurePreDispatch && !preDispatchFailure || e.FailureStage == ModelFailureBeforeStart && att.State != AttemptRequesting || (e.FailureStage == ModelFailureStream || e.FailureStage == ModelFailureProtocol) && att.State != AttemptStreaming ||
+				(e.RetryDisposition == RetryDispositionRetry) == e.Terminal {
+				return reject(RejectInvalid)
+			}
+		}
 		att.PartialRef, att.FailureRef, att.Usage = e.CauseRef, e.Ref, UsageFact{Status: e.Usage, Ref: e.ReceiptRef}
 		if e.Kind == EventModelRequestFailed {
 			att.State = AttemptFailed
+			att.FailureStage, att.FailureClass, att.RetryDisposition = e.FailureStage, e.FailureClass, e.RetryDisposition
 			if e.Terminal {
 				inv.State, inv.FailureRef = InvocationFailed, e.Ref
 			} else {
@@ -444,28 +471,28 @@ func applyEvent(s *State, e Event) error {
 	case EventModelRetryScheduled:
 		inv, ok := s.Models[e.InvocationID]
 		att, aok := s.ModelAttempts[e.PreviousAttemptID]
-		if !ok || !aok || inv.State != InvocationActive || att.InvocationID != inv.ID || att.StepID != inv.StepID || !contains(inv.AttemptIDs, e.PreviousAttemptID) || (att.State != AttemptFailed && att.State != AttemptInterrupted && att.State != AttemptAbandoned) || !validID(e.TimerID) || !validID(e.Ref) {
+		if !ok || !aok || inv.State != InvocationActive || att.InvocationID != inv.ID || att.StepID != inv.StepID || len(inv.AttemptIDs) == 0 || inv.AttemptIDs[len(inv.AttemptIDs)-1] != e.PreviousAttemptID || !validID(e.TimerID) || !validID(e.Ref) || (att.State != AttemptFailed && att.State != AttemptInterrupted && att.State != AttemptAbandoned) {
 			return reject(RejectConflict)
 		}
-		if err := scheduleTimer(s, e, e.PreviousAttemptID); err != nil {
-			return err
+		policyAllowsRetry := att.RetryDisposition == RetryDispositionRetry || att.State == AttemptAbandoned && att.FailureStage == ModelFailureStageUnknown && att.FailureClass == ModelFailureClassUnknown && att.AbandonRetryPolicyRef == e.Ref
+		if e.RetryOrdinal == 0 || e.RetryLimit == 0 || e.RetryOrdinal > e.RetryLimit || e.RetryLimit != s.RetryBudgetLimit || s.RetriesUsed >= s.RetryBudgetLimit || e.PolicyVersion == 0 || e.PolicyVersion != s.ModelRetryPolicyVersion || e.RetryOrdinal != inv.RetryCount+1 || (inv.RetryPolicyVersion != 0 && inv.RetryPolicyVersion != e.PolicyVersion) || inv.RetryLimit != 0 && inv.RetryLimit != e.RetryLimit || !policyAllowsRetry || e.AttemptID == "" || e.DeadlineUnixMilli <= 0 {
+			return reject(RejectConflict)
 		}
+		inv.RetryCount, inv.RetryLimit, inv.RetryPolicyVersion = e.RetryOrdinal, e.RetryLimit, e.PolicyVersion
+		s.RetriesUsed++
+		s.Models[e.InvocationID] = inv
 	case EventModelAttemptPlanned:
 		inv, ok := s.Models[e.InvocationID]
 		prev, pok := s.ModelAttempts[e.PreviousAttemptID]
 		if !ok || !pok || inv.State != InvocationActive || prev.InvocationID != inv.ID || prev.StepID != inv.StepID || !contains(inv.AttemptIDs, e.PreviousAttemptID) || (prev.State != AttemptFailed && prev.State != AttemptInterrupted && prev.State != AttemptAbandoned) || !validID(e.AttemptID) || anyAttemptExists(*s, e.AttemptID) {
 			return reject(RejectConflict)
 		}
-		timer, timerOK := s.Timers[e.TimerID]
-		if !timerOK || timer.Purpose != TimerModelRetry || timer.TargetID != e.PreviousAttemptID || !consumeElapsedTimer(s, e.TimerID, e.Generation) {
-			return reject(RejectStale)
-		}
-		if !dispatchable(s) {
+		if e.RetryOrdinal != inv.RetryCount || e.PolicyVersion != inv.RetryPolicyVersion || !dispatchable(s) {
 			return reject(RejectConflict)
 		}
 		inv.AttemptIDs = append(inv.AttemptIDs, e.AttemptID)
 		s.Models[e.InvocationID] = inv
-		s.ModelAttempts[e.AttemptID] = Attempt{ID: e.AttemptID, InvocationID: inv.ID, StepID: inv.StepID, State: AttemptPlanned, Usage: UsageFact{Status: UsageUnknown}}
+		s.ModelAttempts[e.AttemptID] = Attempt{ID: e.AttemptID, InvocationID: inv.ID, StepID: inv.StepID, State: AttemptPlanned, Usage: UsageFact{Status: UsageUnknown}, RetryTimerID: e.TimerID, RetryGeneration: e.Generation, RetryOrdinal: e.RetryOrdinal, PolicyVersion: e.PolicyVersion}
 	case EventModelAttemptCancelled:
 		att, ok := s.ModelAttempts[e.AttemptID]
 		inv, iok := s.Models[e.InvocationID]
@@ -474,6 +501,9 @@ func applyEvent(s *State, e Event) error {
 			return reject(RejectStale)
 		}
 		att.State, att.TerminalRef = AttemptCancelled, e.Ref
+		if att.RetryTimerID != "" {
+			att.RetryCancelled = true
+		}
 		s.ModelAttempts[e.AttemptID] = att
 		inv.State, inv.Disposition = InvocationCancelled, ResultCancelled
 		s.Models[e.InvocationID] = inv
@@ -485,6 +515,9 @@ func applyEvent(s *State, e Event) error {
 			return reject(RejectConflict)
 		}
 		att.State, att.Exposure, att.TerminalRef = AttemptAbandoned, ExposureUnknown, e.Ref
+		if e.Next == NextContinue {
+			att.AbandonRetryPolicyRef = e.ReceiptRef
+		}
 		s.ModelAttempts[e.AttemptID] = att
 		s.Exposures[att.ID] = ExposureUnknown
 		if metadataClose {
@@ -804,6 +837,13 @@ func applyEvent(s *State, e Event) error {
 		if !ok || !validID(e.CauseRef) || (e.Revision != 0 && e.Revision != b.Revision) || (e.Generation != 0 && e.Generation != b.Generation) {
 			return reject(RejectStale)
 		}
+		if b.Kind == BlockRetryTimer {
+			for _, timer := range s.Timers {
+				if timer.Purpose == TimerModelRetry && timer.BlockerID == b.ID && timer.Pending {
+					return reject(RejectConflict)
+				}
+			}
+		}
 		delete(s.Blockers, e.BlockerID)
 		if b.Kind == BlockHostPaused {
 			s.Suspended = false
@@ -947,6 +987,9 @@ func applyEvent(s *State, e Event) error {
 		s.StepBudgetExtended += e.BudgetBy
 	case EventTimerScheduled:
 		target := e.ToolID
+		if e.Purpose == TimerModelRetry {
+			target = e.InvocationID
+		}
 		if e.Purpose == TimerRunDeadline {
 			target = e.WindowID
 		}
@@ -954,6 +997,10 @@ func applyEvent(s *State, e Event) error {
 			return err
 		}
 	case EventTimerElapsed:
+		timer, exists := s.Timers[e.TimerID]
+		if exists && timer.Purpose == TimerModelRetry && (e.ObservedUnixMilli <= 0 || e.ObservedUnixMilli < timer.DeadlineUnixMilli) {
+			return reject(RejectStale)
+		}
 		if !consumeTimer(s, e.TimerID, e.Generation) || !validID(e.CauseRef) {
 			return reject(RejectStale)
 		}
@@ -962,11 +1009,16 @@ func applyEvent(s *State, e Event) error {
 		s.Timers[e.TimerID] = t
 	case EventTimerCancelled:
 		t, ok := s.Timers[e.TimerID]
-		if !ok || !t.Pending || t.Generation != e.Generation || !validID(e.CauseRef) {
+		if !ok || (!t.Pending && !t.Elapsed) || t.Generation != e.Generation || !validID(e.CauseRef) {
 			return reject(RejectStale)
 		}
 		t.Pending = false
+		t.Elapsed = false
+		t.Cancelled = true
 		s.Timers[e.TimerID] = t
+		if t.BlockerID != "" {
+			delete(s.Blockers, t.BlockerID)
+		}
 	case EventTimeBudgetWindowOpened:
 		if !s.Admitted || s.Finished || s.PrimaryStop.Mode == StopTerminal || hasOpenWindow(*s) || !validID(e.WindowID) || idExists(s.Windows, e.WindowID) || !validID(e.Incarnation) || e.Incarnation != s.Incarnation || e.Generation == 0 || e.Usage != UsageReserved || !validID(e.TimerID) {
 			return reject(RejectConflict)

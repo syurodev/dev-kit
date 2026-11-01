@@ -320,7 +320,30 @@ func validResultDisposition(d ResultDisposition) bool {
 func validUsageStatus(u UsageStatus) bool { return u == UsageKnown || u == UsageReserved }
 func validEffectClass(e EffectClass) bool { return e <= EffectSideEffecting }
 func validUsageFact(u UsageStatus) bool   { return u <= UsageReserved }
-func validActor(a ActorKind) bool         { return a >= ActorUser && a <= ActorSystem }
+
+func validModelFailure(stage ModelFailureStage, class ModelFailureClass, disposition RetryDisposition) bool {
+	if stage < ModelFailurePreDispatch || stage > ModelFailureProtocol || class < ModelFailureRateLimit || class > ModelFailureContentFilter || disposition < RetryDispositionRetry || disposition > RetryDispositionResult {
+		return false
+	}
+	retryable := class == ModelFailureRateLimit || class == ModelFailureOverloaded || class == ModelFailureServer || class == ModelFailureTimeout || class == ModelFailureTransport || class == ModelFailureEmptyResponse
+	if (class == ModelFailureTimeout || class == ModelFailureTransport) && stage != ModelFailurePreDispatch && stage != ModelFailureBeforeStart {
+		return false
+	}
+	if retryable {
+		return disposition == RetryDispositionRetry || disposition == RetryDispositionFatal
+	}
+	switch class {
+	case ModelFailureRefusal, ModelFailureContentFilter, ModelFailureContextOverflow:
+		// Typed refusal results and context compaction are handled by later
+		// adapter/context slices; this kernel slice rejects these failure events.
+		return false
+	case ModelFailureAuth, ModelFailurePermission, ModelFailureQuota, ModelFailureInvalidRequest, ModelFailureModelNotFound:
+		return disposition == RetryDispositionFatal
+	default:
+		return false
+	}
+}
+func validActor(a ActorKind) bool { return a >= ActorUser && a <= ActorSystem }
 
 func validClosureCauseEvent(kind EventKind) bool {
 	switch kind {
@@ -395,7 +418,10 @@ func scheduleTimer(s *State, e Event, target ID) error {
 	if e.Purpose != TimerRunDeadline && !validID(e.BlockerID) {
 		return reject(RejectInvalid)
 	}
-	s.Timers[e.TimerID] = Timer{ID: e.TimerID, Generation: e.Generation, TargetID: target, BlockerID: e.BlockerID, Purpose: e.Purpose, Pending: true}
+	if e.Purpose == TimerModelRetry && (e.DeadlineUnixMilli <= 0 || target == "") {
+		return reject(RejectInvalid)
+	}
+	s.Timers[e.TimerID] = Timer{ID: e.TimerID, Generation: e.Generation, TargetID: target, BlockerID: e.BlockerID, Purpose: e.Purpose, Pending: true, DeadlineUnixMilli: e.DeadlineUnixMilli}
 	if e.Purpose != TimerRunDeadline {
 		if _, exists := s.Blockers[e.BlockerID]; exists {
 			return reject(RejectConflict)

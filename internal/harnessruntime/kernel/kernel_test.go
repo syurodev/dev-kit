@@ -608,6 +608,7 @@ func TestModelRetryKeepsOldUsageAndUnknownAttempt(t *testing.T) {
 	s := EmptyState()
 	s.Accepted, s.Admitted, s.RunID, s.SessionID = true, true, "r", "s"
 	s.AdmissionToken, s.Incarnation, s.InitialStepLimit = 7, "inc", 100
+	s.RetryBudgetLimit, s.ModelRetryPolicyVersion = 2, 1
 	s.Steps, s.CurrentStep, s.StepsStarted = []Step{{ID: "step", Open: true, ModelID: "m"}}, 0, 1
 	s.Models["m"] = ModelInvocation{ID: "m", StepID: "step", State: InvocationActive, AttemptIDs: []ID{"a"}}
 	s.ModelAttempts["a"] = Attempt{ID: "a", InvocationID: "m", StepID: "step", State: AttemptRequesting, Token: 7, Incarnation: "inc", Fence: 1}
@@ -624,15 +625,12 @@ func TestModelRetryKeepsOldUsageAndUnknownAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err = applyBatch(t, s, Batch{CommandID: "model-retry-timer", Events: []Event{{ID: "model-retry-timer-e", Kind: EventModelRetryScheduled, RunID: "r", SessionID: "s", InvocationID: "m", PreviousAttemptID: "a", TimerID: "model-timer", BlockerID: "model-retry-block", Ref: "retry-policy", Purpose: TimerModelRetry, Generation: 2}}})
-	if err != nil {
-		t.Fatal(err)
+	retryCommand := Command{ID: "model-retry-command", Kind: CommandScheduleModelRetry, RunID: "r", SessionID: "s", ExpectedRevision: s.Revision, WriterToken: 7, WriterIncarnation: "inc", Transition: TransitionInput{TargetID: "m", PreviousAttemptID: "a", AttemptID: "a2", TimerID: "model-timer", BlockerID: "model-retry-block", Ref: "retry-policy", Generation: 2, RetryOrdinal: 1, RetryLimit: 2, PolicyVersion: 1, DeadlineUnixMilli: 1000}}
+	retryBatch, decideErr := Decide(s, retryCommand)
+	if decideErr != nil {
+		t.Fatal(decideErr)
 	}
-	s, err = applyBatch(t, s, Batch{CommandID: "model-retry-elapsed", Events: []Event{{ID: "model-retry-elapsed-e", Kind: EventTimerElapsed, RunID: "r", SessionID: "s", TimerID: "model-timer", Generation: 2, CauseRef: "elapsed-proof"}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	s, err = applyBatch(t, s, Batch{CommandID: "model-attempt-plan", Events: []Event{{ID: "model-attempt-plan-e", Kind: EventModelAttemptPlanned, RunID: "r", SessionID: "s", InvocationID: "m", PreviousAttemptID: "a", AttemptID: "a2", TimerID: "model-timer", Generation: 2}}})
+	s, err = Evolve(s, retryBatch)
 	if err != nil {
 		t.Fatal(err)
 	}

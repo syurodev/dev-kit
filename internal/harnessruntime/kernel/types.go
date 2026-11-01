@@ -150,6 +150,49 @@ const (
 	UsageReserved
 )
 
+// ModelFailureStage records where a terminal model failure was observed.
+type ModelFailureStage uint8
+
+const (
+	ModelFailureStageUnknown ModelFailureStage = iota
+	ModelFailurePreDispatch
+	ModelFailureBeforeStart
+	ModelFailureStream
+	ModelFailureProtocol
+)
+
+// ModelFailureClass is provider-neutral; provider codes remain protected refs.
+type ModelFailureClass uint8
+
+const (
+	ModelFailureClassUnknown ModelFailureClass = iota
+	ModelFailureRateLimit
+	ModelFailureOverloaded
+	ModelFailureServer
+	ModelFailureTimeout
+	ModelFailureTransport
+	ModelFailureEmptyResponse
+	ModelFailureContextOverflow
+	ModelFailureAuth
+	ModelFailurePermission
+	ModelFailureQuota
+	ModelFailureInvalidRequest
+	ModelFailureModelNotFound
+	ModelFailureRefusal
+	ModelFailureContentFilter
+)
+
+// RetryDisposition is a policy outcome supplied by the host adapter/policy.
+type RetryDisposition uint8
+
+const (
+	RetryDispositionUnknown RetryDisposition = iota
+	RetryDispositionRetry
+	RetryDispositionFatal
+	RetryDispositionResult
+	RetryDispositionInterrupted
+)
+
 type Exposure uint8
 
 const (
@@ -429,6 +472,14 @@ type TransitionInput struct {
 	Terminal                bool
 	Truncated               bool
 	BudgetExhausted         bool
+	FailureStage            ModelFailureStage
+	FailureClass            ModelFailureClass
+	RetryDisposition        RetryDisposition
+	RetryOrdinal            uint32
+	RetryLimit              uint32
+	PolicyVersion           uint32
+	DeadlineUnixMilli       int64
+	ObservedUnixMilli       int64
 	Recoveries              []RecoveryFact
 	UnknownOutcomes         []UnknownOutcomeFact
 }
@@ -467,11 +518,13 @@ type Batch struct {
 }
 
 type AcceptRunInput struct {
-	InputRef         ID
-	Origin           RunOrigin
-	GoalID           ID
-	GoalRound        uint32
-	InitialStepLimit uint64
+	InputRef                ID
+	Origin                  RunOrigin
+	GoalID                  ID
+	GoalRound               uint32
+	InitialStepLimit        uint64
+	RetryBudgetLimit        uint32
+	ModelRetryPolicyVersion uint32
 }
 
 type AdmissionInput struct {
@@ -617,6 +670,16 @@ type Event struct {
 	BudgetBy                uint64
 	Actor                   ActorKind
 	InitialStepLimit        uint64
+	RetryBudgetLimit        uint32
+	ModelRetryPolicyVersion uint32
+	FailureStage            ModelFailureStage
+	FailureClass            ModelFailureClass
+	RetryDisposition        RetryDisposition
+	RetryOrdinal            uint32
+	RetryLimit              uint32
+	PolicyVersion           uint32
+	DeadlineUnixMilli       int64
+	ObservedUnixMilli       int64
 
 	Candidates     []ToolCandidate
 	ClosureTargets []ClosureTargetFact
@@ -637,34 +700,46 @@ type UsageFact struct {
 }
 
 type Attempt struct {
-	ID           ID
-	InvocationID ID
-	StepID       ID
-	State        AttemptState
-	Fence        uint64
-	Token        uint64
-	Incarnation  ID
-	PartialRef   ID
-	Usage        UsageFact
-	Exposure     Exposure
-	FailureRef   ID
-	TerminalRef  ID
-	ResultRef    ID
+	ID                    ID
+	InvocationID          ID
+	StepID                ID
+	State                 AttemptState
+	Fence                 uint64
+	Token                 uint64
+	Incarnation           ID
+	PartialRef            ID
+	Usage                 UsageFact
+	Exposure              Exposure
+	FailureRef            ID
+	TerminalRef           ID
+	ResultRef             ID
+	FailureStage          ModelFailureStage
+	FailureClass          ModelFailureClass
+	RetryDisposition      RetryDisposition
+	RetryOrdinal          uint32
+	PolicyVersion         uint32
+	RetryTimerID          ID
+	RetryGeneration       uint64
+	RetryCancelled        bool
+	AbandonRetryPolicyRef ID
 }
 
 type ModelInvocation struct {
-	ID              ID
-	StepID          ID
-	State           InvocationState
-	AttemptIDs      []ID
-	SelectedAttempt ID
-	ResponseRef     ID
-	Usage           UsageFact
-	CandidateIDs    []ID
-	FailureRef      ID
-	DispositionRef  ID
-	Candidates      []ToolCandidate
-	Disposition     ResultDisposition
+	ID                 ID
+	StepID             ID
+	State              InvocationState
+	AttemptIDs         []ID
+	SelectedAttempt    ID
+	ResponseRef        ID
+	Usage              UsageFact
+	CandidateIDs       []ID
+	FailureRef         ID
+	DispositionRef     ID
+	Candidates         []ToolCandidate
+	Disposition        ResultDisposition
+	RetryCount         uint32
+	RetryLimit         uint32
+	RetryPolicyVersion uint32
 }
 
 type ToolAttempt struct {
@@ -749,13 +824,15 @@ type Interruption struct {
 }
 
 type Timer struct {
-	ID         ID
-	Generation uint64
-	TargetID   ID
-	BlockerID  ID
-	Purpose    TimerPurpose
-	Pending    bool
-	Elapsed    bool
+	ID                ID
+	Generation        uint64
+	TargetID          ID
+	BlockerID         ID
+	Purpose           TimerPurpose
+	Pending           bool
+	Elapsed           bool
+	DeadlineUnixMilli int64
+	Cancelled         bool
 }
 
 type TimeWindow struct {
@@ -794,6 +871,9 @@ type State struct {
 	Revision                 uint64
 	Truncated                bool
 	InitialStepLimit         uint64
+	RetryBudgetLimit         uint32
+	RetriesUsed              uint32
+	ModelRetryPolicyVersion  uint32
 	StepBudgetExtended       uint64
 	StepsStarted             uint64
 	BudgetStopActor          ActorKind
