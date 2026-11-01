@@ -42,16 +42,19 @@ func TestTraceCMetadataClosureReplaysExactFiveEventBatch(t *testing.T) {
 	}
 	responseHistory := append([]TranscriptItem(nil), state.Transcript...)
 
-	// This is Trace C's atomic metadata-only close. RunClosureConfirmed is the
-	// trusted user authorization for abandoning this exact unknown effect; the
-	// recovery clear records the typed accepted-unknown disposition.
-	batch := Batch{CommandID: "trace-c-close", WriterToken: state.AdmissionToken, WriterIncarnation: state.Incarnation, Events: []Event{
-		{ID: "close-confirmed", Kind: EventRunClosureConfirmed, RunID: state.RunID, SessionID: state.SessionID, Ref: "metadata-preview-ref", ReceiptRef: "closure-receipt", Actor: ActorUser, Revision: state.Revision, ToolID: "t1", AttemptID: "ta1", CauseRef: "tool-effect-unknown", Accepted: true, Disposition: ResultAbandonedUnknown, RecoveryDisposition: RecoveryDispositionAcceptedUnknown, PreviewMode: ClosurePreviewMetadataOnly, PreviewVersion: 1, UnavailableReason: UnavailableVaultLocked, PreviousContextRevision: state.ContextRevision, ContextRevision: state.ContextRevision + 1, ContextRequirement: ContextRequirementRevalidationRequired, CauseEventRef: "interrupted"},
-		{ID: "tool-abandoned-unknown", Kind: EventToolResultRecorded, RunID: state.RunID, SessionID: state.SessionID, ToolID: "t1", AttemptID: "ta1", CauseRef: "tool-effect-unknown", Ref: "unknown-disposition-ref", ReceiptRef: "closure-receipt", Disposition: ResultAbandonedUnknown, Exposure: ExposureUnknown, Token: 8, Incarnation: "new-inc", Fence: 14},
-		{ID: "recovery-accepted-unknown", Kind: EventRunRecoveryCleared, RunID: state.RunID, SessionID: state.SessionID, ToolID: "t1", AttemptID: "ta1", CauseRef: "tool-effect-unknown", Ref: "closure-receipt", ReceiptRef: "closure-receipt", Actor: ActorUser, Accepted: true, Disposition: ResultAbandonedUnknown, RecoveryDisposition: RecoveryDispositionAcceptedUnknown},
-		{ID: "step-unavailable-close", Kind: EventStepAborted, RunID: state.RunID, SessionID: state.SessionID, Ref: "unavailable-close-ref", CauseRef: "payload-unavailable-cause"},
-		{ID: "run-abandoned-unknown", Kind: EventRunFinished, RunID: state.RunID, SessionID: state.SessionID, Outcome: OutcomeAbandonedUnknown},
-	}}
+	// RunClosureConfirmed itself authorizes this metadata-only disposition;
+	// the following result and recovery clear preserve the original unknown.
+	cmd := Command{ID: "trace-c-close", Kind: CommandConfirmRunClosure, ExpectedRevision: state.Revision,
+		WriterToken: state.AdmissionToken, WriterIncarnation: state.Incarnation, RunID: state.RunID, SessionID: state.SessionID,
+		Closure: ClosureInput{PreviewRef: "metadata-preview-ref", ReceiptRef: "closure-receipt", PreviewVersion: 1,
+			Revision: state.Revision, Actor: ActorUser, CauseEventRef: "interrupted", UnavailableReason: UnavailableVaultLocked,
+			PreviousContextRevision: state.ContextRevision, ContextRevision: state.ContextRevision + 1,
+			ContextRequirement: ContextRequirementRevalidationRequired,
+			Targets:            []ClosureTargetFact{{Kind: ClosureTargetUnknownTool, TargetID: "t1", AttemptID: "ta1", CauseRef: "tool-effect-unknown", CauseEventRef: "interrupted", ResultRef: "unknown-disposition-ref"}}}}
+	batch, err := Decide(state, cmd)
+	if err != nil {
+		t.Fatalf("Trace C closure command rejected: %v", err)
+	}
 	wantKinds := []EventKind{EventRunClosureConfirmed, EventToolResultRecorded, EventRunRecoveryCleared, EventStepAborted, EventRunFinished}
 	if len(batch.Events) != len(wantKinds) {
 		t.Fatalf("Trace C batch has %d events, want exactly %d", len(batch.Events), len(wantKinds))
@@ -62,7 +65,7 @@ func TestTraceCMetadataClosureReplaysExactFiveEventBatch(t *testing.T) {
 		}
 	}
 	closure, toolResult, recoveryClear, stepAbort, runFinish := batch.Events[0], batch.Events[1], batch.Events[2], batch.Events[3], batch.Events[4]
-	if closure.Ref != "metadata-preview-ref" || closure.Revision != state.Revision || closure.ToolID != "t1" || closure.AttemptID != "ta1" || closure.CauseRef != "tool-effect-unknown" || closure.Disposition != ResultAbandonedUnknown || !closure.Accepted || closure.PreviewMode != ClosurePreviewMetadataOnly || closure.PreviewVersion != 1 || closure.UnavailableReason != UnavailableVaultLocked || closure.PreviousContextRevision != state.ContextRevision || closure.ContextRevision != state.ContextRevision+1 || closure.ContextRequirement != ContextRequirementRevalidationRequired || closure.CauseEventRef != "interrupted" {
+	if closure.Ref != "metadata-preview-ref" || closure.Revision != state.Revision || len(closure.ClosureTargets) != 1 || closure.ClosureTargets[0].TargetID != "t1" || closure.PreviewMode != ClosurePreviewMetadataOnly || closure.PreviewVersion != 1 || closure.UnavailableReason != UnavailableVaultLocked || closure.PreviousContextRevision != state.ContextRevision || closure.ContextRevision != state.ContextRevision+1 || closure.ContextRequirement != ContextRequirementRevalidationRequired || closure.CauseEventRef != "interrupted" {
 		t.Fatal("Trace C closure lost metadata preview, exact unknown target, revision, or disposition facts")
 	}
 	if toolResult.ToolID != "t1" || toolResult.AttemptID != "ta1" || toolResult.CauseRef != "tool-effect-unknown" || toolResult.Disposition != ResultAbandonedUnknown || toolResult.Exposure != ExposureUnknown {
@@ -71,7 +74,7 @@ func TestTraceCMetadataClosureReplaysExactFiveEventBatch(t *testing.T) {
 	if recoveryClear.ToolID != "t1" || recoveryClear.AttemptID != "ta1" || recoveryClear.CauseRef != "tool-effect-unknown" || recoveryClear.RecoveryDisposition != RecoveryDispositionAcceptedUnknown {
 		t.Fatal("Trace C recovery clear lost accepted-unknown disposition")
 	}
-	if stepAbort.Ref != "unavailable-close-ref" || runFinish.Outcome != OutcomeAbandonedUnknown {
+	if stepAbort.Ref != "closure-receipt" || runFinish.Outcome != OutcomeAbandonedUnknown {
 		t.Fatal("Trace C did not preserve unavailable-close reason and abandoned-unknown outcome")
 	}
 	closed, err := applyBatch(t, state, batch)

@@ -66,13 +66,13 @@ func TestUnknownAcceptanceCloseIntentBlocksContinuationUntilAbortAndClosure(t *t
 		Exposure: ExposureUnknown, ExecutorToken: 7, ExecutorIncarnation: "writer-inc-1", Fence: 2,
 	}})
 	preAccept := cloneState(h.state)
-	acceptIntent := closeIntentCommand(h.state, "accept-unknown-close", CommandAcceptUnknownOutcome, TransitionInput{
-		TargetID: toolID, AttemptID: attemptID, CauseRef: "close-interruption", Ref: "user-acceptance-proof",
-		ReceiptRef: "user-acceptance-receipt", ResultRef: "abandoned-result", Actor: ActorUser,
-		Disposition: ResultAbandonedUnknown,
+	acceptIntent := closureCommandFor(h.state, "accept-unknown-close", CommandAcceptUnknownOutcome, ClosureInput{
+		PreviewRef: "user-acceptance-proof", ReceiptRef: "user-acceptance-receipt", PreviewVersion: CurrentClosurePreviewVersion,
+		Revision: h.state.Revision, Actor: ActorUser,
+		Targets: []ClosureTargetFact{{Kind: ClosureTargetUnknownTool, TargetID: toolID, AttemptID: attemptID, CauseRef: "close-interruption", CauseEventRef: unknown.Events[1].ID, ResultRef: "abandoned-result"}},
 	})
 	accepted := h.issue(acceptIntent)
-	if len(unknown.Events) != 2 || unknown.Events[1].Kind != EventRunInterrupted || unknown.Events[1].CauseRef != "close-interruption" || len(accepted.Events) != 2 || accepted.Events[0].Kind != EventUnknownAccepted || accepted.Events[1].Kind != EventToolResultRecorded || accepted.Events[1].Disposition != ResultAbandonedUnknown {
+	if len(unknown.Events) != 2 || unknown.Events[1].Kind != EventRunInterrupted || unknown.Events[1].CauseRef != "close-interruption" || len(accepted.Events) != 5 || accepted.Events[0].Kind != EventUnknownAccepted || accepted.Events[1].Kind != EventToolResultRecorded || accepted.Events[1].Disposition != ResultAbandonedUnknown || accepted.Events[4].Kind != EventRunFinished {
 		t.Fatalf("acceptance did not persist explicit unknown close facts: %#v", accepted.Events)
 	}
 	for name, mutate := range map[string]func(*Event){
@@ -92,19 +92,8 @@ func TestUnknownAcceptanceCloseIntentBlocksContinuationUntilAbortAndClosure(t *t
 			}
 		})
 	}
-	requireUnknownCloseBlocksContinuation(t, h)
-
-	h.issue(Command{Kind: CommandAbortStep, Transition: TransitionInput{Ref: "abort-after-unknown-acceptance"}})
-	closed := h.issue(Command{Kind: CommandConfirmRunClosure, Transition: TransitionInput{
-		Ref: "closure-ref", ReceiptRef: "closure-proof", Actor: ActorUser, Revision: h.state.Revision,
-		Outcome: OutcomeAbandonedUnknown, PreviewMode: ClosurePreviewMetadataOnly, PreviewVersion: 1,
-		UnavailableReason: UnavailablePayloadMissing, PreviousContextRevision: h.state.ContextRevision,
-		ContextRevision: h.state.ContextRevision + 1, ContextRequirement: ContextRequirementFreshRequired,
-		CauseRef: "close-interruption", CauseEventRef: unknown.Events[1].ID,
-		RecoveryDisposition: RecoveryDispositionClosedUnavailable,
-	}})
-	if len(closed.Events) != 2 || !h.state.Finished || h.state.Outcome != OutcomeAbandonedUnknown || !h.state.Steps[h.state.CurrentStep].Aborted || h.state.Tools[toolID].Disposition != ResultAbandonedUnknown || h.state.Exposures[toolID] != ExposureUnknown {
-		t.Fatalf("abort and user closure did not preserve accepted unknown outcome: events=%#v state=%#v", closed.Events, h.state)
+	if !h.state.Finished || h.state.Outcome != OutcomeAbandonedUnknown || !h.state.Steps[h.state.CurrentStep].Aborted || h.state.Tools[toolID].Disposition != ResultAbandonedUnknown || h.state.Exposures[toolID] != ExposureUnknown {
+		t.Fatalf("exact user closure did not atomically preserve unknown outcome: state=%#v", h.state)
 	}
 }
 
@@ -221,14 +210,12 @@ func TestToolAbandonNextEndPersistsPairedAuthorityAndBlocksContinuation(t *testi
 	})
 
 	h.issue(Command{Kind: CommandAbortStep, Transition: TransitionInput{Ref: "abort-after-abandon-next-end"}})
-	closed := h.issue(Command{Kind: CommandConfirmRunClosure, Transition: TransitionInput{
-		Ref: "closure-ref", ReceiptRef: "closure-proof", Actor: ActorUser, Revision: h.state.Revision,
-		Outcome: OutcomeAbandonedUnknown, PreviewMode: ClosurePreviewMetadataOnly, PreviewVersion: 1,
+	closed := h.issue(closureCommandFor(h.state, "close-next-end-abandonment", CommandConfirmRunClosure, ClosureInput{
+		PreviewRef: "closure-ref", ReceiptRef: "closure-proof", Actor: ActorUser, Revision: h.state.Revision,
+		PreviewVersion: CurrentClosurePreviewVersion, CauseEventRef: unknown.Events[1].ID,
 		UnavailableReason: UnavailablePayloadMissing, PreviousContextRevision: h.state.ContextRevision,
 		ContextRevision: h.state.ContextRevision + 1, ContextRequirement: ContextRequirementFreshRequired,
-		CauseRef: "close-interruption", CauseEventRef: unknown.Events[1].ID,
-		RecoveryDisposition: RecoveryDispositionClosedUnavailable,
-	}})
+	}))
 	if len(closed.Events) != 2 || !h.state.Finished || h.state.Outcome != OutcomeAbandonedUnknown || !h.state.Steps[h.state.CurrentStep].Aborted || h.state.Exposures[toolID] != ExposureUnknown {
 		t.Fatalf("abort and user closure did not preserve NextEnd unknown outcome: %#v", closed.Events)
 	}

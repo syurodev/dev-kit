@@ -49,6 +49,12 @@ func Evolve(state State, batch Batch) (State, error) {
 	if err := validateAtomicEventPairs(batch.Events, state.ClosureConfirmed); err != nil {
 		return State{}, err
 	}
+	if err := validateClosureManifest(state, batch); err != nil {
+		return State{}, err
+	}
+	if err := validateExactClosure(state, batch); err != nil {
+		return State{}, err
+	}
 	if err := validateWriter(state, batch); err != nil {
 		return State{}, err
 	}
@@ -163,7 +169,7 @@ func validateAtomicEventPairs(events []Event, closureAlreadyConfirmed bool) erro
 				closure, cleared := false, false
 				abandonClose := hasAbandonClose(events, e.ToolID, e.AttemptID, e.CauseRef, e.ReceiptRef)
 				for _, candidate := range events {
-					closure = closure || (candidate.Kind == EventRunClosureConfirmed && candidate.RecoveryDisposition == RecoveryDispositionAcceptedUnknown && candidate.ToolID == e.ToolID && candidate.AttemptID == e.AttemptID && candidate.ReceiptRef == e.ReceiptRef)
+					closure = closure || (candidate.Kind == EventRunClosureConfirmed && candidate.ReceiptRef == e.ReceiptRef && closureManifestHas(candidate.ClosureTargets, e.ToolID, e.AttemptID, e.CauseRef, ClosureTargetUnknownTool))
 					cleared = cleared || (candidate.Kind == EventRunRecoveryCleared && candidate.ToolID == e.ToolID && candidate.AttemptID == e.AttemptID && candidate.CauseRef == e.CauseRef && candidate.RecoveryDisposition == RecoveryDispositionAcceptedUnknown)
 				}
 				accepted := hasUnknownAcceptanceResultPair(events, e)
@@ -200,6 +206,12 @@ func validateAtomicEventPairs(events []Event, closureAlreadyConfirmed bool) erro
 			if !finishedAbandoned {
 				return reject(RejectInvalid)
 			}
+			if e.PreviewMode == ClosurePreviewMetadataOnly {
+				if !closureManifestEventsMatch(events, e) {
+					return reject(RejectInvalid)
+				}
+				break
+			}
 			if e.ToolID != "" {
 				foundResult, foundClear, foundAbort := false, false, false
 				for _, candidate := range events {
@@ -216,14 +228,19 @@ func validateAtomicEventPairs(events []Event, closureAlreadyConfirmed bool) erro
 				result, closure := false, false
 				for _, candidate := range events {
 					result = result || (candidate.Kind == EventToolResultRecorded && candidate.ToolID == e.ToolID && candidate.AttemptID == e.AttemptID && candidate.Disposition == ResultAbandonedUnknown)
-					closure = closure || (candidate.Kind == EventRunClosureConfirmed && candidate.RecoveryDisposition == RecoveryDispositionAcceptedUnknown && candidate.ToolID == e.ToolID && candidate.AttemptID == e.AttemptID && candidate.CauseRef == e.CauseRef)
+					closure = closure || (candidate.Kind == EventRunClosureConfirmed && (closureManifestHas(candidate.ClosureTargets, e.ToolID, e.AttemptID, e.CauseRef, ClosureTargetUnknownTool) || closureManifestHas(candidate.ClosureTargets, e.InvocationID, e.AttemptID, e.CauseRef, ClosureTargetUnknownModel)))
+					closure = closure || (candidate.Kind == EventUnknownAccepted && candidate.IsModel == (e.ToolID == "") && candidate.ToolID == e.ToolID && candidate.InvocationID == e.InvocationID && candidate.AttemptID == e.AttemptID && candidate.CauseRef == e.CauseRef && candidate.ReceiptRef == e.ReceiptRef)
 				}
-				if e.RecoveryDisposition != RecoveryDispositionAcceptedUnknown || !result || !closure {
+				if e.RecoveryDisposition != RecoveryDispositionAcceptedUnknown || (!result && e.ToolID != "") || !closure {
 					return reject(RejectInvalid)
 				}
 			}
 		case EventRunFinished:
-			if (e.Outcome == OutcomeAbandoned || e.Outcome == OutcomeAbandonedUnknown) && !closureAlreadyConfirmed && !find(EventRunClosureConfirmed, "", "", "") {
+			acceptedUnknown := false
+			for _, candidate := range events {
+				acceptedUnknown = acceptedUnknown || candidate.Kind == EventUnknownAccepted
+			}
+			if (e.Outcome == OutcomeAbandoned || e.Outcome == OutcomeAbandonedUnknown) && !closureAlreadyConfirmed && !find(EventRunClosureConfirmed, "", "", "") && !acceptedUnknown {
 				return reject(RejectInvalid)
 			}
 		}
@@ -463,13 +480,18 @@ func applyEvent(s *State, e Event) error {
 	case EventModelAttemptAbandoned:
 		inv, ok := s.Models[e.InvocationID]
 		att, aok := s.ModelAttempts[e.AttemptID]
-		if !ok || !aok || att.InvocationID != inv.ID || !contains(inv.AttemptIDs, att.ID) || (att.State != AttemptInterrupted && att.State != AttemptFailed) || !validID(e.Ref) || !validID(e.ReceiptRef) || e.Exposure != ExposureUnknown || e.Next != NextContinue {
+		metadataClose := s.ClosureConfirmed && closureModelMatches(*s, e) && e.Next == NextEnd && e.Exposure == ExposureUnknown
+		if !ok || !aok || att.InvocationID != inv.ID || !contains(inv.AttemptIDs, att.ID) || (att.State != AttemptInterrupted && att.State != AttemptFailed) || !validID(e.Ref) || !validID(e.ReceiptRef) || e.Exposure != ExposureUnknown || e.Next != NextContinue && !metadataClose {
 			return reject(RejectConflict)
 		}
 		att.State, att.Exposure, att.TerminalRef = AttemptAbandoned, ExposureUnknown, e.Ref
 		s.ModelAttempts[e.AttemptID] = att
 		s.Exposures[att.ID] = ExposureUnknown
-		resolveInterruptionTarget(s, att.ID, false)
+		if metadataClose {
+			inv.State, inv.Disposition, inv.DispositionRef = InvocationAbandoned, ResultAbandonedUnknown, e.Ref
+		} else {
+			resolveInterruptionTarget(s, att.ID, false)
+		}
 		s.Models[e.InvocationID] = inv
 	case EventModelInvocationFailed:
 		inv, ok := s.Models[e.InvocationID]
@@ -632,7 +654,8 @@ func applyEvent(s *State, e Event) error {
 		att, aok := s.ToolAttempts[e.AttemptID]
 		acceptedClose := ok && aok && tool.State == ToolUnknown && (att.State == AttemptInterrupted || att.State == AttemptAbandoned) && e.Disposition == ResultAbandonedUnknown && (acceptedUnknownFor(*s, tool.ID) || closureMatchesUnknown(*s, e))
 		predispatch := ok && aok && att.State == AttemptPlanned && (tool.State == ToolPlanned || tool.State == ToolChecking || tool.State == ToolReady || tool.State == ToolAwaitingApproval || tool.State == ToolDenied || tool.State == ToolRefused) && e.Token == 0 && e.Fence == 0
-		predispatchCancel := predispatch && e.Disposition == ResultCancelled && e.Terminal && validID(e.ReceiptRef)
+		ownerProof := tool.State == ToolPlanned || e.PreviewMode != ClosurePreviewMetadataOnly || validID(e.OwnerEvidenceRef) && e.RequestRef == tool.RequestRef && e.Generation == tool.CheckGeneration
+		predispatchCancel := predispatch && e.Disposition == ResultCancelled && e.Terminal && validID(e.ReceiptRef) && ownerProof
 		predispatchRefusal := predispatch && (e.Disposition == ResultDenied || e.Disposition == ResultRefused) && validID(e.ReceiptRef) && ((tool.ResolutionRef == "" && tool.Disposition == ResultNone) || (tool.ResolutionRef == e.ReceiptRef && tool.Disposition == e.Disposition && e.Generation == tool.CheckGeneration))
 		reconciledResult := ok && aok && tool.State == ToolUnknown && (att.State == AttemptInterrupted || att.State == AttemptAbandoned) && tool.ReconciliationRef != "" && e.ReceiptRef == tool.ReconciliationRef && e.Disposition == tool.ReconciliationDisposition
 		if !ok || !aok || att.ToolID != tool.ID || att.StepID != tool.StepID || !contains(tool.AttemptIDs, att.ID) || (!predispatchCancel && !predispatchRefusal && !acceptedClose && !reconciledResult && tool.SelectedAttempt != att.ID) || (!acceptedClose && !predispatchCancel && !predispatchRefusal && !reconciledResult && (!callbackMatchesTool(*s, att, e) || att.State != AttemptRequesting)) || !validID(e.Ref) || !validResultDisposition(e.Disposition) || !validExposure(e.Exposure) || tool.ResultRef != "" {
@@ -821,30 +844,31 @@ func applyEvent(s *State, e Event) error {
 				if expectedRequirement == ContextRequirementNone {
 					expectedRequirement = ContextRequirementRevalidationRequired
 				}
-			} else {
+			} else if e.UnavailableReason == UnavailablePayloadMissing || e.UnavailableReason == UnavailablePayloadCorrupt {
 				expectedRequirement = ContextRequirementFreshRequired
+			} else {
+				return reject(RejectInvalid)
 			}
 			contextInvalid = e.PreviousContextRevision != s.ContextRevision || e.ContextRevision != e.PreviousContextRevision+1 || e.ContextRevision == 0 || e.ContextRequirement != expectedRequirement
 		} else {
 			contextInvalid = e.PreviousContextRevision != s.ContextRevision || e.ContextRevision != s.ContextRevision || e.ContextRequirement != s.ContextRequirement
 		}
 		causeInvalid := !causeFound || causeEvent.RunID != s.RunID || !validClosureCauseEvent(causeEvent.Kind)
-		if e.ToolID != "" {
-			causeInvalid = causeInvalid || causeEvent.Kind != EventRunInterrupted || causeEvent.CauseRef != e.CauseRef || causeEvent.ToolID != e.ToolID
-		} else if e.RecoveryDisposition == RecoveryDispositionAcceptedUnknown {
-			interruption, found := s.Interruptions[e.CauseRef]
-			causeInvalid = causeInvalid || !found || !interruption.Accepted || interruption.Disposition != RecoveryDispositionAcceptedUnknown || causeEvent.Kind != EventRunInterrupted || causeEvent.CauseRef != e.CauseRef || causeEvent.ToolID != interruption.TargetID
-		}
-		if s.Finished || s.ClosureConfirmed || e.Actor != ActorUser || !validID(e.Ref) || !validID(e.ReceiptRef) || e.Revision != s.Revision || hasActiveAttempt(*s) || e.PreviewMode != ClosurePreviewMetadataOnly || e.PreviewVersion == 0 || e.UnavailableReason < UnavailableVaultLocked || e.UnavailableReason > UnavailablePayloadCorrupt || contextInvalid || !validID(e.CauseEventRef) || causeInvalid || (e.RecoveryDisposition != RecoveryDispositionAcceptedUnknown && e.RecoveryDisposition != RecoveryDispositionClosedUnavailable) || (e.Accepted != (e.RecoveryDisposition == RecoveryDispositionAcceptedUnknown)) || (e.Accepted && ((e.ToolID == "") != (e.AttemptID == ""))) {
+		if s.Finished || s.ClosureConfirmed || e.Actor != ActorUser || !validID(e.Ref) || !validID(e.ReceiptRef) || e.Revision != s.Revision || hasActiveAttempt(*s) || e.PreviewMode != ClosurePreviewMetadataOnly || e.PreviewVersion != CurrentClosurePreviewVersion || e.UnavailableReason < UnavailableVaultLocked || e.UnavailableReason > UnavailablePayloadCorrupt || contextInvalid || !validID(e.CauseEventRef) || causeInvalid || e.RecoveryDisposition != RecoveryDispositionUnspecified || e.Accepted || e.ToolID != "" || e.AttemptID != "" {
 			return reject(RejectConflict)
 		}
 		s.ClosureConfirmed, s.ClosureRef = true, e.Ref
-		s.ClosureToolID, s.ClosureAttemptID, s.ClosureCauseRef = e.ToolID, e.AttemptID, e.CauseRef
-		s.ClosureAcceptedUnknown, s.ClosureReceipt = e.RecoveryDisposition == RecoveryDispositionAcceptedUnknown, e.ReceiptRef
+		s.ClosureToolID, s.ClosureAttemptID, s.ClosureCauseRef = "", "", e.CauseEventRef
+		s.ClosureAcceptedUnknown, s.ClosureReceipt = false, e.ReceiptRef
 		s.ClosurePreviewMode, s.ClosurePreviewVersion, s.ClosureUnavailableReason = e.PreviewMode, e.PreviewVersion, e.UnavailableReason
+		if e.ClosureTargets == nil {
+			s.ClosureTargets = nil
+		} else {
+			s.ClosureTargets = append(make([]ClosureTargetFact, 0, len(e.ClosureTargets)), e.ClosureTargets...)
+		}
 		s.ContextRevision, s.ContextRequirement = e.ContextRevision, e.ContextRequirement
-		if e.Accepted {
-			for id := range s.Blockers {
+		for id, blocker := range s.Blockers {
+			if blocker.Kind == BlockRecoveryAdmission || e.UnavailableReason == UnavailableVaultLocked && blocker.Kind == BlockVaultLocked {
 				delete(s.Blockers, id)
 			}
 		}
@@ -853,7 +877,7 @@ func applyEvent(s *State, e Event) error {
 			intr, ok := s.Interruptions[e.CauseRef]
 			inv, invOK := s.Models[e.InvocationID]
 			att, attOK := s.ModelAttempts[e.AttemptID]
-			if !ok || !invOK || !attOK || att.InvocationID != inv.ID || !contains(inv.AttemptIDs, att.ID) || len(inv.AttemptIDs) == 0 || inv.AttemptIDs[len(inv.AttemptIDs)-1] != att.ID || att.State != AttemptInterrupted || intr.TargetID != att.ID || intr.Resolved || e.Actor != ActorUser || e.Disposition != ResultAbandonedUnknown || !validID(e.Ref) || !validID(e.ReceiptRef) {
+			if !ok || !invOK || !attOK || att.InvocationID != inv.ID || !contains(inv.AttemptIDs, att.ID) || len(inv.AttemptIDs) == 0 || inv.AttemptIDs[len(inv.AttemptIDs)-1] != att.ID || att.State != AttemptInterrupted || intr.TargetID != att.ID || intr.Resolved || e.Actor != ActorUser || e.Disposition != ResultAbandonedUnknown || e.PreviewMode != ClosurePreviewExact && e.PreviewMode != ClosurePreviewMetadataOnly || e.PreviewVersion != CurrentClosurePreviewVersion || !validID(e.Ref) || !validID(e.ReceiptRef) {
 				return reject(RejectStale)
 			}
 			intr.Accepted = true
@@ -861,7 +885,7 @@ func applyEvent(s *State, e Event) error {
 			s.Interruptions[e.CauseRef] = intr
 			att.State, att.Exposure, att.TerminalRef = AttemptAbandoned, ExposureUnknown, e.Ref
 			s.ModelAttempts[att.ID] = att
-			inv.State, inv.Disposition, inv.FailureRef = InvocationAbandoned, ResultAbandonedUnknown, e.Ref
+			inv.State, inv.Disposition, inv.DispositionRef = InvocationAbandoned, ResultAbandonedUnknown, e.Ref
 			s.Models[inv.ID] = inv
 			s.Exposures[att.ID] = ExposureUnknown
 			break
@@ -869,7 +893,7 @@ func applyEvent(s *State, e Event) error {
 		intr, ok := s.Interruptions[e.CauseRef]
 		tool, toolOK := s.Tools[e.ToolID]
 		att, attemptOK := s.ToolAttempts[e.AttemptID]
-		if !ok || !toolOK || !attemptOK || att.ToolID != tool.ID || !contains(tool.AttemptIDs, att.ID) || tool.SelectedAttempt != att.ID || tool.State != ToolUnknown || intr.Resolved || intr.TargetID != e.ToolID || e.Actor != ActorUser || !validID(e.Ref) || !validID(e.ReceiptRef) || e.Disposition != ResultAbandonedUnknown {
+		if !ok || !toolOK || !attemptOK || att.ToolID != tool.ID || !contains(tool.AttemptIDs, att.ID) || tool.SelectedAttempt != att.ID || tool.State != ToolUnknown || intr.Resolved || intr.TargetID != e.ToolID || e.Actor != ActorUser || e.PreviewMode != ClosurePreviewExact || e.PreviewVersion != CurrentClosurePreviewVersion || !validID(e.Ref) || !validID(e.ReceiptRef) || e.Disposition != ResultAbandonedUnknown {
 			return reject(RejectStale)
 		}
 		intr.Accepted = true

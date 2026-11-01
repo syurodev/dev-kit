@@ -973,6 +973,7 @@ func TestClosureDistinguishesUnknownUsageFromKnownUsage(t *testing.T) {
 	s.ClosureConfirmed = true
 	a := s.ModelAttempts["a"]
 	a.Usage = UsageFact{Status: UsageUnknown}
+	a.Token = 1 // dispatch evidence: this is unknown accounting, not predispatch cancellation.
 	s.ModelAttempts["a"] = a
 	if finishAllowed(s, OutcomeAbandoned) {
 		t.Fatal("metadata-only abandoned close hid dispatched model usage uncertainty")

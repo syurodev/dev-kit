@@ -33,7 +33,6 @@ func Decide(state State, cmd Command) (Batch, error) {
 	batch := Batch{CommandID: cmd.ID, ExpectedRevision: cmd.ExpectedRevision, WriterToken: cmd.WriterToken, WriterIncarnation: cmd.WriterIncarnation, ProtocolVersion: CurrentProtocolVersion, Intent: canonical, Events: events}
 	if cmd.Kind == CommandAcquireOwnership {
 		batch.WriterToken, batch.WriterIncarnation = cmd.Transition.ExecutorToken, cmd.Transition.ExecutorIncarnation
-		batch.Intent = cmd
 	}
 	if state.Revision != cmd.ExpectedRevision {
 		return Batch{}, reject(RejectStale)
@@ -92,7 +91,12 @@ func canonicalCommand(c Command) (Command, error) {
 		}
 	case CommandExtendBudget:
 		n.BudgetExtension = c.BudgetExtension
-	case CommandAbortStep, CommandObserveModelFailure, CommandCancelModel, CommandAbandonModel, CommandRequestToolApproval, CommandResolveToolApproval, CommandResetToolCheck, CommandCancelTool, CommandObserveUnknownTool, CommandAbandonTool, CommandReconcileTool, CommandPlanToolRetry, CommandScheduleTimer, CommandObserveTimerElapsed, CommandAcquireOwnership, CommandConfirmRunClosure, CommandAcceptUnknownOutcome, CommandAcceptUnknownModelOutcome, CommandReconcileModelUsage, CommandOpenTimeWindow, CommandCloseTimeWindow, CommandObserveBudget, CommandClearRunBlock, CommandClearRecovery, CommandScheduleModelRetry, CommandPlanModelRetry, CommandFailModelInvocation, CommandExpireTimeWindow:
+	case CommandConfirmRunClosure, CommandAcceptUnknownOutcome:
+		if !closureInputSet(c.Closure) || !reflect.DeepEqual(c.Closure, canonicalClosure(c.Closure)) || !zeroTransition(c.Transition) {
+			return Command{}, reject(RejectInvalid)
+		}
+		n.Closure = canonicalClosure(c.Closure)
+	case CommandAbortStep, CommandObserveModelFailure, CommandCancelModel, CommandAbandonModel, CommandRequestToolApproval, CommandResolveToolApproval, CommandResetToolCheck, CommandCancelTool, CommandObserveUnknownTool, CommandAbandonTool, CommandReconcileTool, CommandPlanToolRetry, CommandScheduleTimer, CommandObserveTimerElapsed, CommandAcquireOwnership, CommandReconcileModelUsage, CommandOpenTimeWindow, CommandCloseTimeWindow, CommandObserveBudget, CommandClearRunBlock, CommandClearRecovery, CommandScheduleModelRetry, CommandPlanModelRetry, CommandFailModelInvocation, CommandExpireTimeWindow:
 		var err error
 		n.Transition, err = canonicalTransition(c.Kind, c.Transition)
 		if err != nil {
@@ -103,6 +107,8 @@ func canonicalCommand(c Command) (Command, error) {
 	}
 	return n, nil
 }
+
+func zeroTransition(x TransitionInput) bool { return reflect.DeepEqual(x, TransitionInput{}) }
 
 func canonicalTransition(k CommandKind, x TransitionInput) (TransitionInput, error) {
 	n := TransitionInput{}
@@ -169,8 +175,6 @@ func canonicalTransition(k CommandKind, x TransitionInput) (TransitionInput, err
 	case CommandAcceptUnknownOutcome:
 		n.TargetID, n.AttemptID, n.Ref, n.CauseRef, n.ReceiptRef, n.Actor, n.Disposition = x.TargetID, x.AttemptID, x.Ref, x.CauseRef, x.ReceiptRef, x.Actor, x.Disposition
 		n.ResultRef = x.ResultRef
-	case CommandAcceptUnknownModelOutcome:
-		n.TargetID, n.AttemptID, n.Ref, n.CauseRef, n.ReceiptRef, n.Actor, n.Disposition = x.TargetID, x.AttemptID, x.Ref, x.CauseRef, x.ReceiptRef, x.Actor, x.Disposition
 	case CommandReconcileModelUsage, CommandObserveBudget:
 		n.TargetID, n.AttemptID, n.Usage, n.Ref = x.TargetID, x.AttemptID, x.Usage, x.Ref
 	case CommandOpenTimeWindow:
@@ -196,6 +200,9 @@ func commandEvents(state State, c Command) ([]Event, error) {
 		return Event{ID: ID("e" + hex.EncodeToString(sum[:12])), Kind: kind, ProtocolVersion: CurrentProtocolVersion, RunID: c.RunID, SessionID: c.SessionID}
 	}
 	var out []Event
+	if c.Kind == CommandConfirmRunClosure || c.Kind == CommandAcceptUnknownOutcome {
+		return closureEvents(state, c, newEvent)
+	}
 	switch c.Kind {
 	case CommandAcceptRun:
 		e := newEvent(1, EventRunAccepted)
@@ -446,56 +453,6 @@ func commandEvents(state State, c Command) ([]Event, error) {
 			b.BlockerID, b.BlockKind, b.Ref = fact.BlockerID, BlockRecoveryAdmission, x.ReceiptRef
 			out = append(out, b)
 		}
-	case CommandConfirmRunClosure:
-		x := c.Transition
-		if len(x.UnknownOutcomes) > 1 || (len(x.UnknownOutcomes) > 0 && x.Outcome != OutcomeAbandonedUnknown) {
-			return nil, reject(RejectInvalid)
-		}
-		e := newEvent(1, EventRunClosureConfirmed)
-		e.Ref, e.CauseRef, e.ReceiptRef, e.Actor, e.Revision = x.Ref, x.CauseRef, x.ReceiptRef, x.Actor, x.Revision
-		e.PreviewMode, e.PreviewVersion, e.UnavailableReason = x.PreviewMode, x.PreviewVersion, x.UnavailableReason
-		e.PreviousContextRevision, e.ContextRevision, e.ContextRequirement, e.CauseEventRef = x.PreviousContextRevision, x.ContextRevision, x.ContextRequirement, x.CauseEventRef
-		e.RecoveryDisposition = x.RecoveryDisposition
-		if len(x.UnknownOutcomes) > 0 {
-			e.ToolID, e.AttemptID, e.CauseRef = x.UnknownOutcomes[0].ToolID, x.UnknownOutcomes[0].AttemptID, x.UnknownOutcomes[0].CauseRef
-			e.Accepted, e.Disposition, e.RecoveryDisposition = true, ResultAbandonedUnknown, RecoveryDispositionAcceptedUnknown
-		} else if x.RecoveryDisposition == RecoveryDispositionAcceptedUnknown {
-			e.Accepted = true
-		}
-		out = append(out, e)
-		for i, fact := range x.UnknownOutcomes {
-			n := uint32(2 + i*2)
-			r := newEvent(n, EventToolResultRecorded)
-			r.ToolID, r.AttemptID, r.CauseRef, r.Ref, r.ReceiptRef, r.Disposition, r.Exposure = fact.ToolID, fact.AttemptID, fact.CauseRef, fact.ResultRef, x.ReceiptRef, ResultAbandonedUnknown, ExposureUnknown
-			out = append(out, r)
-			clear := newEvent(n+1, EventRunRecoveryCleared)
-			clear.ToolID, clear.AttemptID, clear.CauseRef, clear.Ref, clear.ReceiptRef, clear.Actor = fact.ToolID, fact.AttemptID, fact.CauseRef, x.ReceiptRef, x.ReceiptRef, ActorUser
-			clear.Accepted, clear.Disposition, clear.RecoveryDisposition = true, ResultAbandonedUnknown, RecoveryDispositionAcceptedUnknown
-			out = append(out, clear)
-		}
-		finalOrdinal := uint32(2)
-		if len(x.UnknownOutcomes) > 0 {
-			abort := newEvent(uint32(2+len(x.UnknownOutcomes)*2), EventStepAborted)
-			abort.Ref = x.Ref
-			out = append(out, abort)
-			finalOrdinal += uint32(1 + len(x.UnknownOutcomes)*2)
-		}
-		f := newEvent(finalOrdinal, EventRunFinished)
-		f.Outcome, f.Truncated = x.Outcome, x.Truncated
-		out = append(out, f)
-	case CommandAcceptUnknownOutcome:
-		x := c.Transition
-		e := newEvent(1, EventUnknownAccepted)
-		e.ToolID, e.AttemptID, e.Ref, e.CauseRef, e.ReceiptRef, e.Actor, e.Disposition = x.TargetID, x.AttemptID, x.Ref, x.CauseRef, x.ReceiptRef, x.Actor, x.Disposition
-		out = append(out, e)
-		r := newEvent(2, EventToolResultRecorded)
-		r.ToolID, r.AttemptID, r.CauseRef, r.Ref, r.ReceiptRef, r.Disposition, r.Exposure = x.TargetID, x.AttemptID, x.CauseRef, x.ResultRef, x.ReceiptRef, ResultAbandonedUnknown, ExposureUnknown
-		out = append(out, r)
-	case CommandAcceptUnknownModelOutcome:
-		x := c.Transition
-		e := newEvent(1, EventUnknownAccepted)
-		e.InvocationID, e.AttemptID, e.CauseRef, e.Ref, e.ReceiptRef, e.Actor, e.Disposition, e.IsModel = x.TargetID, x.AttemptID, x.CauseRef, x.Ref, x.ReceiptRef, x.Actor, ResultAbandonedUnknown, true
-		out = append(out, e)
 	case CommandReconcileModelUsage:
 		x := c.Transition
 		e := newEvent(1, EventModelUsageReconciled)
