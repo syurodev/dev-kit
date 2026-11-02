@@ -84,8 +84,10 @@ func TestASignInThatDiedOnAnAddedAccountMarksThatAccountOnly(t *testing.T) {
 	if err := rig.svc.ResumeSession(uiCtx(), sess.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "FAIL_AUTH_REQUIRED"}); err == nil {
-		t.Fatal("the turn must fail")
+	// Only the added account's sign-in is dead. The turn is refused there and runs
+	// once on the built-in account (runSignInFollowUp), which must stay signed in.
+	if _, err := rig.svc.Invoke(uiCtx(), agenthub.InvokeInput{SessionID: sess.ID, Prompt: "FAIL_AUTH_IN_ADDED_HOME"}); err != nil {
+		t.Fatalf("the turn must run on the built-in account: %v", err)
 	}
 	if signedIn(t, rig, "work") {
 		t.Error("the added account the process ran as must be signed out")

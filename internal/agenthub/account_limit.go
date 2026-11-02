@@ -324,6 +324,68 @@ func (s *Service) runLimitFollowUp(ctx context.Context, in InvokeInput, result I
 	return followResult, err
 }
 
+// endedInSignIn reports whether err is the vendor saying the account the turn
+// ran as has no working sign-in. A chosen API key that is gone or refused also
+// wraps ErrAgentAuthRequired, but no other account fixes a setting the person
+// must change, so it earns no follow-up.
+func endedInSignIn(err error) bool {
+	return errors.Is(err, ErrAgentAuthRequired) && !errors.Is(err, ErrAgentAPIKeyUnusable)
+}
+
+// signInFollowUpPossible is whether a turn refused for a missing sign-in may run
+// again on another account. recordStop has already marked the refused account
+// signed out (noteSignedOut), so PickAccount names the best signed-in account
+// that is fine; with none (or switching off) there is nowhere to go and the
+// refusal stands.
+//
+// Unlike a limit refusal this does not depend on onLimitRefusal, which is the
+// person's choice about a turn that was refused part way: a sign-in refusal
+// ends the turn before the agent does anything, so running it again can repeat
+// nothing. A turn that did produce output (a login that died mid-turn) is left
+// alone all the same.
+func (s *Service) signInFollowUpPossible(ctx context.Context, sessionID string) bool {
+	sess, err := s.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return false
+	}
+	if _, ok := s.accountPolicyFor(sess.AgentType); !ok || s.turnHadProgress(sessionID) {
+		return false
+	}
+	d, ok := s.decideAccount(ctx, &sess)
+	return ok && !d.AllLimited && d.Switch
+}
+
+// runSignInFollowUp runs the one follow-up a turn refused for a missing sign-in
+// may get: the same input, which invoke starts by moving the session to the
+// account PickAccount names. This is what lets a person whose built-in account
+// has no login, but who added others, use them without a failed turn and a manual
+// retry first: the built-in account is assumed signed in until a turn says it is
+// not.
+//
+// It is called by Invoke after the refused turn returned (its claim released),
+// and calls invoke, not Invoke, so a refusal of the follow-up is never followed
+// again: it means the next account is dead too, and the person should hear it
+// rather than DevKit walking through every account. What it returns follows
+// runLimitFollowUp: the original error when there is no follow-up, the session
+// is busy or every account is now at its limit, else the follow-up's own result.
+func (s *Service) runSignInFollowUp(ctx context.Context, in InvokeInput, result InvokeResult, origErr error) (InvokeResult, error) {
+	if !s.signInFollowUpPossible(ctx, in.SessionID) {
+		return result, origErr
+	}
+	s.mu.Lock()
+	hook := s.followUpHook
+	s.mu.Unlock()
+	if hook != nil {
+		hook(in.SessionID)
+	}
+	followResult, err := s.invoke(ctx, in, nil)
+	if errors.Is(err, ErrSessionBusy) || errors.Is(err, ErrAllAccountsLimited) {
+		log.Printf("agenthub: session %s: no follow-up after the sign-in refusal: %v", in.SessionID, err)
+		return result, origErr
+	}
+	return followResult, err
+}
+
 // endedInUsageLimit reports whether the turn Invoke just ran ended in a usage
 // limit, which is what earns it a follow-up. Two sources say so: the vendor's
 // own sentinel (Codex's ErrAgentUsageLimit), and the stop recordStop wrote for

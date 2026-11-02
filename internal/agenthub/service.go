@@ -1849,12 +1849,16 @@ func descendantsOf(byID map[string]AgentSession, root string) []string {
 // onLimitRefusal: runLimitFollowUp sends at most one follow-up, through invoke,
 // so it is never followed in turn. A peer's turn (invoke with a peerRun) gets
 // none. The refusal is the vendor's sentinel or the usage-limit stop recorded
-// for this turn (endedInUsageLimit).
+// for this turn (endedInUsageLimit). A turn refused for a missing sign-in gets
+// one follow-up too, on another signed-in account (runSignInFollowUp).
 func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, error) {
 	started := time.Now()
 	result, err := s.invoke(ctx, in, nil)
 	if s.endedInUsageLimit(ctx, in.SessionID, err, started) {
 		return s.runLimitFollowUp(ctx, in, result, err)
+	}
+	if endedInSignIn(err) {
+		return s.runSignInFollowUp(ctx, in, result, err)
 	}
 	return result, err
 }
