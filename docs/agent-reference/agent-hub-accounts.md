@@ -195,6 +195,12 @@
     global API key counts as signed in; an added account's check asks `account/read` at its own home and never reads that
     key. `Put` writes `signed_in` only when the row is created; edits go through `SetLabel` / `SetShared` and
     `SetSignedIn`, so an edit cannot write back a stale sign-in state.
+  - **A sign-in refusal gets one follow-up** (`endedInSignIn`, `runSignInFollowUp`, `Invoke`). The built-in row is created
+    `signed_in = 1`, so a person with no built-in login but added accounts meets the refusal on the first turn. After
+    `recordStop` has marked the account, `Invoke` runs the same input once through `invoke`, which moves the session to the
+    account `PickAccount` names. Not gated by `onLimitRefusal` (a sign-in refusal ran nothing); skipped when the turn made
+    progress, when no other signed-in account is fine (or switching is off), for a bad chosen API key
+    (`ErrAgentAPIKeyUnusable`), and for a peer's turn; a second refusal is returned as it is, never followed again.
   - **Usage checks on demand** (`account_check.go`, `account_probe.go`). `checkUsage` is single flight per account, with a
     floor between vendor calls of 10 s for a manual refresh and 60 s before a turn, at most 2 vendor calls at once, a 30 s
     bound on one call, and a joiner never inherits another caller's context error. A running Codex session answers through

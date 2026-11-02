@@ -447,6 +447,12 @@ func (r *mockRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, pro
 	if strings.Contains(text, "FAIL_AUTH_REQUIRED") {
 		return PromptOutcome{}, vendorError(AgentTypeMock, ErrAgentAuthRequired)
 	}
+	// The same refusal in one kind of home only: the built-in account has no
+	// sign-in while an added account has one, or the other way round.
+	if (strings.Contains(text, "FAIL_AUTH_IN_BUILTIN_HOME") && r.accountHome == "") ||
+		(strings.Contains(text, "FAIL_AUTH_IN_ADDED_HOME") && r.accountHome != "") {
+		return PromptOutcome{}, vendorError(AgentTypeMock, ErrAgentAuthRequired)
+	}
 	// A turn that failed with nothing in its words to say why, the way a
 	// refusal DevKit cannot read arrives: StopFromError reads it as failed.
 	// FAIL_LIMIT_IN_BUILTIN_HOME is that failure only in an added account's
